@@ -304,6 +304,8 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
         chat = await m.create_chat(user.id, KIND_CHAT, proj["id"] if proj else None, title=str(c.get("title") or "Import")[:120])
         chat["messages"] = msgs
         chat["imported"] = True
+        if c.get("uuid"):
+            chat["source_uuid"] = c["uuid"]
         chat["created"] = _ts(c.get("created")) or msgs[0]["created"]
         chat["updated"] = _ts(c.get("updated")) or msgs[-1]["created"]
         await st.async_save_chat(chat, keep_updated=True)

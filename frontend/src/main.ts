@@ -54,6 +54,12 @@ export class LLMitMirPanel extends LitElement {
     .rc.on { background: color-mix(in srgb, var(--lm-text) 9%, transparent); }
     .rc .more { opacity: 0; } .rc:hover .more, .rc.on .more { opacity: 1; }
     .rc .more .iconbtn { width: 28px; height: 28px; }
+    .pj { display: flex; align-items: center; gap: 2px; padding: 2px 6px 2px 0; border-radius: 9px; font-size: 13.5px; cursor: pointer; }
+    .pj:hover { background: var(--lm-hover); } .pj.on { background: color-mix(in srgb, var(--lm-text) 9%, transparent); }
+    .pj .chev { width: 26px; height: 26px; flex: none; } .pj .grow { display: flex; align-items: center; gap: 6px; padding: 5px 0; }
+    .pjc { margin-left: 13px; padding-left: 8px; border-left: 1px solid var(--lm-line); }
+    .pjc .rc { padding-left: 8px; }
+    .more-all { color: var(--lm-muted); font-size: 12.5px; }
     .foot { border-top: 1px solid var(--lm-line); padding: 8px; display: flex; align-items: center; gap: 6px; }
     .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--lm-text); color: var(--lm-bg); display: grid; place-items: center;
       font-weight: 600; font-size: 13px; flex: none; }
@@ -130,19 +136,51 @@ export class LLMitMirPanel extends LitElement {
     return this.small || this.collapsed ? html`<button class="iconbtn" slot="menu" title="Menü" @click=${() => (this.small ? (this.drawer = true) : this.toggleCollapse())}>${icon(this.small ? "menu" : "sidebar")}</button>` : nothing;
   }
 
-  private recents() {
-    const d = store.data; if (!d) return nothing;
+  @state() private openProjects: Set<string> = (() => { try { return new Set(JSON.parse(localStorage.getItem("llmitmir.openProjects") || "[]")); } catch { return new Set(); } })();
+  private toggleProject(id: string) {
+    const s = new Set(this.openProjects); s.has(id) ? s.delete(id) : s.add(id); this.openProjects = s;
+    try { localStorage.setItem("llmitmir.openProjects", JSON.stringify([...s])); } catch { /* ignore */ }
+  }
+
+  private projectTree() {
+    const d = store.data; if (!d?.projects?.length) return nothing;
     const cur = this.path[0] === "chat" ? this.path[1] : "";
-    const items = d.chats.filter((c: any) => c.kind !== "task_run");
-    const pinned = items.filter((c: any) => c.pinned);
-    const rest = items.filter((c: any) => !c.pinned).slice(0, 40);
-    const row = (c: any) => html`<div class="rc ${c.id === cur ? "on" : ""}" @click=${() => navigate(`/chat/${c.id}`)}>
+    const curProj = this.path[0] === "project" ? this.path[1] : (d.chats.find((c: any) => c.id === cur)?.project_id || "");
+    const chatsOf = (pid: string) => d.chats.filter((c: any) => c.project_id === pid && c.kind !== "task_run");
+    const sorted = [...d.projects].sort((a: any, b: any) => {
+      const la = chatsOf(a.id)[0]?.updated || a.updated || 0, lb = chatsOf(b.id)[0]?.updated || b.updated || 0; return lb - la; });
+    return html`<div class="rh">${t("Projekte")}</div>
+      ${sorted.map((p: any) => {
+        const open = this.openProjects.has(p.id) || p.id === curProj;
+        const list = chatsOf(p.id);
+        return html`<div class="pj ${p.id === curProj && this.path[0] === "project" ? "on" : ""}">
+            <button class="iconbtn chev" @click=${(e: Event) => { e.stopPropagation(); this.toggleProject(p.id); }} title=${open ? "Zuklappen" : "Aufklappen"}>${icon(open ? "down" : "right", 16)}</button>
+            <span class="grow ellipsis" @click=${() => navigate(`/project/${p.id}`)}>${icon("project", 16)} ${p.name}</span>
+            ${list.some((c: any) => store.runs[c.id]) ? html`<lm-spark size="13"></lm-spark>` : nothing}</div>
+          ${open ? html`<div class="pjc">${list.slice(0, 8).map((c: any) => this.chatRow(c, cur))}
+            ${list.length > 8 ? html`<div class="rc more-all" @click=${() => navigate(`/project/${p.id}`)}>${t("Alle anzeigen")} (${list.length})</div>` : nothing}
+            ${!list.length ? html`<div class="hint" style="padding:4px 10px 6px 30px">Noch keine Chats</div>` : nothing}</div>` : nothing}`;
+      })}`;
+  }
+
+  private chatRow(c: any, cur: string) {
+    return html`<div class="rc ${c.id === cur ? "on" : ""}" @click=${() => navigate(`/chat/${c.id}`)}>
       ${store.runs[c.id] ? html`<lm-spark size="14"></lm-spark>` : c.kind === "cowork" ? html`<span class="muted">${icon("cowork", 15)}</span>` : nothing}
       <span class="grow ellipsis">${c.title || t("Neuer Chat")}</span>
       <lm-menu class="more" direction="down" align="right" @click=${(e: Event) => e.stopPropagation()}><button slot="trigger" class="iconbtn">${icon("dots", 16)}</button>
         <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: c.id, pinned: !c.pinned })}>${icon(c.pinned ? "pinOff" : "pin", 18)} ${c.pinned ? t("Lösen") : t("Anheften")}</button>
         <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog(`„${c.title}“ löschen?`)) { await store.api.ws("chat/delete", { chat_id: c.id }); if (c.id === cur) navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
       </lm-menu></div>`;
+  }
+
+  private recents() {
+    const d = store.data; if (!d) return nothing;
+    const cur = this.path[0] === "chat" ? this.path[1] : "";
+    const items = d.chats.filter((c: any) => c.kind !== "task_run");
+    const pinned = items.filter((c: any) => c.pinned);
+    // chats of projects appear under their project above; "Zuletzt" shows the rest
+    const rest = items.filter((c: any) => !c.pinned && !c.project_id).slice(0, 40);
+    const row = (c: any) => this.chatRow(c, cur);
     return html`${pinned.length ? html`<div class="rh">${t("Angeheftet")}</div>${pinned.map(row)}` : nothing}
       <div class="rh">${t("Zuletzt")}</div>${rest.length ? rest.map(row) : html`<div class="hint" style="padding:4px 10px">${t("Keine Chats")}</div>`}`;
   }
@@ -167,7 +205,7 @@ export class LLMitMirPanel extends LitElement {
         ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
         ${ni("/credentials", "key", t("Zugänge"), p === "credentials" || p === "credential")}
       </div>
-      <div class="recents">${this.recents()}</div>
+      <div class="recents">${this.projectTree()}${this.recents()}</div>
       <div class="foot"><span class="avatar">${(d?.user?.name || "?").slice(0, 1).toUpperCase()}</span>
         <span class="name grow ellipsis" style="font-size:13.5px">${d?.user?.name}</span>
         ${d?.user?.is_admin ? html`<button class="iconbtn ${p === "admin" ? "on" : ""}" title=${t("Admin")} @click=${() => navigate("/admin")}>${icon("admin")}</button>` : nothing}

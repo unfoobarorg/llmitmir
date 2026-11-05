@@ -178,7 +178,7 @@ async def ws_chat_update(hass, conn, msg, m, user, st):
     for k in ("title", "pinned", "project_id", "model", "tools"):
         if k in msg:
             chat[k] = msg[k][:120] if k == "title" else msg[k]
-    await st.async_save_chat(chat)
+    await st.async_save_chat(chat, keep_updated=True)  # moving/renaming does not make a chat "new"
     m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
     return st.chat_summary(chat)
 
