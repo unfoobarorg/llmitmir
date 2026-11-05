@@ -139,7 +139,8 @@ export const base = css`
   .muted { color: var(--lm-muted); }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; }
-  .page .row > h1 { margin-bottom: 4px; }
+  .page .row:has(> h1) { margin-bottom: 18px; flex-wrap: wrap; row-gap: 10px; }
+  .page .row > h1 { margin: 4px 0; }
   a { color: var(--lm-accent); }
   .page h1 { font-family: var(--lm-head); font-weight: 650; font-size: 28px; margin: 4px 0 18px; letter-spacing: -.02em; }
   .page h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
