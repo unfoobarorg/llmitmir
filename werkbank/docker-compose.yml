@@ -1,0 +1,12 @@
+# LLMitMir-Werkbank. Start: docker compose up -d --build   (vorher das Sandbox-Image bauen, siehe install.sh)
+services:
+  werkbank:
+    build: .
+    image: llmitmir-werkbank:local
+    container_name: llmitmir-werkbank
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${WERKBANK_PORT:-8787}:8787"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

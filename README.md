@@ -38,10 +38,23 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | HTTP | `http_request` (GET frei, sonst*) |
 | Dateien | `file_list`, `file_read` (Textebene oder Bildmodell), `file_write` |
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |
+| Werkbank (optional) | `shell`*, `werkbank_files`, `werkbank_fetch`, `werkbank_push` |
 
 \* schreibend – braucht eine Freigabe (bei geplanten Aufgaben beim Anlegen festgelegt).
 
-Eine optionale **Werkbank** (abgeschotteter Container für Python, Shell, ffmpeg, Whisper) ist geplant.
+## Werkbank (optional)
+
+LLMitMir läuft auch ohne Werkbank. Mit ihr dürfen die Modelle **Programme ausführen** – Python-Skripte (auch aus Skills),
+Auswertungen mit pandas, Excel/Word/PDF erzeugen, Sprachnachrichten mit Whisper abschreiben, ffmpeg, Tesseract und mehr –
+abgeschottet auf einem eigenen Rechner, für jeden Chat in einer eigenen Sandbox. Einrichtung auf einer frischen Debian/Ubuntu-VM
+mit einem Befehl:
+
+```bash
+curl -fsSL https://git.unfoobar.org/ha-integrations/llmitmir/-/raw/main/werkbank/install.sh | sudo bash
+```
+
+Anforderungen, Schritt-für-Schritt-Anleitung, Sicherheit und Betrieb: **[docs/WERKBANK.md](docs/WERKBANK.md)** (auch im Panel
+unter *Einstellungen → Werkbank* einblendbar). Code: [`werkbank/`](werkbank/).
 
 ## Installation
 

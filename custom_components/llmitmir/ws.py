@@ -116,6 +116,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "runs": runs,
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
+        "werkbank": {"configured": m.werkbank is not None},
     }
 
 
@@ -184,6 +185,11 @@ async def ws_chat_update(hass, conn, msg, m, user, st):
 @command(_t("chat/delete") | {vol.Required("chat_id"): str})
 async def ws_chat_delete(hass, conn, msg, m, user, st):
     m.stop(user.id, msg["chat_id"])
+    if m.werkbank is not None:
+        try:
+            await m.werkbank.delete(msg["chat_id"])
+        except Exception:  # noqa: BLE001 - sandbox may not exist
+            pass
     await st.async_delete_chat(msg["chat_id"])
     m.emit(user.id, {"type": "chat_deleted", "chat_id": msg["chat_id"]})
     return {"ok": True}
@@ -466,6 +472,7 @@ def _admin_view(m, users) -> dict:
         "quota_default": cfg.get("quota_default"), "quota_users": cfg.get("quota_users") or {},
         "models": cfg.get("models"), "known_context": KNOWN_CONTEXT,
         "search": cfg.get("search"),
+        "werkbank": {"url": (cfg.get("werkbank") or {}).get("url", ""), "token": MASK if (cfg.get("werkbank") or {}).get("token") else ""},
         "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active} for u in users],
         "usage_today": usage,
         "key_limits": {"shared": m.provider.key_state(cfg["shared_key"]).snapshot()} if cfg.get("shared_key") else {},
@@ -510,6 +517,12 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
     for k in ("allowed_users", "quota_default", "quota_users", "search"):
         if k in c:
             cfg[k] = c[k]
+    if "werkbank" in c:
+        wb = dict(cfg.get("werkbank") or {})
+        wb["url"] = str(c["werkbank"].get("url") or "").strip().rstrip("/")
+        if c["werkbank"].get("token") != MASK:
+            wb["token"] = str(c["werkbank"].get("token") or "").strip()
+        cfg["werkbank"] = wb
     if "models" in c:
         mm = dict(cfg.get("models") or {})
         for k in ("enabled", "defaults", "context"):
@@ -537,6 +550,21 @@ async def ws_models_refresh(hass, conn, msg, m, user, st):
         m.config.data["models"]["enabled"] = [x["id"] for x in known if x["status"] != "unavailable"]
     await m.config.async_save()
     return _admin_view(m, await _users(hass))
+
+
+@command(_t("admin/werkbank_test") | {vol.Optional("url"): str, vol.Optional("token"): str}, admin=True)
+async def ws_werkbank_test(hass, conn, msg, m, user, st):
+    from .werkbank import Werkbank, WerkbankError
+
+    cfg = m.config.data.get("werkbank") or {}
+    url = (msg.get("url") or cfg.get("url") or "").strip().rstrip("/")
+    token = msg.get("token") if msg.get("token") and msg.get("token") != MASK else cfg.get("token", "")
+    if not url or not token:
+        raise ValueError("URL und Token eintragen")
+    try:
+        return {"ok": True, **(await Werkbank(m.session, url, token).health())}
+    except WerkbankError as e:
+        return {"ok": False, "error": str(e)}
 
 
 def async_register(hass: HomeAssistant) -> None:

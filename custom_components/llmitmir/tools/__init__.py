@@ -40,6 +40,7 @@ GROUPS = {
     "notify": {"label": "Benachrichtigungen", "icon": "mdi:bell-outline"},
     "skills": {"label": "Skills", "icon": "mdi:school-outline"},
     "progress": {"label": "Fortschritt", "icon": "mdi:format-list-checks"},
+    "werkbank": {"label": "Werkbank (Befehle & Programme)", "icon": "mdi:console"},
 }
 
 
@@ -60,4 +61,4 @@ def as_text(result: Any) -> str:
 
 def load_all() -> None:
     # import modules for their side effect of registering tools
-    from . import dav, files, ha, http, misc, web  # noqa: F401
+    from . import dav, files, ha, http, misc, web, werkbank  # noqa: F401

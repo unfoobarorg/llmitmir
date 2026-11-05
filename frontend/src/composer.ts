@@ -201,7 +201,7 @@ export class Composer extends LitElement {
   private toolsMenu() {
     const groups = store.data?.tool_groups || {};
     const sel = new Set<string>(this.tools ?? store.data?.settings?.chat_tools ?? ["web", "files", "skills"]);
-    const avail = ["web", "files", "skills", "ha", "dav", "http"];
+    const avail = ["web", "files", "skills", "ha", "dav", "http", ...(store.data?.werkbank?.configured ? ["werkbank"] : [])];
     return html`<div class="mh">${t("Werkzeuge")} im Chat</div>
       ${avail.map(g => html`<button class="mi" @click=${() => {
         sel.has(g) ? sel.delete(g) : sel.add(g); this.tools = [...sel];

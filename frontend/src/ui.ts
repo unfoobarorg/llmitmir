@@ -68,8 +68,9 @@ marked.setOptions({ gfm: true, breaks: true });
 DOMPurify.addHook("afterSanitizeAttributes", (node: any) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
 });
-export function md(text: string) {
-  const raw = marked.parse(text || "", { async: false }) as string;
+export function md(text: string, opts: { breaks?: boolean } = {}) {
+  // chat messages keep single line breaks; documents (breaks: false) reflow wrapped lines
+  const raw = marked.parse(text || "", { async: false, gfm: true, breaks: opts.breaks ?? true }) as string;
   return unsafeHTML(DOMPurify.sanitize(raw, { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] }));
 }
 

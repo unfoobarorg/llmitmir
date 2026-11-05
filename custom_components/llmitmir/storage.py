@@ -61,6 +61,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "quota_users": {},        # user_id -> {"requests_day", "tokens_day"}
     "models": {"enabled": [], "defaults": {}, "context": {}, "known": []},
     "search": {"provider": "duckduckgo", "searxng_url": ""},
+    "werkbank": {"url": "", "token": ""},
 }
 
 

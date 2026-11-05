@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild frontend/src/main.ts --bundle --minify --format=esm --target=es2021 --outfile=custom_components/llmitmir/frontend/llmitmir-panel.js --legal-comments=none",
+    "build": "esbuild frontend/src/main.ts --bundle --minify --format=esm --target=es2021 --outfile=custom_components/llmitmir/frontend/llmitmir-panel.js --legal-comments=none --loader:.md=text",
     "watch": "npm run build -- --watch",
     "check": "tsc --noEmit -p frontend"
   },

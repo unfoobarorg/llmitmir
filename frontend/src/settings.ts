@@ -1,10 +1,12 @@
 // Personal settings (incl. Claude import and usage) and the admin page.
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { StoreElement, base, icon, fmtNum, fmtTime, copyText } from "./ui";
+import { StoreElement, base, icon, md, fmtNum, fmtTime, copyText } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
+import werkbankGuide from "../../docs/WERKBANK.md";
+
 
 const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
   section { margin-bottom: 26px; } section > h2 { display: flex; gap: 8px; align-items: center; }
@@ -22,7 +24,33 @@ const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
   .prompt { font-family: var(--lm-mono); font-size: 12px; white-space: pre-wrap; max-height: 260px; overflow-y: auto; background: var(--lm-side);
     border: 1px solid var(--lm-line); border-radius: 10px; padding: 12px; }
   .tw { overflow-x: auto; }
+  .wbgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+  .wbgrid ul { margin: 6px 0 0; padding-left: 1.2em; } .wbgrid li { margin: 3px 0; font-size: 13.5px; }
+  .guide { margin-top: 12px; max-height: 70vh; overflow-y: auto; }
+  .status { display: inline-flex; align-items: center; gap: 6px; }
+  @media (max-width: 640px) { .wbgrid { grid-template-columns: 1fr; } }
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }`;
+
+export function werkbankInfo(configured: boolean, showGuide: boolean, toggle: () => void, isAdmin: boolean) {
+  return html`<div class="card">
+    <div class="row"><b class="grow">LLMitMir funktioniert mit und ohne Werkbank</b>
+      ${configured ? html`<span class="chip ok">${icon("check", 13)} eingerichtet</span>` : html`<span class="chip">nicht eingerichtet</span>`}</div>
+    <p class="hint" style="margin:6px 0 0">Die Werkbank ist ein eigener kleiner Rechner (meist eine VM), auf dem die Modelle Programme ausführen dürfen –
+      abgeschottet von Home Assistant, für jeden Chat in einer eigenen Sandbox.</p>
+    <div class="wbgrid">
+      <div><b style="font-size:13.5px">Ohne Werkbank geht</b><ul>
+        <li>Chatten, Coworks und geplante Aufgaben</li><li>Web durchsuchen und Seiten abrufen</li>
+        <li>Home Assistant lesen und steuern</li><li>Nextcloud-Dateien, -Kalender und -Kontakte</li><li>PDFs, Scans und Fotos lesen</li></ul></div>
+      <div><b style="font-size:13.5px">Nur mit Werkbank</b><ul>
+        <li>Python-Skripte und Befehle ausführen, auch Skripte aus Skills</li><li>Auswerten und rechnen, Diagramme erzeugen</li>
+        <li>Excel-, Word-, PowerPoint- und PDF-Dateien erstellen</li><li>Sprachnachrichten abschreiben (Whisper), Audio/Video umwandeln</li>
+        <li>Texterkennung (Tesseract) und Werkzeuge wie curl, git, jq</li></ul></div></div>
+    <div class="row" style="flex-wrap:wrap">
+      <button class="btn" @click=${toggle}>${icon(showGuide ? "down" : "right", 16)} Anleitung zur Einrichtung ${showGuide ? "ausblenden" : "anzeigen"}</button>
+      ${!isAdmin && !configured ? html`<span class="hint">Einrichten kann nur ein Admin von Home Assistant.</span>` : nothing}</div>
+    ${showGuide ? html`<div class="guide md card fade-in">${md(werkbankGuide, { breaks: false })}</div>` : nothing}
+  </div>`;
+}
 
 @customElement("lm-settings")
 export class SettingsPage extends StoreElement {
@@ -33,6 +61,7 @@ export class SettingsPage extends StoreElement {
   @state() private history: any = null;
   @state() private imp: any = null;
   @state() private impResult: any = null;
+  @state() private guide = false;
   static styles = [base, css2];
   connectedCallback() {
     super.connectedCallback();
@@ -86,6 +115,9 @@ export class SettingsPage extends StoreElement {
       ${perms.length ? html`<section><h2>${icon("lock", 18)} Dauerhafte Freigaben (ohne Projekt)</h2>
         ${perms.map(([n, v]) => html`<div class="row" style="padding:4px 0"><span class="grow">${d.tools[n]?.label || n}: ${v === "allow" ? "erlaubt" : v === "deny" ? "verboten" : "fragen"}</span>
           <button class="btn ghost" @click=${() => { const p = { ...s.permissions }; delete p[n]; this.set("permissions", p); }}>Zurücksetzen</button></div>`)}</section>` : nothing}
+      <section><h2>${icon("mdi:console", 18)} Werkbank</h2>
+        ${werkbankInfo(!!d.werkbank?.configured, this.guide, () => (this.guide = !this.guide), d.user.is_admin)}
+        ${d.user.is_admin ? html`<div class="hint" style="margin-top:8px">URL und Token trägst du unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Werkbank</a> ein.</div>` : nothing}</section>
       <section><h2>${icon("gauge", 18)} ${t("Verbrauch")}</h2>
         <div class="card"><div class="row"><span class="grow">Heute: <b>${d.usage.today.requests}</b> Anfragen · <b>${fmtNum(d.usage.today.prompt + d.usage.today.completion)}</b> Tokens</span>
           ${d.usage.quota.requests_day ? html`<span class="chip">Kontingent ${d.usage.quota.requests_day} Anfragen/Tag</span>` : nothing}
@@ -119,6 +151,8 @@ export class AdminPage extends StoreElement {
   @state() private a: any = null;
   @state() private dirty = false;
   @state() private loading = false;
+  @state() private wbTest: any = null;
+  @state() private guide = false;
   static styles = [base, css2];
   connectedCallback() { super.connectedCallback(); this.load(); }
   private async load() { try { this.a = await store.api.ws("admin/get"); this.dirty = false; } catch (e: any) { store.notify(e.message); } }
@@ -127,7 +161,7 @@ export class AdminPage extends StoreElement {
     const a = this.a;
     try {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
-        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search,
+        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank,
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context } } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
@@ -200,6 +234,22 @@ export class AdminPage extends StoreElement {
             <td class="hint">${(m.input || []).join(", ")} → ${(m.output || []).join(", ")}</td>
             <td><input type="number" style="width:110px" placeholder=${String(a.known_context[m.id] || 128000)} .value=${a.models.context?.[m.id] ?? ""}
               @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`)}</table></div></section>
+      <section><h2>${icon("mdi:console", 18)} Werkbank</h2>
+        ${werkbankInfo(!!a.werkbank?.url && !!a.werkbank?.token, this.guide, () => (this.guide = !this.guide), true)}
+        <div class="two" style="margin-top:12px">
+          <label class="f"><span>URL der Werkbank</span><input placeholder="http://192.168.1.50:8787" .value=${a.werkbank?.url || ""}
+            @input=${(e: any) => this.set("werkbank", { ...a.werkbank, url: e.target.value })}></label>
+          <label class="f"><span>Token</span><input type="password" autocomplete="off" placeholder="steht nach der Installation auf dem Bildschirm" .value=${a.werkbank?.token || ""}
+            @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => this.set("werkbank", { ...a.werkbank, token: e.target.value })}></label></div>
+        <div class="row" style="margin-top:10px;flex-wrap:wrap">
+          <button class="btn" @click=${async () => { this.wbTest = { testing: true };
+            try { this.wbTest = await store.api.ws("admin/werkbank_test", { url: a.werkbank?.url || "", token: a.werkbank?.token || "" }); } catch (e: any) { this.wbTest = { ok: false, error: e.message }; } }}>
+            ${this.wbTest?.testing ? html`<lm-spark size="16"></lm-spark>` : icon("retry", 16)} Verbindung testen</button>
+          ${this.wbTest && !this.wbTest.testing ? (this.wbTest.ok
+            ? html`<span class="chip ok">${icon("check", 13)} verbunden · Version ${this.wbTest.version} · ${this.wbTest.sessions}/${this.wbTest.max_sessions} Sandboxen${this.wbTest.sandbox_image_ready ? "" : " · Sandbox-Image fehlt!"}</span>`
+            : html`<span class="chip err">${icon("alert", 13)} ${this.wbTest.error}</span>`) : nothing}
+          ${a.werkbank?.url ? html`<button class="btn ghost danger" @click=${() => this.set("werkbank", { url: "", token: "" })}>Werkbank entfernen</button>` : nothing}</div>
+        <div class="hint" style="margin-top:6px">Nach dem Test auf „Speichern“ klicken. Befehle auf der Werkbank fragen wie andere schreibende Aktionen nach einer Freigabe.</div></section>
       <section><h2>${icon("search", 18)} Websuche</h2><div class="two">
         <label class="f"><span>Anbieter</span><select @change=${(e: any) => this.set("search", { ...a.search, provider: e.target.value })}>
           <option value="duckduckgo" ?selected=${a.search.provider !== "searxng"}>DuckDuckGo (ohne Schlüssel)</option>

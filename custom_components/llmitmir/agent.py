@@ -30,7 +30,7 @@ WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"
 
 # Tool groups available per mode (projects/tasks can narrow this down)
 CHAT_GROUPS = {"web", "files", "skills"}
-COWORK_GROUPS = {"web", "ha", "dav", "http", "files", "notify", "skills", "progress"}
+COWORK_GROUPS = {"web", "ha", "dav", "http", "files", "notify", "skills", "progress", "werkbank"}
 
 
 class AccessDenied(Exception):
@@ -103,6 +103,16 @@ class Manager:
             self._provider = Provider(self.session, url)
             self._provider_url = url
         return self._provider
+
+    @property
+    def werkbank(self):
+        """Client for the optional Werkbank, or None if not configured."""
+        from .werkbank import Werkbank
+
+        wb = self.config.data.get("werkbank") or {}
+        if not wb.get("url") or not wb.get("token"):
+            return None
+        return Werkbank(self.session, wb["url"], wb["token"])
 
     async def user_store(self, user_id: str) -> UserStore:
         st = self.users.get(user_id)
@@ -453,6 +463,8 @@ class ToolContext:
             g &= set(self.project["tool_groups"]) | {"files", "skills", "progress"}
         if not self.creds:
             g -= {"dav"}
+        if self.manager.werkbank is None:
+            g.discard("werkbank")
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
         return g
@@ -483,6 +495,13 @@ class ToolContext:
                 "## Geplante Aufgabe\nDieser Lauf ist unbeaufsichtigt – Rückfragen sind nicht möglich, also im Bericht "
                 f"stellen. Freigegebene schreibende Werkzeuge: {', '.join(perms) or 'keine'}; andere schreibende Aktionen "
                 "werden abgelehnt.")
+        if "werkbank" in self.groups():
+            parts.append(
+                "## Werkbank\nMit `shell` führst du Befehle in einer eigenen Linux-Sandbox aus (Python 3.13 mit pandas, openpyxl, "
+                "pypdf, python-docx, matplotlib, faster-whisper; ffmpeg, tesseract, pdftotext, ImageMagick, Node.js, curl, jq). "
+                "In /workspace liegen die Anhänge, in skills/<Name>/ die Skill-Dateien, in projekt/ die Projektdateien. "
+                "Ergebnisse holst du mit `werkbank_fetch` in den Arbeitsbereich, damit die Person sie herunterladen kann. "
+                "Lange Läufe (Whisper, große Dateien) mit passendem timeout_s starten.")
         mem = (self.store.meta.get("memory") or "").strip()
         if mem:
             parts.append(f"## Über die Person (persönliche Hinweise)\n{mem[:8000]}")
