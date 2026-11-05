@@ -111,6 +111,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
   .muted { color: var(--lm-muted); }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; }
+  .page .row > h1 { margin-bottom: 4px; }
+  a { color: var(--lm-accent); }
   .page h1 { font-family: var(--lm-serif); font-weight: 500; font-size: 30px; margin: 4px 0 18px; letter-spacing: -.01em; }
   .page h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
@@ -126,7 +128,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
   .md pre { background: var(--lm-side); border: 1px solid var(--lm-line); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
   .md pre code { background: none; padding: 0; font-size: 13px; }
   .md table { border-collapse: collapse; display: block; overflow-x: auto; margin: .6em 0; font-size: 14px; }
-  .md th, .md td { border: 1px solid var(--lm-line); padding: 6px 10px; text-align: left; }
+  .md th, .md td { border: 1px solid var(--lm-line); padding: 6px 10px; text-align: left; overflow-wrap: normal; word-break: normal; }
+  .md td { min-width: 4.5em; }
   .md th { background: var(--lm-side); }
   .md blockquote { margin: .6em 0; padding-left: 12px; border-left: 3px solid var(--lm-line); color: var(--lm-muted); }
   .md a { color: var(--lm-accent); }
@@ -272,7 +275,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
     .tool-on { color: var(--lm-accent); }
     @media (max-width: 640px) {
       .box { border-radius: 18px; padding: 10px 10px 6px 12px; }
-      .model { max-width: 120px; } .hide-s { display: none; }
+      .model { max-width: 96px; padding: 6px 4px; } .hide-s { display: none; }
+      .bar { gap: 1px; } .iconbtn { width: 32px; } .seg button { padding: 5px 7px; } .meter { padding: 4px; }
     }
   `],u([k()],W.prototype,"placeholder",2),u([k()],W.prototype,"mode",2),u([k({type:Boolean})],W.prototype,"showMode",2),u([k({type:Boolean})],W.prototype,"showProject",2),u([k()],W.prototype,"projectId",2),u([k()],W.prototype,"model",2),u([k({type:Boolean})],W.prototype,"busy",2),u([k({type:Object})],W.prototype,"chatUsage",2),u([k({type:Array})],W.prototype,"tools",2),u([k({type:Boolean})],W.prototype,"big",2),u([f()],W.prototype,"text",2),u([f()],W.prototype,"files",2),u([f()],W.prototype,"rec",2),u([f()],W.prototype,"recStart",2),u([f()],W.prototype,"recLevel",2),u([f()],W.prototype,"transcribing",2),u([f()],W.prototype,"drag",2),u([s5("textarea")],W.prototype,"ta",2),W=u([E("lm-composer")],W);var j6={queued:"In der Warteschlange \u2026",thinking:"Denkt nach \u2026",streaming:"Schreibt \u2026",tool:"Arbeitet \u2026",waiting_permission:"Wartet auf Freigabe",retry:"Modell ausgelastet \u2013 neuer Versuch",quota_wait:"Limit erreicht \u2013 wartet"},A1=class extends P{constructor(){super(...arguments);this.chatId="";this.narrow=!1;this.openSteps=new Set;this.panel=!1;this.editTitle=!1;this.now=Date.now();this.stick=!0;this._onChange=()=>{this.requestUpdate(),this.updateComplete.then(()=>this.autoscroll())}}connectedCallback(){super.connectedCallback(),d.addEventListener("change",this._onChange),this._tick=setInterval(()=>{d.runs[this.chatId]&&(this.now=Date.now())},1e3)}disconnectedCallback(){super.disconnectedCallback(),d.removeEventListener("change",this._onChange),clearInterval(this._tick)}updated(C){C.has("chatId")&&this.chatId&&(this.stick=!0,d.loadChat(this.chatId,!0).then(()=>this.updateComplete.then(()=>this.autoscroll(!0))).catch(V=>d.notify(String(V.message||V))))}autoscroll(C=!1){let V=this.scroller;V&&(C||this.stick)&&(V.style.scrollBehavior=C?"auto":"smooth",V.scrollTop=V.scrollHeight)}onScroll(){let C=this.scroller;this.stick=C.scrollHeight-C.scrollTop-C.clientHeight<120}get chat(){return d.chats.get(this.chatId)}async send(C){let V=C.detail,L=this.chat;if(L)try{let e=[];V.files.length&&(e=(await d.api.upload("chat",L.id,V.files)).files.map(t=>t.name)),this.stick=!0,await d.api.ws("chat/send",{chat_id:L.id,text:V.text||"(siehe Anhang)",attachments:e,model:V.model,...L.kind==="chat"?{tools:V.tools}:{}})}catch(e){d.notify(String(e.message||e))}}stop(){d.api.ws("chat/stop",{chat_id:this.chatId})}retry(){d.api.ws("chat/retry",{chat_id:this.chatId}).then(C=>{d.chats.set(this.chatId,C.chat),d.changed()}).catch(C=>d.notify(C.message))}async openFile(C){try{window.open(await d.api.fileUrl("chat",this.chatId,C),"_blank")}catch(V){d.notify(V.message)}}stepRow(C){let V=this.openSteps.has(C.id),L=C.args||{},e=L.anfrage||L.url||L.pfad||L.name||L.entity_id||L.filter||L.typ||(L.domain?`${L.domain}.${L.service}`:"")||"",t=C.status;return o`<div class="step" @click=${()=>{let a=new Set(this.openSteps);V?a.delete(C.id):a.add(C.id),this.openSteps=a}}>
         ${p(C.icon||"tools",18)}<span class="lbl">${C.label||C.name}</span><span class="arg ellipsis">${e?`\xB7 ${String(e).slice(0,80)}`:""}</span>

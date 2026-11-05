@@ -137,6 +137,8 @@ export const base = css`
   .muted { color: var(--lm-muted); }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .page { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; }
+  .page .row > h1 { margin-bottom: 4px; }
+  a { color: var(--lm-accent); }
   .page h1 { font-family: var(--lm-serif); font-weight: 500; font-size: 30px; margin: 4px 0 18px; letter-spacing: -.01em; }
   .page h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
@@ -152,7 +154,8 @@ export const base = css`
   .md pre { background: var(--lm-side); border: 1px solid var(--lm-line); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
   .md pre code { background: none; padding: 0; font-size: 13px; }
   .md table { border-collapse: collapse; display: block; overflow-x: auto; margin: .6em 0; font-size: 14px; }
-  .md th, .md td { border: 1px solid var(--lm-line); padding: 6px 10px; text-align: left; }
+  .md th, .md td { border: 1px solid var(--lm-line); padding: 6px 10px; text-align: left; overflow-wrap: normal; word-break: normal; }
+  .md td { min-width: 4.5em; }
   .md th { background: var(--lm-side); }
   .md blockquote { margin: .6em 0; padding-left: 12px; border-left: 3px solid var(--lm-line); color: var(--lm-muted); }
   .md a { color: var(--lm-accent); }

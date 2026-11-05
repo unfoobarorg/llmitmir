@@ -71,7 +71,8 @@ export class Composer extends LitElement {
     .tool-on { color: var(--lm-accent); }
     @media (max-width: 640px) {
       .box { border-radius: 18px; padding: 10px 10px 6px 12px; }
-      .model { max-width: 120px; } .hide-s { display: none; }
+      .model { max-width: 96px; padding: 6px 4px; } .hide-s { display: none; }
+      .bar { gap: 1px; } .iconbtn { width: 32px; } .seg button { padding: 5px 7px; } .meter { padding: 4px; }
     }
   `];
 
