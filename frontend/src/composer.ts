@@ -30,7 +30,7 @@ export class Composer extends LitElement {
   private _raf = 0;
 
   static styles = [base, menuItemStyles, css`
-    :host { display: block; }
+    :host { display: block; container-type: inline-size; }
     .box { background: var(--lm-raise); border: 1px solid var(--lm-line); border-radius: 22px; box-shadow: var(--lm-shadow);
       padding: 12px 12px 8px 16px; transition: border-color .2s, box-shadow .2s; position: relative; }
     .box:focus-within { border-color: color-mix(in srgb, var(--lm-accent) 45%, var(--lm-line)); }
@@ -69,7 +69,7 @@ export class Composer extends LitElement {
     @keyframes blink { 50% { opacity: .3; } }
     .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 6px; background: var(--lm-hover); color: var(--lm-muted); margin-left: 4px; }
     .tool-on { color: var(--lm-accent); }
-    @media (max-width: 640px) {
+    @container (max-width: 560px) {
       .box { border-radius: 18px; padding: 10px 10px 6px 12px; }
       .model { max-width: 96px; padding: 6px 4px; } .hide-s { display: none; }
       .bar { gap: 1px; } .iconbtn { width: 32px; } .seg button { padding: 5px 7px; } .meter { padding: 4px; }

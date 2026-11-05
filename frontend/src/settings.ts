@@ -1,7 +1,7 @@
 // Personal settings (incl. Claude import and usage) and the admin page.
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { base, icon, fmtNum, fmtTime, copyText } from "./ui";
+import { StoreElement, base, icon, fmtNum, fmtTime, copyText } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
@@ -25,7 +25,7 @@ const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }`;
 
 @customElement("lm-settings")
-export class SettingsPage extends LitElement {
+export class SettingsPage extends StoreElement {
   @state() private s: any = {};
   @state() private memory = "";
   @state() private dirty = false;
@@ -115,7 +115,7 @@ export class SettingsPage extends LitElement {
 
 // ---------------------------------------------------------------- admin
 @customElement("lm-admin")
-export class AdminPage extends LitElement {
+export class AdminPage extends StoreElement {
   @state() private a: any = null;
   @state() private dirty = false;
   @state() private loading = false;

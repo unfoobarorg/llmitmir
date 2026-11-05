@@ -170,6 +170,14 @@ export const base = css`
   @media (max-width: 640px) { .page { padding: 16px 14px 90px; } .page h1 { font-size: 25px; } }
 `;
 
+// ------------------------------------------------------------------ base class for pages
+/** Re-renders whenever the shared store changes (lists, settings, runs …). */
+export class StoreElement extends LitElement {
+  private __onStore = () => this.requestUpdate();
+  connectedCallback() { super.connectedCallback(); store.addEventListener("change", this.__onStore); }
+  disconnectedCallback() { super.disconnectedCallback(); store.removeEventListener("change", this.__onStore); }
+}
+
 // ------------------------------------------------------------------ thinking spark
 @customElement("lm-spark")
 export class Spark extends LitElement {

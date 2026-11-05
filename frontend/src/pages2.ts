@@ -1,7 +1,7 @@
 // Scheduled tasks, skills and credentials.
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText } from "./ui";
+import { StoreElement, base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 
@@ -32,7 +32,7 @@ const switchEl = (checked: boolean, onChange: (v: boolean) => void) =>
 
 // ---------------------------------------------------------------- tasks
 @customElement("lm-tasks")
-export class Tasks extends LitElement {
+export class Tasks extends StoreElement {
   static styles = [base, pageCss];
   private status(task: any) {
     const q = store.data?.queue || {};
@@ -62,7 +62,7 @@ export class Tasks extends LitElement {
 }
 
 @customElement("lm-task")
-export class TaskPage extends LitElement {
+export class TaskPage extends StoreElement {
   @property() taskId = "";
   @state() private d: any = null;
   @state() private preview: any = null;
@@ -149,7 +149,7 @@ export class TaskPage extends LitElement {
 
 // ---------------------------------------------------------------- skills
 @customElement("lm-skills")
-export class Skills extends LitElement {
+export class Skills extends StoreElement {
   static styles = [base, pageCss];
   render() {
     const sk = store.data?.skills || [];
@@ -165,7 +165,7 @@ export class Skills extends LitElement {
 }
 
 @customElement("lm-skill")
-export class SkillPage extends LitElement {
+export class SkillPage extends StoreElement {
   @property() skillId = "";
   @state() private d: any = null;
   @state() private files: any[] = [];
@@ -221,7 +221,7 @@ export class SkillPage extends LitElement {
 
 // ---------------------------------------------------------------- credentials
 @customElement("lm-credentials")
-export class Credentials extends LitElement {
+export class Credentials extends StoreElement {
   static styles = [base, pageCss];
   render() {
     const cs = store.data?.credentials || [];
@@ -239,7 +239,7 @@ export class Credentials extends LitElement {
 }
 
 @customElement("lm-credential")
-export class CredentialPage extends LitElement {
+export class CredentialPage extends StoreElement {
   @property() credId = "";
   @state() private d: any = null;
   @state() private shown = new Set<string>();

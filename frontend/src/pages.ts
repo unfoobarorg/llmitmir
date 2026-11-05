@@ -1,7 +1,7 @@
 // Home (new chat/cowork), chat list, projects and project detail.
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { base, icon, fmtTime, confirmDialog } from "./ui";
+import { StoreElement, base, icon, fmtTime, confirmDialog } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import type { SendDetail } from "./composer";
@@ -22,7 +22,7 @@ function greeting() {
 }
 
 @customElement("lm-home")
-export class Home extends LitElement {
+export class Home extends StoreElement {
   @property() initialMode: "chat" | "cowork" = "chat";
   @property() projectId: string | null = null;
   @state() private mode: "chat" | "cowork" = "chat";
@@ -88,7 +88,7 @@ export class Home extends LitElement {
 
 // ---------------------------------------------------------------- all chats
 @customElement("lm-chats")
-export class Chats extends LitElement {
+export class Chats extends StoreElement {
   @state() private q = "";
   @state() private filter = "all";
   static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
@@ -114,15 +114,12 @@ export class Chats extends LitElement {
 
 // ---------------------------------------------------------------- projects
 @customElement("lm-projects")
-export class Projects extends LitElement {
+export class Projects extends StoreElement {
   static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
     .pc { padding: 16px; min-height: 120px; display: grid; align-content: start; gap: 6px; }
     .pc b { font-size: 15px; }
     .item.pc.new { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; border-style: dashed; color: var(--lm-muted); }`];
-  private async create() {
-    const p = await store.api.ws("project/save", { project: { name: "Neues Projekt", instructions: "" } });
-    await store.load(); navigate(`/project/${p.id}`);
-  }
+  private create() { navigate("/project/new"); }
   render() {
     const ps = store.data?.projects || [];
     const count = (id: string) => (store.data?.chats || []).filter((c: any) => c.project_id === id).length;
@@ -139,7 +136,7 @@ export class Projects extends LitElement {
 }
 
 @customElement("lm-project")
-export class ProjectPage extends LitElement {
+export class ProjectPage extends StoreElement {
   @property() projectId = "";
   @state() private draft: any = null;
   @state() private files: any[] = [];
@@ -148,7 +145,12 @@ export class ProjectPage extends LitElement {
     .cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
     .side { display: grid; gap: 14px; }
     .side .card h3 { margin: 0 0 10px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; }
-    .title { font-family: var(--lm-head); font-weight: 650; font-size: 26px; border: 0; background: transparent; padding: 2px 0; box-shadow: none !important; }
+    .tw { position: relative; flex: 1; min-width: 0; }
+    .title { font-family: var(--lm-head); font-weight: 650; font-size: 24px; padding: 8px 44px 8px 12px; border: 1px solid var(--lm-line);
+      background: var(--lm-panel); border-radius: 12px; }
+    .title:hover { border-color: color-mix(in srgb, var(--lm-accent) 35%, var(--lm-line)); }
+    .tw .pen { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--lm-faint); pointer-events: none; }
+    .lock { display: grid; place-items: center; text-align: center; gap: 8px; padding: 28px 16px; border: 1px dashed var(--lm-line); border-radius: 16px; color: var(--lm-muted); }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
     .chips button.on { background: var(--lm-accent-soft); border-color: transparent; color: var(--lm-accent); }
@@ -158,6 +160,11 @@ export class ProjectPage extends LitElement {
     if (ch.has("projectId")) this.reload();
   }
   private async reload() {
+    if (this.projectId === "new") {
+      this.draft = { name: "", description: "", instructions: "", credentials: [], skills: [] }; this.dirty = false; this.files = [];
+      this.updateComplete.then(() => (this.renderRoot.querySelector("input.title") as HTMLInputElement | null)?.focus());
+      return;
+    }
     const p = (store.data?.projects || []).find((x: any) => x.id === this.projectId);
     this.draft = p ? JSON.parse(JSON.stringify(p)) : null; this.dirty = false;
     if (p) this.files = await store.api.ws("files", { scope: "project", owner: p.id });
@@ -167,7 +174,11 @@ export class ProjectPage extends LitElement {
     const s = new Set(this.draft[k] || []); s.has(id) ? s.delete(id) : s.add(id); this.set(k, [...s]);
   }
   private async save() {
-    await store.api.ws("project/save", { project: this.draft }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
+    if (!String(this.draft.name || "").trim()) { store.notify("Bitte gib dem Projekt einen Namen."); return; }
+    try {
+      const r = await store.api.ws("project/save", { project: this.draft }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
+      if (this.projectId === "new") navigate(`/project/${r.id}`, true);
+    } catch (e: any) { store.notify(e.message); }
   }
   private async upload(e: any) {
     try { await store.api.upload("project", this.projectId, e.target.files); this.files = await store.api.ws("files", { scope: "project", owner: this.projectId }); }
@@ -184,8 +195,14 @@ export class ProjectPage extends LitElement {
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write);
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/projects")}>${icon("left")}</button>
-        <input class="title grow" .value=${p.name} @input=${(e: any) => this.set("name", e.target.value)}></div>
+        <label class="tw"><input class="title" placeholder="Name des Projekts" aria-label="Name des Projekts" .value=${p.name}
+          @input=${(e: any) => this.set("name", e.target.value)}><span class="pen">${icon("edit", 18)}</span></label></div>
       <input style="margin:4px 0 18px" placeholder="Kurzbeschreibung" .value=${p.description || ""} @input=${(e: any) => this.set("description", e.target.value)}>
+      ${!p.id ? html`<div class="lock">${icon("project", 26)}<b>Neues Projekt</b><span class="hint">Gib einen Namen ein und speichere – danach kannst du Dateien hochladen und Chats und Coworks in diesem Projekt starten.</span>
+        <div class="row" style="justify-content:center;margin-top:6px"><button class="btn" @click=${() => navigate("/projects")}>${t("Abbrechen")}</button>
+        <button class="btn primary" @click=${this.save} ?disabled=${!String(p.name || "").trim()}>${icon("check", 16)} Projekt anlegen</button></div></div>
+        <h2>${t("Anweisungen")}</h2><textarea rows="10" placeholder="Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)"
+          .value=${p.instructions || ""} @input=${(e: any) => this.set("instructions", e.target.value)}></textarea>` : html`
       <div class="cols"><div>
         <lm-composer showMode .projectId=${p.id} .mode=${"chat"} .model=${p.model_chat || d.defaults.chat} placeholder="Neuer Chat in diesem Projekt …"
           @send=${async (e: CustomEvent) => { try { await startChat({ ...e.detail, project_id: p.id }); } catch (err: any) { store.notify(err.message); } }}></lm-composer>
@@ -227,9 +244,9 @@ export class ProjectPage extends LitElement {
             <select style="width:auto;padding:4px 6px" @change=${(e: any) => this.set("permissions", { ...(p.permissions || {}), [n]: e.target.value })}>
               ${[["ask", "fragen"], ["allow", "erlauben"], ["deny", "verbieten"]].map(([k, l]) => html`<option value=${k} ?selected=${((p.permissions || {})[n] || "ask") === k}>${l}</option>`)}</select></div>`)}</div>
         <button class="btn danger" @click=${async () => { if (await confirmDialog(`Projekt „${p.name}“ löschen? Chats bleiben erhalten (ohne Projekt).`)) {
-          await store.api.ws("project/delete", { project_id: p.id }); navigate("/projects"); } }}>${icon("trash", 16)} Projekt löschen</button>
-      </div></div>
-      ${this.dirty ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>
+          try { await store.api.ws("project/delete", { project_id: p.id }); await store.load(); navigate("/projects"); } catch (e: any) { store.notify(e.message); } } }}>${icon("trash", 16)} Projekt löschen</button>
+      </div></div>`}
+      ${this.dirty && p.id ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}
     </div>`;
   }
