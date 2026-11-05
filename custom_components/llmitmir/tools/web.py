@@ -100,6 +100,38 @@ def parse_ddg(html: str, limit: int = 8) -> list[dict]:
     return results
 
 
+def own_ha_hosts(hass) -> set[str]:
+    """Hostnames under which this Home Assistant is reachable (HTTP access to it is blocked for the model)."""
+    hosts = {"localhost", "127.0.0.1", "homeassistant", "homeassistant.local"}
+    for u in (hass.config.internal_url, hass.config.external_url):
+        if u:
+            hosts.add(urllib.parse.urlparse(u).hostname or "")
+    try:
+        from homeassistant.helpers.network import get_url
+
+        for kw in ({"prefer_external": True}, {"prefer_external": False}):
+            try:
+                hosts.add(urllib.parse.urlparse(get_url(hass, **kw)).hostname or "")
+            except Exception:  # noqa: BLE001
+                pass
+    except ImportError:
+        pass
+    hosts.discard("")
+    return hosts
+
+
+HA_BLOCK = ("Fehler: Diese Home-Assistant-Instanz nicht per HTTP ansprechen – nutze die Werkzeuge ha_states, ha_history, "
+            "ha_service und ha_ws (sie laufen mit den Rechten der Person, ohne Token). Fehlversuche per HTTP gelten in HA als "
+            "Login-Angriffe und können zur Sperre führen.")
+
+
+def blocked_url(ctx, url: str) -> str | None:
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host in own_ha_hosts(ctx.hass):
+        return HA_BLOCK
+    return None
+
+
 async def web_search(ctx, a: dict):
     q = str(a.get("anfrage") or a.get("query") or "").strip()
     if not q:
@@ -130,6 +162,10 @@ async def web_fetch(ctx, a: dict):
     url = str(a.get("url") or "").strip()
     if not re.match(r"^https?://", url):
         return "Fehler: nur http(s)-Adressen"
+    if "{{cred:" in url:
+        return "Fehler: web_fetch setzt keine Zugänge ein – für Adressen mit Zugangsdaten http_request mit „zugang“ oder Platzhalter verwenden."
+    if (b := blocked_url(ctx, url)):
+        return b
     async with ctx.session.get(url, headers={"User-Agent": UA, "Accept-Language": "de,en;q=0.8"},
                                timeout=aiohttp.ClientTimeout(total=45), max_redirects=8) as r:
         ctype = r.headers.get("content-type", "")

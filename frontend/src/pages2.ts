@@ -24,6 +24,8 @@ const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   .checks input { width: auto; }
   .tabs { display: flex; gap: 4px; } .tabs button { border: 0; background: none; padding: 6px 10px; border-radius: 8px; cursor: pointer; color: var(--lm-muted); }
   .tabs button.on { background: var(--lm-hover); color: var(--lm-text); }
+  .st-narrow { display: none; margin-top: 6px; }
+  @media (max-width: 640px) { .st-wide { display: none; } .st-narrow { display: block; } }
   .preview { border: 1px solid var(--lm-line); border-radius: 10px; padding: 14px; background: var(--lm-panel); min-height: 200px; }
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }`;
 
@@ -51,10 +53,11 @@ export class Tasks extends StoreElement {
         können sich verzögern, wenn die Modelle ausgelastet sind oder ein Limit erreicht ist – dann wartet LLMitMir und versucht es weiter (bis zu 6 Stunden).
         Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item" @click=${() => navigate(`/task/${x.id}`)}>
-        ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="ellipsis">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
+        ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
           ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}</div>
-          <div class="hint">${x.schedule_text}${x.enabled && x.next_run ? ` · nächster Lauf ${fmtTime(x.next_run)}` : ""}${x.schedule_error ? ` · ⚠ ${x.schedule_error}` : ""}</div></div>
-        ${this.status(x)}
+          <div class="hint">${x.schedule_text}${x.enabled && x.next_run ? ` · nächster Lauf ${fmtTime(x.next_run)}` : ""}${x.schedule_error ? ` · ⚠ ${x.schedule_error}` : ""}</div>
+          <div class="st-narrow">${this.status(x)}</div></div>
+        <span class="st-wide">${this.status(x)}</span>
         <button class="iconbtn" title=${t("Jetzt ausführen")} @click=${async (e: Event) => { e.stopPropagation(); const r = await store.api.ws("task/run_now", { task_id: x.id });
           store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits oder wartet schon"); }}>${icon("play")}</button>
         ${switchEl(!!x.enabled, async (v) => { await store.api.ws("task/save", { task: { ...x, enabled: v } }); })}
@@ -168,7 +171,7 @@ export class Skills extends StoreElement {
       <p class="hint">Skills sind Anleitungen für wiederkehrende Themen. Das Modell sieht Name und Beschreibung und lädt die ganze Anleitung, wenn sie passt.
         Zugangsdaten gehören nicht in den Skill-Text, sondern unter ${t("Zugänge")} – im Skill verweist du nur darauf.</p>
       <div class="list">${sk.length ? sk.map((s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
-        ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint ellipsis">${s.description}</div></div>
+        ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description}</div></div>
         ${(s.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${s.credentials.length}</span>` : nothing}
         ${s.enabled === false ? html`<span class="chip">aus</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Skills.</div>`}</div></div>`;
   }

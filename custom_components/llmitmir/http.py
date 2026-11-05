@@ -46,6 +46,7 @@ class UploadView(_Base):
         hass, m, user, st = await self._user_store(request)
         reader = await request.multipart()
         scope, owner, saved = "chat", "", []
+        upload_id, last, fname = "", True, ""
         while True:
             part = await reader.next()
             if part is None:
@@ -54,21 +55,34 @@ class UploadView(_Base):
                 scope = (await part.text()).strip()
             elif part.name == "owner":
                 owner = (await part.text()).strip()
+            elif part.name == "upload_id":
+                upload_id = re.sub(r"[^A-Za-z0-9_-]", "", (await part.text()).strip())[:40]
+            elif part.name == "last":
+                last = (await part.text()).strip() == "1"
+            elif part.name == "filename":
+                fname = (await part.text()).strip()
             elif part.name == "file":
                 data = await part.read(decode=False)
                 if len(data) > MAX_UPLOAD:
-                    return self.json_message("Datei zu groß (max. 40 MB)", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
-                name = safe_name(part.filename or "datei")
+                    return self.json_message("Datei zu groß (max. 40 MB je Teil)", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+                name = safe_name(fname or part.filename or "datei")
                 if scope == "import":
-                    if name.lower().endswith(".json"):
-                        try:
-                            bundle = json.loads(data)
-                        except ValueError:
-                            return self.json_message("Kein gültiges JSON", HTTPStatus.BAD_REQUEST)
-                        res = await import_bundle(hass, m, user, st, bundle)
-                        m.emit(user.id, {"type": "meta", "section": "all"})
-                    else:
-                        res = await import_claude_export(hass, m, user, st, data)
+                    if upload_id:  # large files arrive in parts (HA accepts at most 16 MB per request)
+                        path = st.file_path("import", "chunks", f"{upload_id}.part")
+
+                        def _append(chunk=data):
+                            import os
+                            os.makedirs(os.path.dirname(path), exist_ok=True)
+                            with open(path, "ab") as fh:
+                                fh.write(chunk)
+
+                        await hass.async_add_executor_job(_append)
+                        if not last:
+                            return self.json({"ok": True, "partial": True})
+                        data = await hass.async_add_executor_job(lambda: open(path, "rb").read())
+                        await st.async_delete_file("import", "chunks", f"{upload_id}.part")
+                    res = await import_file(hass, m, user, st, name, data)
+                    m.emit(user.id, {"type": "meta", "section": "all"})
                     return self.json(res)
                 if scope == "chat" and owner and owner not in st.meta["chats"]:
                     return self.json_message("Chat unbekannt", HTTPStatus.NOT_FOUND)
@@ -166,9 +180,22 @@ def _by_name(items: dict, name: str) -> dict | None:
     return next((x for x in items.values() if str(x.get("name", "")).casefold() == low), None)
 
 
-async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
-    """Merge an import bundle into the user's data (by name). Imported tasks start disabled."""
-    res = {"credentials": 0, "skills": 0, "projects": 0, "tasks": 0, "chats": 0, "files": 0, "warnings": []}
+def _ts(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing: bool = False) -> dict:
+    """Merge an import bundle into the user's data (by name). Imported tasks start disabled.
+    skip_existing=True (data exports): items whose name already exists stay untouched."""
+    res = {"credentials": 0, "skills": 0, "projects": 0, "tasks": 0, "chats": 0, "files": 0, "skipped": 0, "warnings": []}
+    seen = set(st.meta.setdefault("imported_uuids", []))
     meta = st.meta
     if isinstance(b.get("memory"), str) and b["memory"].strip():
         sep = "\n\n" if meta.get("memory") else ""
@@ -180,6 +207,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
             continue
         typ = c.get("type") if c.get("type") in C.TYPES else "other"
         old = _by_name(meta["credentials"], c["name"])
+        if old and skip_existing:
+            res["skipped"] += 1
+            continue
         cid = old["id"] if old else new_id("k")
         fields = {str(k): str(v) for k, v in (c.get("fields") or {}).items() if v not in (None, "")}
         meta["credentials"][cid] = {"id": cid, "name": c["name"][:80], "type": typ, "fields": fields,
@@ -202,6 +232,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
         if not s.get("name"):
             continue
         old = _by_name(meta["skills"], s["name"])
+        if old and skip_existing:
+            res["skipped"] += 1
+            continue
         sid = old["id"] if old else new_id("s")
         meta["skills"][sid] = {"id": sid, "name": s["name"][:80], "description": str(s.get("description") or "")[:1024],
                                "body": str(s.get("body") or ""), "credentials": cred_ids(s.get("credentials")),
@@ -215,6 +248,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
         if not p.get("name"):
             continue
         old = _by_name(meta["projects"], p["name"])
+        if old and skip_existing:
+            res["skipped"] += 1
+            continue
         pid = old["id"] if old else new_id("p")
         skill_ids = [x["id"] for n in p.get("skills") or [] if (x := _by_name(meta["skills"], n))]
         meta["projects"][pid] = dict(old or {"created": now()}, id=pid, name=p["name"][:80],
@@ -230,6 +266,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
         if not t.get("prompt"):
             continue
         old = _by_name(meta["tasks"], t.get("name") or "")
+        if old and skip_existing:
+            res["skipped"] += 1
+            continue
         tid = old["id"] if old else new_id("t")
         sched = t.get("schedule") or {}
         if isinstance(sched, str):
@@ -248,8 +287,11 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
         m.scheduler.plan(user.id, task)
         res["tasks"] += 1
     for c in b.get("chats") or []:
+        if c.get("uuid") and c["uuid"] in seen:
+            res["skipped"] += 1
+            continue
         msgs = [{"id": new_id("m"), "role": "assistant" if x.get("role") in ("assistant", "bot") else "user",
-                 "content": str(x.get("content") or ""), "created": x.get("created") or now()}
+                 "content": str(x.get("content") or ""), "created": _ts(x.get("created")) or now()}
                 for x in c.get("messages") or [] if str(x.get("content") or "").strip()]
         if not msgs:
             continue
@@ -257,47 +299,122 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
         chat = await m.create_chat(user.id, KIND_CHAT, proj["id"] if proj else None, title=str(c.get("title") or "Import")[:120])
         chat["messages"] = msgs
         chat["imported"] = True
-        await st.async_save_chat(chat)
+        chat["created"] = _ts(c.get("created")) or msgs[0]["created"]
+        chat["updated"] = _ts(c.get("updated")) or msgs[-1]["created"]
+        await st.async_save_chat(chat, keep_updated=True)
+        if c.get("uuid"):
+            seen.add(c["uuid"])
         res["chats"] += 1
+    st.meta["imported_uuids"] = sorted(seen)
     await st.async_save_meta()
     return res
 
 
-async def import_claude_export(hass, m, user, st, data: bytes) -> dict:
-    """Official claude.ai data export (ZIP with conversations.json, projects.json, memories)."""
+def _message_text(x: dict) -> str:
+    text = x.get("text") or ""
+    if not text.strip():
+        parts = []
+        for p in x.get("content") or []:
+            t = p.get("type")
+            if t == "text":
+                parts.append(p.get("text") or "")
+            elif t == "tool_use":
+                parts.append(f"_[Werkzeug: {p.get('name', '?')}]_")
+            elif t == "image":
+                parts.append("_[Bild]_")
+        text = "\n\n".join(x for x in parts if x)
+    names = [a.get("file_name") for a in (x.get("attachments") or []) if a.get("file_name")]
+    names += [f.get("file_name") for f in (x.get("files") or []) if isinstance(f, dict) and f.get("file_name")]
+    if names:
+        text += "\n\n_Anhänge: " + ", ".join(names) + "_"
+    return text.strip()
 
-    def _parse():
-        z = zipfile.ZipFile(io.BytesIO(data))
-        names = {n.rsplit("/", 1)[-1]: n for n in z.namelist()}
-        load = lambda n: json.loads(z.read(names[n])) if n in names else None  # noqa: E731
-        return load("conversations.json"), load("projects.json"), load("memories.json")
 
+def _read_export(data: bytes) -> dict:
+    """Read one ZIP of a claude.ai data export (old single-ZIP format or the newer multi-ZIP parts)."""
+    z = zipfile.ZipFile(io.BytesIO(data))
+    names = z.namelist()
+    out: dict = {"convs": [], "projects": [], "memories": None, "routines": [], "pages": [], "found": []}
+    for n in names:
+        base = n.rsplit("/", 1)[-1]
+        if base == "conversations.json":
+            out["convs"] += json.loads(z.read(n)); out["found"].append("Chats")
+        elif base == "projects.json":
+            out["projects"] += json.loads(z.read(n)); out["found"].append("Projekte")
+        elif re.match(r"(.*/)?projects/[^/]+\.json$", n):
+            out["projects"].append(json.loads(z.read(n)))
+        elif base == "memories.json":
+            out["memories"] = json.loads(z.read(n)); out["found"].append("Erinnerungen")
+        elif base == "routines.json":
+            r = json.loads(z.read(n))
+            out["routines"] += r.get("claude_code_cloud", []) if isinstance(r, dict) else r
+            out["found"].append("Routinen")
+        elif base == "artifact.json" and "/versions/" not in n:
+            a = json.loads(z.read(n))
+            if a.get("kind") == "page":
+                page = n.rsplit("/", 1)[0] + "/page.md"
+                if page in names:
+                    v = next((x for x in a.get("versions") or [] if x.get("id") == a.get("active_version")), (a.get("versions") or [{}])[-1])
+                    out["pages"].append({"uuid": a.get("id"), "title": v.get("title") or "Dokument",
+                                         "created": v.get("created_at"), "updated": a.get("updated_at"),
+                                         "content": z.read(page).decode("utf-8", "ignore")})
+    if any(re.match(r"(.*/)?projects/[^/]+\.json$", n) for n in names):
+        out["found"].append("Projekte")
+    if out["pages"]:
+        out["found"].append("Dokumente")
+    return out
+
+
+async def import_file(hass, m, user, st, name: str, data: bytes) -> dict:
+    """One uploaded import file: LLMitMir JSON bundle, claude.ai export manifest (hint) or export ZIP part."""
+    low = name.lower()
+    if low.endswith(".json"):
+        try:
+            obj = json.loads(data)
+        except ValueError:
+            return {"error": f"{name}: kein gültiges JSON"}
+        if isinstance(obj, dict) and "data_files" in obj:
+            return {"error": "Das ist nur das Manifest des Exports. Lade bitte die ZIP-Dateien hoch "
+                             "(conversations-000.zip, projects-000.zip, frames-000.zip, claude_code_cloud-000.zip …)."}
+        res = await import_bundle(hass, m, user, st, obj)
+        res["file"] = name
+        return res
     try:
-        convs, projs, mems = await hass.async_add_executor_job(_parse)
+        ex = await hass.async_add_executor_job(_read_export, data)
     except (zipfile.BadZipFile, ValueError, KeyError) as e:
-        return {"error": f"Kein gültiger Claude-Export: {e}"}
-    bundle: dict = {"source": "claude-export", "projects": [], "chats": []}
-    proj_names = {}
-    for p in projs or []:
-        proj_names[p.get("uuid")] = p.get("name")
+        return {"error": f"{name}: kein gültiger Claude-Export ({e})"}
+    if not ex["found"]:
+        return {"file": name, "info": "Nichts Übertragbares darin (z. B. Kontodaten)."}
+    bundle: dict = {"source": "claude-export", "projects": [], "chats": [], "tasks": []}
+    for p in ex["projects"]:
+        if p.get("is_starter_project"):
+            continue
         bundle["projects"].append({"name": p.get("name") or "Projekt", "description": p.get("description") or "",
                                    "instructions": p.get("prompt_template") or "",
                                    "files": [{"name": d.get("filename") or "dokument.txt", "content": d.get("content") or ""}
                                              for d in p.get("docs") or []]})
-    for c in convs or []:
-        msgs = []
-        for x in c.get("chat_messages") or []:
-            text = x.get("text") or "\n".join(p.get("text", "") for p in x.get("content") or [] if p.get("type") == "text")
-            msgs.append({"role": "assistant" if x.get("sender") == "assistant" else "user", "content": text,
-                         "created": x.get("created_at")})
-        bundle["chats"].append({"title": c.get("name") or "Import", "messages": msgs,
-                                "project": proj_names.get((c.get("project") or {}).get("uuid") if isinstance(c.get("project"), dict) else c.get("project_uuid"))})
-    if isinstance(mems, list) and mems:
-        bundle["memory"] = "\n".join(str(x.get("conversations_memory") or x.get("content") or x) for x in mems)[:20000]
-    elif isinstance(mems, dict):
-        bundle["memory"] = str(mems.get("conversations_memory") or "")[:20000]
-    res = await import_bundle(hass, m, user, st, bundle)
-    m.emit(user.id, {"type": "meta", "section": "all"})
+    for c in ex["convs"]:
+        msgs = [{"role": "assistant" if x.get("sender") == "assistant" else "user", "content": _message_text(x),
+                 "created": x.get("created_at")} for x in c.get("chat_messages") or []]
+        bundle["chats"].append({"uuid": c.get("uuid"), "title": c.get("name") or "Import", "messages": msgs,
+                                "created": c.get("created_at"), "updated": c.get("updated_at")})
+    for pg in ex["pages"]:
+        bundle["chats"].append({"uuid": pg["uuid"], "title": f"📄 {pg['title']}", "created": pg["created"], "updated": pg["updated"],
+                                "messages": [{"role": "assistant", "content": pg["content"], "created": pg["created"]}]})
+    for r in ex["routines"]:
+        if r.get("ended_at") or r.get("prompt_withheld") or not r.get("prompt"):
+            continue
+        sched = r.get("schedule") or {}
+        bundle["tasks"].append({"name": r.get("name"), "prompt": r["prompt"],
+                                "schedule": {"type": "cron", "cron": sched["cron"]} if sched.get("cron") else
+                                            {"type": "once", "at": sched.get("run_once_at") or ""},
+                                "note": "Aus dem claude.ai-Export (Routine). Zugangsdaten im Auftrag ggf. unter Zugänge auslagern."})
+    if isinstance(ex["memories"], list) and ex["memories"]:
+        bundle["memory"] = "\n".join(str(x.get("conversations_memory") or x.get("content") or x) for x in ex["memories"])[:20000]
+    elif isinstance(ex["memories"], dict):
+        bundle["memory"] = str(ex["memories"].get("conversations_memory") or "")[:20000]
+    res = await import_bundle(hass, m, user, st, bundle, skip_existing=True)
+    res["file"], res["found"] = name, sorted(set(ex["found"]))
     return res
 
 

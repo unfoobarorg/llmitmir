@@ -57,7 +57,8 @@ export class LLMitMirPanel extends LitElement {
     .foot { border-top: 1px solid var(--lm-line); padding: 8px; display: flex; align-items: center; gap: 6px; }
     .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--lm-text); color: var(--lm-bg); display: grid; place-items: center;
       font-weight: 600; font-size: 13px; flex: none; }
-    main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; position: relative; }
+    main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+    .view { overflow-x: hidden; }
     .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
     .view { flex: 1; min-height: 0; }
     .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 15; animation: fadeIn .15s; }

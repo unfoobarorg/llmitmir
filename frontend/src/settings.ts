@@ -81,11 +81,22 @@ export class SettingsPage extends StoreElement {
     const url = `${location.origin}${r.path}`;
     this.imp = { url, prompt: claudeImportPrompt(url), expires: r.expires };
   }
+  @state() private impBusy = "";
   private async uploadImport(e: any) {
-    const f = e.target.files?.[0]; if (!f) return;
-    try { this.impResult = await store.api.upload("import", "x", [f]); await store.load(); store.notify("Import abgeschlossen"); }
-    catch (err: any) { store.notify(err.message); }
-    e.target.value = "";
+    const files: File[] = Array.from(e.target.files || []); e.target.value = "";
+    if (!files.length) return;
+    const sum: any = { chats: 0, projects: 0, skills: 0, credentials: 0, tasks: 0, skipped: 0, files: [] as any[] };
+    for (const [i, f] of files.entries()) {
+      this.impBusy = `${i + 1}/${files.length}: ${f.name} wird hochgeladen …`;
+      try {
+        const r = await store.api.uploadImport(f, (d, t) => {
+          this.impBusy = `${i + 1}/${files.length}: ${f.name} – ${Math.round((100 * d) / t)} %${d >= t ? " · wird verarbeitet …" : ""}`; });
+        for (const k of ["chats", "projects", "skills", "credentials", "tasks", "skipped"]) sum[k] += r[k] || 0;
+        sum.files.push({ name: f.name, error: r.error, info: r.info, found: r.found });
+      } catch (err: any) { sum.files.push({ name: f.name, error: err.message }); }
+    }
+    this.impBusy = ""; this.impResult = sum;
+    await store.load(); store.notify("Import abgeschlossen");
   }
   render() {
     const d = store.data; const s = this.s;
@@ -135,9 +146,15 @@ export class SettingsPage extends StoreElement {
           : html`<div><button class="btn primary" @click=${this.newImport}>${icon("plus", 16)} Import-Link und Prompt erzeugen</button></div>`}
         <div><b>2. Chatverläufe</b><div class="hint">In claude.ai unter Einstellungen → Datenschutz → „Daten exportieren“. Die ZIP-Datei aus der E-Mail hier hochladen
           (enthält Chats, Projekte und Erinnerungen). Auch die Datei <code>llmitmir-import.json</code> aus Schritt 1 kannst du hier hochladen.</div>
-          <label class="btn" style="margin-top:8px">${icon("upload", 16)} ZIP oder JSON hochladen<input type="file" accept=".zip,.json" hidden @change=${this.uploadImport}></label></div>
-        ${this.impResult ? html`<div class="hint">Übernommen: ${["chats", "projects", "skills", "credentials", "tasks"].map(k => `${this.impResult[k] || 0} ${k}`).join(", ")}
-          ${this.impResult.error ? html`<br><span style="color:var(--lm-err)">${this.impResult.error}</span>` : nothing}</div>` : nothing}
+          <div class="hint" style="margin-top:6px">Wähle <b>alle ZIP-Dateien</b> des Exports auf einmal aus (z. B. conversations-000.zip, projects-000.zip,
+            frames-000.zip, claude_code_cloud-000.zip) – die Manifest-Datei brauchst du nicht. Mehrfaches Hochladen legt nichts doppelt an.</div>
+          <label class="btn" style="margin-top:8px" ?disabled=${!!this.impBusy}>${this.impBusy ? html`<lm-spark size="16"></lm-spark>` : icon("upload", 16)} ZIP- oder JSON-Dateien hochladen
+            <input type="file" multiple accept=".zip,.json" hidden @change=${this.uploadImport}></label>
+          ${this.impBusy ? html`<div class="hint" style="margin-top:6px">${this.impBusy}</div>` : nothing}</div>
+        ${this.impResult ? html`<div class="card" style="font-size:13.5px"><b>Übernommen:</b> ${this.impResult.chats} Chats, ${this.impResult.projects} Projekte,
+          ${this.impResult.skills} Skills, ${this.impResult.credentials} Zugänge, ${this.impResult.tasks} Aufgaben${this.impResult.skipped ? ` · ${this.impResult.skipped} schon vorhanden (übersprungen)` : ""}
+          <ul style="margin:8px 0 0;padding-left:1.2em">${this.impResult.files.map((f: any) => html`<li>${f.name}: ${f.error ? html`<span style="color:var(--lm-err)">${f.error}</span>`
+            : f.info || (f.found?.length ? f.found.join(", ") : "ok")}</li>`)}</ul></div>` : nothing}
       </div></section>
       ${this.dirty ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.reset()}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}

@@ -19,6 +19,24 @@ export class Api {
     if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
     return j;
   }
+  /** Import file upload; files above 8 MB go in parts (HA accepts at most 16 MB per request). */
+  async uploadImport(file: File, onProgress?: (done: number, total: number) => void): Promise<any> {
+    const CHUNK = 8 * 1024 * 1024;
+    const parts = Math.max(1, Math.ceil(file.size / CHUNK));
+    const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let last: any = null;
+    for (let i = 0; i < parts; i++) {
+      const fd = new FormData();
+      fd.append("scope", "import"); fd.append("owner", "import"); fd.append("filename", file.name);
+      if (parts > 1) { fd.append("upload_id", id); fd.append("last", i === parts - 1 ? "1" : "0"); }
+      fd.append("file", file.slice(i * CHUNK, (i + 1) * CHUNK), file.name);
+      const r = await this.hass.fetchWithAuth("/api/llmitmir/upload", { method: "POST", body: fd });
+      last = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(last.message || `HTTP ${r.status}`);
+      onProgress?.(Math.min(file.size, (i + 1) * CHUNK), file.size);
+    }
+    return last;
+  }
   async fileUrl(scope: string, owner: string, name: string): Promise<string> {
     const r = await this.hass.fetchWithAuth(`/api/llmitmir/file/${scope}/${owner}/${name.split("/").map(encodeURIComponent).join("/")}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);

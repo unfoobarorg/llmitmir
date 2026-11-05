@@ -15,6 +15,10 @@ async def http_request(ctx, a: dict):
     url = C.resolve_placeholders(str(a.get("url") or ""), ctx.creds, ctx.allowed_creds)
     if not re.match(r"^https?://", url):
         return "Fehler: nur http(s)"
+    from .web import blocked_url
+
+    if (b := blocked_url(ctx, url)):
+        return b
     headers = {str(k): C.resolve_placeholders(str(v), ctx.creds, ctx.allowed_creds) for k, v in (a.get("header") or {}).items()}
     auth = None
     if a.get("zugang"):

@@ -146,14 +146,16 @@ export const base = css`
   .grow { flex: 1; min-width: 0; }
   .muted { color: var(--lm-muted); }
   .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .page { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; }
+  .page { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; min-width: 0; overflow-x: hidden; }
   .page .row:has(> h1) { margin-bottom: 18px; flex-wrap: wrap; row-gap: 10px; }
   .page .row > h1 { margin: 4px 0; }
   a { color: var(--lm-accent); }
   .page h1 { font-family: var(--lm-head); font-weight: 650; font-size: 28px; margin: 4px 0 18px; letter-spacing: -.02em; }
   .page h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
-  .list { display: grid; gap: 8px; }
+  .list { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .list > *, .grid > * { min-width: 0; }
+  .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--lm-line); border-radius: 12px;
     background: var(--lm-panel); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
   .item:hover { border-color: color-mix(in srgb, var(--lm-accent) 35%, var(--lm-line)); box-shadow: var(--lm-shadow); }
