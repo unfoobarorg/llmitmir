@@ -10,7 +10,7 @@ import { store } from "./api";
 
 // ------------------------------------------------------------------ icons
 const MAP: Record<string, string> = {
-  plus: mdi.mdiPlus, chat: mdi.mdiChatOutline, cowork: mdi.mdiRobotOutline, project: mdi.mdiFolderOutline,
+  plus: mdi.mdiPlus, chat: mdi.mdiChatOutline, cowork: mdi.mdiHammerWrench, robot: mdi.mdiRobotOutline, project: mdi.mdiFolderOutline,
   task: mdi.mdiCalendarClockOutline, skill: mdi.mdiSchoolOutline, key: mdi.mdiKeyOutline, settings: mdi.mdiCogOutline,
   admin: mdi.mdiShieldAccountOutline, menu: mdi.mdiMenu, sidebar: mdi.mdiDockLeft, send: mdi.mdiArrowUp, stop: mdi.mdiStop,
   attach: mdi.mdiPaperclip, mic: mdi.mdiMicrophoneOutline, close: mdi.mdiClose, check: mdi.mdiCheck, copy: mdi.mdiContentCopy,
@@ -83,19 +83,20 @@ export function copyText(text: string) {
 // ------------------------------------------------------------------ shared CSS
 export const tokens = css`
   :host {
-    --lm-bg: #faf9f6; --lm-side: #f3f1ea; --lm-panel: #ffffff; --lm-raise: #ffffff; --lm-text: #2b2a27; --lm-muted: #77736a;
-    --lm-faint: #a8a398; --lm-line: #e6e2d7; --lm-hover: rgba(60, 50, 30, 0.06); --lm-accent: #c96a3f; --lm-accent-2: #e08a5c;
-    --lm-accent-soft: rgba(201, 106, 63, 0.12); --lm-ok: #3f8f5b; --lm-warn: #c58a16; --lm-err: #c2453b; --lm-user: #efece3;
-    --lm-shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 18px rgba(40, 30, 10, .07); --lm-r: 14px;
-    --lm-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-    --lm-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, sans-serif;
+    --lm-bg: #f6f8f7; --lm-side: #ecf0ee; --lm-panel: #ffffff; --lm-raise: #ffffff; --lm-text: #1d2925; --lm-muted: #5c6a65;
+    --lm-faint: #93a09b; --lm-line: #dbe2df; --lm-hover: rgba(22, 56, 44, 0.06); --lm-accent: #2d6a4f; --lm-accent-2: #3b8262;
+    --lm-accent-soft: rgba(45, 106, 79, 0.12); --lm-on-accent: #ffffff; --lm-ok: #2f8a57; --lm-warn: #b98112; --lm-err: #c0433a;
+    --lm-user: #e3ece8; --lm-shadow: 0 1px 2px rgba(10,30,20,.05), 0 4px 18px rgba(10, 40, 28, .07); --lm-r: 14px;
+    --lm-head: "Inter", "Segoe UI Variable Display", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --lm-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --lm-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
     color: var(--lm-text); font-family: var(--lm-sans); -webkit-font-smoothing: antialiased;
   }
   :host([dark]) {
-    --lm-bg: #262624; --lm-side: #1f1e1d; --lm-panel: #30302e; --lm-raise: #353532; --lm-text: #ece9e1; --lm-muted: #a8a49a;
-    --lm-faint: #77736a; --lm-line: #3e3d39; --lm-hover: rgba(255, 255, 255, 0.06); --lm-accent: #d9784a; --lm-accent-2: #eb9468;
-    --lm-accent-soft: rgba(217, 120, 74, 0.16); --lm-user: #3a3a37; --lm-shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 22px rgba(0,0,0,.25);
+    --lm-bg: #181d1b; --lm-side: #131715; --lm-panel: #202724; --lm-raise: #262f2b; --lm-text: #e2eae6; --lm-muted: #98a7a1;
+    --lm-faint: #687670; --lm-line: #2e3934; --lm-hover: rgba(255, 255, 255, 0.06); --lm-accent: #5fae86; --lm-accent-2: #78c29c;
+    --lm-accent-soft: rgba(95, 174, 134, 0.16); --lm-on-accent: #0d1a14; --lm-user: #29332f;
+    --lm-shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 22px rgba(0,0,0,.28);
   }
 `;
 
@@ -108,7 +109,7 @@ export const base = css`
     border-radius: 10px; padding: 7px 12px; min-height: 36px; cursor: pointer; transition: background .15s, border-color .15s, transform .1s; }
   .btn:hover { background: var(--lm-hover); }
   .btn:active { transform: scale(.98); }
-  .btn.primary { background: var(--lm-accent); border-color: var(--lm-accent); color: #fff; }
+  .btn.primary { background: var(--lm-accent); border-color: var(--lm-accent); color: var(--lm-on-accent); }
   .btn.primary:hover { background: var(--lm-accent-2); }
   .btn.ghost { border-color: transparent; background: transparent; }
   .btn.danger { color: var(--lm-err); }
@@ -139,7 +140,7 @@ export const base = css`
   .page { max-width: 980px; margin: 0 auto; padding: 28px 24px 80px; }
   .page .row > h1 { margin-bottom: 4px; }
   a { color: var(--lm-accent); }
-  .page h1 { font-family: var(--lm-serif); font-weight: 500; font-size: 30px; margin: 4px 0 18px; letter-spacing: -.01em; }
+  .page h1 { font-family: var(--lm-head); font-weight: 650; font-size: 28px; margin: 4px 0 18px; letter-spacing: -.02em; }
   .page h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
   .list { display: grid; gap: 8px; }
@@ -148,7 +149,7 @@ export const base = css`
   .item:hover { border-color: color-mix(in srgb, var(--lm-accent) 35%, var(--lm-line)); box-shadow: var(--lm-shadow); }
   .md { line-height: 1.62; font-size: 15.5px; overflow-wrap: anywhere; }
   .md p { margin: 0 0 .75em; } .md p:last-child { margin-bottom: 0; }
-  .md h1, .md h2, .md h3 { font-family: var(--lm-serif); font-weight: 600; line-height: 1.3; margin: 1.1em 0 .5em; }
+  .md h1, .md h2, .md h3 { font-family: var(--lm-head); font-weight: 600; line-height: 1.3; margin: 1.1em 0 .5em; }
   .md h1 { font-size: 1.45em; } .md h2 { font-size: 1.25em; } .md h3 { font-size: 1.08em; }
   .md code { font-family: var(--lm-mono); font-size: .86em; background: var(--lm-hover); padding: .1em .35em; border-radius: 5px; }
   .md pre { background: var(--lm-side); border: 1px solid var(--lm-line); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
@@ -170,24 +171,35 @@ export const base = css`
 // ------------------------------------------------------------------ thinking spark
 @customElement("lm-spark")
 export class Spark extends LitElement {
+  // Logo / activity indicator: a small schematic robot. Active = antenna glows, eyes blink, head bobs.
   @property({ type: Boolean }) active = true;
   @property({ type: Number }) size = 22;
   static styles = css`
-    :host { display: inline-grid; place-items: center; color: var(--lm-accent, #c96a3f); }
+    :host { display: inline-grid; place-items: center; color: var(--lm-accent, #2d6a4f); }
     svg { overflow: visible; }
-    .on .rays { animation: spin 3.2s cubic-bezier(.45,.05,.55,.95) infinite; transform-origin: 12px 12px; }
-    .on .core { animation: pulse 1.6s ease-in-out infinite; transform-origin: 12px 12px; }
-    .on .ray { animation: grow 1.6s ease-in-out infinite; transform-origin: 12px 12px; }
-    .ray:nth-child(2n) { animation-delay: -.4s; } .ray:nth-child(3n) { animation-delay: -.8s; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    @keyframes pulse { 50% { transform: scale(.72); opacity: .75; } }
-    @keyframes grow { 50% { transform: scale(.78); } }
+    .on .bot { animation: bob 1.8s ease-in-out infinite; transform-origin: 12px 20px; }
+    .on .lamp { animation: glow 1.2s ease-in-out infinite; }
+    .on .eye { animation: blink 3.6s infinite; transform-box: fill-box; transform-origin: center; }
+    .on .eye.r { animation-delay: .08s; }
+    .on .mouth { animation: talk .9s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+    @keyframes bob { 0%, 100% { transform: translateY(0) rotate(0); } 30% { transform: translateY(-.8px) rotate(-3deg); } 70% { transform: translateY(-.4px) rotate(3deg); } }
+    @keyframes glow { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+    @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+    @keyframes talk { 0%, 100% { transform: scaleX(1); } 50% { transform: scaleX(.55); } }
   `;
   render() {
-    const rays = Array.from({ length: 8 }, (_, i) => i * 45);
-    return html`<svg class=${this.active ? "on" : ""} width=${this.size} height=${this.size} viewBox="0 0 24 24">
-      <g class="rays">${rays.map(a => svg`<g class="ray"><path transform="rotate(${a} 12 12)" d="M12 1.6 C12.7 6 13 7.4 12 9.4 C11 7.4 11.3 6 12 1.6Z" fill="currentColor"/></g>`)}</g>
-      <circle class="core" cx="12" cy="12" r="2.4" fill="currentColor"/></svg>`;
+    return html`<svg class=${this.active ? "on" : ""} width=${this.size} height=${this.size} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <g class="bot">
+        <line x1="12" y1="3.6" x2="12" y2="6.4"/>
+        <circle class="lamp" cx="12" cy="2.6" r="1.25" fill="currentColor" stroke="none"/>
+        <rect x="4.6" y="6.6" width="14.8" height="11.2" rx="3.6"/>
+        <line x1="2.6" y1="11" x2="2.6" y2="13.6"/><line x1="21.4" y1="11" x2="21.4" y2="13.6"/>
+        <circle class="eye" cx="9.3" cy="11.6" r="1.25" fill="currentColor" stroke="none"/>
+        <circle class="eye r" cx="14.7" cy="11.6" r="1.25" fill="currentColor" stroke="none"/>
+        <line class="mouth" x1="10.2" y1="14.9" x2="13.8" y2="14.9"/>
+        <path d="M8.6 17.8 L8 20.6 M15.4 17.8 L16 20.6" opacity=".55"/>
+      </g></svg>`;
   }
 }
 
@@ -204,7 +216,7 @@ export class Ring extends LitElement {
   render() {
     const v = Math.max(0, Math.min(1, this.value || 0));
     const r = 8, c = 2 * Math.PI * r;
-    const col = v >= 0.9 ? "var(--lm-err, #c2453b)" : v >= 0.7 ? "var(--lm-warn, #c58a16)" : "var(--lm-accent, #c96a3f)";
+    const col = v >= 0.9 ? "var(--lm-err, #c0433a)" : v >= 0.7 ? "var(--lm-warn, #b98112)" : "var(--lm-accent, #2d6a4f)";
     return html`<svg width=${this.size} height=${this.size} viewBox="0 0 20 20" role="img" aria-label=${this.label}>
       <circle cx="10" cy="10" r=${r} fill="none" stroke="var(--lm-line, #ddd)" stroke-width="2.6"/>
       <circle cx="10" cy="10" r=${r} fill="none" stroke=${col} stroke-width="2.6" stroke-linecap="round"

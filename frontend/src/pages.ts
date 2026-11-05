@@ -31,7 +31,7 @@ export class Home extends LitElement {
   static styles = [base, css`
     :host { display: block; height: 100%; overflow-y: auto; }
     .wrap { min-height: 100%; display: flex; flex-direction: column; justify-content: center; max-width: 760px; margin: 0 auto; padding: 24px 20px 12vh; }
-    h1 { font-family: var(--lm-serif); font-weight: 400; font-size: clamp(28px, 4.4vw, 42px); text-align: center; margin: 0 0 26px;
+    h1 { font-family: var(--lm-head); font-weight: 600; font-size: clamp(26px, 4vw, 38px); text-align: center; margin: 0 0 26px;
       display: flex; align-items: center; justify-content: center; gap: 14px; letter-spacing: -.015em; animation: fadeIn .5s; }
     .sugg { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
     .sugg button { border: 1px solid var(--lm-line); background: transparent; border-radius: 999px; padding: 7px 13px; font-size: 13.5px;
@@ -147,7 +147,7 @@ export class ProjectPage extends LitElement {
     .cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
     .side { display: grid; gap: 14px; }
     .side .card h3 { margin: 0 0 10px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; }
-    .title { font-family: var(--lm-serif); font-size: 28px; border: 0; background: transparent; padding: 2px 0; box-shadow: none !important; }
+    .title { font-family: var(--lm-head); font-weight: 650; font-size: 26px; border: 0; background: transparent; padding: 2px 0; box-shadow: none !important; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
     .chips button.on { background: var(--lm-accent-soft); border-color: transparent; color: var(--lm-accent); }

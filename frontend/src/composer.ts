@@ -39,7 +39,7 @@ export class Composer extends LitElement {
       line-height: 1.5; box-shadow: none !important; }
     .big textarea { min-height: 56px; }
     .bar { display: flex; align-items: center; gap: 4px; margin-top: 6px; flex-wrap: nowrap; }
-    .send { width: 36px; height: 36px; border-radius: 11px; border: 0; background: var(--lm-accent); color: #fff; display: grid;
+    .send { width: 36px; height: 36px; border-radius: 11px; border: 0; background: var(--lm-accent); color: var(--lm-on-accent); display: grid;
       place-items: center; cursor: pointer; transition: transform .12s, background .15s, opacity .15s; flex: none; }
     .send:hover { background: var(--lm-accent-2); } .send:active { transform: scale(.94); }
     .send[disabled] { opacity: .35; cursor: default; }

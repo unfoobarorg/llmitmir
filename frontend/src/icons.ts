@@ -39,6 +39,7 @@ export {
   mdiFolderOutline,
   mdiFormatListChecks,
   mdiGauge,
+  mdiHammerWrench,
   mdiHeadLightbulbOutline,
   mdiHelpCircleOutline,
   mdiHomeAssistant,

@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
-PANEL_ICON = "mdi:creation-outline"
+PANEL_ICON = "mdi:robot-outline"
 STATIC_URL = "/llmitmir_static"
 PANEL_ELEMENT = "llmitmir-panel"
 

@@ -38,14 +38,14 @@ export class LLMitMirPanel extends LitElement {
       height: 100%; transition: width .22s ease, transform .25s ease; overflow: hidden; }
     nav.col { width: 60px; }
     .brand { display: flex; align-items: center; gap: 8px; padding: 12px 10px 8px 14px; min-height: 56px; }
-    .brand b { font-family: var(--lm-serif); font-size: 19px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+    .brand b { font-family: var(--lm-head); font-size: 18px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
     .nv { display: grid; gap: 2px; padding: 4px 8px; }
     .ni { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 10px; cursor: pointer; color: var(--lm-text);
       font-size: 14px; border: 0; background: none; width: 100%; text-align: left; white-space: nowrap; min-height: 38px; transition: background .12s; }
     .ni:hover { background: var(--lm-hover); }
     .ni.on { background: color-mix(in srgb, var(--lm-text) 9%, transparent); font-weight: 550; }
     .ni.new { color: var(--lm-accent); font-weight: 560; }
-    .ni.new .plus { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--lm-accent); color: #fff; margin: -2px; }
+    .ni.new .plus { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--lm-accent); color: var(--lm-on-accent); margin: -2px; }
     .ni .badge { margin-left: auto; font-size: 11px; background: var(--lm-accent-soft); color: var(--lm-accent); border-radius: 999px; padding: 1px 7px; }
     .recents { flex: 1; overflow-y: auto; padding: 6px 8px; min-height: 0; }
     .rh { font-size: 11.5px; color: var(--lm-faint); padding: 12px 10px 4px; font-weight: 550; }
