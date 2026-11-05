@@ -19,7 +19,7 @@ from .const import DOMAIN, KIND_CHAT
 from .storage import new_id, now, safe_name
 
 _LOGGER = logging.getLogger(__name__)
-MAX_UPLOAD = 40 * 1024 * 1024
+MAX_UPLOAD = 40 * 1024 * 1024  # per request (part)
 
 
 def _mgr(hass):
@@ -39,61 +39,66 @@ class _Base(HomeAssistantView):
 
 
 class UploadView(_Base):
+    """Uploads for chats, projects, skills and the import. Files may arrive in parts (upload_id/last), because
+    reverse proxies often limit request bodies to 1 MB and HA itself to 16 MB."""
+
     url = "/api/llmitmir/upload"
     name = "api:llmitmir:upload"
 
     async def post(self, request):
         hass, m, user, st = await self._user_store(request)
         reader = await request.multipart()
-        scope, owner, saved = "chat", "", []
-        upload_id, last, fname = "", True, ""
+        fields: dict[str, str] = {}
+        data, part_name = None, ""
         while True:
             part = await reader.next()
             if part is None:
                 break
-            if part.name == "scope":
-                scope = (await part.text()).strip()
-            elif part.name == "owner":
-                owner = (await part.text()).strip()
-            elif part.name == "upload_id":
-                upload_id = re.sub(r"[^A-Za-z0-9_-]", "", (await part.text()).strip())[:40]
-            elif part.name == "last":
-                last = (await part.text()).strip() == "1"
-            elif part.name == "filename":
-                fname = (await part.text()).strip()
-            elif part.name == "file":
+            if part.name == "file":
                 data = await part.read(decode=False)
+                part_name = part.filename or ""
                 if len(data) > MAX_UPLOAD:
                     return self.json_message("Datei zu groß (max. 40 MB je Teil)", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
-                name = safe_name(fname or part.filename or "datei")
-                if scope == "import":
-                    if upload_id:  # large files arrive in parts (HA accepts at most 16 MB per request)
-                        path = st.file_path("import", "chunks", f"{upload_id}.part")
+            else:
+                fields[part.name] = (await part.text()).strip()
+        if data is None:
+            return self.json_message("Keine Datei", HTTPStatus.BAD_REQUEST)
+        scope, owner = fields.get("scope", "chat"), fields.get("owner", "")
+        name = safe_name(fields.get("filename") or part_name or "datei")
+        upload_id = re.sub(r"[^A-Za-z0-9_-]", "", fields.get("upload_id", ""))[:40]
+        if upload_id:
+            path = st.file_path("import", "chunks", f"{upload_id}.part")
 
-                        def _append(chunk=data):
-                            import os
-                            os.makedirs(os.path.dirname(path), exist_ok=True)
-                            with open(path, "ab") as fh:
-                                fh.write(chunk)
+            def _append(chunk=data):
+                import os
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                if fields.get("index") == "0" and os.path.exists(path):
+                    os.remove(path)
+                with open(path, "ab") as fh:
+                    fh.write(chunk)
+                return os.path.getsize(path)
 
-                        await hass.async_add_executor_job(_append)
-                        if not last:
-                            return self.json({"ok": True, "partial": True})
-                        data = await hass.async_add_executor_job(lambda: open(path, "rb").read())
-                        await st.async_delete_file("import", "chunks", f"{upload_id}.part")
-                    res = await import_file(hass, m, user, st, name, data)
-                    m.emit(user.id, {"type": "meta", "section": "all"})
-                    return self.json(res)
-                if scope == "chat" and owner and owner not in st.meta["chats"]:
-                    return self.json_message("Chat unbekannt", HTTPStatus.NOT_FOUND)
-                if scope == "project" and owner not in st.meta["projects"]:
-                    return self.json_message("Projekt unbekannt", HTTPStatus.NOT_FOUND)
-                if scope == "skill" and owner not in st.meta["skills"]:
-                    return self.json_message("Skill unbekannt", HTTPStatus.NOT_FOUND)
-                if scope == "chat" and not owner:
-                    return self.json_message("owner fehlt", HTTPStatus.BAD_REQUEST)
-                saved.append(await st.async_write_file(scope, owner, name, data))
-        return self.json({"files": saved})
+            size = await hass.async_add_executor_job(_append)
+            if size > 400 * 1024 * 1024:
+                await st.async_delete_file("import", "chunks", f"{upload_id}.part")
+                return self.json_message("Datei zu groß (max. 400 MB)", HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            if fields.get("last") != "1":
+                return self.json({"ok": True, "partial": True, "received": size})
+            data = await hass.async_add_executor_job(lambda: open(path, "rb").read())
+            await st.async_delete_file("import", "chunks", f"{upload_id}.part")
+        if scope == "import":
+            res = await import_file(hass, m, user, st, name, data)
+            m.emit(user.id, {"type": "meta", "section": "all"})
+            return self.json(res)
+        if scope == "chat" and (not owner or owner not in st.meta["chats"]):
+            return self.json_message("Chat unbekannt", HTTPStatus.NOT_FOUND)
+        if scope == "project" and owner not in st.meta["projects"]:
+            return self.json_message("Projekt unbekannt", HTTPStatus.NOT_FOUND)
+        if scope == "skill" and owner not in st.meta["skills"]:
+            return self.json_message("Skill unbekannt", HTTPStatus.NOT_FOUND)
+        if scope not in ("chat", "project", "skill"):
+            return self.json_message("Unbekannter Bereich", HTTPStatus.BAD_REQUEST)
+        return self.json({"files": [await st.async_write_file(scope, owner, name, data)]})
 
 
 class FileView(_Base):
