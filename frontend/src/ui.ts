@@ -83,21 +83,22 @@ export function copyText(text: string) {
 // ------------------------------------------------------------------ shared CSS
 export const tokens = css`
   :host {
-    --lm-bg: #f6f8f7; --lm-side: #ecf0ee; --lm-panel: #ffffff; --lm-raise: #ffffff; --lm-text: #1d2925; --lm-muted: #5c6a65;
-    --lm-faint: #93a09b; --lm-line: #dbe2df; --lm-hover: rgba(22, 56, 44, 0.06); --lm-accent: #2d6a4f; --lm-accent-2: #3b8262;
+    --lm-bg: #f4f4f4; --lm-side: #e9e9e9; --lm-panel: #ffffff; --lm-raise: #ffffff; --lm-text: #222222; --lm-muted: #646464;
+    --lm-faint: #9b9b9b; --lm-line: #dcdcdc; --lm-hover: rgba(0, 0, 0, 0.055); --lm-accent: #2d6a4f; --lm-accent-2: #3b8262;
     --lm-accent-soft: rgba(45, 106, 79, 0.12); --lm-on-accent: #ffffff; --lm-ok: #2f8a57; --lm-warn: #b98112; --lm-err: #c0433a;
-    --lm-user: #e3ece8; --lm-shadow: 0 1px 2px rgba(10,30,20,.05), 0 4px 18px rgba(10, 40, 28, .07); --lm-r: 14px;
+    --lm-user: #e6e6e6; --lm-shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 18px rgba(0, 0, 0, .07); --lm-r: 14px;
     --lm-head: "Inter", "Segoe UI Variable Display", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --lm-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --lm-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
     color: var(--lm-text); font-family: var(--lm-sans); -webkit-font-smoothing: antialiased;
   }
   :host([dark]) {
-    --lm-bg: #181d1b; --lm-side: #131715; --lm-panel: #202724; --lm-raise: #262f2b; --lm-text: #e2eae6; --lm-muted: #98a7a1;
-    --lm-faint: #687670; --lm-line: #2e3934; --lm-hover: rgba(255, 255, 255, 0.06); --lm-accent: #5fae86; --lm-accent-2: #78c29c;
-    --lm-accent-soft: rgba(95, 174, 134, 0.16); --lm-on-accent: #0d1a14; --lm-user: #29332f;
+    --lm-bg: #1c1c1c; --lm-side: #151515; --lm-panel: #252525; --lm-raise: #2b2b2b; --lm-text: #e8e8e8; --lm-muted: #a2a2a2;
+    --lm-faint: #6f6f6f; --lm-line: #343434; --lm-hover: rgba(255, 255, 255, 0.06); --lm-accent: #5fae86; --lm-accent-2: #78c29c;
+    --lm-accent-soft: rgba(95, 174, 134, 0.16); --lm-on-accent: #0d1a14; --lm-user: #2f2f2f;
     --lm-shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 22px rgba(0,0,0,.28);
   }
+
 `;
 
 export const base = css`
