@@ -1,7 +1,7 @@
 // Chat / cowork / task-run view.
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, state, query } from "lit/decorators.js";
-import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles, confirmDialog } from "./ui";
+import { property, state, query } from "lit/decorators.js";
+import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles, confirmDialog, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import type { SendDetail } from "./composer";
@@ -12,7 +12,7 @@ const STATUS_TEXT: Record<string, string> = {
   waiting_permission: "Wartet auf Freigabe", retry: "Modell ausgelastet – neuer Versuch", quota_wait: "Limit erreicht – wartet",
 };
 
-@customElement("lm-chat")
+@safeElement("lm-chat")
 export class ChatView extends LitElement {
   @property() chatId = "";
   @property({ type: Boolean }) narrow = false;

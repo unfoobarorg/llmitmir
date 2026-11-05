@@ -1,7 +1,7 @@
 // Scheduled tasks, skills and credentials.
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
-import { StoreElement, base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText } from "./ui";
+import { property, state } from "lit/decorators.js";
+import { StoreElement, base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 
@@ -31,7 +31,7 @@ const switchEl = (checked: boolean, onChange: (v: boolean) => void) =>
   html`<label class="switch" @click=${(e: Event) => e.stopPropagation()}><input type="checkbox" .checked=${checked} @change=${(e: any) => onChange(e.target.checked)}><span></span></label>`;
 
 // ---------------------------------------------------------------- tasks
-@customElement("lm-tasks")
+@safeElement("lm-tasks")
 export class Tasks extends StoreElement {
   static styles = [base, pageCss];
   private status(task: any) {
@@ -61,7 +61,7 @@ export class Tasks extends StoreElement {
   }
 }
 
-@customElement("lm-task")
+@safeElement("lm-task")
 export class TaskPage extends StoreElement {
   @property() taskId = "";
   @state() private d: any = null;
@@ -148,7 +148,7 @@ export class TaskPage extends StoreElement {
 }
 
 // ---------------------------------------------------------------- skills
-@customElement("lm-skills")
+@safeElement("lm-skills")
 export class Skills extends StoreElement {
   static styles = [base, pageCss];
   render() {
@@ -164,7 +164,7 @@ export class Skills extends StoreElement {
   }
 }
 
-@customElement("lm-skill")
+@safeElement("lm-skill")
 export class SkillPage extends StoreElement {
   @property() skillId = "";
   @state() private d: any = null;
@@ -220,7 +220,7 @@ export class SkillPage extends StoreElement {
 }
 
 // ---------------------------------------------------------------- credentials
-@customElement("lm-credentials")
+@safeElement("lm-credentials")
 export class Credentials extends StoreElement {
   static styles = [base, pageCss];
   render() {
@@ -238,7 +238,7 @@ export class Credentials extends StoreElement {
   }
 }
 
-@customElement("lm-credential")
+@safeElement("lm-credential")
 export class CredentialPage extends StoreElement {
   @property() credId = "";
   @state() private d: any = null;

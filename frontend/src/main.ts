@@ -1,8 +1,8 @@
 // LLMitMir panel root: layout, sidebar, routing, event subscription.
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import { Api, store, navigate } from "./api";
-import { tokens, base, icon, fmtTime, menuItemStyles, confirmDialog } from "./ui";
+import { tokens, base, icon, fmtTime, menuItemStyles, confirmDialog, safeElement } from "./ui";
 import { setLang, t } from "./i18n";
 import "./composer";
 import "./chat";
@@ -12,7 +12,7 @@ import "./settings";
 
 const LS = "llmitmir.sidebar";
 
-@customElement("llmitmir-panel")
+@safeElement("llmitmir-panel")
 export class LLMitMirPanel extends LitElement {
   @property({ attribute: false }) hass: any;
   @property({ type: Boolean }) narrow = false;

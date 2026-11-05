@@ -1,12 +1,19 @@
 // Shared styles, icons, formatting, markdown and small reusable elements.
 import { LitElement, css, html, svg, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import * as mdi from "./icons";
 import { t } from "./i18n";
 import { store } from "./api";
+
+// ------------------------------------------------------------------ safe element registration
+/** Like Lit's @customElement, but skips names that are already defined (HA may load a newer panel module
+ *  into a page that still has the old one registered – redefining would throw). */
+export const safeElement = (name: string) => (cls: CustomElementConstructor) => {
+  if (!customElements.get(name)) customElements.define(name, cls);
+};
 
 // ------------------------------------------------------------------ icons
 const MAP: Record<string, string> = {
@@ -180,7 +187,7 @@ export class StoreElement extends LitElement {
 }
 
 // ------------------------------------------------------------------ thinking spark
-@customElement("lm-spark")
+@safeElement("lm-spark")
 export class Spark extends LitElement {
   // Logo / activity indicator: a small schematic robot. Active = antenna glows, eyes blink, head bobs.
   @property({ type: Boolean }) active = true;
@@ -215,7 +222,7 @@ export class Spark extends LitElement {
 }
 
 // ------------------------------------------------------------------ ring meter
-@customElement("lm-ring")
+@safeElement("lm-ring")
 export class Ring extends LitElement {
   @property({ type: Number }) value = 0;   // 0..1
   @property({ type: Number }) size = 20;
@@ -236,7 +243,7 @@ export class Ring extends LitElement {
 }
 
 // ------------------------------------------------------------------ popover menu
-@customElement("lm-menu")
+@safeElement("lm-menu")
 export class Menu extends LitElement {
   @property({ type: Boolean, reflect: true }) open = false;
   @property() align: "left" | "right" = "left";
@@ -344,7 +351,7 @@ export function confirmDialog(text: string, okLabel = "Löschen"): Promise<boole
   });
 }
 
-@customElement("lm-confirm")
+@safeElement("lm-confirm")
 export class Confirm extends LitElement {
   @property() text = ""; @property() ok = "OK"; @property({ type: Boolean, reflect: true }) dark = false;
   static styles = [tokens, base, css`

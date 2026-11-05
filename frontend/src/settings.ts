@@ -1,7 +1,7 @@
 // Personal settings (incl. Claude import and usage) and the admin page.
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, state } from "lit/decorators.js";
-import { StoreElement, base, icon, md, fmtNum, fmtTime, copyText } from "./ui";
+import { state } from "lit/decorators.js";
+import { StoreElement, base, icon, md, fmtNum, fmtTime, copyText, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
@@ -52,7 +52,7 @@ export function werkbankInfo(configured: boolean, showGuide: boolean, toggle: ()
   </div>`;
 }
 
-@customElement("lm-settings")
+@safeElement("lm-settings")
 export class SettingsPage extends StoreElement {
   @state() private s: any = {};
   @state() private memory = "";
@@ -146,7 +146,7 @@ export class SettingsPage extends StoreElement {
 }
 
 // ---------------------------------------------------------------- admin
-@customElement("lm-admin")
+@safeElement("lm-admin")
 export class AdminPage extends StoreElement {
   @state() private a: any = null;
   @state() private dirty = false;

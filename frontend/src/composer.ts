@@ -1,13 +1,13 @@
 // The message composer: textarea, attachments, voice, mode, tools, model picker and usage meters.
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, state, query } from "lit/decorators.js";
-import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder } from "./ui";
+import { property, state, query } from "lit/decorators.js";
+import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeElement } from "./ui";
 import { store } from "./api";
 import { t } from "./i18n";
 
 export interface SendDetail { text: string; files: File[]; model: string; mode: "chat" | "cowork"; tools: string[] | null; project_id: string | null; }
 
-@customElement("lm-composer")
+@safeElement("lm-composer")
 export class Composer extends LitElement {
   @property() placeholder = "";
   @property() mode: "chat" | "cowork" = "chat";

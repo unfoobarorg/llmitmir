@@ -1,7 +1,7 @@
 // Home (new chat/cowork), chat list, projects and project detail.
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
-import { StoreElement, base, icon, fmtTime, confirmDialog } from "./ui";
+import { property, state } from "lit/decorators.js";
+import { StoreElement, base, icon, fmtTime, confirmDialog, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import type { SendDetail } from "./composer";
@@ -21,7 +21,7 @@ function greeting() {
   return h < 5 ? t("Gute Nacht") : h < 11 ? t("Guten Morgen") : h < 18 ? t("Guten Tag") : t("Guten Abend");
 }
 
-@customElement("lm-home")
+@safeElement("lm-home")
 export class Home extends StoreElement {
   @property() initialMode: "chat" | "cowork" = "chat";
   @property() projectId: string | null = null;
@@ -87,7 +87,7 @@ export class Home extends StoreElement {
 }
 
 // ---------------------------------------------------------------- all chats
-@customElement("lm-chats")
+@safeElement("lm-chats")
 export class Chats extends StoreElement {
   @state() private q = "";
   @state() private filter = "all";
@@ -113,7 +113,7 @@ export class Chats extends StoreElement {
 }
 
 // ---------------------------------------------------------------- projects
-@customElement("lm-projects")
+@safeElement("lm-projects")
 export class Projects extends StoreElement {
   static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
     .pc { padding: 16px; min-height: 120px; display: grid; align-content: start; gap: 6px; }
@@ -135,7 +135,7 @@ export class Projects extends StoreElement {
   }
 }
 
-@customElement("lm-project")
+@safeElement("lm-project")
 export class ProjectPage extends StoreElement {
   @property() projectId = "";
   @state() private draft: any = null;
