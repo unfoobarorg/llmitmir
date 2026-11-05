@@ -85,3 +85,10 @@ def test_provider_parsing():
     acc.feed({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
     assert acc.content == "391" and acc.reasoning == "17*23" and acc.usage["prompt_tokens"] == 10
     assert acc.calls() == [{"id": "c1", "type": "function", "function": {"name": "wetter", "arguments": "{\"ort\": \"Duderstadt\"}"}}]
+
+
+def test_describe_cron():
+    assert cron.describe({"type": "cron", "cron": "23 6 * * *"}) == "täglich um 06:23"
+    assert cron.describe({"type": "cron", "cron": "3 10,21 * * *"}) == "täglich um 10:03 und 21:03"
+    assert cron.describe({"type": "cron", "cron": "39 8 * * 6"}) == "samstags um 08:39"
+    assert cron.describe({"type": "cron", "cron": "*/5 * * * *"}) == "Cron „*/5 * * * *“"

@@ -86,6 +86,22 @@ def schedule_to_cron(s: dict) -> str | None:
 
 
 
+def describe_cron(expr: str) -> str:
+    """Readable German text for common cron forms, else the raw expression."""
+    f = expr.split()
+    names = ["sonntags", "montags", "dienstags", "mittwochs", "donnerstags", "freitags", "samstags"]
+    if len(f) == 5 and f[0].isdigit() and re.fullmatch(r"\d{1,2}(,\d{1,2})*", f[1]) and f[2] == "*" and f[3] == "*":
+        times = " und ".join(f"{int(h):02d}:{int(f[0]):02d}" for h in f[1].split(","))
+        if f[4] == "*":
+            return f"täglich um {times}"
+        if f[4] == "1-5":
+            return f"werktags um {times}"
+        if re.fullmatch(r"[0-7](,[0-7])*", f[4]):
+            days = [names[int(d) % 7] for d in f[4].split(",")]
+            return f"{', '.join(days)} um {times}"
+    return f"Cron „{expr}“"
+
+
 def describe(s: dict) -> str:
     typ = s.get("type") or "daily"
     t = s.get("time") or "08:00"
@@ -98,7 +114,7 @@ def describe(s: dict) -> str:
         "hourly": f"stündlich zur Minute {s.get('minute') or 0}",
         "interval": f"alle {s.get('hours') or 2} Stunden",
         "once": f"einmalig am {s.get('at', '')}",
-        "cron": f"Cron „{s.get('cron', '')}“",
+        "cron": describe_cron(s.get("cron", "")),
     }.get(typ, typ)
 
 
