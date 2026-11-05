@@ -57,7 +57,7 @@ export class Composer extends LitElement {
     .file button { border: 0; background: none; cursor: pointer; color: var(--lm-muted); display: grid; }
     .meter { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 6px; border-radius: 9px; cursor: pointer; }
     .meter:hover { background: var(--lm-hover); }
-    .stats { padding: 8px 10px; font-size: 13px; display: grid; gap: 10px; min-width: 270px; }
+    .stats { padding: 8px 10px; font-size: 13px; display: grid; gap: 10px; min-width: min(270px, calc(100vw - 40px)); text-align: left; }
     .stats .bar2 { height: 6px; border-radius: 4px; background: var(--lm-hover); overflow: hidden; margin-top: 4px; }
     .stats .bar2 i { display: block; height: 100%; background: var(--lm-accent); border-radius: 4px; transition: width .5s; }
     .stats .bar2 i.w { background: var(--lm-warn); } .stats .bar2 i.e { background: var(--lm-err); }

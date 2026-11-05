@@ -117,7 +117,8 @@ export class Chats extends LitElement {
 export class Projects extends LitElement {
   static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
     .pc { padding: 16px; min-height: 120px; display: grid; align-content: start; gap: 6px; }
-    .pc b { font-size: 15px; } .new { border-style: dashed; place-content: center; justify-items: center; text-align: center; color: var(--lm-muted); }`];
+    .pc b { font-size: 15px; }
+    .item.pc.new { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; border-style: dashed; color: var(--lm-muted); }`];
   private async create() {
     const p = await store.api.ws("project/save", { project: { name: "Neues Projekt", instructions: "" } });
     await store.load(); navigate(`/project/${p.id}`);

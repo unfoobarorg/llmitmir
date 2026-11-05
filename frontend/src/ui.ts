@@ -234,7 +234,7 @@ export class Menu extends LitElement {
   @property() direction: "up" | "down" = "up";
   static styles = [base, css`
     :host { position: relative; display: inline-block; }
-    .pop { position: absolute; z-index: 30; min-width: 240px; max-width: min(360px, 92vw); max-height: min(60vh, 520px); overflow-y: auto;
+    .pop { position: absolute; z-index: 30; min-width: min(240px, calc(100vw - 16px)); max-width: min(360px, calc(100vw - 16px)); max-height: min(60vh, 520px); overflow-y: auto;
       background: var(--lm-raise); border: 1px solid var(--lm-line); border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.16);
       padding: 6px; animation: pop .16s ease both; }
     .up { bottom: calc(100% + 8px); } .down { top: calc(100% + 6px); }
@@ -244,6 +244,19 @@ export class Menu extends LitElement {
   private _doc = (e: Event) => { if (!e.composedPath().includes(this)) this.open = false; };
   connectedCallback() { super.connectedCallback(); document.addEventListener("pointerdown", this._doc); }
   disconnectedCallback() { super.disconnectedCallback(); document.removeEventListener("pointerdown", this._doc); }
+  updated() {
+    // keep the popover inside the viewport (phones): shift sideways, shrink height if needed
+    const pop = this.renderRoot.querySelector(".pop") as HTMLElement | null;
+    if (!pop) return;
+    pop.style.translate = ""; pop.style.maxHeight = "";
+    const r = pop.getBoundingClientRect(), m = 8;
+    let dx = 0;
+    if (r.right > innerWidth - m) dx = innerWidth - m - r.right;
+    if (r.left + dx < m) dx = m - r.left;
+    if (dx) pop.style.translate = `${Math.round(dx)}px 0`;
+    if (r.top < m) pop.style.maxHeight = `${Math.max(160, r.height - (m - r.top))}px`;
+    else if (r.bottom > innerHeight - m) pop.style.maxHeight = `${Math.max(160, r.height - (r.bottom - innerHeight + m))}px`;
+  }
   render() {
     return html`<span @click=${() => (this.open = !this.open)}><slot name="trigger"></slot></span>
       ${this.open ? html`<div class="pop ${this.direction} ${this.align}" @click=${(e: Event) => {
