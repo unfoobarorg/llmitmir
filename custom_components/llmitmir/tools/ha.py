@@ -65,7 +65,7 @@ async def ha_service(ctx, a: dict):
         data = json.loads(data or "{}")
     targets = data.get("entity_id") or (a.get("ziel") or {}).get("entity_id") or []
     targets = [targets] if isinstance(targets, str) else list(targets)
-    if not ctx.user.is_admin:
+    if not ctx.user.is_admin and not str(service).startswith("get_"):
         for eid in targets:
             if not ctx.user.permissions.check_entity(eid, "control"):
                 return f"Fehler: keine Berechtigung für {eid}"
@@ -164,11 +164,13 @@ register(Tool("ha_states", "ha", "Listet Entitäten in Home Assistant mit Zustan
 register(Tool("ha_history", "ha", "Verlauf einer Entität (Zeitpunkte und Zustände).",
               obj({"entity_id": {"type": "string"}, "stunden": {"type": "number"}}, ["entity_id"]), ha_history,
               label="Verlauf lesen", icon="mdi:chart-line"))
-register(Tool("ha_service", "ha", "Ruft einen Dienst in Home Assistant auf (z. B. light.turn_on, notify.mobile_app_x, script.y).",
+register(Tool("ha_service", "ha", "Ruft einen Dienst in Home Assistant auf (z. B. light.turn_on, notify.mobile_app_x, script.y). "
+              "Lesende Dienste wie calendar.get_events oder weather.get_forecasts mit antwort=true (ohne Freigabe).",
               obj({"domain": {"type": "string"}, "service": {"type": "string"}, "daten": {"type": "object"},
                    "ziel": {"type": "object"}, "antwort": {"type": "boolean", "description": "Dienstantwort zurückgeben"}},
                   ["domain", "service"]),
-              ha_service, write=True, label="Dienst aufrufen", icon="mdi:play-circle-outline"))
+              ha_service, write=lambda a: not str(a.get("service") or "").startswith("get_"),
+              label="Dienst aufrufen", icon="mdi:play-circle-outline"))
 register(Tool("ha_ws", "ha", "Führt einen Websocket-Befehl von Home Assistant aus (z. B. eigener Integrationen wie „imkerei/liste“). Lesende Befehle frei, alle anderen mit Freigabe.",
               obj({"typ": {"type": "string"}, "daten": {"type": "object"}}, ["typ"]),
               ha_ws, write=lambda a: not WS_READ.search(str(a.get("typ") or "")),

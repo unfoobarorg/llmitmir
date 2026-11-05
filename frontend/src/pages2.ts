@@ -51,7 +51,8 @@ export class Tasks extends StoreElement {
         können sich verzögern, wenn die Modelle ausgelastet sind oder ein Limit erreicht ist – dann wartet LLMitMir und versucht es weiter (bis zu 6 Stunden).
         Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item" @click=${() => navigate(`/task/${x.id}`)}>
-        ${icon("task")}<div class="grow"><div class="row"><span class="ellipsis">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}</div>
+        ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="ellipsis">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
+          ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}</div>
           <div class="hint">${x.schedule_text}${x.enabled && x.next_run ? ` · nächster Lauf ${fmtTime(x.next_run)}` : ""}${x.schedule_error ? ` · ⚠ ${x.schedule_error}` : ""}</div></div>
         ${this.status(x)}
         <button class="iconbtn" title=${t("Jetzt ausführen")} @click=${async (e: Event) => { e.stopPropagation(); const r = await store.api.ws("task/run_now", { task_id: x.id });
@@ -97,6 +98,10 @@ export class TaskPage extends StoreElement {
         ${x.id ? html`<button class="btn" @click=${async () => { const r = await store.api.ws("task/run_now", { task_id: x.id }); store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits"); }}>${icon("play", 16)} ${t("Jetzt ausführen")}</button>` : nothing}</div>
       ${x.imported && !x.enabled ? html`<div class="banner">${icon("info")}<div>Aus Claude importiert und deshalb pausiert. Prüfe Auftrag, Zugänge und Freigaben – Verweise auf Claude-Werkzeuge
         (z. B. Gmail-Connector, list_triggers) gibt es hier nicht.${x.imported_note ? html`<br><i>${x.imported_note}</i>` : nothing}</div></div>` : nothing}
+      ${x.werkbank_missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("mdi:console")}<div>
+        <b>Für diese Aufgabe fehlt die Werkbank.</b> Sie läuft trotzdem, erledigt aber nur, was ohne Werkbank geht, und nennt im Ergebnis, was ausgelassen wurde.
+        ${x.requires_note ? html`<br><i>Ohne Werkbank fehlt: ${x.requires_note}</i>` : nothing}
+        <br><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings"); }}>Was ist die Werkbank und wie richte ich sie ein?</a></div></div>` : nothing}
       <div class="form">
         <label class="f"><span>${t("Name")}</span><input .value=${x.name} @input=${(e: any) => this.set("name", e.target.value)}></label>
         <label class="f"><span>${t("Auftrag")}</span><textarea rows="14" placeholder="Was soll bei jedem Lauf passieren? So genau wie für einen Menschen, der das zum ersten Mal macht."
@@ -128,6 +133,11 @@ export class TaskPage extends StoreElement {
         <div class="card"><b>Freigaben für schreibende Aktionen</b><div class="hint" style="margin:4px 0 10px">Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.</div>
           <div class="checks">${writeTools.map(([n, v]: any) => html`<label><input type="checkbox" .checked=${(x.allow_write || []).includes(n)}
             @change=${(e: any) => { const set = new Set(x.allow_write || []); e.target.checked ? set.add(n) : set.delete(n); this.set("allow_write", [...set]); }}>${icon(v.icon, 16)} ${v.label}</label>`)}</div></div>
+        <div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${(x.requires || []).includes("werkbank")}
+            @change=${(e: any) => this.set("requires", e.target.checked ? ["werkbank"] : [])}><b>Braucht die Werkbank</b></label>
+          <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
+          ${(x.requires || []).includes("werkbank") ? html`<textarea rows="2" placeholder="Was geht ohne Werkbank nicht? (z. B. Sprachnachrichten abschreiben)" .value=${x.requires_note || ""}
+            @input=${(e: any) => this.set("requires_note", e.target.value)}></textarea>` : nothing}</div>
         <div class="two">
           <label class="f"><span>${t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
             ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>

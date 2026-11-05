@@ -78,6 +78,7 @@ def _models_for_users(m) -> list[dict]:
 def _task_view(m, user_id: str, t: dict) -> dict:
     out = {k: v for k, v in t.items() if not k.startswith("_")}
     out["schedule_text"] = describe(t.get("schedule") or {})
+    out["werkbank_missing"] = "werkbank" in (t.get("requires") or []) and m.werkbank is None
     return out
 
 
@@ -373,7 +374,9 @@ async def ws_task_save(hass, conn, msg, m, user, st):
     task = dict(old, id=tid, name=str(t.get("name") or "Aufgabe")[:100], prompt=str(t.get("prompt") or ""),
                 project_id=t.get("project_id") or None, model=t.get("model") or None, schedule=sched,
                 enabled=bool(t.get("enabled", True)), allow_write=list(t.get("allow_write") or []),
-                tool_groups=t.get("tool_groups") or None, notify=t.get("notify") or "always", updated=now())
+                tool_groups=t.get("tool_groups") or None, notify=t.get("notify") or "always",
+                requires=[r for r in (t.get("requires", old.get("requires")) or []) if r in ("werkbank",)],
+                requires_note=str(t.get("requires_note", old.get("requires_note")) or "")[:1500], updated=now())
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
     st.meta["tasks"][tid] = task

@@ -241,7 +241,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict) -> dict:
                     prompt=str(t["prompt"]), schedule=sched or {"type": "daily", "time": "08:00"},
                     project_id=proj["id"] if proj else None, model=None, enabled=False,
                     allow_write=list(t.get("allow_write") or []), notify=t.get("notify") or "always",
-                    updated=now(), imported=True, imported_note=str(t.get("note") or "")[:500])
+                    requires=[r for r in (t.get("requires") or []) if r in ("werkbank",)],
+                    requires_note=str(t.get("requires_note") or "")[:1500],
+                    updated=now(), imported=True, imported_note=str(t.get("note") or "")[:1500])
         meta["tasks"][tid] = task
         m.scheduler.plan(user.id, task)
         res["tasks"] += 1

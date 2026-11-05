@@ -495,6 +495,11 @@ class ToolContext:
                 "## Geplante Aufgabe\nDieser Lauf ist unbeaufsichtigt – Rückfragen sind nicht möglich, also im Bericht "
                 f"stellen. Freigegebene schreibende Werkzeuge: {', '.join(perms) or 'keine'}; andere schreibende Aktionen "
                 "werden abgelehnt.")
+            if "werkbank" in (self.task.get("requires") or []) and self.manager.werkbank is None:
+                parts.append(
+                    "## Ohne Werkbank\nDiese Aufgabe braucht für einen Teil die Werkbank (Befehle/Python), die noch nicht "
+                    f"eingerichtet ist: {(self.task.get('requires_note') or '').strip()} Erledige alles, was mit den vorhandenen "
+                    "Werkzeugen geht, und nenne im Bericht deutlich, welche Schritte wegen der fehlenden Werkbank ausgelassen wurden.")
         if "werkbank" in self.groups():
             parts.append(
                 "## Werkbank\nMit `shell` führst du Befehle in einer eigenen Linux-Sandbox aus (Python 3.13 mit pandas, openpyxl, "
