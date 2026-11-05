@@ -1,0 +1,21 @@
+{
+  "name": "llmitmir-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild frontend/src/main.ts --bundle --minify --format=esm --target=es2021 --outfile=custom_components/llmitmir/frontend/llmitmir-panel.js --legal-comments=none",
+    "watch": "npm run build -- --watch",
+    "check": "tsc --noEmit -p frontend"
+  },
+  "dependencies": {
+    "@mdi/js": "^7.4.47",
+    "dompurify": "^3.4.17",
+    "lit": "^3.3.3",
+    "marked": "^14.1.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "typescript": "5.6"
+  }
+}

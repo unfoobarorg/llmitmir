@@ -1,0 +1,19 @@
+stages: [check]
+
+python:
+  stage: check
+  image: python:3.13-slim
+  script:
+    - python -m py_compile custom_components/llmitmir/*.py custom_components/llmitmir/tools/*.py
+    - python -c "import json,glob; [json.load(open(f)) for f in glob.glob('custom_components/llmitmir/**/*.json', recursive=True)]"
+    - pip install -q pytest aiohttp && PYTHONPATH=. pytest -q tests
+
+frontend:
+  stage: check
+  image: node:20-slim
+  script:
+    - npm ci --no-audit --no-fund
+    - npm run check
+    - cp custom_components/llmitmir/frontend/llmitmir-panel.js /tmp/committed.js
+    - npm run build
+    - cmp -s custom_components/llmitmir/frontend/llmitmir-panel.js /tmp/committed.js || (echo "Bundle nicht aktuell – npm run build ausführen und einchecken" && exit 1)

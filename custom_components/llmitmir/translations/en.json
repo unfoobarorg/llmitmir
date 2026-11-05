@@ -1,0 +1,38 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "LLMitMir is already set up. Configure everything else in the panel under “Admin”."
+    },
+    "error": {
+      "invalid_url": "Please enter a valid URL.",
+      "cannot_connect": "Could not load the model list with this key."
+    },
+    "step": {
+      "user": {
+        "title": "Set up LLMitMir",
+        "description": "Choose the (OpenAI-compatible) provider and how API keys are managed. Models, users, quotas and per-user keys are configured afterwards in the panel under “Admin”.",
+        "data": {
+          "preset": "Provider",
+          "base_url": "Base URL (empty = provider default)",
+          "key_mode": "API keys",
+          "api_key": "Shared API key (optional)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "preset": {
+      "options": {
+        "saia": "SAIA (GWDG / KISSKI)",
+        "openai_compatible": "OpenAI-compatible (custom URL)"
+      }
+    },
+    "key_mode": {
+      "options": {
+        "shared": "One shared key for everybody",
+        "per_user_admin": "Admin enters a key per person",
+        "per_user_own": "Every person enters their own key"
+      }
+    }
+  }
+}

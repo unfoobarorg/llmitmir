@@ -1,0 +1,38 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "LLMitMir ist schon eingerichtet. Alles Weitere stellst du im Panel unter „Admin“ ein."
+    },
+    "error": {
+      "invalid_url": "Bitte eine gültige URL angeben.",
+      "cannot_connect": "Mit diesem Schlüssel ließ sich die Modellliste nicht laden."
+    },
+    "step": {
+      "user": {
+        "title": "LLMitMir einrichten",
+        "description": "Wähle den Anbieter (OpenAI-kompatibel) und wie API-Schlüssel verwaltet werden. Modelle, Nutzer*innen, Kontingente und Schlüssel je Person stellst du danach im Panel unter „Admin“ ein.",
+        "data": {
+          "preset": "Anbieter",
+          "base_url": "Basis-URL (leer = Vorgabe des Anbieters)",
+          "key_mode": "API-Schlüssel",
+          "api_key": "Gemeinsamer API-Schlüssel (optional)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "preset": {
+      "options": {
+        "saia": "SAIA (GWDG / KISSKI)",
+        "openai_compatible": "OpenAI-kompatibel (eigene URL)"
+      }
+    },
+    "key_mode": {
+      "options": {
+        "shared": "Ein gemeinsamer Schlüssel für alle",
+        "per_user_admin": "Admin trägt je Person einen Schlüssel ein",
+        "per_user_own": "Jede Person trägt ihren eigenen Schlüssel ein"
+      }
+    }
+  }
+}
