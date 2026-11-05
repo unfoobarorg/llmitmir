@@ -203,9 +203,9 @@ export class ChatView extends LitElement {
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte: ${p.label}</b></div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
-        <button class="btn primary" @click=${() => store.api.ws("permission/answer", { id: p.id, decision: "once" })}>${t("Einmal erlauben")}</button>
-        <button class="btn" @click=${() => store.api.ws("permission/answer", { id: p.id, decision: "always" })}>${t("Immer erlauben")}</button>
-        <button class="btn ghost danger" @click=${() => store.api.ws("permission/answer", { id: p.id, decision: "deny" })}>${t("Ablehnen")}</button>
+        <button class="btn primary" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "once" })}>${t("Einmal erlauben")}</button>
+        <button class="btn" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "always" })}>${t("Immer erlauben")}</button>
+        <button class="btn ghost danger" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "deny" })}>${t("Ablehnen")}</button>
       </div><div class="hint">„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.</div></div>`);
   }
 

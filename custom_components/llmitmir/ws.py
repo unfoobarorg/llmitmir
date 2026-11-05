@@ -122,6 +122,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
 # ---------------------------------------------------------------- bootstrap / events
 @command(_t("bootstrap"))
 async def ws_bootstrap(hass, conn, msg, m, user, st):
+    await m.ensure_models(user.id)
     return await _bootstrap(hass, m, user, st)
 
 
@@ -214,9 +215,9 @@ async def ws_chat_stop(hass, conn, msg, m, user, st):
     return {"stopped": m.stop(user.id, msg["chat_id"])}
 
 
-@command(_t("permission/answer") | {vol.Required("id"): str, vol.Required("decision"): vol.In(["once", "always", "deny"])})
+@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "deny"])})
 async def ws_permission(hass, conn, msg, m, user, st):
-    return {"ok": m.answer_permission(user.id, msg["id"], msg["decision"])}
+    return {"ok": m.answer_permission(user.id, msg["permission_id"], msg["decision"])}
 
 
 @command(_t("files") | {vol.Required("scope"): vol.In(["chat", "project", "skill"]), vol.Required("owner"): str})

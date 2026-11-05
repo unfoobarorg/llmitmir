@@ -119,7 +119,12 @@ export class Composer extends LitElement {
       this.rec = r; this.recStart = Date.now();
       const tick = () => { if (!this.rec) return; this.recLevel = this.rec.level; this._raf = requestAnimationFrame(tick); };
       tick();
-    } catch (e: any) { store.notify("Mikrofon nicht verfügbar: " + (e?.message || e)); }
+    } catch (e: any) {
+      const blocked = e?.name === "NotAllowedError" || e?.name === "SecurityError";
+      store.notify(blocked
+        ? "Mikrofon gesperrt. Ist die Berechtigung erteilt, blockiert vermutlich der Webserver (Header Permissions-Policy: microphone=()) – dort microphone=(self) erlauben."
+        : "Mikrofon nicht verfügbar: " + (e?.message || e));
+    }
   }
 
   private async stopRec(use: boolean) {

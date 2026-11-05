@@ -32,7 +32,7 @@ export class LLMitMirPanel extends LitElement {
   private _onAdmin = async () => { if (!this.access?.allowed) { this.inited = false; this.access = null; await this.init(); } };
 
   static styles = [tokens, base, menuItemStyles, css`
-    :host { display: block; height: 100%; background: var(--lm-bg); position: relative; overflow: hidden; }
+    :host { display: block; height: 100vh; height: 100dvh; background: var(--lm-bg); position: relative; overflow: hidden; }
     .app { display: flex; height: 100%; }
     nav { width: 272px; flex: none; background: var(--lm-side); border-right: 1px solid var(--lm-line); display: flex; flex-direction: column;
       height: 100%; transition: width .22s ease, transform .25s ease; overflow: hidden; }

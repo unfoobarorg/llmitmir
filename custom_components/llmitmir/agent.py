@@ -69,10 +69,31 @@ class Manager:
         self.session = async_get_clientsession(hass)
         self.task_queue: asyncio.Queue = asyncio.Queue()
         self.scheduler = None  # set in __init__.py
+        self._models_try = 0.0
         load_all()
 
     async def async_setup(self) -> None:
         await self.config.async_load()
+
+    async def ensure_models(self, user_id: str) -> None:
+        """Load the model list with any usable key if it is still empty (e.g. per-user keys)."""
+        mm = self.config.data.setdefault("models", {})
+        if mm.get("known") or time.time() - self._models_try < 600:
+            return
+        self._models_try = time.time()
+        key = self.key_for(user_id, self.users.get(user_id)) or self.config.data.get("shared_key")
+        if not key:
+            return
+        try:
+            models = await self.provider.list_models(key)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("Could not load the model list", exc_info=True)
+            return
+        mm["known"] = [{"id": x.get("id"), "name": x.get("name") or x.get("id"), "input": x.get("input") or ["text"],
+                        "output": x.get("output") or ["text"], "status": x.get("status") or "ready"} for x in models]
+        if not mm.get("enabled"):
+            mm["enabled"] = [x["id"] for x in mm["known"] if x["status"] != "unavailable"]
+        await self.config.async_save()
 
     # ------------------------------------------------------------- basics
     @property
@@ -339,6 +360,9 @@ class Manager:
                                          "error": error})
             # drop a dangling empty streaming message
             chat["messages"] = [m for m in chat["messages"] if not (m.get("streaming") and not m.get("content"))]
+            if final_status != "done" and chat.get("progress"):
+                chat["progress"] = [dict(p, status="offen") if p.get("status") == "laeuft" else p for p in chat["progress"]]
+                self.emit(user.id, {"type": "progress", "chat_id": chat["id"], "items": chat["progress"]})
             chat["status"] = final_status if final_status != "done" else "idle"
             chat["last_run"] = {"status": final_status, "error": error, "finished": now(), "started": run.started}
             await st.async_save_chat(chat)

@@ -95,6 +95,7 @@ class FileView(_Base):
         ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
         disp = "inline" if ctype.startswith(("image/", "text/", "application/pdf")) else "attachment"
         return web.Response(body=data, content_type=ctype,
+                            charset="utf-8" if ctype.startswith("text/") or ctype.endswith(("json", "xml")) else None,
                             headers={"Content-Disposition": f'{disp}; filename="{safe_name(name)}"',
                                      "Cache-Control": "private, max-age=60"})
 
