@@ -4,22 +4,22 @@ from __future__ import annotations
 from homeassistant.core import Context
 
 from .. import credentials as C
+from .. import notifydevices as ND
 from .. import selfdoc
 from . import Tool, advance_progress, obj, register
 
 
 async def notify(ctx, a: dict):
-    target = ctx.store.meta["settings"].get("notify_service") or ""
-    if not target:
-        return "Fehler: In den Einstellungen ist kein Benachrichtigungsdienst gewählt."
-    domain, _, service = target.partition(".")
-    data = {"title": str(a.get("titel") or "LLMitMir")[:120], "message": str(a.get("text") or "")[:2000]}
-    if ctx.chat_id:
-        data["data"] = {"url": f"/llmitmir/chat/{ctx.chat_id}", "clickAction": f"/llmitmir/chat/{ctx.chat_id}",
-                        "tag": f"llmitmir-{ctx.chat_id}"}
-    await ctx.hass.services.async_call(domain or "notify", service, data, blocking=True,
-                                       context=Context(user_id=ctx.user.id))
-    return {"ok": True, "an": target}
+    devices = ND.apply_links(await ND.async_devices(ctx.hass), ctx.manager.config.data.get("notify_devices"))
+    device = ND.resolve(ND.for_user(devices, ctx.user_id), ctx.user_id, ctx.store.meta["settings"])
+    if not device:
+        return ("Fehler: In den Einstellungen ist kein Gerät für Benachrichtigungen gewählt "
+                "(oder deinem Benutzer ist in Home Assistant kein Gerät zugeordnet).")
+    await ND.async_send(ctx.hass, device, str(a.get("titel") or "LLMitMir")[:120], str(a.get("text") or "")[:2000],
+                        url=f"/llmitmir/chat/{ctx.chat_id}" if ctx.chat_id else "",
+                        tag=f"llmitmir-{ctx.chat_id}" if ctx.chat_id else "",
+                        context=Context(user_id=ctx.user.id))
+    return {"ok": True, "an": device["name"]}
 
 
 def _skill(ctx, name: str) -> dict | None:

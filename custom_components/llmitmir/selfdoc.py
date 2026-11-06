@@ -99,7 +99,7 @@ Geheime Felder siehst du nie; verwende den Namen als `zugang` in dav_*/http_requ
 ## Werkzeuggruppen
 Websuche & Abrufen (web_search, web_fetch) · Home Assistant (ha_states, ha_history, ha_service, ha_ws – immer an) · \
 Nextcloud/WebDAV/CalDAV (dav_list, dav_read, dav_write, dav_request, caldav_events) · HTTP-Anfragen (http_request) · \
-Dateien (file_list, file_read, file_write) · Benachrichtigungen (notify, an das in den Einstellungen gewählte Gerät) · \
+Dateien (file_list, file_read, file_write) · Benachrichtigungen (notify, an das eigene, in den Einstellungen gewählte Gerät der Person) · \
 Skills (skill_load, skill_file, credentials_list) · Fortschritt (progress_update, nur Cowork) · \
 Werkbank (shell, werkbank_files, werkbank_fetch, werkbank_push – nur wenn ein Admin sie eingerichtet hat).
 Schreibende Werkzeuge fragen die Person, sofern sie in den Einstellungen oder im Projekt nicht dauerhaft erlaubt/verboten sind.

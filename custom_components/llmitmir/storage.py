@@ -66,6 +66,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "search": {"provider": "duckduckgo", "searxng_url": ""},
     "werkbank": {"url": "", "token": ""},
     "views": {"default": "choice", "users": {}},   # simple (Laien) or expert view, see views.py
+    "notify_devices": {"overrides": {}},   # device key -> user id, where an admin corrected the link, see notifydevices.py
 }
 
 

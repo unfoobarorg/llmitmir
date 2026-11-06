@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from . import credentials as C
 from . import manage as M
 from . import models as MS
+from . import notifydevices as ND
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
                     TASK_KEY_MODES, VERSION)
@@ -85,6 +86,12 @@ async def _bootstrap(hass, m, user, st) -> dict:
     s = dict(st.meta["settings"])
     s["has_own_key"] = bool(s.pop("own_key", ""))
     s["has_own_task_key"] = bool(s.pop("own_task_key", ""))
+    # The device this person actually uses (own choice, else their only device) – the panel shows its name
+    devices = ND.apply_links(await ND.async_devices(hass), m.config.data.get("notify_devices"))
+    device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
+    s["notify_device"] = device["key"] if device else ""
+    s["notify_device_name"] = device["name"] if device else ""
+    s.pop("notify_service", None)
     sched = m.scheduler
     runs = {r.chat_id: {"run_id": r.id, "status": r.status, "detail": r.detail, "started": r.started, "hint": r.hint}
             for r in m.runs.values() if r.user_id == user.id}
@@ -358,9 +365,17 @@ async def ws_task_preview(hass, conn, msg, m, user, st):
 async def ws_settings_save(hass, conn, msg, m, user, st):
     s = msg["settings"]
     cur = st.meta["settings"]
-    for k in ("model_chat", "model_agent", "notify_service", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
+    for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
+    if "notify_device" in s:
+        # Only a device that belongs to this person – the link is set in Home Assistant (or by an admin)
+        key = str(s["notify_device"] or "")
+        own = ND.for_user(await _devices(hass, m), user.id)
+        if key and not any(d["key"] == key for d in own):
+            raise ValueError("Dieses Gerät gehört nicht zu deinem Benutzer")
+        cur["notify_device"] = key
+        cur.pop("notify_service", None)  # replaced by the device choice
     if "own_key" in s and s["own_key"] != MASK:
         cur["own_key"] = str(s["own_key"]).strip()
     if "own_task_key" in s and s["own_task_key"] != MASK:
@@ -395,10 +410,18 @@ async def ws_usage_history(hass, conn, msg, m, user, st):
             "task_key_days": m.task_key_usage(tk)["days"] if tk else []}
 
 
-@command(_t("notify_services"))
-async def ws_notify_services(hass, conn, msg, m, user, st):
-    svc = hass.services.async_services().get("notify", {})
-    return sorted(f"notify.{s}" for s in svc if s not in ("send_message", "persistent_notification"))
+async def _devices(hass, m) -> list[dict]:
+    """All push devices with the person they belong to (Home Assistant's link, corrected by admins)."""
+    return ND.apply_links(await ND.async_devices(hass), m.config.data.get("notify_devices"))
+
+
+@command(_t("notify_devices"))
+async def ws_notify_devices(hass, conn, msg, m, user, st):
+    """The devices of this person only – names as people know them, never identifiers."""
+    own = ND.for_user(await _devices(hass, m), user.id)
+    chosen = ND.resolve(own, user.id, st.meta["settings"])
+    return {"devices": [{"key": d["key"], "name": d["name"], "available": d["available"]} for d in own],
+            "selected": chosen["key"] if chosen else ""}
 
 
 @command(_t("import/token"))
@@ -412,7 +435,7 @@ async def ws_import_token(hass, conn, msg, m, user, st):
 
 
 # ---------------------------------------------------------------- admin
-def _admin_view(m, users) -> dict:
+def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
     cfg = m.config.data
     usage = {}
     for u in users:
@@ -437,6 +460,10 @@ def _admin_view(m, users) -> dict:
         "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
                    "view": (m.users[u.id].meta["settings"].get("view") if u.id in m.users else None)} for u in users],
         "views": V.clean(cfg.get("views")),
+        "notify_devices": [{"key": d["key"], "name": d["name"], "service": d["service"], "entity_id": d["entity_id"],
+                            "user_id": d["user_id"], "source": d["source"], "available": d["available"],
+                            "linked_by_admin": bool(d.get("linked_by_admin"))} for d in (devices or [])],
+        "notify_overrides": (cfg.get("notify_devices") or {}).get("overrides") or {},
         "usage_today": usage,
         "key_limits": {"shared": m.provider.key_state(cfg["shared_key"]).snapshot()} if cfg.get("shared_key") else {},
     }
@@ -458,7 +485,7 @@ async def _users(hass):
 
 @command(_t("admin/get"), admin=True)
 async def ws_admin_get(hass, conn, msg, m, user, st):
-    return _admin_view(m, await _users(hass))
+    return _admin_view(m, await _users(hass), await _devices(hass, m))
 
 
 @command(_t("admin/save") | {vol.Required("config"): dict}, admin=True)
@@ -498,6 +525,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
             cfg[k] = c[k]
     if "views" in c:
         cfg["views"] = V.clean(c["views"])
+    if "notify_devices" in c:
+        cfg["notify_devices"] = ND.clean_links(c["notify_devices"])
     if "werkbank" in c:
         wb = dict(cfg.get("werkbank") or {})
         wb["url"] = str(c["werkbank"].get("url") or "").strip().rstrip("/")
@@ -513,7 +542,7 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
     await m.config.async_save()
     for uid in list(m.subscribers):
         m.emit(uid, {"type": "meta", "section": "all"})
-    return _admin_view(m, await _users(hass))
+    return _admin_view(m, await _users(hass), await _devices(hass, m))
 
 
 @command(_t("admin/models_refresh") | {vol.Optional("key"): str}, admin=True)

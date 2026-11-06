@@ -161,19 +161,22 @@ class Scheduler:
         await st.async_save_meta()
         self.m.emit(user.id, {"type": "meta", "section": "tasks"})
         mode = task.get("notify") or "always"
-        target = st.meta["settings"].get("notify_service")
-        send = target and (mode == "always" or (mode == "error" and status != "done")
-                           or (mode == "on_change" and (status != "done" or last["summary"] != prev_summary)))
+        send = mode == "always" or (mode == "error" and status != "done") \
+            or (mode == "on_change" and (status != "done" or last["summary"] != prev_summary))
         if send:
-            domain, _, service = target.partition(".")
+            from . import notifydevices as ND
+
+            devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
+            device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
             title = ("✓ " if status == "done" else "⚠ ") + str(task.get("name") or "Aufgabe")
-            text = (error or answer or "Fertig.")
-            text = re.sub(r"[#*_`>]+", "", text).strip()
+            text = re.sub(r"[#*_`>]+", "", (error or answer or "Fertig.")).strip()
             try:
-                await self.hass.services.async_call(domain, service, {
-                    "title": title[:100], "message": text[:900],
-                    "data": {"url": f"/llmitmir/chat/{chat['id']}", "clickAction": f"/llmitmir/chat/{chat['id']}",
-                             "tag": f"llmitmir-task-{task['id']}"}}, blocking=False, context=Context(user_id=user.id))
+                if device:
+                    await ND.async_send(self.hass, device, title[:100], text[:900],
+                                        url=f"/llmitmir/chat/{chat['id']}", tag=f"llmitmir-task-{task['id']}",
+                                        context=Context(user_id=user.id))
+                else:
+                    _LOGGER.debug("Task %s: no push device for user %s", task.get("id"), user.id)
             except Exception:  # noqa: BLE001
                 _LOGGER.warning("Notification for task %s failed", task.get("id"), exc_info=True)
         done = self._done.get((user.id, task["id"]))

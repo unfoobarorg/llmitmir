@@ -59,7 +59,9 @@ export class SettingsPage extends StoreElement {
   @state() private s: any = {};
   @state() private memory = "";
   @state() private dirty = false;
-  @state() private notifiers: string[] = [];
+  @state() private devices: any[] = [];
+  @state() private deviceSel = "";
+  @state() private devicesLoaded = false;
   @state() private history: any = null;
   @state() private imp: any = null;
   @state() private impResult: any = null;
@@ -68,10 +70,14 @@ export class SettingsPage extends StoreElement {
   connectedCallback() {
     super.connectedCallback();
     this.reset();
-    store.api.ws("notify_services").then(r => (this.notifiers = r));
+    store.api.ws("notify_devices").then(r => {
+      this.devices = r.devices || []; this.deviceSel = r.selected || ""; this.devicesLoaded = true; });
     store.api.ws("usage/history").then(r => (this.history = r));
   }
-  private reset() { this.s = { ...(store.data?.settings || {}) }; this.memory = store.data?.memory || ""; this.dirty = false; }
+  private reset() {
+    this.s = { ...(store.data?.settings || {}) }; this.memory = store.data?.memory || ""; this.dirty = false;
+    this.deviceSel = this.s.notify_device || "";
+  }
   private set(k: string, v: any) { this.s = { ...this.s, [k]: v }; this.dirty = true; }
   private async save() {
     const payload: any = { ...this.s, memory: this.memory }; delete payload.has_own_key; delete payload.has_own_task_key;
@@ -79,6 +85,8 @@ export class SettingsPage extends StoreElement {
     if (!payload.own_task_key) delete payload.own_task_key;
     if (store.data?.usage?.tasks?.mode !== "user") delete payload.task_key_choice;
     if (store.data?.view?.locked) delete payload.view;
+    delete payload.notify_service;  // replaced by the device choice
+    payload.notify_device = this.deviceSel;
     try { await store.api.ws("settings/save", { settings: payload }); } catch (e: any) { store.notify(e.message); return; }
     this.dirty = false; store.notify(t("Gespeichert")); await store.load(); this.reset();
     store.api.ws("usage/history").then(r => (this.history = r));
@@ -164,8 +172,16 @@ export class SettingsPage extends StoreElement {
         <div class="hint">Der Schlüssel gilt nur für dich. Limits und Verbrauch beziehen sich auf ihn.</div></section>` : nothing}
       ${this.taskKeySection()}
       <section><h2>${icon("bell", 18)} Benachrichtigungen</h2>
-        <label class="f"><span>Gerät für Push-Nachrichten (Aufgaben, Werkzeug „Benachrichtigen“)</span><select @change=${(e: any) => this.set("notify_service", e.target.value)}>
-          <option value="">keins</option>${this.notifiers.map(n => html`<option value=${n} ?selected=${s.notify_service === n}>${n}</option>`)}</select></label></section>
+        ${!this.devicesLoaded ? html`<div class="hint">Geräte werden geladen …</div>` : this.devices.length ? html`<label class="f"><span>Gerät für Push-Nachrichten (Aufgaben, Werkzeug „Benachrichtigen“)</span>
+          <select @change=${(e: any) => { this.deviceSel = e.target.value; this.dirty = true; }}>
+            ${this.devices.length > 1 ? html`<option value="" ?selected=${!this.deviceSel}>bitte wählen</option>` : nothing}
+            ${this.devices.map((d: any) => html`<option value=${d.key} ?selected=${this.deviceSel === d.key}>${d.name}${d.available ? "" : " (nicht erreichbar)"}</option>`)}</select></label>
+          <div class="hint">Zur Auswahl stehen nur die Geräte, die in Home Assistant mit deinem Benutzer verknüpft sind.
+            ${d.user.is_admin ? html`Welches Gerät zu wem gehört, siehst und änderst du unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Benachrichtigungsgeräte</a>.`
+              : "Fehlt dein Gerät, frag einen Admin von Home Assistant."}</div>`
+          : html`<div class="hint">Deinem Benutzer ist in Home Assistant noch kein Gerät zugeordnet – deshalb gibt es hier nichts auszuwählen.
+            ${d.user.is_admin ? html`Unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Benachrichtigungsgeräte</a> kannst du Geräte zuordnen.`
+              : "Ein Admin von Home Assistant kann dein Handy mit deinem Benutzer verknüpfen."}</div>`}</section>
       <section><h2>${icon("user", 18)} ${t("Persönliche Hinweise")}</h2>
         <textarea rows="7" placeholder="Was soll LLMitMir immer über dich wissen? Vorlieben, Schreibstil, Zusammenhänge …" .value=${this.memory}
           @input=${(e: any) => { this.memory = e.target.value; this.dirty = true; }}></textarea>
@@ -232,6 +248,7 @@ export class AdminPage extends StoreElement {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
         task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
         allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank, views: a.views,
+        notify_devices: { overrides: a.notify_overrides || {} },
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false } } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
@@ -243,6 +260,36 @@ export class AdminPage extends StoreElement {
     try { this.a = await store.api.ws("admin/models_refresh", this.a.shared_key && this.a.shared_key !== "•••" ? { key: this.a.shared_key } : {}); store.notify("Modelle geladen"); }
     catch (e: any) { store.notify(e.message); }
     this.loading = false;
+  }
+  private deviceSection(users: any[]) {
+    const devs: any[] = this.a.notify_devices || [];
+    const ov: Record<string, string> = this.a.notify_overrides || {};
+    const setOv = (key: string, uid: string) => {
+      const next = { ...ov };
+      if (uid) next[key] = uid; else delete next[key];
+      this.set("notify_overrides", next);
+    };
+    const byUser = new Map<string, string[]>();
+    for (const d of devs) {
+      const uid = ov[d.key] !== undefined ? ov[d.key] : d.user_id;
+      if (uid) byUser.set(uid, [...(byUser.get(uid) || []), d.name]);
+    }
+    return html`<section><h2>${icon("bell", 18)} Benachrichtigungsgeräte</h2>
+      <div class="hint" style="margin-bottom:10px">Welches Gerät zu welcher Person gehört, sagt Home Assistant: Ein Handy gehört der Person,
+        die die Home-Assistant-App darauf eingerichtet hat. Jede Person wählt in ihren Einstellungen nur noch unter ihren eigenen Geräten.
+        Stimmt eine Zuordnung nicht, korrigierst du sie hier – die Korrektur gilt sofort und überlebt neue Anmeldungen des Geräts.</div>
+      ${devs.length ? html`<div class="tw"><table><tr><th>Gerät</th><th>Person</th><th>Herkunft</th></tr>
+        ${devs.map((d: any) => { const uid = ov[d.key] !== undefined ? ov[d.key] : (d.user_id || "");
+          return html`<tr><td><b>${d.name}</b>${d.available ? nothing : html` <span class="chip">nicht erreichbar</span>`}
+              <div class="hint">${d.service || d.entity_id || "kein Dienst"}</div></td>
+            <td><select style="width:auto;padding:6px 8px" @change=${(e: any) => setOv(d.key, e.target.value)}>
+              <option value="" ?selected=${!uid}>– keine Person –</option>
+              ${users.map((u: any) => html`<option value=${u.id} ?selected=${uid === u.id}>${u.name}</option>`)}</select></td>
+            <td class="hint">${ov[d.key] !== undefined ? html`von dir zugeordnet${d.user_id && d.user_id !== ov[d.key] ? " (Home Assistant sagt: " + (users.find((u: any) => u.id === d.user_id)?.name || "andere Person") + ")" : ""}`
+              : d.user_id ? "aus Home Assistant" : "in Home Assistant keiner Person zugeordnet"}</td></tr>`; })}</table></div>`
+        : html`<div class="hint">Keine Geräte gefunden – die Home-Assistant-App muss auf dem Handy eingerichtet sein.</div>`}
+      <div class="hint" style="margin-top:10px">${users.map((u: any) => html`<div>${u.name}: ${byUser.get(u.id)?.join(", ") || "kein Gerät"}</div>`)}</div>
+      <div class="hint" style="margin-top:6px">Hat eine Person mehrere Geräte, wählt sie selbst; hat sie nur eines, gilt das automatisch.</div></section>`;
   }
   private viewSection(users: any[]) {
     const vw = this.a.views || { default: "choice", users: {} };
@@ -333,6 +380,7 @@ export class AdminPage extends StoreElement {
             @input=${(e: any) => this.set("quota_default", { ...a.quota_default, requests_day: Number(e.target.value) })}></label>
           <label class="f"><span>Standard-Kontingent Tokens/Tag (0 = unbegrenzt)</span><input type="number" min="0" .value=${String(a.quota_default.tokens_day || 0)}
             @input=${(e: any) => this.set("quota_default", { ...a.quota_default, tokens_day: Number(e.target.value) })}></label></div></section>
+      ${this.deviceSection(a.users)}
       ${this.viewSection(users)}
       <section><h2>${icon("sparkle", 18)} Modelle</h2>
         <div class="row" style="margin-bottom:10px"><button class="btn" @click=${this.refresh} ?disabled=${this.loading}>${this.loading ? html`<lm-spark size="16"></lm-spark>` : icon("retry", 16)} Modellliste laden</button>

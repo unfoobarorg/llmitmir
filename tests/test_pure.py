@@ -446,3 +446,42 @@ def test_views_resolve_and_clean():
         views.clean({"default": "laie"})
     with pytest.raises(ValueError):
         views.clean({"users": {"a": "laie"}})
+
+
+nd = load("notifydevices")
+
+
+def _dev(key, name, user, service="", available=True):
+    return {"key": key, "name": name, "service": service, "entity_id": "", "user_id": user,
+            "source": "mobile_app", "available": available}
+
+
+def test_notify_devices_only_own_and_readable_names():
+    devs = [_dev("d1", "FP5G", "niko", "notify.mobile_app_fp5g"), _dev("d2", "NiPad", "niko", "notify.mobile_app_nipad"),
+            _dev("d3", "Klaus S26", "klaus", "notify.mobile_app_klaus_s26"), _dev("d4", "Lautsprecher", None)]
+    # only the person's own devices, and never an identifier instead of the name
+    assert [d["name"] for d in nd.for_user(devs, "niko")] == ["FP5G", "NiPad"]
+    assert nd.for_user(devs, "doro") == []
+    # own choice wins
+    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {"notify_device": "d2"})["name"] == "NiPad"
+    # a device of somebody else is never used
+    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {"notify_device": "d3"}) is None
+    # exactly one device: no choice needed
+    assert nd.resolve(nd.for_user(devs, "klaus"), "klaus", {})["name"] == "Klaus S26"
+    # several devices and nothing chosen: ask instead of guessing
+    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {}) is None
+    # setting from before the change (a notify service) still resolves to the device
+    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {"notify_service": "notify.mobile_app_nipad"})["name"] == "NiPad"
+
+
+def test_notify_device_links_by_admin():
+    devs = [_dev("d1", "FP5G", "niko"), _dev("d2", "Klaus S26", "klaus"), _dev("d3", "Altes Handy", None)]
+    linked = nd.apply_links(devs, {"overrides": {"d2": "niko", "d3": "doro"}})
+    assert [d["name"] for d in nd.for_user(linked, "niko")] == ["FP5G", "Klaus S26"]
+    assert [d["name"] for d in nd.for_user(linked, "doro")] == ["Altes Handy"]
+    assert nd.for_user(linked, "klaus") == []
+    assert all(d.get("linked_by_admin") for d in linked if d["key"] in ("d2", "d3"))
+    # an empty value means "as Home Assistant says"
+    assert nd.clean_links({"overrides": {"d2": "", "d3": "doro"}}) == {"overrides": {"d3": "doro"}}
+    assert nd.clean_links(None) == {"overrides": {}}
+    assert nd.clean_name("  NiPad \n") == "NiPad"

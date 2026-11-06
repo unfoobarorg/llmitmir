@@ -42,6 +42,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt.
 - **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, persönliche Kontingente und die
   Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als Füllanzeige.
+- **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
+  Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
+  noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*
+  sieht der Admin, welches Gerät mit welcher Person verknüpft ist, und kann es korrigieren.
 - **Mehrere Personen**: Alles ist pro HA-Nutzer*in getrennt. Admins legen fest, wer LLMitMir nutzen darf, und wählen,
   ob es **einen gemeinsamen Schlüssel**, **einen Schlüssel je Person (vom Admin eingetragen)** oder **eigene Schlüssel** gibt.
 - **Eigener Schlüssel für geplante Aufgaben** (optional), damit Aufgaben nicht das Kontingent für spontane Chats aufbrauchen:
