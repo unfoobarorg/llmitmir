@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -70,8 +70,10 @@ KNOWN_CONTEXT = {
 }
 
 # Agent limits
-MAX_STEPS_CHAT = 15
+MAX_STEPS_CHAT = 15         # expert view: before the limit the person is asked whether more steps may be used
+MAX_STEPS_CHAT_SIMPLE = 25  # simple view: nobody is asked, so the limit is higher from the start
 MAX_STEPS_COWORK = 60
+MAX_STEPS_MORE = 15         # steps added each time the person (expert view) allows more
 PROGRESS_NUDGE_STEPS = 4  # remind the model when the visible step list has not moved for this many steps
 WRAPUP_STEPS = 4  # from this many steps before the limit the model is told to wrap up; the last step has no tools
 TOOL_RESULT_MAX_CHARS = 24_000

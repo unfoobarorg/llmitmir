@@ -24,7 +24,8 @@ from . import taskkeys as TK
 from . import views as V
 from .const import (AUTO, DEFAULT_CONTEXT, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
-                    KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_COWORK, PERM_ALLOW, PERM_ASK, PERM_DENY,
+                    KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
+                    MAX_STEPS_MORE, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
@@ -494,8 +495,8 @@ class Manager:
         self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
         interactive = task is None
         max_wait = RETRY_INTERACTIVE_MAX_WAIT if interactive else RETRY_TASK_MAX_WAIT
-        steps = MAX_STEPS_CHAT if chat["kind"] == KIND_CHAT else MAX_STEPS_COWORK
         final_status, error = "done", None
+        steps = MAX_STEPS_COWORK
         try:
             key, separate = self.run_key(user.id, st, task is not None)
             if not key:
@@ -503,6 +504,8 @@ class Manager:
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
             simple = self.simple(user.id)
+            if chat["kind"] == KIND_CHAT:
+                steps = MAX_STEPS_CHAT_SIMPLE if simple else MAX_STEPS_CHAT
             if simple and not chat.get("model_auto"):
                 # simple view: a model fixed earlier (expert view, project) gives way to the default
                 default, auto = self._default(user.id, "chat" if chat["kind"] == KIND_CHAT else "agent")
@@ -518,10 +521,24 @@ class Manager:
             tools = ctx.tool_specs()
             await ctx.preload_images()
             last_progress = 0  # step of the last progress_update (or reminder)
-            for step in range(steps):
+            step = -1
+            while True:
+                step += 1
+                if step >= steps:
+                    chat["messages"].append({"id": new_id("m"), "role": "assistant", "created": now(),
+                                             "content": f"_Abgebrochen: Höchstzahl von {steps} Schritten erreicht._"})
+                    break
                 if run.cancel.is_set():
                     final_status = "stopped"
                     break
+                if tools and interactive and not simple and steps - step == WRAPUP_STEPS:
+                    # expert view: the model is still at work and the limit is near – ask before it has to wrap up
+                    more = await self._ask_more_steps(run, steps)
+                    if run.cancel.is_set():
+                        final_status = "stopped"
+                        break
+                    if more:
+                        steps += MAX_STEPS_MORE
                 self.check_quota(user.id, separate)
                 left = steps - step
                 final = bool(tools) and left == 1
@@ -661,9 +678,6 @@ class Manager:
                     chat["messages"].append(res_msg)
                     await st.async_save_chat(chat)
                     self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": res_msg})
-            else:
-                chat["messages"].append({"id": new_id("m"), "role": "assistant", "created": now(),
-                                         "content": f"_Abgebrochen: Höchstzahl von {steps} Schritten erreicht._"})
         except asyncio.CancelledError:
             final_status = "stopped"
             raise
@@ -689,6 +703,13 @@ class Manager:
             self.runs.pop(run.id, None)
             if task is not None and self.scheduler:
                 await self.scheduler.run_finished(user, task, chat, final_status, error)
+
+    async def _ask_more_steps(self, run: Run, steps: int) -> bool:
+        """Ask (expert view) whether the run may go on for MAX_STEPS_MORE more steps instead of wrapping up."""
+        decision = await self.ask_permission(run, {"tool": "more_steps", "label": f"{MAX_STEPS_MORE} weitere Schritte",
+                                                   "icon": "list", "steps": {"used": steps - WRAPUP_STEPS,
+                                                                              "limit": steps, "more": MAX_STEPS_MORE}})
+        return decision != "deny"
 
     async def _apply_switch(self, run: Run, chat: dict, st: UserStore, amsg: dict | None) -> None:
         old, new = chat["model"], run.switch_to or chat["model"]

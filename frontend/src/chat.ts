@@ -362,7 +362,14 @@ export class ChatView extends LitElement {
 
   private permCards() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => p.change ? html`<div class="perm">
+    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => p.steps ? html`<div class="perm">
+      <div class="row">${icon("list")}<b class="grow">LLMitMir ist noch nicht fertig – weitere ${p.steps.more} Schritte verwenden?</b></div>
+      <div class="hint">${p.steps.used} von ${p.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${p.steps.limit - p.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.</div>
+      <div class="row">
+        <button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${p.steps.more} weitere Schritte</button>
+        <button class="btn ghost" @click=${() => answer(p, "deny")}>Zum Ende kommen</button>
+      </div></div>`
+    : p.change ? html`<div class="perm">
       <div class="row">${icon("edit")}<b class="grow">LLMitMir schlägt diese Änderung vor</b></div>
       ${changeView(p.change)}
       <div class="row">
