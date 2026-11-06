@@ -22,7 +22,7 @@ from . import taskkeys as TK
 from .const import (DEFAULT_CONTEXT, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_COWORK, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
-                    TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
+                    PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import Provider, ProviderError, QuotaExhausted, StreamAccumulator
 from .storage import ConfigStore, UserStore, new_id, now
 from .tools import GROUPS, REGISTRY, as_text, load_all
@@ -334,6 +334,7 @@ class Manager:
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
             tools = ctx.tool_specs()
             await ctx.preload_images()
+            last_progress = 0  # step of the last progress_update (or reminder)
             for step in range(steps):
                 if run.cancel.is_set():
                     final_status = "stopped"
@@ -342,6 +343,18 @@ class Manager:
                 messages = ctx.api_messages()
                 left = steps - step
                 final = bool(tools) and left == 1
+                prog = chat.get("progress") or []
+                if (not final and "progress" in ctx.groups() and prog and step - last_progress >= PROGRESS_NUDGE_STEPS
+                        and any(p.get("status") != "erledigt" for p in prog)):
+                    # the visible list lags behind; remind the model once, then wait again
+                    last_progress = step
+                    now_item = next((i for i, p in enumerate(prog, 1) if p.get("status") == "laeuft"), None) or next(
+                        (i for i, p in enumerate(prog, 1) if p.get("status") == "offen"), 1)
+                    messages.append({"role": "user", "content": (
+                        f"[LLMitMir] Die sichtbare Schrittliste steht seit {PROGRESS_NUDGE_STEPS} Schritten auf "
+                        f"„{now_item}. {prog[now_item - 1].get('text', '')}“. Bist du weiter, rufe `progress_update` mit "
+                        "`aktuell` = Nummer des laufenden Schritts auf – zusammen mit deinem nächsten Werkzeug, "
+                        "nicht als eigener Schritt.")})
                 if tools and left <= WRAPUP_STEPS:
                     # tell the model about the limit so it ends with a report instead of being cut off
                     messages.append({"role": "user", "content": (
@@ -413,6 +426,8 @@ class Manager:
                 for call in calls:
                     if run.cancel.is_set():
                         break
+                    if (call.get("function") or {}).get("name") == "progress_update":
+                        last_progress = step
                     res_msg = await ctx.execute(call)
                     chat["messages"].append(res_msg)
                     await st.async_save_chat(chat)
@@ -554,7 +569,9 @@ class ToolContext:
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "
-                "(3–8 Schritte) und halte den Status aktuell. Nutze die Werkzeuge, prüfe Ergebnisse, rate nichts. "
+                "(3–8 Schritte). Die Person sieht die Liste live: Sobald du mit einem neuen Schritt beginnst, "
+                "`progress_update` mit `aktuell` = seiner Nummer aufrufen, im selben Zug wie das nächste Werkzeug. "
+                "Nutze die Werkzeuge, prüfe Ergebnisse, rate nichts. "
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
                 "was erledigt ist, was offen ist, Rückfragen.")
         if self.task is not None:

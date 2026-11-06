@@ -167,3 +167,14 @@ def test_read_body_reads_all_chunks():
     assert data == b"".join(chunks) and not cut
     data, cut = asyncio.run(tools.read_body(Resp(chunks), 100))
     assert len(data) == 100 and cut
+
+
+def test_progress_short_form():
+    spec = importlib.util.spec_from_file_location("lm_tools2", BASE / "tools" / "__init__.py")
+    tools = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = tools
+    spec.loader.exec_module(tools)
+    items = [{"text": t, "status": s} for t, s in (("a", "erledigt"), ("b", "laeuft"), ("c", "fehler"), ("d", "offen"))]
+    assert [x["status"] for x in tools.advance_progress(items, 4)] == ["erledigt", "erledigt", "fehler", "laeuft"]
+    assert [x["status"] for x in tools.advance_progress(items, 2)] == ["erledigt", "laeuft", "fehler", "offen"]
+    assert all(x["status"] in ("erledigt", "fehler") for x in tools.advance_progress(items, 5))

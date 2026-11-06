@@ -59,6 +59,21 @@ def as_text(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
+def advance_progress(items: list[dict], current: int) -> list[dict]:
+    """Short form: steps before `current` (1-based) are done (unless failed), `current` is running."""
+    out = []
+    for i, p in enumerate(items, 1):
+        st = p.get("status") or "offen"
+        if i < current and st != "fehler":
+            st = "erledigt"
+        elif i == current:
+            st = "laeuft"
+        elif i > current and st == "laeuft":
+            st = "offen"
+        out.append(dict(p, status=st))
+    return out
+
+
 async def read_body(resp, limit: int) -> tuple[bytes, bool]:
     """Read a response body up to ``limit`` bytes; returns (data, truncated).
 

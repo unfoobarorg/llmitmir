@@ -4,7 +4,7 @@ from __future__ import annotations
 from homeassistant.core import Context
 
 from .. import credentials as C
-from . import Tool, obj, register
+from . import Tool, advance_progress, obj, register
 
 
 async def notify(ctx, a: dict):
@@ -56,6 +56,17 @@ async def skill_file(ctx, a: dict):
 
 
 async def progress_update(ctx, a: dict):
+    if not a.get("schritte") and a.get("aktuell") is not None:
+        cur = ctx.chat.get("progress") or []
+        if not cur:
+            return "Fehler: Es gibt noch keine Schrittliste – zuerst mit „schritte“ planen."
+        try:
+            n = int(a["aktuell"])
+        except (TypeError, ValueError):
+            return "Fehler: „aktuell“ ist die Nummer des Schritts (1, 2, …)."
+        items = advance_progress(cur, n)
+        await ctx.set_progress(items)
+        return {"ok": True, "aktuell": items[n - 1]["text"] if 1 <= n <= len(items) else "alle erledigt"}
     items = []
     for x in a.get("schritte") or []:
         if isinstance(x, str):
@@ -78,9 +89,14 @@ register(Tool("skill_load", "skills", "Lädt die vollständige Anleitung eines S
 register(Tool("skill_file", "skills", "Liest eine Datei, die zu einem Skill gehört.",
               obj({"name": {"type": "string"}, "datei": {"type": "string"}}, ["name", "datei"]), skill_file,
               label="Skill-Datei lesen", icon="mdi:file-document-outline"))
-register(Tool("progress_update", "progress", "Aktualisiert die sichtbare Schrittliste des Coworks (ganze Liste schicken). Zu Beginn planen, dann Status pflegen.",
+register(Tool("progress_update", "progress",
+              "Sichtbare Schrittliste des Coworks. Zu Beginn mit „schritte“ planen (ganze Liste). Beim Übergang zum nächsten "
+              "Schritt reicht „aktuell“ = Nummer des Schritts, an dem du jetzt arbeitest (die davor gelten als erledigt; "
+              "Anzahl+1 = alle erledigt) – am besten im selben Zug wie das nächste Werkzeug. „schritte“ erneut schicken, "
+              "um umzuplanen oder einen Schritt als fehler zu markieren.",
               obj({"schritte": {"type": "array", "items": {"type": "object", "properties": {
-                  "text": {"type": "string"}, "status": {"type": "string", "enum": ["offen", "laeuft", "erledigt", "fehler"]}}}}},
-                  ["schritte"]), progress_update, label="Fortschritt", icon="mdi:format-list-checks"))
+                  "text": {"type": "string"}, "status": {"type": "string", "enum": ["offen", "laeuft", "erledigt", "fehler"]}}}},
+                   "aktuell": {"type": "integer", "description": "Nummer des Schritts, der jetzt läuft (1 = erster)"}}),
+              progress_update, label="Fortschritt", icon="mdi:format-list-checks"))
 register(Tool("credentials_list", "skills", "Listet die verfügbaren Zugänge (ohne Geheimnisse).", obj({}), credentials_list,
               label="Zugänge ansehen", icon="mdi:key-outline"))
