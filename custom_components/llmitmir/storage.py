@@ -62,7 +62,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "allowed_users": [],      # user ids allowed to use the panel (admins always may configure)
     "quota_default": {"requests_day": 0, "tokens_day": 0},   # 0 = unlimited
     "quota_users": {},        # user_id -> {"requests_day", "tokens_day"}
-    "models": {"enabled": [], "defaults": {}, "context": {}, "known": []},
+    "models": {"enabled": [], "defaults": {}, "context": {}, "known": [], "auto_enable_new": True},
     "search": {"provider": "duckduckgo", "searxng_url": ""},
     "werkbank": {"url": "", "token": ""},
 }
@@ -158,8 +158,8 @@ class UserStore:
         return chat
 
     def chat_summary(self, chat: dict) -> dict:
-        return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "created", "updated",
-                                        "pinned", "status", "usage", "tools")} | {"messages": len(chat.get("messages") or [])}
+        return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",
+                                        "updated", "pinned", "status", "usage", "tools")} | {"messages": len(chat.get("messages") or [])}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:
         if not keep_updated or not chat.get("updated"):

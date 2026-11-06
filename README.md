@@ -22,6 +22,14 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Geplante Aufgaben** mit Zeitplan (täglich, werktags, Wochentage, monatlich, Intervall, einmalig, Cron), gemeinsamer
   Warteschlange, langen Wiederholungsfristen und Push-Benachrichtigung über die HA-App. Ausdrücklich für Open-Weight-Modelle
   gebaut: Läufe dürfen verzögert starten und lange dauern.
+- **Passendes Modell, auch unter Last**: LLMitMir lädt die Modellliste alle drei Minuten neu – bei SAIA mit Auslastung
+  (`demand`) und Veröffentlichungsdatum, der Abruf zählt nicht zum Limit. „Standard“ wählt für Chat, Cowork/Aufgaben und
+  Bildlesen das am besten geeignete Modell, das gerade nicht überlastet ist; neu erscheinende Modelle werden automatisch
+  freigegeben und anhand ihrer Vorgänger eingeschätzt (`models.py`), zurückgezogene ersetzt. Das Modellmenü zeigt die
+  Auslastung als Punkt. Vor dem Senden an ein stark ausgelastetes Modell und wenn ein Modell 20 s lang nichts liefert,
+  schlägt der Chat ein freies, ähnlich gutes vor – der Wechsel geht mitten im Lauf und macht beim aktuellen Schritt
+  weiter. Geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. „Stopp“ greift auch,
+  während ein Modell hängt.
 - **Projekte**: Anweisungen, Dateien, Zugänge, Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
@@ -101,6 +109,9 @@ LLMitMir adds a Claude-Desktop-style panel to Home Assistant: chats with streami
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).
 Admins choose who may use it and whether keys are shared, assigned per user by the admin, or entered by each user.
 Scheduled tasks can run on a separate key (central or per user), with daily request/token usage of all tasks on that key.
+The default model is chosen automatically per role from the provider's live model list (refreshed every three minutes,
+including load and new releases); when a model is overloaded or hangs, the chat recommends a free model of similar quality
+and can switch mid-run, and scheduled tasks switch on their own.
 A Claude import prompt moves skills (with credentials extracted), scheduled tasks, projects and memory; chat history is
 imported from the official claude.ai data export.
 

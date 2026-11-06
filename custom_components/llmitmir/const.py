@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -75,6 +75,15 @@ MAX_STEPS_COWORK = 60
 PROGRESS_NUDGE_STEPS = 4  # remind the model when the visible step list has not moved for this many steps
 WRAPUP_STEPS = 4  # from this many steps before the limit the model is told to wrap up; the last step has no tools
 TOOL_RESULT_MAX_CHARS = 24_000
+
+# Model choice
+AUTO = "auto"                  # default model "automatic": best fit for the role right now (see models.py)
+MODEL_POLL_SECONDS = 180       # reload /models (status, demand, new releases); SAIA does not count this call
+SLOW_AFTER_INTERACTIVE = 20    # no output yet after this long in a chat/cowork: recommend a less loaded model
+SLOW_AFTER_TASK = 180          # … in a scheduled task with an automatic model: switch to the alternative by itself
+SLOW_MEMORY = 600              # a model that hung counts as overloaded for this long (unless it answers quickly again)
+FAST_FIRST_TOKEN = 10          # first output within this many seconds clears that mark
+NEW_MODEL_DAYS = 14            # models first seen within this many days are marked "neu"
 
 # Retry policies (seconds)
 RETRY_INTERACTIVE_MAX_WAIT = 240

@@ -53,7 +53,7 @@ export class Api {
   }
 }
 
-export interface RunState { run_id: string; status: string; detail: any; started: number; }
+export interface RunState { run_id: string; status: string; detail: any; started: number; hint?: any; }
 
 /** Global reactive store; components re-render on "change". */
 export class Store extends EventTarget {
@@ -94,7 +94,7 @@ export class Store extends EventTarget {
         if (i >= 0) d.chats[i] = e.chat; else d.chats.unshift(e.chat);
         d.chats.sort((a: any, b: any) => (b.updated || 0) - (a.updated || 0));
         const full = this.chats.get(e.chat.id);
-        if (full) Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
+        if (full) Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, model_auto: e.chat.model_auto, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
         break;
       }
       case "chat_deleted":
@@ -125,7 +125,7 @@ export class Store extends EventTarget {
           delete this.runs[e.chat_id];
           const c = this.chats.get(e.chat_id);
           if (c) c.messages = c.messages.filter((m: any) => !(m.streaming && !m.content));
-        } else this.runs[e.chat_id] = { run_id: e.run_id, status: e.status, detail: e.detail, started: e.started };
+        } else this.runs[e.chat_id] = { run_id: e.run_id, status: e.status, detail: e.detail, started: e.started, hint: e.hint };
         break;
       case "permission": this.permissions = [...this.permissions.filter(p => p.id !== e.permission.id), e.permission]; break;
       case "permission_done": this.permissions = this.permissions.filter(p => p.id !== e.id); break;
@@ -136,6 +136,7 @@ export class Store extends EventTarget {
         if (e.chat_id && e.chat_usage) { const c = this.chats.get(e.chat_id); if (c) c.usage = e.chat_usage; }
         break;
       case "tasks_queue": d.queue = e.queue; break;
+      case "models": d.models = e.models; d.defaults = e.defaults; break;
       case "meta": this.load(); return;
       case "import_done": this.notify("Import abgeschlossen"); break;
     }

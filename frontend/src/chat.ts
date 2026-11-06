@@ -4,6 +4,7 @@ import { property, state, query } from "lit/decorators.js";
 import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles, confirmDialog, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
+import { modelById, modelName } from "./modelpick";
 import type { SendDetail } from "./composer";
 import "./composer";
 
@@ -60,6 +61,7 @@ export class ChatView extends LitElement {
   @state() private panel = false;
   @state() private editTitle = false;
   @state() private now = Date.now();
+  @state() private hideHint = "";
   @query(".scroll") private scroller!: HTMLElement;
   private stick = true;
   private _tick: any;
@@ -97,6 +99,8 @@ export class ChatView extends LitElement {
     .detail { padding: 10px 12px 12px 40px; font-size: 12.5px; background: var(--lm-side); }
     .detail pre { margin: 4px 0 8px; white-space: pre-wrap; word-break: break-word; font-family: var(--lm-mono); font-size: 12px;
       max-height: 280px; overflow-y: auto; background: var(--lm-panel); border: 1px solid var(--lm-line); padding: 8px; border-radius: 8px; }
+    .perm.slow { border-color: color-mix(in srgb, var(--lm-warn) 45%, var(--lm-line)); }
+    .perm.slow > .row:first-child svg { color: var(--lm-warn); }
     .running { display: flex; align-items: center; gap: 10px; color: var(--lm-muted); font-size: 14px; padding: 4px 0; }
     .caret { display: inline-block; width: 8px; height: 1.05em; background: var(--lm-accent); border-radius: 2px; vertical-align: text-bottom;
       margin-left: 2px; animation: caret 1s steps(2) infinite; }
@@ -261,9 +265,33 @@ export class ChatView extends LitElement {
     if (run.status === "tool") text = (d.label || "Werkzeug") + " …";
     if (run.status === "retry") text = `Modell ausgelastet – neuer Versuch in ${d.seconds} s (Versuch ${d.attempt})`;
     if (run.status === "quota_wait") text = `Limit des Schlüssels erreicht – geht in ${fmtDuration(d.seconds)} weiter`;
+    if (run.status === "thinking" && d.switched_from) text = `${d.auto ? "Automatisch gewechselt" : "Gewechselt"} von ${modelName(d.switched_from)} zu ${modelName(chat.model)} – denkt nach …`;
     const el = (this.now / 1000) - (run.started || this.now / 1000);
     return html`<div class="running"><lm-spark></lm-spark><span class="shimmer">${text}</span>
-      ${el > 20 ? html`<span class="muted" style="font-size:12px">· ${fmtDuration(el)}</span>` : nothing}</div>`;
+      ${el > 20 ? html`<span class="muted" style="font-size:12px">· ${fmtDuration(el)}</span>` : nothing}</div>
+      ${this.slowCard(run, chat)}`;
+  }
+
+  /** The model gives no output: say why and offer a free model that does the job about as well. */
+  private slowCard(run: any, chat: any) {
+    const h = run.hint;
+    if (!h || this.hideHint === run.run_id + h.model) return nothing;
+    const waited = Math.max(h.waited || 0, Math.round(this.now / 1000 - (h.since || this.now / 1000)));
+    const busy = (h.demand ?? 0) >= 4;
+    const alt = h.alt && modelById(h.alt.id) ? { ...h.alt, name: modelName(h.alt.id) } : h.alt;
+    return html`<div class="perm slow">
+      <div class="row">${icon("hourglass")}<b class="grow">${h.model_name} antwortet seit ${fmtDuration(waited)} nicht</b></div>
+      <div class="hint">${busy ? "Das Modell ist beim Anbieter gerade stark ausgelastet" : "Das Modell kommt gerade nicht hinterher"} – so kann eine Antwort
+        viele Minuten dauern.${alt ? html` <b>${alt.name}</b> ist ${alt.demand >= 2 ? "weniger ausgelastet" : "frei"} und ${alt.better ? "mindestens genauso stark" : alt.similar ? "löst die Aufgabe ähnlich gut" : "etwas schwächer, aber deutlich schneller"}.` : " Gerade ist kein ähnlich gutes Modell frei – LLMitMir wartet weiter."}
+        ${chat.kind !== "chat" ? " Bisherige Schritte bleiben erhalten, es geht beim aktuellen Schritt weiter." : ""}</div>
+      <div class="row">
+        ${alt ? html`<button class="btn primary" @click=${() => this.switchModel(alt.id)}>${icon("retry", 16)} Mit ${alt.name} weitermachen</button>` : nothing}
+        <button class="btn ghost" @click=${() => (this.hideHint = run.run_id + h.model)}>Weiter warten</button>
+      </div></div>`;
+  }
+
+  private switchModel(model: string) {
+    store.api.ws("chat/switch_model", { chat_id: this.chatId, model }).catch(e => store.notify(String(e.message || e)));
   }
 
   private permCards() {
@@ -312,7 +340,7 @@ export class ChatView extends LitElement {
           <span class="muted" style="font-size:11.5px">${fmtNum(f.size)} B</span>${icon("download", 16)}</div>`) : html`<div class="hint">Noch keine Dateien.</div>`}</div>
       <div><h3>${icon("info", 18)} Info</h3><div class="hint" style="display:grid;gap:4px">
         ${proj ? html`<span>${t("Projekte")}: <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/project/${proj.id}`); }}>${proj.name}</a></span>` : nothing}
-        <span>${t("Modell")}: ${(store.data?.models || []).find((x: any) => x.id === chat.model)?.name || chat.model}</span>
+        <span>${t("Modell")}: ${modelName(chat.model)}${chat.model_auto ? " (automatisch gewählt)" : ""}</span>
         <span>Anfragen: ${u.requests || 0} · Tokens: ${fmtNum((u.prompt || 0) + (u.completion || 0))}</span>
         <span>Erstellt: ${fmtTime(chat.created)}</span></div></div>
     </aside>`;

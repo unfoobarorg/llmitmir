@@ -5,6 +5,7 @@ import { StoreElement, base, icon, md, fmtNum, fmtTime, copyText, safeElement } 
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
+import { load, loadDot, modelName } from "./modelpick";
 import werkbankGuide from "../../docs/WERKBANK.md";
 import { taskUsageCard, taskUsageCss, usageBlock, taskKeyLabel } from "./taskusage";
 
@@ -125,6 +126,10 @@ export class SettingsPage extends StoreElement {
       <div class="hint">Gilt für alle Läufe geplanter Aufgaben, auch „Jetzt ausführen“. Läufe auf einem eigenen oder zentralen Aufgaben-Schlüssel
         zählen nicht zum persönlichen Tageskontingent.</div></div></section>`;
   }
+  private vorgabe(role: "chat" | "agent") {
+    const b = store.data.defaults.base?.[role] || {};
+    return b.auto ? `Vorgabe – automatisch (derzeit ${modelName(b.model)})` : `Vorgabe (${modelName(b.model)})`;
+  }
   render() {
     const d = store.data; const s = this.s;
     const days = this.history ? Object.entries(this.history.days).sort(([a], [b]) => a.localeCompare(b)).slice(-30) : [];
@@ -133,9 +138,11 @@ export class SettingsPage extends StoreElement {
     return html`<div class="page"><h1>${t("Einstellungen")}</h1>
       <section><h2>${icon("sparkle", 18)} Modelle</h2><div class="two">
         <label class="f"><span>Standard für Chats</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
-          <option value="">Vorgabe (${d.defaults.chat})</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_chat === m.id}>${m.name}</option>`)}</select></label>
+          <option value="">${this.vorgabe("chat")}</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_chat === m.id}>${m.name}</option>`)}</select></label>
         <label class="f"><span>Standard für Coworks & Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
-          <option value="">Vorgabe (${d.defaults.agent})</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label></div></section>
+          <option value="">${this.vorgabe("agent")}</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
+        <div class="hint" style="margin-top:8px">„Vorgabe“ heißt: LLMitMir nimmt das passendste Modell, das gerade nicht überlastet ist, und berücksichtigt
+          neu erschienene Modelle von selbst. Mit einem festen Modell empfiehlt der Chat einen Wechsel, wenn es stark ausgelastet ist.</div></section>
       ${d.key_mode === "per_user_own" ? html`<section><h2>${icon("key", 18)} Dein API-Schlüssel</h2>
         <label class="f"><span>Schlüssel für ${d.provider.name}</span><input type="password" autocomplete="off" placeholder=${s.has_own_key ? "••• gespeichert – zum Ändern neu eingeben" : "Schlüssel eintragen"}
           @input=${(e: any) => this.set("own_key", e.target.value)}></label>
@@ -210,7 +217,7 @@ export class AdminPage extends StoreElement {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
         task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
         allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank,
-        models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context } } });
+        models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false } } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -248,6 +255,7 @@ export class AdminPage extends StoreElement {
     const known = a.models.known || [];
     const enabled = new Set(a.models.enabled || []);
     const defs = a.models.defaults || {};
+    const live: Record<string, any> = Object.fromEntries((a.models_live || []).map((m: any) => [m.id, m]));
     const modes = [["shared", "Ein gemeinsamer Schlüssel", "Alle nutzen denselben Schlüssel – und teilen sich dessen Limits (bei SAIA 800 Anfragen am Tag)."],
       ["per_user_admin", "Admin trägt je Person einen Schlüssel ein", "Jede Person hat eigene Limits; du verwaltest die Schlüssel zentral hier."],
       ["per_user_own", "Jede Person trägt ihren eigenen Schlüssel ein", "Im Panel unter Einstellungen. Ohne Schlüssel kein Zugriff auf Modelle."]];
@@ -294,14 +302,22 @@ export class AdminPage extends StoreElement {
           <span class="hint">${known.length} Modelle bekannt</span></div>
         <div class="two">${[["chat", "Standard Chat"], ["agent", "Standard Cowork/Aufgaben"], ["vision", "Bilder & Scans lesen"]].map(([r, l]) => html`<label class="f"><span>${l}</span>
           <select @change=${(e: any) => this.set("models", { ...a.models, defaults: { ...defs, [r]: e.target.value } })}>
+            <option value="" ?selected=${!defs[r] || defs[r] === "auto"}>Automatisch (derzeit ${live[a.auto_models?.[r]]?.name || a.auto_models?.[r] || "–"})</option>
             ${known.map((m: any) => html`<option value=${m.id} ?selected=${defs[r] === m.id}>${m.name}</option>`)}</select></label>`)}</div>
-        <div class="tw" style="margin-top:12px"><table><tr><th>Freigegeben</th><th>Modell</th><th>Fähigkeiten</th><th>Kontext</th></tr>
-          ${known.map((m: any) => html`<tr><td><input type="checkbox" .checked=${enabled.has(m.id)} @change=${(e: any) => {
+        <div class="hint" style="margin-top:6px">„Automatisch“ nimmt das am besten geeignete freigegebene Modell, das gerade nicht überlastet ist: Die Liste
+          samt Auslastung wird alle drei Minuten neu geladen (zählt bei SAIA nicht zum Limit), neu erschienene Modelle werden anhand ihrer Vorgänger
+          eingeschätzt. Hängt ein Modell im Chat, empfiehlt LLMitMir einen Wechsel; geplante Aufgaben mit automatischem Modell wechseln selbst.</div>
+        <label class="row" style="margin-top:10px"><input type="checkbox" style="width:auto" .checked=${a.models.auto_enable_new !== false}
+          @change=${(e: any) => this.set("models", { ...a.models, auto_enable_new: e.target.checked })}> Neu erscheinende Modelle automatisch freigeben</label>
+        <div class="tw" style="margin-top:12px"><table><tr><th>Freigegeben</th><th>Modell</th><th>Auslastung</th><th title="Eignung 0–100 für Chat / Cowork & Aufgaben / Bilder">Eignung</th><th>Fähigkeiten</th><th>Kontext</th></tr>
+          ${known.map((m: any) => { const lv = live[m.id] || m; const l = load(lv); const q = lv.quality || {}; return html`<tr><td><input type="checkbox" .checked=${enabled.has(m.id)} @change=${(e: any) => {
             const s = new Set(enabled); e.target.checked ? s.add(m.id) : s.delete(m.id); this.set("models", { ...a.models, enabled: [...s] }); }}></td>
-            <td>${m.name}<div class="hint">${m.id}${m.status === "unavailable" ? " · gerade nicht verfügbar" : ""}</div></td>
+            <td>${m.name}${lv.new ? html` <span class="chip accent">neu</span>` : nothing}<div class="hint">${m.id}${m.gone ? " · nicht mehr angeboten" : m.status !== "ready" && m.status ? ` · ${m.status}` : ""}</div></td>
+            <td class="hint"><span class="row" style="gap:6px;flex-wrap:nowrap">${loadDot(lv)}${l ? l.text : "–"}</span></td>
+            <td class="hint" style="white-space:nowrap">${q.chat || "–"} / ${q.agent || "–"} / ${q.vision || "–"}</td>
             <td class="hint">${(m.input || []).join(", ")} → ${(m.output || []).join(", ")}</td>
             <td><input type="number" style="width:110px" placeholder=${String(a.known_context[m.id] || 128000)} .value=${a.models.context?.[m.id] ?? ""}
-              @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`)}</table></div></section>
+              @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`; })}</table></div></section>
       <section><h2>${icon("mdi:console", 18)} Werkbank</h2>
         ${werkbankInfo(!!a.werkbank?.url && !!a.werkbank?.token, this.guide, () => (this.guide = !this.guide), true)}
         <div class="two" style="margin-top:12px">

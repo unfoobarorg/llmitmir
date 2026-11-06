@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 from homeassistant.components import frontend, panel_custom
@@ -9,9 +10,10 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import CoreState, HomeAssistant
+from homeassistant.helpers.event import async_track_time_interval
 
 from .agent import Manager
-from .const import DOMAIN, PANEL_ELEMENT, PANEL_ICON, PANEL_TITLE, PANEL_URL, PRESETS, STATIC_URL, VERSION
+from .const import DOMAIN, MODEL_POLL_SECONDS, PANEL_ELEMENT, PANEL_ICON, PANEL_TITLE, PANEL_URL, PRESETS, STATIC_URL, VERSION
 from .scheduler import Scheduler
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,8 +33,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cfg["key_mode"] = entry.data.get("key_mode", cfg.get("key_mode"))
         if entry.data.get("api_key"):
             cfg["shared_key"] = entry.data["api_key"]
-        cfg.setdefault("models", {})["defaults"] = dict(p.get("defaults") or {})
+        cfg.setdefault("models", {})["defaults"] = {}  # empty = automatic (best model for the job right now)
         cfg["_seeded"] = True
+        cfg["_auto_models"] = True
+        await manager.config.async_save()
+    if not cfg.get("_auto_models"):
+        # Up to 0.3 the preset's fixed models were copied into the admin defaults. Defaults nobody changed become
+        # "automatic", so new releases and the current load are taken into account.
+        preset_defaults = PRESETS.get((cfg.get("provider") or {}).get("preset") or "", {}).get("defaults") or {}
+        defs = (cfg.get("models") or {}).get("defaults") or {}
+        for role, mid in list(defs.items()):
+            if mid == preset_defaults.get(role) or role == "title":
+                defs.pop(role)
+        cfg["_auto_models"] = True
         await manager.config.async_save()
     data["manager"] = manager
     manager.scheduler = Scheduler(hass, manager)
@@ -60,18 +73,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _start(_event=None) -> None:
         await manager.scheduler.async_start()
-        # load model list once if a key is there
-        if not (cfg.get("models") or {}).get("known") and cfg.get("shared_key"):
-            try:
-                models = await manager.provider.list_models(cfg["shared_key"])
-                cfg.setdefault("models", {})["known"] = [
-                    {"id": x.get("id"), "name": x.get("name") or x.get("id"), "input": x.get("input") or ["text"],
-                     "output": x.get("output") or ["text"], "status": x.get("status") or "ready"} for x in models]
-                if not cfg["models"].get("enabled"):
-                    cfg["models"]["enabled"] = [x["id"] for x in cfg["models"]["known"] if x["status"] != "unavailable"]
-                await manager.config.async_save()
-            except Exception:  # noqa: BLE001
-                _LOGGER.warning("Could not load the model list", exc_info=True)
+        # model list with status, load and new releases – now and every few minutes
+        await manager.refresh_models(max_age=0)
+
+        async def _poll(_now=None) -> None:
+            await manager.refresh_models(max_age=MODEL_POLL_SECONDS - 10)
+
+        entry.async_on_unload(async_track_time_interval(hass, _poll, timedelta(seconds=MODEL_POLL_SECONDS)))
 
     if hass.state is CoreState.running:
         await _start()

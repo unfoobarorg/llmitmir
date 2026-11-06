@@ -18,13 +18,15 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.util import dt as dt_util
 
 from . import credentials as C
+from . import models as MS
 from . import selfdoc as SD
 from . import taskkeys as TK
-from .const import (DEFAULT_CONTEXT, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
+from .const import (AUTO, DEFAULT_CONTEXT, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
+                    SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_COWORK, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
-from .provider import Provider, ProviderError, QuotaExhausted, StreamAccumulator
+from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
 from .storage import ConfigStore, UserStore, new_id, now
 from .tools import GROUPS, REGISTRY, as_text, load_all
 
@@ -60,6 +62,10 @@ class Run:
     status: str = "queued"
     detail: dict = field(default_factory=dict)
     started: float = field(default_factory=now)
+    switch: asyncio.Event = field(default_factory=asyncio.Event)
+    switch_to: str | None = None
+    switch_auto: bool = False  # chosen by LLMitMir itself (scheduled task), not by the person
+    hint: dict | None = None   # "model is overloaded – switch to …", shown in the chat while waiting
 
 
 class Manager:
@@ -80,31 +86,154 @@ class Manager:
         self.session = async_create_clientsession(hass, cookie_jar=aiohttp.DummyCookieJar())
         self.task_queue: asyncio.Queue = asyncio.Queue()
         self.scheduler = None  # set in __init__.py
-        self._models_try = 0.0
+        self._models_at = 0.0  # last attempt to load /models
+        self._models_failed = False
+        self._models_lock = asyncio.Lock()
+        self._poll_key = ""  # last key that worked for a run (per-user keys: something to poll /models with)
+        self.observed: dict[str, tuple[float, str]] = {}  # model -> (when, "slow" | "fast") as LLMitMir saw it
         load_all()
 
     async def async_setup(self) -> None:
         await self.config.async_load()
 
     async def ensure_models(self, user_id: str) -> None:
-        """Load the model list with any usable key if it is still empty (e.g. per-user keys)."""
-        mm = self.config.data.setdefault("models", {})
-        if mm.get("known") or time.time() - self._models_try < 600:
-            return
-        self._models_try = time.time()
-        key = self.key_for(user_id, self.users.get(user_id)) or self.config.data.get("shared_key")
-        if not key:
-            return
-        try:
-            models = await self.provider.list_models(key)
-        except Exception:  # noqa: BLE001
-            _LOGGER.warning("Could not load the model list", exc_info=True)
-            return
-        mm["known"] = [{"id": x.get("id"), "name": x.get("name") or x.get("id"), "input": x.get("input") or ["text"],
-                        "output": x.get("output") or ["text"], "status": x.get("status") or "ready"} for x in models]
-        if not mm.get("enabled"):
-            mm["enabled"] = [x["id"] for x in mm["known"] if x["status"] != "unavailable"]
-        await self.config.async_save()
+        """Load the model list if it is still empty or stale (e.g. per-user keys)."""
+        key = self.key_for(user_id, self.users.get(user_id))
+        if (self.config.data.get("models") or {}).get("known"):
+            # a list is there: refresh in the background, the panel opens right away and gets a "models" event
+            self.hass.async_create_background_task(self.refresh_models(key=key or None, max_age=MODEL_POLL_SECONDS),
+                                                   "llmitmir models")
+        else:
+            await self.refresh_models(key=key or None, max_age=MODEL_POLL_SECONDS)
+
+    def _any_key(self) -> str:
+        """Any key that can read /models (the call does not count against SAIA's limits)."""
+        cfg = self.config.data
+        keys = [cfg.get("shared_key"), cfg.get("shared_task_key"), *(cfg.get("user_keys") or {}).values(),
+                *(st.meta["settings"].get("own_key") for st in self.users.values()),
+                *(st.meta["settings"].get("own_task_key") for st in self.users.values()), self._poll_key]
+        return next((k for k in keys if k), "")
+
+    async def refresh_models(self, key: str | None = None, max_age: float = 30) -> bool:
+        """Fetch the model list with status, load and release date; new models are enabled automatically."""
+        if time.time() - self._models_at < max_age:
+            return False
+        async with self._models_lock:
+            if time.time() - self._models_at < max_age:
+                return False
+            key = key or self._any_key()
+            if not key:
+                return False
+            self._models_at = time.time()
+            try:
+                fresh = await self.provider.list_models(key)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.log(logging.DEBUG if self._models_failed else logging.WARNING, "Could not load the model list: %s", e)
+                self._models_failed = True
+                return False
+            self._models_failed = False
+            mm = self.config.data.setdefault("models", {})
+            old = mm.get("known") or []
+            known, new = MS.merge_known(old, fresh, time.time())
+            sig = lambda lst: sorted((m["id"], m.get("status"), bool(m.get("gone"))) for m in lst)  # noqa: E731
+            changed = sig(old) != sig(known)
+            mm["known"] = known
+            if not mm.get("enabled"):
+                mm["enabled"] = [x["id"] for x in known if MS.usable(x)]
+            elif new and old and mm.get("auto_enable_new", True):
+                mm["enabled"] = mm["enabled"] + [n for n in new if n not in mm["enabled"]]
+            if new and old:
+                _LOGGER.info("New models available: %s", ", ".join(new))
+            if changed:
+                await self.config.async_save()
+            self.emit_models()
+            return True
+
+    def note_slow(self, model: str, slow: bool = True) -> None:
+        """Remember that a model just hung (counts as heavily loaded for a while) or just answered quickly (counts as
+        at most moderately loaded, whatever the reported demand says)."""
+        before = self.observed.get(model, (0, None))
+        self.observed[model] = (time.time(), "slow" if slow else "fast")
+        if before[1] != self.observed[model][1] or time.time() - before[0] > SLOW_MEMORY:
+            self.emit_models()
+
+    def live_models(self, enabled_only: bool = True) -> list[dict]:
+        """Known models with LLMitMir's own observations (``slow`` or ``fast``) merged in."""
+        mm = self.config.data.get("models") or {}
+        known = mm.get("known") or []
+        enabled = set(mm.get("enabled") or [m["id"] for m in known])
+        t = time.time()
+        out = []
+        for m in known:
+            if enabled_only and m["id"] not in enabled:
+                continue
+            x = dict(m)
+            when, how = self.observed.get(m["id"], (0, None))
+            if how and t - when < SLOW_MEMORY:
+                x[how] = True
+            out.append(x)
+        return out
+
+    def models_for_users(self, all_known: bool = False) -> list[dict]:
+        """Enabled models (or all known ones, for the admin page) with load, quality per role and "new" mark."""
+        mm = self.config.data.get("models") or {}
+        known = {x["id"]: x for x in self.live_models(False)}
+        enabled = list(known) if all_known else (mm.get("enabled") or list(known))
+        t = time.time()
+        out = []
+        for mid in enabled:
+            info = known.get(mid, {"id": mid})
+            out.append({"id": mid, "name": info.get("name") or mid, "input": info.get("input") or ["text"],
+                        "output": info.get("output") or ["text"],
+                        "status": "unavailable" if info.get("gone") else info.get("status", "ready"),
+                        "context": self.context_size(mid), "tools": info.get("tools", True),
+                        "demand": MS.effective_demand(info) if info.get("demand") is not None or info.get("slow") else None,
+                        "busy": MS.busy(info), "slow": bool(info.get("slow")), "created": info.get("created"),
+                        "new": bool(info.get("first_seen")) and t - info["first_seen"] < NEW_MODEL_DAYS * 86400,
+                        "quality": {r: MS.quality(mid, r, info) for r in MS.ROLES}})
+        return out
+
+    def emit_models(self) -> None:
+        models = self.models_for_users()
+        for uid in list(self.subscribers):
+            self.emit(uid, {"type": "models", "models": models, "defaults": self.defaults_view(uid),
+                            "models_updated": self._models_at})
+
+    def defaults_view(self, user_id: str) -> dict:
+        out = {}
+        for r in MS.ROLES:
+            mid, auto = self._default(user_id, r)
+            out[r] = mid
+            out[f"{r}_auto"] = auto
+        out["auto"] = {r: MS.pick(self.live_models(), r) or "" for r in MS.ROLES}
+        # what applies without a personal choice ("Vorgabe" in the settings)
+        out["base"] = {r: dict(zip(("model", "auto"), self._default(user_id, r, personal=False))) for r in ("chat", "agent")}
+        return out
+
+    def alternative_for(self, chat: dict) -> dict | None:
+        """A less loaded model that answers this chat about as well as its current one."""
+        role = "chat" if chat.get("kind") == KIND_CHAT else "agent"
+        info = self.model_info(chat.get("model") or "")
+        imgs = "image" in (info.get("input") or []) and any(
+            a.lower().rsplit(".", 1)[-1] in ("png", "jpg", "jpeg", "webp")
+            for m in chat.get("messages") or [] for a in m.get("attachments") or [])
+        return MS.alternative(self.live_models(), chat.get("model") or "", role, need_image=imgs)
+
+    async def switch_model(self, user_id: str, chat_id: str, model: str) -> dict:
+        """Change the model of a chat; a running answer is restarted on the new model at the current step."""
+        run = self.active_run(chat_id)
+        if run and run.user_id == user_id:
+            run.switch_to, run.switch_auto, run.hint = model, False, None
+            run.switch.set()
+            return {"switched": "running"}
+        st = await self.user_store(user_id)
+        chat = await st.async_get_chat(chat_id)
+        if not chat:
+            raise ValueError("Chat nicht gefunden")
+        chat["model"], chat["model_auto"] = model, False
+        await st.async_save_chat(chat)
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
+        return {"switched": "idle"}
 
     # ------------------------------------------------------------- basics
     @property
@@ -181,11 +310,31 @@ class Manager:
         return PRESETS.get((self.config.data.get("provider") or {}).get("preset") or "", {})
 
     def default_model(self, user_id: str, role: str) -> str:
+        return self._default(user_id, role)[0]
+
+    def _default(self, user_id: str, role: str, personal: bool = True) -> tuple[str, bool]:
+        """(model, automatic). A personal or admin choice wins while that model exists; otherwise the model that fits
+        the role best right now – the newest strong model that is not overloaded."""
         st = self.users.get(user_id)
-        if st and role in ("chat", "agent") and st.meta["settings"].get(f"model_{role}"):
-            return st.meta["settings"][f"model_{role}"]
+        mine = st.meta["settings"].get(f"model_{role}") if personal and st and role in ("chat", "agent") else None
         d = (self.config.data.get("models") or {}).get("defaults") or {}
-        return d.get(role) or self.preset().get("defaults", {}).get(role) or d.get("chat") or ""
+        admin = d.get(role) if d.get(role) not in (None, "", AUTO) else None
+        for explicit in (mine, admin):
+            if explicit and self.model_usable(explicit):
+                return explicit, False
+        auto = MS.pick(self.live_models(), role)
+        if auto:
+            return auto, True
+        fallback = mine or admin or self.preset().get("defaults", {}).get(role) or self.preset().get("defaults", {}).get("chat") or ""
+        return fallback, False
+
+    def model_usable(self, model: str) -> bool:
+        """False only if the model list says the model is gone or not ready (unknown list: assume it works)."""
+        known = (self.config.data.get("models") or {}).get("known") or []
+        if not known:
+            return True
+        info = next((m for m in known if m.get("id") == model), None)
+        return bool(info) and MS.usable(info)
 
     def model_info(self, model: str) -> dict:
         for m in (self.config.data.get("models") or {}).get("known") or []:
@@ -259,8 +408,12 @@ class Manager:
             raise ValueError("Projekt unbekannt")
         proj = st.meta["projects"].get(project_id or "", {})
         role = "chat" if kind == KIND_CHAT else "agent"
+        default, auto = self._default(user_id, role)
+        if model == default and auto and not proj.get(f"model_{role}"):
+            model = None  # the panel sends the default it shows; it stays "automatic"
+        fixed = model or (proj.get(f"model_{role}") if self.model_usable(proj.get(f"model_{role}") or "") else None)
         chat = {"id": new_id("c"), "kind": kind, "title": title or "", "project_id": project_id, "task_id": task_id,
-                "model": model or proj.get(f"model_{role}") or self.default_model(user_id, role),
+                "model": fixed or default, "model_auto": not fixed and auto,
                 "created": now(), "updated": now(), "pinned": False, "status": "idle",
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": tools}
@@ -282,8 +435,8 @@ class Manager:
             raise ValueError("Chat nicht gefunden")
         if self.active_run(chat_id):
             raise ValueError("In diesem Chat läuft schon eine Antwort")
-        if model:
-            chat["model"] = model
+        if model and model != chat.get("model"):
+            chat["model"], chat["model_auto"] = model, False
         if tools is not None:
             chat["tools"] = tools
             # a group granted earlier in this chat stays on only while it is still ticked in the tool menu
@@ -317,7 +470,7 @@ class Manager:
         run.status = status
         run.detail = detail or {}
         self.emit(run.user_id, {"type": "run", "chat_id": run.chat_id, "run_id": run.id, "status": status,
-                                "detail": run.detail, "started": run.started})
+                                "detail": run.detail, "started": run.started, "hint": run.hint})
 
     # ------------------------------------------------------------- the agent loop
     async def _run(self, user, chat: dict, run: Run, task: dict | None) -> None:
@@ -336,6 +489,12 @@ class Manager:
                 raise QuotaError("Kein API-Schlüssel hinterlegt. " + (
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
+            if not self.model_usable(chat.get("model") or ""):
+                # the chosen model was withdrawn (or is down): continue with the best one for the job
+                old = chat.get("model")
+                chat["model"], chat["model_auto"] = self.default_model(user.id, "chat" if chat["kind"] == KIND_CHAT else "agent"), True
+                _LOGGER.info("Model %s is not available, run %s uses %s", old, run.id, chat["model"])
+                self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
             tools = ctx.tool_specs()
             await ctx.preload_images()
             last_progress = 0  # step of the last progress_update (or reminder)
@@ -344,55 +503,100 @@ class Manager:
                     final_status = "stopped"
                     break
                 self.check_quota(user.id, separate)
-                messages = ctx.api_messages()
                 left = steps - step
                 final = bool(tools) and left == 1
                 prog = chat.get("progress") or []
+                extra: list[dict] = []
                 if (not final and "progress" in ctx.groups() and prog and step - last_progress >= PROGRESS_NUDGE_STEPS
                         and any(p.get("status") != "erledigt" for p in prog)):
                     # the visible list lags behind; remind the model once, then wait again
                     last_progress = step
                     now_item = next((i for i, p in enumerate(prog, 1) if p.get("status") == "laeuft"), None) or next(
                         (i for i, p in enumerate(prog, 1) if p.get("status") == "offen"), 1)
-                    messages.append({"role": "user", "content": (
+                    extra.append({"role": "user", "content": (
                         f"[LLMitMir] Die sichtbare Schrittliste steht seit {PROGRESS_NUDGE_STEPS} Schritten auf "
                         f"„{now_item}. {prog[now_item - 1].get('text', '')}“. Bist du weiter, rufe `progress_update` mit "
                         "`aktuell` = Nummer des laufenden Schritts auf – zusammen mit deinem nächsten Werkzeug, "
                         "nicht als eigener Schritt.")})
                 if tools and left <= WRAPUP_STEPS:
                     # tell the model about the limit so it ends with a report instead of being cut off
-                    messages.append({"role": "user", "content": (
+                    extra.append({"role": "user", "content": (
                         f"[LLMitMir] Letzter Schritt (Höchstzahl {steps}): Werkzeuge stehen nicht mehr zur Verfügung. "
                         "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
                         f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
                         "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")})
-                body = {"model": chat["model"], "messages": messages, "temperature": 0.3}
-                if tools:
-                    body["tools"] = tools
-                    if final:
-                        body["tool_choice"] = "none"
+                if run.switch_to:
+                    await self._apply_switch(run, chat, st, None)
                 await self._status(run, "thinking", {"step": step + 1})
-                acc = StreamAccumulator()
                 amsg = {"id": new_id("m"), "role": "assistant", "content": "", "reasoning": "", "created": now(),
                         "model": chat["model"], "streaming": True}
                 self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": amsg})
-                last_emit, pend_c, pend_r = 0.0, "", ""
 
                 async def on_status(kind: str, info: dict) -> None:
                     await self._status(run, kind, info)
 
-                async for chunk in self.provider.chat_stream(key, body, interactive=interactive, max_wait=max_wait,
-                                                             on_status=on_status, cancel=run.cancel):
-                    c_d, r_d = acc.feed(chunk)
-                    pend_c += c_d
-                    pend_r += r_d
-                    if (pend_c or pend_r) and (time.monotonic() - last_emit > 0.08):
-                        if run.status != "streaming":
-                            await self._status(run, "streaming", {"step": step + 1})
-                        self.emit(user.id, {"type": "delta", "chat_id": chat["id"], "message_id": amsg["id"],
-                                            "content": pend_c, "reasoning": pend_r})
-                        pend_c = pend_r = ""
-                        last_emit = time.monotonic()
+                async def on_slow(waited: float) -> bool:
+                    """No output yet: recommend (chat, cowork) or take (task, automatic model) a less loaded model."""
+                    if run.status == "quota_wait" or (run.status == "retry" and "429" in str(run.detail.get("reason"))):
+                        return False  # the key's own limit, another model would not help
+                    model = chat["model"]
+                    self.note_slow(model)
+                    try:
+                        await asyncio.wait_for(self.refresh_models(key=key, max_age=30), 8)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    alt = self.alternative_for(chat)
+                    if task is not None and chat.get("model_auto") and alt:
+                        _LOGGER.info("Task run %s: %s gives no output after %ds, switching to %s",
+                                     run.id, model, waited, alt["id"])
+                        run.switch_to, run.switch_auto = alt["id"], True
+                        return True
+                    info = self.model_info(model)
+                    run.hint = {"model": model, "model_name": info.get("name") or model, "waited": round(waited),
+                                "since": time.time() - waited, "demand": info.get("demand"), "alt": alt}
+                    await self._status(run, run.status, run.detail)
+                    return False
+
+                async def on_first(waited: float) -> None:
+                    if waited <= FAST_FIRST_TOKEN:
+                        self.note_slow(chat["model"], False)
+                    elif waited >= SLOW_AFTER_INTERACTIVE:
+                        self.note_slow(chat["model"])
+                    if run.hint:
+                        run.hint = None
+                        await self._status(run, run.status, run.detail)
+
+                while True:  # once more per model switch
+                    if run.switch_to:
+                        await self._apply_switch(run, chat, st, amsg)
+                    body = {"model": chat["model"], "messages": ctx.api_messages() + extra, "temperature": 0.3}
+                    if tools:
+                        body["tools"] = tools
+                        if final:
+                            body["tool_choice"] = "none"
+                    acc = StreamAccumulator()
+                    last_emit, pend_c, pend_r = 0.0, "", ""
+                    stream = self.provider.chat_stream(key, body, interactive=interactive, max_wait=max_wait,
+                                                       on_status=on_status, cancel=run.cancel)
+                    try:
+                        async for chunk in guard_stream(stream, run.cancel, run.switch, on_slow=on_slow, on_first=on_first,
+                                                         first_timeout=SLOW_AFTER_INTERACTIVE if interactive else SLOW_AFTER_TASK):
+                            c_d, r_d = acc.feed(chunk)
+                            pend_c += c_d
+                            pend_r += r_d
+                            if (pend_c or pend_r) and (time.monotonic() - last_emit > 0.08):
+                                if run.status != "streaming":
+                                    await self._status(run, "streaming", {"step": step + 1})
+                                self.emit(user.id, {"type": "delta", "chat_id": chat["id"], "message_id": amsg["id"],
+                                                    "content": pend_c, "reasoning": pend_r})
+                                pend_c = pend_r = ""
+                                last_emit = time.monotonic()
+                    except ModelSwitch:
+                        if not run.switch_to:
+                            run.switch.clear()
+                        continue
+                    break
+                self._poll_key = key
                 if pend_c or pend_r:
                     self.emit(user.id, {"type": "delta", "chat_id": chat["id"], "message_id": amsg["id"],
                                         "content": pend_c, "reasoning": pend_r})
@@ -464,6 +668,20 @@ class Manager:
             self.runs.pop(run.id, None)
             if task is not None and self.scheduler:
                 await self.scheduler.run_finished(user, task, chat, final_status, error)
+
+    async def _apply_switch(self, run: Run, chat: dict, st: UserStore, amsg: dict | None) -> None:
+        old, new = chat["model"], run.switch_to or chat["model"]
+        run.switch_to, run.hint = None, None
+        run.switch.clear()
+        chat["model"] = new
+        chat["model_auto"] = run.switch_auto and bool(chat.get("model_auto"))
+        auto, run.switch_auto = run.switch_auto, False
+        await st.async_save_chat(chat)
+        self.emit(run.user_id, {"type": "chat", "chat": st.chat_summary(chat)})
+        if amsg is not None:
+            amsg.update({"content": "", "reasoning": "", "model": new})
+            self.emit(run.user_id, {"type": "message", "chat_id": chat["id"], "message": amsg})
+        await self._status(run, "thinking", dict(run.detail, switched_from=old, auto=auto))
 
     # ------------------------------------------------------------- simple completion (vision, titles)
     async def complete(self, user_id: str, model: str, messages: list[dict], interactive: bool = True,

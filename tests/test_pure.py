@@ -265,3 +265,161 @@ def test_credential_change_never_shows_secrets():
                        changes.credential_fields(new, {"password"}, old))
     assert ch["felder"] == [{"feld": "password", "alt": "•••", "neu": "••• (neu)"}]
     assert "geheim" not in str(changes.build("zugang", "Mail", [], changes.credential_fields(new, {"password"})))
+
+
+# ---------------------------------------------------------------- model choice (models.py) and stream guard
+ms = load("models")
+
+# SAIA's /models answer on 06.11.2026, 09:36 – GLM 5.3 and Qwen 3.8 27B did not send a token within 150 s
+SAIA = [
+    {"id": "deepseek-v4-flash-0731", "name": "DeepSeek V4 Flash 0731", "status": "ready", "demand": 0, "created": 1782907438, "input": ["text"], "output": ["text", "thought"]},
+    {"id": "deepseek-v4.1-flash-1017", "name": "DeepSeek V4.1 Flash 1017", "status": "ready", "demand": 0, "created": 1793036378, "input": ["text"], "output": ["text", "thought"]},
+    {"id": "eurollm-22b-instruct-2512", "name": "EuroLLM 22B", "status": "ready", "demand": 0, "created": 1785482424, "input": ["text"], "output": ["text"]},
+    {"id": "gemma-4-31b-it", "name": "Gemma 4 31B", "status": "ready", "demand": 0, "created": 1777986871, "input": ["text", "image"], "output": ["text", "thought"]},
+    {"id": "glm-5.3", "name": "GLM 5.3", "status": "ready", "demand": 5, "created": 1793031766, "input": ["text"], "output": ["text", "thought"]},
+    {"id": "glm-5.3-flash", "name": "GLM 5.3 Flash", "status": "ready", "demand": 0, "created": 1787908914, "input": ["text", "image", "video"], "output": ["text", "thought"]},
+    {"id": "meta-llama-3.1-8b-instruct", "name": "Llama 3.1 8B", "status": "ready", "demand": 0, "created": 1772676421, "input": ["text"], "output": ["text"]},
+    {"id": "mistral-large-4-1t-a52b", "name": "Mistral Large 4", "status": "ready", "demand": 0, "created": 1793371638, "input": ["text", "image"], "output": ["text", "thought"]},
+    {"id": "qwen3.5-397b-a17b", "name": "Qwen 3.5 397B", "status": "ready", "demand": 3, "created": 1776865347, "input": ["text", "image"], "output": ["text", "thought"]},
+    {"id": "qwen3.8-27b", "name": "Qwen 3.8 27B", "status": "ready", "demand": 5, "created": 1787844341, "input": ["text", "image", "video"], "output": ["text", "thought"]},
+]
+
+
+def test_parse_model_ids():
+    p = ms.parse("qwen3.5-397b-a17b")
+    assert (p["family"], p["version"], p["total_b"], p["active_b"], p["light"]) == ("qwen", 3.5, 397, 17, False)
+    p = ms.parse("deepseek-v4.1-flash-1017")
+    assert (p["family"], p["version"], p["light"]) == ("deepseek", 4.1, True)
+    p = ms.parse("mistral-large-4-1t-a52b")
+    assert (p["family"], p["version"], p["total_b"]) == ("mistral", 4, 1000)
+    assert ms.parse("meta-llama-3.1-8b-instruct")["family"] == "llama"
+    assert ms.parse("qwen3-30b-a3b-instruct-2507")["version"] == 3
+    assert ms.parse("eurollm-22b-instruct-2512")["version"] == 0
+
+
+def test_pick_avoids_overloaded_models():
+    idle = [dict(m, demand=0) for m in SAIA]
+    assert ms.pick(idle, "chat") == "glm-5.3"            # strongest when nobody else is on it
+    assert ms.pick(SAIA, "chat") == "mistral-large-4-1t-a52b"  # GLM at demand 5 → the free, similarly strong one
+    assert ms.pick(SAIA, "agent") == "deepseek-v4.1-flash-1017"
+    assert ms.pick(SAIA, "vision") in ("mistral-large-4-1t-a52b", "qwen3.5-397b-a17b")
+    assert ms.pick(SAIA, "chat", load_aware=False) == "glm-5.3"
+    # LLMitMir's own observation counts like high demand …
+    slow = [dict(m, demand=0, slow=m["id"] == "glm-5.3") for m in SAIA]
+    assert ms.pick(slow, "chat") == "mistral-large-4-1t-a52b"
+    # … and a model that just answered quickly is not "busy", whatever the reported demand
+    fast = [dict(m, fast=m["id"] == "glm-5.3") for m in SAIA]
+    assert not ms.busy(next(m for m in fast if m["id"] == "glm-5.3"))
+    assert ms.busy(next(m for m in SAIA if m["id"] == "glm-5.3"))
+    # demand 6 (never answered in the measurement) is out, 3 barely matters
+    assert ms.demand_penalty(6) >= 50 and ms.demand_penalty(3) <= 3
+    # gone or not ready models are never picked
+    assert ms.pick([dict(m, demand=0, status="loading" if m["id"] == "glm-5.3" else "ready") for m in SAIA], "chat") != "glm-5.3"
+
+
+def test_alternative_recommendation():
+    alt = ms.alternative(SAIA, "glm-5.3", "chat")
+    assert alt["id"] == "mistral-large-4-1t-a52b" and alt["similar"] and alt["demand"] == 0
+    # images in the chat: only models that can see them
+    assert "image" in next(m for m in SAIA if m["id"] == ms.alternative(SAIA, "qwen3.8-27b", "chat", need_image=True)["id"])["input"]
+    # never recommend something far weaker
+    only_weak = [m for m in SAIA if m["id"] in ("glm-5.3", "meta-llama-3.1-8b-instruct")]
+    assert ms.alternative(only_weak, "glm-5.3", "chat") is None
+    # nothing to recommend when all good ones are busy
+    assert ms.alternative([dict(m, demand=5) for m in SAIA], "glm-5.3", "chat") is None
+
+
+def test_new_releases_are_estimated_and_preferred():
+    new = {"id": "glm-5.4", "name": "GLM 5.4", "status": "ready", "demand": 0, "created": 1800000000, "input": ["text"], "output": ["text", "thought"]}
+    assert ms.quality("glm-5.4", "chat", new) > ms.quality("glm-5.3", "chat")
+    assert ms.pick([dict(m, demand=0) for m in SAIA] + [new], "chat") == "glm-5.4"
+    # a new flash model is compared with the flash line, not with the big model
+    fl = {"id": "glm-5.4-flash", "input": ["text"], "output": ["text"]}
+    assert ms.quality("glm-5.4-flash", "chat", fl) < ms.quality("glm-5.3", "chat")
+    # unknown family: estimated from size, never 0 for chat
+    other = {"id": "kimi-k3-1t-a32b", "input": ["text"], "output": ["text", "thought"]}
+    assert 60 <= ms.quality(other["id"], "chat", other) <= 83
+    assert ms.quality("bge-m3-embedding", "chat", {"id": "bge-m3-embedding"}) > 0
+    assert not ms.candidates([{"id": "bge-m3-embedding", "status": "ready"}], "chat")
+
+
+def test_merge_known_marks_new_and_gone():
+    old, _ = ms.merge_known([], SAIA, 1000.0)
+    assert all(m["first_seen"] == 0 for m in old)  # the first list is not "new"
+    fresh = [m for m in SAIA if m["id"] != "deepseek-v4-flash-0731"] + [{"id": "glm-5.4", "status": "ready", "demand": 1}]
+    known, new = ms.merge_known(old, fresh, 2000.0)
+    assert new == ["glm-5.4"]
+    assert next(m for m in known if m["id"] == "glm-5.4")["first_seen"] == 2000.0
+    gone = next(m for m in known if m["id"] == "deepseek-v4-flash-0731")
+    assert gone["gone"] and not ms.usable(gone)
+    # lists stored before 0.4 have no first_seen: those models are not "new" after the update
+    upgraded, _ = ms.merge_known([{"id": m["id"]} for m in SAIA], SAIA, 3000.0)
+    assert all(m["first_seen"] == 0 for m in upgraded)
+    later, _ = ms.merge_known(known, fresh, 2000.0 + 31 * 86400)
+    assert not any(m["id"] == "deepseek-v4-flash-0731" for m in later)
+
+
+prov = load("provider")
+
+
+def _run(coro):
+    import asyncio
+    return asyncio.run(coro)
+
+
+async def _hanging(chunks, hang_first=1000.0):
+    import asyncio
+    await asyncio.sleep(hang_first)
+    for c in chunks:
+        yield c
+
+
+CHUNK = {"choices": [{"delta": {"content": "Hallo"}}]}
+
+
+def test_guard_stream_recommends_and_switches():
+    import asyncio
+
+    async def main():
+        stop, switch = asyncio.Event(), asyncio.Event()
+        slow_calls, first = [], []
+
+        async def on_slow(w):
+            slow_calls.append(w)
+            return False
+
+        async def on_first(w):
+            first.append(w)
+
+        # slow model that answers after a while: one warning, then the chunks still arrive
+        out = [c async for c in prov.guard_stream(_hanging([CHUNK, CHUNK], 0.15), stop, switch, first_timeout=0.05,
+                                                  on_slow=on_slow, on_first=on_first)]
+        assert len(out) == 2 and len(slow_calls) == 1 and first and first[0] >= 0.15
+
+        # on_slow decides to switch (scheduled task) → ModelSwitch, the hanging request is abandoned
+        async def switch_now(w):
+            return True
+        with pytest.raises(prov.ModelSwitch):
+            async for _ in prov.guard_stream(_hanging([CHUNK]), stop, switch, first_timeout=0.05, on_slow=switch_now, on_first=on_first):
+                pass
+
+        # the person clicks "switch" while waiting
+        asyncio.get_running_loop().call_later(0.05, switch.set)
+        with pytest.raises(prov.ModelSwitch):
+            async for _ in prov.guard_stream(_hanging([CHUNK]), stop, switch, first_timeout=10, on_slow=on_slow, on_first=on_first):
+                pass
+        switch.clear()
+
+        # stop ends the wait at once (before: up to 15 minutes)
+        asyncio.get_running_loop().call_later(0.05, stop.set)
+        t = asyncio.get_running_loop().time()
+        out = [c async for c in prov.guard_stream(_hanging([CHUNK]), stop, switch, first_timeout=10, on_slow=on_slow, on_first=on_first)]
+        assert out == [] and asyncio.get_running_loop().time() - t < 1
+
+    _run(main())
+
+
+def test_real_output_ignores_role_header():
+    assert not prov.real_output({"choices": [{"delta": {"role": "assistant"}}]})
+    assert prov.real_output({"choices": [{"delta": {"reasoning_content": "hm"}}]})
+    assert prov.real_output({"choices": [{"delta": {}, "finish_reason": "stop"}]})

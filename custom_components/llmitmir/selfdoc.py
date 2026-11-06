@@ -67,6 +67,9 @@ Höchstens 15 Werkzeugschritte je Antwort.
 60 Schritten. Ergebnisse als Datei im Arbeitsbereich (`file_write`), die Person lädt sie herunter.
 - Anhänge der Person liegen im Arbeitsbereich des Chats (`file_list`, `file_read`).
 
+## Modelle
+„Standard“ heißt automatisch: LLMitMir lädt alle drei Minuten die Modellliste des Anbieters samt Auslastung und nimmt für Chat, Cowork/Aufgaben und Bildlesen das passendste Modell, das gerade nicht überlastet ist; neu erschienene Modelle werden von selbst berücksichtigt. Hängt ein Modell, schlägt der Chat ein freies, ähnlich gutes vor (die Person kann mitten im Lauf wechseln, es geht beim aktuellen Schritt weiter); geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. Feste Modelle (in Einstellungen, Projekt oder Aufgabe) bleiben, solange es sie gibt.
+
 ## Projekte
 Felder: Name, Beschreibung, Anweisungen (gelten in jedem Chat des Projekts), Dateien, Skills und Zugänge (optional „nur diese“), \
 Modell für Chats und für Coworks/Aufgaben, erlaubte Werkzeuggruppen, Freigaben für schreibende Werkzeuge.

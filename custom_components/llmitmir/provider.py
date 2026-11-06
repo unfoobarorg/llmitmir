@@ -227,6 +227,78 @@ class Provider:
                 return
 
 
+class ModelSwitch(Exception):
+    """The run moves to another model (asked for in the chat, or chosen by LLMitMir in a scheduled task)."""
+
+
+def real_output(chunk: dict) -> bool:
+    """True once the model really produces something (text, thoughts, a tool call or the end), not just a header."""
+    if chunk.get("usage"):
+        return True
+    for ch in chunk.get("choices") or []:
+        d = ch.get("delta") or {}
+        if d.get("content") or d.get("reasoning") or d.get("reasoning_content") or d.get("tool_calls") or ch.get("finish_reason"):
+            return True
+    return False
+
+
+async def guard_stream(agen: AsyncIterator[dict], stop: asyncio.Event, switch: asyncio.Event, *, first_timeout: float,
+                       on_slow: Callable[[float], Awaitable[bool]],
+                       on_first: Callable[[float], Awaitable[None]]) -> AsyncIterator[dict]:
+    """Pass the chunks of a model stream through, but
+
+    - stop waiting at once when ``stop`` is set (before, a hanging model kept the run alive until the provider's
+      15-minute read timeout, the stop button did nothing),
+    - raise ModelSwitch as soon as ``switch`` is set,
+    - call ``on_slow(waited)`` once if no real output came within ``first_timeout``; if it returns True the attempt is
+      abandoned with ModelSwitch. ``on_first(waited)`` reports when the first real output arrived.
+    """
+    stop_w = asyncio.ensure_future(stop.wait())
+    switch_w = asyncio.ensure_future(switch.wait())
+    started = time.monotonic()
+    seen = warned = False
+    nxt: asyncio.Future | None = None
+    try:
+        while True:
+            nxt = asyncio.ensure_future(agen.__anext__())
+            while True:
+                timeout = None if seen or warned else max(0.01, first_timeout - (time.monotonic() - started))
+                done, _ = await asyncio.wait({nxt, stop_w, switch_w}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+                if nxt in done:
+                    break
+                if done or (not warned and await on_slow(time.monotonic() - started)):
+                    nxt.cancel()
+                    try:
+                        await nxt
+                    except (asyncio.CancelledError, StopAsyncIteration, Exception):  # noqa: BLE001
+                        pass
+                    if stop_w in done:
+                        return
+                    raise ModelSwitch
+                warned = True
+            try:
+                chunk = nxt.result()
+            except StopAsyncIteration:
+                return
+            if not seen and real_output(chunk):
+                seen = True
+                await on_first(time.monotonic() - started)
+            yield chunk
+    finally:
+        stop_w.cancel()
+        switch_w.cancel()
+        if nxt is not None and not nxt.done():  # we were cancelled ourselves while waiting
+            nxt.cancel()
+            try:
+                await nxt
+            except BaseException:  # noqa: BLE001
+                pass
+        try:
+            await agen.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class _Retry(Exception):
     def __init__(self, message: str, wait: float) -> None:
         super().__init__(message)

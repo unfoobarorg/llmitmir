@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from . import credentials as C
 from . import manage as M
+from . import models as MS
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
                     TASK_KEY_MODES, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
@@ -65,16 +66,7 @@ def _t(s: str) -> dict:
 
 
 def _models_for_users(m) -> list[dict]:
-    cfg = m.config.data.get("models") or {}
-    known = {x["id"]: x for x in cfg.get("known") or []}
-    enabled = cfg.get("enabled") or list(known)
-    out = []
-    for mid in enabled:
-        info = known.get(mid, {"id": mid})
-        out.append({"id": mid, "name": info.get("name") or mid, "input": info.get("input") or ["text"],
-                    "output": info.get("output") or ["text"], "status": info.get("status", "ready"),
-                    "context": m.context_size(mid), "tools": info.get("tools", True)})
-    return out
+    return m.models_for_users()
 
 
 def _task_view(m, user_id: str, t: dict) -> dict:
@@ -93,7 +85,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
     s["has_own_key"] = bool(s.pop("own_key", ""))
     s["has_own_task_key"] = bool(s.pop("own_task_key", ""))
     sched = m.scheduler
-    runs = {r.chat_id: {"run_id": r.id, "status": r.status, "detail": r.detail, "started": r.started}
+    runs = {r.chat_id: {"run_id": r.id, "status": r.status, "detail": r.detail, "started": r.started, "hint": r.hint}
             for r in m.runs.values() if r.user_id == user.id}
     perms = [info for (uid, fut, info) in m.permissions.values() if uid == user.id and not fut.done()]
     return {
@@ -112,7 +104,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "tasks": [_task_view(m, user.id, t) for t in st.meta["tasks"].values()],
         "chats": sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True),
         "models": _models_for_users(m),
-        "defaults": {r: m.default_model(user.id, r) for r in ("chat", "agent", "vision")},
+        "defaults": m.defaults_view(user.id),
         "tool_groups": GROUPS,
         "tools": {n: {"group": t.group, "label": t.label, "icon": t.icon, "write": bool(t.write), "confirm": t.preview is not None}
                   for n, t in REGISTRY.items()},
@@ -219,6 +211,12 @@ async def ws_chat_retry(hass, conn, msg, m, user, st):
         raise ValueError("Nichts zu wiederholen")
     await st.async_save_chat(chat)
     return {"run_id": m.start_run(user, chat), "chat": chat}
+
+
+@command(_t("chat/switch_model") | {vol.Required("chat_id"): str, vol.Required("model"): str})
+async def ws_chat_switch_model(hass, conn, msg, m, user, st):
+    """Move a chat to another model; a running answer continues on it from the current step."""
+    return await m.switch_model(user.id, msg["chat_id"], msg["model"])
 
 
 @command(_t("chat/stop") | {vol.Required("chat_id"): str})
@@ -423,7 +421,8 @@ def _admin_view(m, users) -> dict:
         "task_usage": _task_usage_view(m),
         "allowed_users": cfg.get("allowed_users") or [],
         "quota_default": cfg.get("quota_default"), "quota_users": cfg.get("quota_users") or {},
-        "models": cfg.get("models"), "known_context": KNOWN_CONTEXT,
+        "models": cfg.get("models"), "known_context": KNOWN_CONTEXT, "models_live": m.models_for_users(all_known=True),
+        "auto_models": {r: MS.pick(m.live_models(), r) or "" for r in MS.ROLES},
         "search": cfg.get("search"),
         "werkbank": {"url": (cfg.get("werkbank") or {}).get("url", ""), "token": MASK if (cfg.get("werkbank") or {}).get("token") else ""},
         "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active} for u in users],
@@ -494,7 +493,7 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         cfg["werkbank"] = wb
     if "models" in c:
         mm = dict(cfg.get("models") or {})
-        for k in ("enabled", "defaults", "context"):
+        for k in ("enabled", "defaults", "context", "auto_enable_new"):
             if k in c["models"]:
                 mm[k] = c["models"][k]
         cfg["models"] = mm
@@ -509,15 +508,9 @@ async def ws_models_refresh(hass, conn, msg, m, user, st):
     key = msg.get("key") if msg.get("key") and msg.get("key") != MASK else m.key_for(user.id, st) or m.config.data.get("shared_key")
     if not key:
         raise ValueError("Zum Laden der Modelle wird ein Schlüssel gebraucht")
-    models = await m.provider.list_models(key)
-    known = []
-    for x in models:
-        known.append({"id": x.get("id"), "name": x.get("name") or x.get("id"), "input": x.get("input") or ["text"],
-                      "output": x.get("output") or ["text"], "status": x.get("status") or "ready"})
-    m.config.data.setdefault("models", {})["known"] = known
-    if not m.config.data["models"].get("enabled"):
-        m.config.data["models"]["enabled"] = [x["id"] for x in known if x["status"] != "unavailable"]
-    await m.config.async_save()
+    m._models_at = 0
+    if not await m.refresh_models(key=key, max_age=0):
+        raise ValueError("Modellliste konnte nicht geladen werden (Schlüssel und Basis-URL prüfen)")
     return _admin_view(m, await _users(hass))
 
 

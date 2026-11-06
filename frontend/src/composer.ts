@@ -4,6 +4,7 @@ import { property, state, query } from "lit/decorators.js";
 import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeElement } from "./ui";
 import { store } from "./api";
 import { t } from "./i18n";
+import { alternative, load, loadDot, type Role } from "./modelpick";
 
 // Status lines while speech is transcribed, rotating every few seconds (English via i18n).
 const TX_VERBS = ["Hört genau hin", "Sortiert Silben", "Fügt Wörter zusammen", "Entziffert Genuschel", "Setzt Satzzeichen",
@@ -32,6 +33,7 @@ export class Composer extends LitElement {
   @state() private txStart = 0;
   @state() private txNow = 0;
   @state() private drag = false;
+  @state() private dismissed = new Set<string>();
   @query("textarea") private ta!: HTMLTextAreaElement;
   private _raf = 0;
   private _txTimer = 0;
@@ -59,6 +61,12 @@ export class Composer extends LitElement {
     .model { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--lm-muted); font-size: 13px;
       padding: 6px 8px; border-radius: 9px; cursor: pointer; max-width: 210px; }
     .model:hover { background: var(--lm-hover); color: var(--lm-text); }
+    .bhint { display: flex; align-items: center; gap: 10px; margin: 0 6px 8px; padding: 9px 10px 9px 12px; border-radius: 14px; font-size: 13.5px;
+      background: color-mix(in srgb, var(--lm-warn) 12%, var(--lm-panel)); border: 1px solid color-mix(in srgb, var(--lm-warn) 35%, var(--lm-line));
+      color: var(--lm-text); animation: fadeIn .2s; }
+    .bhint > svg { color: var(--lm-warn); flex: none; }
+    .bhint .btn { white-space: nowrap; flex: none; }
+    @container (max-width: 520px) { .bhint { flex-wrap: wrap; } }
     .files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .file { display: inline-flex; align-items: center; gap: 6px; background: var(--lm-hover); border-radius: 10px; padding: 5px 6px 5px 10px;
       font-size: 12.5px; max-width: 240px; animation: fadeIn .2s; }
@@ -253,17 +261,39 @@ export class Composer extends LitElement {
     return Math.max(...f.map(x => x || 0));
   }
 
+  private get modelRole(): Role { return this.mode === "chat" ? "chat" : "agent"; }
+
+  private pickModel(id: string) { this.model = id; this.dispatchEvent(new CustomEvent("model", { detail: id })); }
+
   private modelMenu() {
     const d = store.data;
-    const def = this.mode === "chat" ? d?.defaults?.chat : d?.defaults?.agent;
+    const role = this.modelRole;
+    const def = d?.defaults?.[role];
+    const rec = d?.defaults?.auto?.[role];
+    // best fit first, so the strong and currently free models are on top
+    const list = [...this.models].sort((a, b) => (b.quality?.[role] || 0) - (a.quality?.[role] || 0));
     return html`<div class="mh">${t("Modell")}</div>
-      ${this.models.map(m => html`<button class="mi ${m.id === this.model ? "sel" : ""}" data-close
-          @click=${() => { this.model = m.id; this.dispatchEvent(new CustomEvent("model", { detail: m.id })); }}>
-        <div class="grow"><div class="row"><span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
+      ${list.map(m => { const l = load(m); return html`<button class="mi ${m.id === this.model ? "sel" : ""}" data-close @click=${() => this.pickModel(m.id)}>
+        <div class="grow"><div class="row">${loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
+          ${m.id === rec && m.id !== def ? html`<span class="badge" style="color:var(--lm-accent)">Empfohlen</span>` : nothing}
+          ${m.new ? html`<span class="badge" style="color:var(--lm-accent)">neu</span>` : nothing}
           ${m.status === "unavailable" ? html`<span class="badge" style="color:var(--lm-err)">nicht verfügbar</span>` : nothing}</div>
-          <div class="sub">${(m.input || []).includes("image") ? "Bilder · " : ""}${(m.output || []).includes("thought") ? "denkt nach · " : ""}${fmtNum(m.context)} Kontext</div></div>
-        ${m.id === this.model ? icon("check", 18) : nothing}</button>`)}
-      <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Open-Weight-Modelle können verzögert antworten, wenn viel los ist.</div>`;
+          <div class="sub">${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? "Bilder · " : ""}${(m.output || []).includes("thought") ? "denkt nach · " : ""}${fmtNum(m.context)} Kontext</div></div>
+        ${m.id === this.model ? icon("check", 18) : nothing}</button>`; })}
+      <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Der Punkt zeigt die aktuelle Auslastung beim Anbieter (grün frei, gelb etwas, rot stark).
+        „Standard“ wählt automatisch das passendste Modell, das gerade nicht überlastet ist.</div>`;
+  }
+
+  /** Before sending to an overloaded model: say so and offer a free one that does the job about as well. */
+  private busyHint() {
+    const m = this.modelInfo as any;
+    if (this.busy || !m?.busy || this.dismissed.has(m.id)) return nothing;
+    const needImage = this.files.some(f => f.type.startsWith("image/")) && (m.input || []).includes("image");
+    const alt = alternative(m.id, this.modelRole, needImage);
+    return html`<div class="bhint">${icon("hourglass", 18)}<div class="grow"><b>${m.name}</b> ist gerade ${load(m)?.text || "stark ausgelastet"} – Antworten können
+        sich um Minuten verzögern.${alt ? html` <b>${alt.name}</b> ist frei und ${alt.better ? "mindestens genauso stark" : alt.similar ? "löst das ähnlich gut" : "etwas schwächer, aber deutlich schneller"}.` : " Gerade ist kein ähnlich gutes Modell frei."}</div>
+      ${alt ? html`<button class="btn" @click=${() => this.pickModel(alt.id)}>${alt.name} nehmen</button>` : nothing}
+      <button class="iconbtn" title=${t("Schließen")} @click=${() => { this.dismissed = new Set([...this.dismissed, m.id]); }}>${icon("close", 16)}</button></div>`;
   }
 
   private toolsMenu() {
@@ -295,7 +325,7 @@ export class Composer extends LitElement {
     const cu = this.chatUsage;
     const cf = cu?.context && cu?.context_max ? cu.context / cu.context_max : 0;
     const secs = this.rec ? Math.floor((Date.now() - this.recStart) / 1000) : 0;
-    return html`<div class="box ${this.big ? "big" : ""} ${this.drag ? "drag" : ""}"
+    return html`${this.busyHint()}<div class="box ${this.big ? "big" : ""} ${this.drag ? "drag" : ""}"
         @dragover=${(e: DragEvent) => { e.preventDefault(); this.drag = true; }} @dragleave=${() => (this.drag = false)}
         @drop=${(e: DragEvent) => { e.preventDefault(); this.drag = false; this.addFiles(e.dataTransfer?.files || null); }}>
       ${this.files.length ? html`<div class="files">${this.files.map((f, i) => html`<span class="file">${icon(f.type.startsWith("image/") ? "image" : "file", 16)}
@@ -320,7 +350,7 @@ export class Composer extends LitElement {
         <lm-menu direction="up" align="right"><button slot="trigger" class="meter" title="${t("Kontext")} & ${t("Kontingent")}">
           ${cu ? html`<lm-ring .value=${cf} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Kontingent")}></lm-ring></button>
           ${this.usageMenu()}</lm-menu>
-        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}><span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>
+        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>
         ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
             @click=${this.toggleRec} ?disabled=${this.transcribing}>${icon("mic")}</button>`
           : !this.rec ? html`<button class="send ${busy ? "stop" : ""}" title=${busy ? t("Stopp") : t("Senden")} @click=${this.send}>${icon(busy ? "stop" : "send")}</button>` : nothing}

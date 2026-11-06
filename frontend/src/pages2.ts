@@ -4,6 +4,7 @@ import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
+import { defaultLabel } from "./modelpick";
 import { taskUsageCard, taskUsageCss } from "./taskusage";
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
@@ -148,7 +149,7 @@ export class TaskPage extends StoreElement {
           <label class="f"><span>${t("Projekte")}</span><select @change=${(e: any) => this.set("project_id", e.target.value || null)}>
             <option value="">Ohne Projekt</option>${(d.projects || []).map((p: any) => html`<option value=${p.id} ?selected=${x.project_id === p.id}>${p.name}</option>`)}</select></label>
           <label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
-            <option value="">Standard (${d.defaults.agent})</option>${(d.models || []).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
+            <option value="">${defaultLabel("agent")}</option>${(d.models || []).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
         </div>
         <div class="card"><b>Freigaben für schreibende Aktionen</b><div class="hint" style="margin:4px 0 10px">Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.</div>
           <div class="checks">${writeTools.map(([n, v]: any) => {

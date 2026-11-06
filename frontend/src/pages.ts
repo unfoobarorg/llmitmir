@@ -4,6 +4,7 @@ import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, fmtTime, confirmDialog, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
+import { defaultLabel } from "./modelpick";
 import type { SendDetail } from "./composer";
 
 export async function startChat(d: SendDetail) {
@@ -28,6 +29,7 @@ export class Home extends StoreElement {
   @state() private mode: "chat" | "cowork" = "chat";
   @state() private model = "";
   @state() private busy = false;
+  private manual = false;  // the person picked a model here; until then the default follows load and new releases
   static styles = [base, css`
     :host { display: block; height: 100%; overflow-y: auto; }
     .wrap { min-height: 100%; display: flex; flex-direction: column; justify-content: center; max-width: 760px; margin: 0 auto; padding: 24px 20px 12vh; }
@@ -41,7 +43,8 @@ export class Home extends StoreElement {
     .nokey { margin-bottom: 16px; }
   `];
   connectedCallback() { super.connectedCallback(); this.mode = this.initialMode; this.pickModel(); }
-  updated(ch: Map<string, any>) { if (ch.has("initialMode")) { this.mode = this.initialMode; this.pickModel(); } }
+  updated(ch: Map<string, any>) { if (ch.has("initialMode")) { this.mode = this.initialMode; this.manual = false; this.pickModel(); } }
+  willUpdate() { if (!this.manual) this.pickModel(); }
   private pickModel() {
     const d = store.data?.defaults || {};
     const p = (store.data?.projects || []).find((x: any) => x.id === this.projectId);
@@ -54,7 +57,7 @@ export class Home extends StoreElement {
     this.busy = false;
   }
   private fill(text: string, mode: "chat" | "cowork") {
-    this.mode = mode; this.pickModel();
+    this.mode = mode; this.manual = false; this.pickModel();
     const c = this.renderRoot.querySelector("lm-composer") as any;
     c?.setText(text); c?.focus();
   }
@@ -69,8 +72,8 @@ export class Home extends StoreElement {
       <h1><lm-spark size="34" .active=${false}></lm-spark>${greeting()}${name ? `, ${name}` : ""}</h1>
       <lm-composer big showMode showProject .mode=${this.mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
         placeholder=${this.mode === "cowork" ? t("Was soll ich erledigen?") : t("Wie kann ich helfen?")}
-        @mode=${(e: CustomEvent) => { this.mode = e.detail; }} @model=${(e: CustomEvent) => (this.model = e.detail)}
-        @project=${(e: CustomEvent) => { this.projectId = e.detail; this.pickModel(); }} @send=${this.send}></lm-composer>
+        @mode=${(e: CustomEvent) => { this.mode = e.detail; this.manual = false; }} @model=${(e: CustomEvent) => { this.model = e.detail; this.manual = true; }}
+        @project=${(e: CustomEvent) => { this.projectId = e.detail; this.manual = false; this.pickModel(); }} @send=${this.send}></lm-composer>
       <div class="sugg">
         ${this.mode === "chat" ? html`
           <button @click=${() => this.fill("Erkläre mir verständlich: ", "chat")}>${icon("sparkle", 16)} Erklären</button>
@@ -231,9 +234,9 @@ export class ProjectPage extends StoreElement {
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.skills_only} @change=${(e: any) => this.set("skills_only", e.target.checked)}> Nur diese Skills anbieten</label></div>
         <div class="card"><h3>${icon("sparkle", 18)} Modelle</h3>
           <label class="f"><span>Chat</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
-            <option value="">Standard (${d.defaults.chat})</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_chat === m.id}>${m.name}</option>`)}</select></label>
+            <option value="">${defaultLabel("chat")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_chat === m.id}>${m.name}</option>`)}</select></label>
           <label class="f" style="margin-top:8px"><span>Cowork / Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
-            <option value="">Standard (${d.defaults.agent})</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
+            <option value="">${defaultLabel("agent")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
         <div class="card"><h3>${icon("tools", 18)} ${t("Werkzeuge")} & Freigaben</h3>
           <div class="chips">${Object.entries(groups).filter(([g]) => !["files", "skills", "progress", "ha"].includes(g)).map(([g, info]: any) => {
             const on = p.tool_groups == null || p.tool_groups.includes(g);
