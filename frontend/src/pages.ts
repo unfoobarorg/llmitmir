@@ -235,10 +235,11 @@ export class ProjectPage extends StoreElement {
           <label class="f" style="margin-top:8px"><span>Cowork / Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
             <option value="">Standard (${d.defaults.agent})</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
         <div class="card"><h3>${icon("tools", 18)} ${t("Werkzeuge")} & Freigaben</h3>
-          <div class="chips">${Object.entries(groups).filter(([g]) => !["files", "skills", "progress"].includes(g)).map(([g, info]: any) => {
+          <div class="chips">${Object.entries(groups).filter(([g]) => !["files", "skills", "progress", "ha"].includes(g)).map(([g, info]: any) => {
             const on = p.tool_groups == null || p.tool_groups.includes(g);
             return html`<button class=${on ? "on" : ""} @click=${() => {
               const all = Object.keys(groups); const cur = new Set(p.tool_groups ?? all); cur.has(g) ? cur.delete(g) : cur.add(g); this.set("tool_groups", [...cur]); }}>${info.label}</button>`; })}</div>
+          <div class="hint" style="margin:6px 0 0">${groups.ha?.label || "Home Assistant"} ist immer dabei; Schaltaktionen fragen wie unten eingestellt nach.</div>
           <div class="hint" style="margin:10px 0 6px">Schreibende Aktionen:</div>
           ${writeTools.map(([n, v]: any) => html`<div class="row" style="padding:3px 0;font-size:13px"><span class="grow">${v.label}</span>
             <select style="width:auto;padding:4px 6px" @change=${(e: any) => this.set("permissions", { ...(p.permissions || {}), [n]: e.target.value })}>

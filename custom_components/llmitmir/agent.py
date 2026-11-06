@@ -32,7 +32,10 @@ _LOGGER = logging.getLogger(__name__)
 WEEKDAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
 # Tool groups available per mode (projects/tasks can narrow this down)
-CHAT_GROUPS = {"web", "files", "skills"}
+CHAT_GROUPS = {"web", "files", "skills", "ha"}
+# Always on, whatever a chat, project or task selects: questions about this Home Assistant instance must always
+# be answerable (also right after installation, with no settings touched). Writes still need approval.
+ALWAYS_GROUPS = {"ha"}
 COWORK_GROUPS = {"web", "ha", "dav", "http", "files", "notify", "skills", "progress", "werkbank"}
 
 
@@ -529,7 +532,7 @@ class ToolContext:
             g.discard("werkbank")
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
-        return g
+        return g | ALWAYS_GROUPS
 
     def tool_specs(self) -> list[dict]:
         g = self.groups()

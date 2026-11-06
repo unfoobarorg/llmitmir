@@ -201,13 +201,13 @@ export class Composer extends LitElement {
   private toolsMenu() {
     const groups = store.data?.tool_groups || {};
     const sel = new Set<string>(this.tools ?? store.data?.settings?.chat_tools ?? ["web", "files", "skills"]);
-    const avail = ["web", "files", "skills", "ha", "dav", "http", ...(store.data?.werkbank?.configured ? ["werkbank"] : [])];
+    const avail = ["web", "files", "skills", "dav", "http", ...(store.data?.werkbank?.configured ? ["werkbank"] : [])];
     return html`<div class="mh">${t("Werkzeuge")} im Chat</div>
       ${avail.map(g => html`<button class="mi" @click=${() => {
         sel.has(g) ? sel.delete(g) : sel.add(g); this.tools = [...sel];
         this.dispatchEvent(new CustomEvent("tools", { detail: this.tools })); this.requestUpdate(); }}>
         ${icon(groups[g]?.icon || "tools", 18)}<span class="grow">${groups[g]?.label || g}</span>${sel.has(g) ? icon("check", 18) : nothing}</button>`)}
-      <div class="hint" style="padding:4px 10px 6px">Im Cowork stehen alle Werkzeuge zur Verfügung; schreibende Aktionen fragen nach.</div>`;
+      <div class="hint" style="padding:4px 10px 6px">${groups.ha?.label || "Home Assistant"} ist immer dabei. Im Cowork stehen alle Werkzeuge zur Verfügung; schreibende Aktionen fragen nach.</div>`;
   }
 
   private projectMenu() {

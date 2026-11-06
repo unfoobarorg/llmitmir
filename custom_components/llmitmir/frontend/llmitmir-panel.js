@@ -215,10 +215,10 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
           ${L.status==="unavailable"?o`<span class="badge" style="color:var(--lm-err)">nicht verfügbar</span>`:p}</div>
           <div class="sub">${(L.input||[]).includes("image")?"Bilder \xB7 ":""}${(L.output||[]).includes("thought")?"denkt nach \xB7 ":""}${I(L.context)} Kontext</div></div>
         ${L.id===this.model?s("check",18):p}</button>`)}
-      <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Open-Weight-Modelle können verzögert antworten, wenn viel los ist.</div>`}toolsMenu(){let C=A.data?.tool_groups||{},H=new Set(this.tools??A.data?.settings?.chat_tools??["web","files","skills"]),L=["web","files","skills","ha","dav","http",...A.data?.werkbank?.configured?["werkbank"]:[]];return o`<div class="mh">${m("Werkzeuge")} im Chat</div>
+      <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Open-Weight-Modelle können verzögert antworten, wenn viel los ist.</div>`}toolsMenu(){let C=A.data?.tool_groups||{},H=new Set(this.tools??A.data?.settings?.chat_tools??["web","files","skills"]),L=["web","files","skills","dav","http",...A.data?.werkbank?.configured?["werkbank"]:[]];return o`<div class="mh">${m("Werkzeuge")} im Chat</div>
       ${L.map(e=>o`<button class="mi" @click=${()=>{H.has(e)?H.delete(e):H.add(e),this.tools=[...H],this.dispatchEvent(new CustomEvent("tools",{detail:this.tools})),this.requestUpdate()}}>
         ${s(C[e]?.icon||"tools",18)}<span class="grow">${C[e]?.label||e}</span>${H.has(e)?s("check",18):p}</button>`)}
-      <div class="hint" style="padding:4px 10px 6px">Im Cowork stehen alle Werkzeuge zur Verfügung; schreibende Aktionen fragen nach.</div>`}projectMenu(){let C=A.data?.projects||[];return o`<div class="mh">${m("Projekte")}</div>
+      <div class="hint" style="padding:4px 10px 6px">${C.ha?.label||"Home Assistant"} ist immer dabei. Im Cowork stehen alle Werkzeuge zur Verfügung; schreibende Aktionen fragen nach.</div>`}projectMenu(){let C=A.data?.projects||[];return o`<div class="mh">${m("Projekte")}</div>
       <button class="mi ${this.projectId?"":"sel"}" data-close @click=${()=>{this.projectId=null,this.dispatchEvent(new CustomEvent("project",{detail:null}))}}>
         ${s("chat",18)} Ohne Projekt</button>
       ${C.map(H=>o`<button class="mi ${H.id===this.projectId?"sel":""}" data-close
@@ -523,7 +523,8 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
           <label class="f" style="margin-top:8px"><span>Cowork / Aufgaben</span><select @change=${t=>this.set("model_agent",t.target.value||null)}>
             <option value="">Standard (${H.defaults.agent})</option>${e.map(t=>o`<option value=${t.id} ?selected=${C.model_agent===t.id}>${t.name}</option>`)}</select></label></div>
         <div class="card"><h3>${s("tools",18)} ${m("Werkzeuge")} & Freigaben</h3>
-          <div class="chips">${Object.entries(M).filter(([t])=>!["files","skills","progress"].includes(t)).map(([t,n])=>{let l=C.tool_groups==null||C.tool_groups.includes(t);return o`<button class=${l?"on":""} @click=${()=>{let v=Object.keys(M),h=new Set(C.tool_groups??v);h.has(t)?h.delete(t):h.add(t),this.set("tool_groups",[...h])}}>${n.label}</button>`})}</div>
+          <div class="chips">${Object.entries(M).filter(([t])=>!["files","skills","progress","ha"].includes(t)).map(([t,n])=>{let l=C.tool_groups==null||C.tool_groups.includes(t);return o`<button class=${l?"on":""} @click=${()=>{let v=Object.keys(M),h=new Set(C.tool_groups??v);h.has(t)?h.delete(t):h.add(t),this.set("tool_groups",[...h])}}>${n.label}</button>`})}</div>
+          <div class="hint" style="margin:6px 0 0">${M.ha?.label||"Home Assistant"} ist immer dabei; Schaltaktionen fragen wie unten eingestellt nach.</div>
           <div class="hint" style="margin:10px 0 6px">Schreibende Aktionen:</div>
           ${i.map(([t,n])=>o`<div class="row" style="padding:3px 0;font-size:13px"><span class="grow">${n.label}</span>
             <select style="width:auto;padding:4px 6px" @change=${l=>this.set("permissions",{...C.permissions||{},[t]:l.target.value})}>
