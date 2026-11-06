@@ -22,6 +22,9 @@ const EN: Record<string, string> = {
   "Verbrauch": "Usage", "Importieren": "Import", "Persönliche Hinweise": "Personal notes",
   "Hört genau hin": "Listening closely", "Sortiert Silben": "Sorting syllables", "Fügt Wörter zusammen": "Piecing words together",
   "Entziffert Genuschel": "Deciphering mumbles", "Setzt Satzzeichen": "Adding punctuation", "Bringt es zu Papier": "Putting it on paper",
+  "Chats auswählen": "Select chats", "{n} ausgewählt": "{n} selected", "Keine": "None",
+  "Diesen Chat löschen?": "Delete this chat?", "{n} Chats löschen?": "Delete {n} chats?",
+  "Chat gelöscht": "Chat deleted", "{n} Chats gelöscht": "{n} chats deleted",
 };
 
 let lang = "de";

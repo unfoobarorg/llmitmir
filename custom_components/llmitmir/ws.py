@@ -188,17 +188,34 @@ async def ws_chat_update(hass, conn, msg, m, user, st):
     return st.chat_summary(chat)
 
 
-@command(_t("chat/delete") | {vol.Required("chat_id"): str})
-async def ws_chat_delete(hass, conn, msg, m, user, st):
-    m.stop(user.id, msg["chat_id"])
+async def _delete_chat(m, user, st, chat_id: str) -> None:
+    """Stop a running chat, drop its sandbox and its files, then forget it."""
+    m.stop(user.id, chat_id)
     if m.werkbank is not None:
         try:
-            await m.werkbank.delete(msg["chat_id"])
+            await m.werkbank.delete(chat_id)
         except Exception:  # noqa: BLE001 - sandbox may not exist
             pass
-    await st.async_delete_chat(msg["chat_id"])
-    m.emit(user.id, {"type": "chat_deleted", "chat_id": msg["chat_id"]})
+    await st.async_delete_chat(chat_id)
+    m.emit(user.id, {"type": "chat_deleted", "chat_id": chat_id})
+
+
+@command(_t("chat/delete") | {vol.Required("chat_id"): str})
+async def ws_chat_delete(hass, conn, msg, m, user, st):
+    await _delete_chat(m, user, st, msg["chat_id"])
     return {"ok": True}
+
+
+@command(_t("chat/delete_many") | {vol.Required("chat_ids"): vol.All([str], vol.Length(min=1, max=200))})
+async def ws_chat_delete_many(hass, conn, msg, m, user, st):
+    """Delete several chats at once (multi-select in the sidebar); unknown ids are skipped."""
+    deleted = []
+    for chat_id in dict.fromkeys(msg["chat_ids"]):  # keep order, drop duplicates
+        if chat_id not in st.meta["chats"]:
+            continue
+        await _delete_chat(m, user, st, chat_id)
+        deleted.append(chat_id)
+    return {"ok": True, "deleted": deleted}
 
 
 @command(_t("chat/send") | {vol.Required("chat_id"): str, vol.Required("text"): str,

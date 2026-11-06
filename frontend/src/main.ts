@@ -60,6 +60,15 @@ export class LLMitMirPanel extends LitElement {
     .pjc { margin-left: 13px; padding-left: 8px; border-left: 1px solid var(--lm-line); }
     .pjc .rc { padding-left: 8px; }
     .more-all { color: var(--lm-muted); font-size: 12.5px; }
+    .selstart { padding: 2px 8px 4px; }
+    .selstart .btn { width: 100%; justify-content: center; font-size: 12.5px; min-height: 32px; color: var(--lm-muted); }
+    .selbar { position: sticky; top: -6px; z-index: 3; display: flex; align-items: center; gap: 4px; margin: -6px -8px 6px;
+      padding: 6px 8px; background: var(--lm-side); border-bottom: 1px solid var(--lm-line); }
+    .selbar .btn { min-height: 30px; padding: 4px 9px; font-size: 12.5px; }
+    .rc.sel { padding-left: 8px; }
+    .box { width: 18px; height: 18px; flex: none; border-radius: 5px; border: 1.5px solid var(--lm-line); display: grid;
+      place-items: center; color: var(--lm-on-accent); }
+    .box.on { background: var(--lm-accent); border-color: var(--lm-accent); }
     .foot { border-top: 1px solid var(--lm-line); padding: 8px; display: flex; align-items: center; gap: 6px; }
     .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--lm-text); color: var(--lm-bg); display: grid; place-items: center;
       font-weight: 600; font-size: 13px; flex: none; }
@@ -74,7 +83,7 @@ export class LLMitMirPanel extends LitElement {
       padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: fadeIn .2s; max-width: 90vw; }
     .deny { display: grid; place-items: center; height: 100%; text-align: center; padding: 24px; }
     .deny .card { max-width: 440px; }
-    .col .lbl, .col .recents, .col .foot .name, .col .brand b, .col .badge { display: none; }
+    .col .lbl, .col .recents, .col .selstart, .col .foot .name, .col .brand b, .col .badge { display: none; }
     .col .ni { justify-content: center; padding: 8px; }
     .col .foot { flex-direction: column; }
   `];
@@ -97,6 +106,8 @@ export class LLMitMirPanel extends LitElement {
   }
 
   updated(ch: Map<string, any>) {
+    // the list shrank (deleted elsewhere): selection mode is no longer offered
+    if (this.selecting && !this.canSelect) this.stopSelecting();
     if (ch.has("hass") && this.hass) {
       this.dark = !!this.hass.themes?.darkMode;
       if (store.data) store.data.__dark = this.dark;
@@ -142,6 +153,64 @@ export class LLMitMirPanel extends LitElement {
     try { localStorage.setItem("llmitmir.openProjects", JSON.stringify([...s])); } catch { /* ignore */ }
   }
 
+  // ---------------------------------------------------------------- multi-select (only offered for long lists)
+  private static readonly SELECT_FROM = 10;  // more than this many chats -> selection mode is offered
+  @state() private selecting = false;
+  @state() private selected: Set<string> = new Set();
+
+  private get selectableChats(): any[] {
+    return (store.data?.chats || []).filter((c: any) => c.kind !== "task_run");
+  }
+  private get canSelect(): boolean { return this.selectableChats.length > LLMitMirPanel.SELECT_FROM; }
+
+  private startSelecting() { this.selecting = true; this.selected = new Set(); }
+  private stopSelecting() { this.selecting = false; this.selected = new Set(); }
+  private toggleSelect(id: string) {
+    const s = new Set(this.selected); s.has(id) ? s.delete(id) : s.add(id); this.selected = s;
+  }
+  private selectAll() {
+    const all = this.selectableChats.map((c: any) => c.id);
+    this.selected = this.selected.size === all.length ? new Set() : new Set(all);
+  }
+  private async deleteSelected() {
+    const ids = [...this.selected];
+    if (!ids.length) return;
+    const n = ids.length;
+    const ok = await confirmDialog(n === 1 ? t("Diesen Chat löschen?") : t("{n} Chats löschen?", { n }));
+    if (!ok) return;
+    try {
+      await store.api.ws("chat/delete_many", { chat_ids: ids });
+      if (this.path[0] === "chat" && ids.includes(this.path[1])) navigate("/");
+      store.notify(n === 1 ? t("Chat gelöscht") : t("{n} Chats gelöscht", { n }));
+    } catch (e: any) { store.notify(String(e?.message || e)); }
+    this.stopSelecting();
+  }
+
+  private selectStart() {
+    if (!this.canSelect) return nothing;
+    return html`<div class="selstart"><button class="btn ghost" @click=${() => this.startSelecting()}>
+      ${icon("list", 16)} ${t("Chats auswählen")}</button></div>`;
+  }
+
+  private selectionBar() {
+    const total = this.selectableChats.length, n = this.selected.size;
+    return html`<div class="selbar">
+      <button class="iconbtn" title=${t("Abbrechen")} @click=${() => this.stopSelecting()}>${icon("close", 18)}</button>
+      <span class="grow ellipsis" style="font-size:12.5px">${n ? t("{n} ausgewählt", { n }) : t("Chats auswählen")}</span>
+      <button class="btn ghost" @click=${() => this.selectAll()}>${n === total ? t("Keine") : t("Alle")}</button>
+      <button class="btn danger" ?disabled=${!n} @click=${() => this.deleteSelected()}>${icon("trash", 16)} ${t("Löschen")}</button>
+    </div>`;
+  }
+
+  private selectRow(c: any) {
+    const on = this.selected.has(c.id);
+    return html`<div class="rc sel ${on ? "on" : ""}" @click=${() => this.toggleSelect(c.id)}>
+      <span class="box ${on ? "on" : ""}">${on ? icon("check", 14) : nothing}</span>
+      <span class="grow ellipsis">${c.title || t("Neuer Chat")}</span>
+      ${c.project_id ? html`<span class="muted" title=${t("Projekte")}>${icon("project", 13)}</span>` : nothing}
+    </div>`;
+  }
+
   private projectTree() {
     const d = store.data; if (!d?.projects?.length) return nothing;
     const cur = this.path[0] === "chat" ? this.path[1] : "";
@@ -175,6 +244,10 @@ export class LLMitMirPanel extends LitElement {
 
   private recents() {
     const d = store.data; if (!d) return nothing;
+    if (this.selecting) {
+      const all = [...this.selectableChats].sort((a: any, b: any) => (b.updated || 0) - (a.updated || 0));
+      return html`${this.selectionBar()}${all.map((c: any) => this.selectRow(c))}`;
+    }
     const cur = this.path[0] === "chat" ? this.path[1] : "";
     const items = d.chats.filter((c: any) => c.kind !== "task_run");
     const pinned = items.filter((c: any) => c.pinned);
@@ -205,7 +278,8 @@ export class LLMitMirPanel extends LitElement {
         ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
         ${ni("/credentials", "key", t("Zugänge"), p === "credentials" || p === "credential")}
       </div>
-      <div class="recents">${this.projectTree()}${this.recents()}</div>
+      ${this.selecting ? nothing : this.selectStart()}
+      <div class="recents">${this.selecting ? nothing : this.projectTree()}${this.recents()}</div>
       <div class="foot"><span class="avatar">${(d?.user?.name || "?").slice(0, 1).toUpperCase()}</span>
         <span class="name grow ellipsis" style="font-size:13.5px">${d?.user?.name}</span>
         ${d?.user?.is_admin ? html`<button class="iconbtn ${p === "admin" ? "on" : ""}" title=${t("Admin")} @click=${() => navigate("/admin")}>${icon("admin")}</button>` : nothing}
