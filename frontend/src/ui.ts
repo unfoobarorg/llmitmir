@@ -135,6 +135,9 @@ export const base = css`
   label.f { display: grid; gap: 6px; font-size: 13px; color: var(--lm-muted); }
   label.f > span { font-weight: 550; color: var(--lm-text); }
   .hint { font-size: 12.5px; color: var(--lm-muted); line-height: 1.45; }
+  .shimmer { background: linear-gradient(90deg, var(--lm-muted) 0%, var(--lm-text) 45%, var(--lm-muted) 90%); background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2.2s linear infinite; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
   .card { background: var(--lm-panel); border: 1px solid var(--lm-line); border-radius: var(--lm-r); padding: 16px; }
   .chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 999px;
     background: var(--lm-hover); color: var(--lm-muted); white-space: nowrap; }

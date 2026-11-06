@@ -19,6 +19,8 @@ const EN: Record<string, string> = {
   "Notiz": "Note", "Anzeigen": "Show", "Verbergen": "Hide", "Suchen …": "Search …", "Alle": "All",
   "Aufgabenläufe": "Task runs", "Keine Chats": "No chats", "Kein Zugriff": "No access", "Laden …": "Loading …",
   "Verbrauch": "Usage", "Importieren": "Import", "Persönliche Hinweise": "Personal notes",
+  "Hört genau hin": "Listening closely", "Sortiert Silben": "Sorting syllables", "Fügt Wörter zusammen": "Piecing words together",
+  "Entziffert Genuschel": "Deciphering mumbles", "Setzt Satzzeichen": "Adding punctuation", "Bringt es zu Papier": "Putting it on paper",
 };
 
 let lang = "de";

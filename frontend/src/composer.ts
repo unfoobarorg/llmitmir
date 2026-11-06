@@ -5,6 +5,10 @@ import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeEle
 import { store } from "./api";
 import { t } from "./i18n";
 
+// Status lines while speech is transcribed, rotating every few seconds (English via i18n).
+const TX_VERBS = ["Hört genau hin", "Sortiert Silben", "Fügt Wörter zusammen", "Entziffert Genuschel", "Setzt Satzzeichen",
+  "Bringt es zu Papier"];
+
 export interface SendDetail { text: string; files: File[]; model: string; mode: "chat" | "cowork"; tools: string[] | null; project_id: string | null; }
 
 @safeElement("lm-composer")
@@ -25,9 +29,13 @@ export class Composer extends LitElement {
   @state() private recStart = 0;
   @state() private recLevel = 0;
   @state() private transcribing = false;
+  @state() private txStart = 0;
+  @state() private txNow = 0;
   @state() private drag = false;
   @query("textarea") private ta!: HTMLTextAreaElement;
   private _raf = 0;
+  private _txTimer = 0;
+  private _txRun = 0;
 
   static styles = [base, menuItemStyles, css`
     :host { display: block; container-type: inline-size; }
@@ -67,6 +75,22 @@ export class Composer extends LitElement {
     .wave i { width: 3px; border-radius: 2px; background: var(--lm-accent); transition: height .1s; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lm-err); animation: blink 1s infinite; }
     @keyframes blink { 50% { opacity: .3; } }
+    .tx { display: flex; align-items: center; gap: 10px; padding: 2px 0; min-height: 36px; font-size: 15px; }
+    .tx .txtime { font-size: 12.5px; flex: none; }
+    .tx .iconbtn { width: 30px; height: 30px; }
+    .txicon { flex: none; color: var(--lm-accent); overflow: visible; }
+    .txicon .b { transform-box: fill-box; transform-origin: center; animation: txbar 1.1s ease-in-out infinite; }
+    .txicon .b2 { animation-delay: -.35s; } .txicon .b3 { animation-delay: -.7s; }
+    .txicon .p { opacity: 0; animation: txflow 1.1s ease-in infinite; } .txicon .p2 { animation-delay: -.55s; }
+    .txicon .l { stroke-dasharray: 1; stroke-dashoffset: 1; animation: txwrite 2.6s ease-out infinite; }
+    .txicon .l2 { animation-delay: .3s; } .txicon .l3 { animation-delay: .6s; }
+    @keyframes txbar { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+    @keyframes txflow { 0% { opacity: 0; transform: translateX(-1.5px); } 35% { opacity: .9; } 100% { opacity: 0; transform: translateX(2.5px); } }
+    @keyframes txwrite { 0% { stroke-dashoffset: 1; opacity: 1; } 30%, 75% { stroke-dashoffset: 0; opacity: 1; } 92%, 100% { stroke-dashoffset: 0; opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .txicon .b, .txicon .p, .txicon .l, .tx .shimmer { animation: none; } .txicon .l { stroke-dashoffset: 0; }
+      .tx .shimmer { color: var(--lm-muted); background: none; }
+    }
     .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 6px; background: var(--lm-hover); color: var(--lm-muted); margin-left: 4px; }
     .tool-on { color: var(--lm-accent); }
     @container (max-width: 560px) {
@@ -131,15 +155,59 @@ export class Composer extends LitElement {
     const r = this.rec; if (!r) return;
     this.rec = null; cancelAnimationFrame(this._raf);
     if (!use) { r.cancel(); return; }
-    const wav = await r.stop();
-    if (wav.size < 8000) return;
-    this.transcribing = true;
+    const run = ++this._txRun;
+    this.transcribing = true; this.txStart = this.txNow = Date.now();
+    clearInterval(this._txTimer);
+    this._txTimer = window.setInterval(() => (this.txNow = Date.now()), 500);
     try {
+      const wav = await r.stop();
+      if (run !== this._txRun) return;
+      if (wav.size < 8000) { this.endTranscribing(); return; }
       const txt = await store.api.transcribe(wav);
+      if (run !== this._txRun) return;  // cancelled meanwhile
+      this.endTranscribing();
       if (txt) this.setText((this.text ? this.text.trimEnd() + " " : "") + txt);
-      this.focus();
-    } catch (e: any) { store.notify(String(e?.message || e)); }
-    this.transcribing = false;
+      this.updateComplete.then(() => this.focus());
+    } catch (e: any) {
+      if (run !== this._txRun) return;
+      this.endTranscribing();
+      store.notify(String(e?.message || e));
+    }
+  }
+
+  private endTranscribing() {
+    this.transcribing = false; clearInterval(this._txTimer);
+  }
+
+  private cancelTranscribe() {
+    this._txRun++; this.endTranscribing();
+    this.updateComplete.then(() => this.focus());
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this._txTimer); cancelAnimationFrame(this._raf);
+  }
+
+  // Shown while the recording is transcribed: sound bars turn into lines of text, next to a rotating, shimmering status.
+  private transcribingRow() {
+    const secs = Math.floor((this.txNow - this.txStart) / 1000);
+    const verb = t(TX_VERBS[Math.floor((this.txNow - this.txStart) / 2600) % TX_VERBS.length]);
+    return html`<div class="tx" role="status" aria-live="polite">
+      <svg class="txicon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+          stroke-linecap="round" aria-hidden="true">
+        <line class="b b1" x1="2.5" y1="9" x2="2.5" y2="15"/><line class="b b2" x1="5.75" y1="5.5" x2="5.75" y2="18.5"/>
+        <line class="b b3" x1="9" y1="8" x2="9" y2="16"/>
+        <circle class="p p1" cx="11.4" cy="12" r=".9" fill="currentColor" stroke="none"/>
+        <circle class="p p2" cx="11.4" cy="12" r=".9" fill="currentColor" stroke="none"/>
+        <line class="l l1" x1="14.5" y1="7.5" x2="21.5" y2="7.5" pathLength="1"/>
+        <line class="l l2" x1="14.5" y1="12" x2="20.5" y2="12" pathLength="1"/>
+        <line class="l l3" x1="14.5" y1="16.5" x2="18.5" y2="16.5" pathLength="1"/>
+      </svg>
+      <span class="shimmer ellipsis">${verb} …</span>
+      ${secs >= 2 ? html`<span class="muted txtime">${fmtDuration(secs)}</span>` : nothing}
+      <span class="grow"></span>
+      <button class="iconbtn" title=${t("Abbrechen")} @click=${this.cancelTranscribe}>${icon("close", 18)}</button></div>`;
   }
 
   private webSpeech() {
@@ -236,7 +304,8 @@ export class Composer extends LitElement {
           <div class="wave">${Array.from({ length: 28 }, (_, i) => html`<i style="height:${4 + Math.abs(Math.sin(i * 1.7 + Date.now() / 160)) * this.recLevel * 24}px"></i>`)}</div>
           <button class="iconbtn" title=${t("Abbrechen")} @click=${() => this.stopRec(false)}>${icon("close")}</button>
           <button class="send" title="Fertig" @click=${() => this.stopRec(true)}>${icon("check")}</button></div>`
-        : html`<textarea rows="1" .value=${this.text} placeholder=${this.transcribing ? "Sprache wird erkannt …" : this.placeholder}
+        : this.transcribing ? this.transcribingRow()
+        : html`<textarea rows="1" .value=${this.text} placeholder=${this.placeholder}
           @input=${(e: any) => { this.text = e.target.value; this.autosize(); }} @keydown=${this.key}
           @paste=${(e: ClipboardEvent) => { const f = e.clipboardData?.files; if (f?.length) { e.preventDefault(); this.addFiles(f); } }}></textarea>`}
       <div class="bar">
@@ -252,8 +321,8 @@ export class Composer extends LitElement {
           ${cu ? html`<lm-ring .value=${cf} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Kontingent")}></lm-ring></button>
           ${this.usageMenu()}</lm-menu>
         <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}><span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>
-        ${!busy && !this.text.trim() && !this.files.length && !this.rec ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
-            @click=${this.toggleRec} ?disabled=${this.transcribing}>${this.transcribing ? html`<lm-spark size="18"></lm-spark>` : icon("mic")}</button>`
+        ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
+            @click=${this.toggleRec} ?disabled=${this.transcribing}>${icon("mic")}</button>`
           : !this.rec ? html`<button class="send ${busy ? "stop" : ""}" title=${busy ? t("Stopp") : t("Senden")} @click=${this.send}>${icon(busy ? "stop" : "send")}</button>` : nothing}
       </div></div>`;
   }
