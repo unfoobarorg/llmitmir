@@ -107,7 +107,11 @@ export class TaskPage extends StoreElement {
     const x = this.d; if (!x) return nothing;
     const d = store.data; const s = x.schedule || {};
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write);
-    const runs = (x.runs || []).map((id: string) => (d.chats || []).find((c: any) => c.id === id)).filter(Boolean);
+    // Runs and the last result come from the live task in the store, not from the edit copy in this.d,
+    // so a run started here ("Jetzt ausführen" or on schedule) shows up without reopening the page.
+    const live = (d.tasks || []).find((y: any) => y.id === x.id) || x;
+    const runs = (live.runs || []).map((id: string) => (d.chats || []).find((c: any) => c.id === id)).filter(Boolean);
+    const waiting = x.id ? d.queue?.position?.[x.id] : 0;
     const dn = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.id ? x.name || "Aufgabe" : t("Neue Aufgabe")}</h1>
@@ -164,10 +168,12 @@ export class TaskPage extends StoreElement {
           <label class="f"><span>${t("Aktiv")}</span><div class="row" style="min-height:40px">${switchEl(!!x.enabled, v => this.set("enabled", v))}<span class="muted">${x.enabled ? t("Aktiv") : t("Pausiert")}</span></div></label>
         </div>
       </div>
-      ${x.id ? html`<h2>${t("Läufe")}</h2><div class="list">${runs.length ? runs.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
-        ${c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : icon(c.status === "error" ? "alert" : "check", 18)}<span class="grow ellipsis">${c.title}</span>
-        <span class="hint">${c.usage?.requests || 0} Anfragen</span></div>`) : html`<div class="hint">Noch keine Läufe.</div>`}</div>
-        ${x.last_run?.summary ? html`<h2>Letztes Ergebnis</h2><div class="card md">${md(x.last_run.summary)}</div>` : nothing}
+      ${x.id ? html`<h2>${t("Läufe")}</h2><div class="list">
+        ${waiting ? html`<div class="item">${icon("wait", 18)}<span class="grow ellipsis">Wartet in der Warteschlange (Platz ${waiting})</span></div>` : nothing}
+        ${runs.length ? runs.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
+        ${store.runs[c.id] || c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : icon(c.status === "error" ? "alert" : "check", 18)}<span class="grow ellipsis">${c.title}</span>
+        <span class="hint">${c.usage?.requests || 0} Anfragen</span></div>`) : waiting ? nothing : html`<div class="hint">Noch keine Läufe.</div>`}</div>
+        ${live.last_run?.summary ? html`<h2>Letztes Ergebnis</h2><div class="card md">${md(live.last_run.summary)}</div>` : nothing}
         <div style="margin-top:24px"><button class="btn danger" @click=${async () => { if (await confirmDialog(`Aufgabe „${x.name}“ löschen? Die bisherigen Läufe bleiben als Chats erhalten.`)) {
           await store.api.ws("task/delete", { task_id: x.id }); navigate("/tasks"); } }}>${icon("trash", 16)} Aufgabe löschen</button></div>` : nothing}
       ${this.dirty ? html`<div class="savebar fade-in">${x.id ? html`<button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>` : nothing}
