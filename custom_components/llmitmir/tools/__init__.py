@@ -59,6 +59,20 @@ def as_text(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
+async def read_body(resp, limit: int) -> tuple[bytes, bool]:
+    """Read a response body up to ``limit`` bytes; returns (data, truncated).
+
+    ``resp.content.read(n)`` is no substitute: it returns as soon as *some* data is buffered,
+    which cut chunked responses (calendar feeds, DAV listings) after the first packet.
+    """
+    buf = bytearray()
+    async for chunk in resp.content.iter_chunked(65536):
+        buf += chunk
+        if len(buf) > limit:
+            return bytes(buf[:limit]), True
+    return bytes(buf), False
+
+
 def load_all() -> None:
     # import modules for their side effect of registering tools
     from . import dav, files, ha, http, misc, web, werkbank  # noqa: F401

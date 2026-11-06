@@ -147,11 +147,14 @@ export class TaskPage extends StoreElement {
             <option value="">Standard (${d.defaults.agent})</option>${(d.models || []).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
         </div>
         <div class="card"><b>Freigaben für schreibende Aktionen</b><div class="hint" style="margin:4px 0 10px">Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.</div>
-          <div class="checks">${writeTools.map(([n, v]: any) => html`<label><input type="checkbox" .checked=${(x.allow_write || []).includes(n)}
-            @change=${(e: any) => { const set = new Set(x.allow_write || []); e.target.checked ? set.add(n) : set.delete(n); this.set("allow_write", [...set]); }}>${icon(v.icon, 16)} ${v.label}</label>`)}</div></div>
+          <div class="checks">${writeTools.map(([n, v]: any) => {
+            // "Braucht die Werkbank" implies running commands there (server side the same rule applies)
+            const viaWb = n === "shell" && (x.requires || []).includes("werkbank");
+            return html`<label title=${viaWb ? "Freigegeben durch „Braucht die Werkbank“" : ""}><input type="checkbox" ?disabled=${viaWb} .checked=${viaWb || (x.allow_write || []).includes(n)}
+            @change=${(e: any) => { const set = new Set(x.allow_write || []); e.target.checked ? set.add(n) : set.delete(n); this.set("allow_write", [...set]); }}>${icon(v.icon, 16)} ${v.label}</label>`; })}</div></div>
         <div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${(x.requires || []).includes("werkbank")}
             @change=${(e: any) => this.set("requires", e.target.checked ? ["werkbank"] : [])}><b>Braucht die Werkbank</b></label>
-          <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
+          <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Gibt „Befehl ausführen“ frei. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
           ${(x.requires || []).includes("werkbank") ? html`<textarea rows="2" placeholder="Was geht ohne Werkbank nicht? (z. B. Sprachnachrichten abschreiben)" .value=${x.requires_note || ""}
             @input=${(e: any) => this.set("requires_note", e.target.value)}></textarea>` : nothing}</div>
         <div class="two">

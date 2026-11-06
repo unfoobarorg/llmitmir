@@ -8,7 +8,7 @@ from html.parser import HTMLParser
 
 import aiohttp
 
-from . import Tool, obj, register
+from . import Tool, obj, read_body, register
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 LLMitMir"
 
@@ -169,7 +169,7 @@ async def web_fetch(ctx, a: dict):
     async with ctx.session.get(url, headers={"User-Agent": UA, "Accept-Language": "de,en;q=0.8"},
                                timeout=aiohttp.ClientTimeout(total=45), max_redirects=8) as r:
         ctype = r.headers.get("content-type", "")
-        data = await r.content.read(15_000_000)
+        data, _ = await read_body(r, 15_000_000)
         status = r.status
     if status >= 400:
         return f"Fehler: HTTP {status}"

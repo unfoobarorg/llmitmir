@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.2.8"
+VERSION = "0.2.9"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -72,6 +72,7 @@ KNOWN_CONTEXT = {
 # Agent limits
 MAX_STEPS_CHAT = 15
 MAX_STEPS_COWORK = 60
+WRAPUP_STEPS = 4  # from this many steps before the limit the model is told to wrap up; the last step has no tools
 TOOL_RESULT_MAX_CHARS = 24_000
 
 # Retry policies (seconds)

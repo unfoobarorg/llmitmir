@@ -7,7 +7,7 @@ import re
 import aiohttp
 
 from .. import credentials as C
-from . import Tool, obj, register
+from . import Tool, obj, read_body, register
 
 
 async def http_request(ctx, a: dict):
@@ -36,13 +36,13 @@ async def http_request(ctx, a: dict):
         kw["data"] = C.resolve_placeholders(str(body), ctx.creds, ctx.allowed_creds)
     async with ctx.session.request(methode, url, headers=headers, auth=auth, timeout=aiohttp.ClientTimeout(total=90),
                                    **kw) as r:
-        raw = await r.content.read(5_000_000)
+        raw, cut = await read_body(r, 5_000_000)
         ctype = r.headers.get("content-type", "")
         status = r.status
     if a.get("speichern_als"):
         info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], raw)
         await ctx.emit_files()
-        return {"status": status, "gespeichert": info}
+        return {"status": status, "gespeichert": info, **({"gekuerzt": "nach 5 MB abgeschnitten"} if cut else {})}
     if "json" in ctype:
         try:
             return {"status": status, "json": json.loads(raw)}

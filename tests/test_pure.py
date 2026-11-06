@@ -139,3 +139,31 @@ def test_quota_ignores_separate_task_key():
     assert tk.quota_usage(u) == (6, 800)
     assert tk.task_part(u) == {"requests": 6, "prompt": 600, "completion": 300}
     assert tk.quota_usage({"requests": 3, "prompt": 1, "completion": 2}) == (3, 3)
+
+
+def test_read_body_reads_all_chunks():
+    """resp.content.read(n) stopped after the first packet; read_body must collect every chunk."""
+    import asyncio
+
+    spec = importlib.util.spec_from_file_location("lm_tools", BASE / "tools" / "__init__.py")
+    tools = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = tools  # dataclasses look the module up there
+    spec.loader.exec_module(tools)
+
+    class Content:
+        def __init__(self, chunks):
+            self.chunks = chunks
+
+        async def iter_chunked(self, _size):
+            for c in self.chunks:
+                yield c
+
+    class Resp:
+        def __init__(self, chunks):
+            self.content = Content(chunks)
+
+    chunks = [b"BEGIN:VCALENDAR\r\n", b"x" * 70000, b"END:VCALENDAR\r\n"]
+    data, cut = asyncio.run(tools.read_body(Resp(chunks), 1_000_000))
+    assert data == b"".join(chunks) and not cut
+    data, cut = asyncio.run(tools.read_body(Resp(chunks), 100))
+    assert len(data) == 100 and cut

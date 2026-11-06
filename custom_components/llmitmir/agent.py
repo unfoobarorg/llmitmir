@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+import aiohttp
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.util import dt as dt_util
 
 from . import credentials as C
@@ -21,7 +22,7 @@ from . import taskkeys as TK
 from .const import (DEFAULT_CONTEXT, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_COWORK, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
-                    TOOL_RESULT_MAX_CHARS)
+                    TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import Provider, ProviderError, QuotaExhausted, StreamAccumulator
 from .storage import ConfigStore, UserStore, new_id, now
 from .tools import GROUPS, REGISTRY, as_text, load_all
@@ -68,7 +69,10 @@ class Manager:
         self.permissions: dict[str, tuple[str, asyncio.Future, dict]] = {}
         self._provider: Provider | None = None
         self._provider_url = ""
-        self.session = async_get_clientsession(hass)
+        # Own session WITHOUT a cookie jar. With HA's shared session, the session cookie of the first
+        # Nextcloud login stuck to the host and Nextcloud then ignored Basic Auth: every Zugang (other
+        # accounts, even other persons) ended up as that first account.
+        self.session = async_create_clientsession(hass, cookie_jar=aiohttp.DummyCookieJar())
         self.task_queue: asyncio.Queue = asyncio.Queue()
         self.scheduler = None  # set in __init__.py
         self._models_try = 0.0
@@ -333,9 +337,20 @@ class Manager:
                     break
                 self.check_quota(user.id, separate)
                 messages = ctx.api_messages()
+                left = steps - step
+                final = bool(tools) and left == 1
+                if tools and left <= WRAPUP_STEPS:
+                    # tell the model about the limit so it ends with a report instead of being cut off
+                    messages.append({"role": "user", "content": (
+                        f"[LLMitMir] Letzter Schritt (Höchstzahl {steps}): Werkzeuge stehen nicht mehr zur Verfügung. "
+                        "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
+                        f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
+                        "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")})
                 body = {"model": chat["model"], "messages": messages, "temperature": 0.3}
                 if tools:
                     body["tools"] = tools
+                    if final:
+                        body["tool_choice"] = "none"
                 await self._status(run, "thinking", {"step": step + 1})
                 acc = StreamAccumulator()
                 amsg = {"id": new_id("m"), "role": "assistant", "content": "", "reasoning": "", "created": now(),
@@ -376,7 +391,10 @@ class Manager:
                              "usage": {"prompt": usage.get("prompt_tokens"), "completion": usage.get("completion_tokens"),
                                        "reasoning": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")},
                              "model": acc.model or chat["model"]})
-                calls = acc.calls()
+                calls = [] if final else acc.calls()  # tool calls on the last step are ignored
+                if final:
+                    amsg["content"] = (content or "_Abgebrochen: Höchstzahl von {0} Schritten erreicht._".format(steps)) + (
+                        f"\n\n_Höchstzahl von {steps} Schritten erreicht – Lauf vorzeitig beendet._" if content else "")
                 if calls:
                     amsg["tool_calls"] = calls
                 chat["messages"].append(amsg)
@@ -537,11 +555,20 @@ class ToolContext:
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
                 "was erledigt ist, was offen ist, Rückfragen.")
         if self.task is not None:
-            perms = self.task.get("allow_write") or []
+            perms = sorted(self.task_write_allowed())
+            g = self.groups()
+            denied = sorted(t.name for t in REGISTRY.values() if t.group in g and t.write is True and t.name not in perms)
+            partly = sorted(t.name for t in REGISTRY.values() if t.group in g and callable(t.write) and t.name not in perms)
             parts.append(
                 "## Geplante Aufgabe\nDieser Lauf ist unbeaufsichtigt – Rückfragen sind nicht möglich, also im Bericht "
-                f"stellen. Freigegebene schreibende Werkzeuge: {', '.join(perms) or 'keine'}; andere schreibende Aktionen "
-                "werden abgelehnt.")
+                f"stellen. Freigegebene schreibende Werkzeuge: {', '.join(perms) or 'keine'}."
+                + (f" Nicht freigegeben, werden immer abgelehnt (gar nicht erst versuchen): {', '.join(denied)}." if denied else "")
+                + (f" Nur lesend nutzbar: {', '.join(partly)}"
+                   + (" (http_request nur GET/HEAD)" if "http_request" in partly else "")
+                   + (" (dav_request nur GET/PROPFIND/REPORT/OPTIONS/HEAD)" if "dav_request" in partly else "")
+                   + "." if partly else "")
+                + " Liefert ein Werkzeug ein unerwartetes Ergebnis, prüfe das höchstens zwei-, dreimal und arbeite dann "
+                "mit dem Rest weiter bzw. melde das Problem im Bericht, statt immer neue Varianten auszuprobieren.")
             if "werkbank" in (self.task.get("requires") or []) and self.manager.werkbank is None:
                 parts.append(
                     "## Ohne Werkbank\nDiese Aufgabe braucht für einen Teil die Werkbank (Befehle/Python), die noch nicht "
@@ -635,9 +662,16 @@ class ToolContext:
         self.chat["progress"] = items
         self.manager.emit(self.user_id, {"type": "progress", "chat_id": self.chat_id, "items": items})
 
+    def task_write_allowed(self) -> set[str]:
+        """Write tools a scheduled task may use: its approvals, plus `shell` if it is marked as needing the Werkbank."""
+        allowed = set(self.task.get("allow_write") or []) if self.task is not None else set()
+        if self.task is not None and "werkbank" in (self.task.get("requires") or []):
+            allowed.add("shell")
+        return allowed
+
     def permission_for(self, tool_name: str) -> str:
         if self.task is not None:
-            return PERM_ALLOW if tool_name in (self.task.get("allow_write") or []) else PERM_DENY
+            return PERM_ALLOW if tool_name in self.task_write_allowed() else PERM_DENY
         if self.project:
             p = (self.project.get("permissions") or {}).get(tool_name)
             if p:
@@ -665,7 +699,13 @@ class ToolContext:
         if tool.is_write(args):
             perm = self.permission_for(name)
             if perm == PERM_DENY:
-                msg.update(content="Abgelehnt: Diese Aktion ist hier nicht freigegeben.", status="denied")
+                text = "Abgelehnt: Diese Aktion ist hier nicht freigegeben."
+                if self.task is not None:
+                    text = (f"Abgelehnt: „{msg['label']}“ ({name}"
+                            + (f" mit {str(args.get('methode') or '').upper()}" if callable(tool.write) and args.get("methode") else "")
+                            + ") ist für diese geplante Aufgabe nicht freigegeben. Jeder weitere Versuch wird ebenso "
+                            "abgelehnt – ohne diese Aktion weiterarbeiten und sie im Bericht nennen.")
+                msg.update(content=text, status="denied")
                 return msg
             if perm == PERM_ASK:
                 decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"],

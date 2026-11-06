@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 import aiohttp
 
 from .. import credentials as C
-from . import Tool, obj, register
+from . import Tool, obj, read_body, register
 
 NS = {"d": "DAV:", "oc": "http://owncloud.org/ns", "cal": "urn:ietf:params:xml:ns:caldav"}
 READ_METHODS = {"GET", "PROPFIND", "REPORT", "OPTIONS", "HEAD"}
@@ -97,7 +97,7 @@ async def dav_read(ctx, a: dict):
     async with ctx.session.get(url, auth=_auth(cred), timeout=aiohttp.ClientTimeout(total=120)) as r:
         if r.status >= 400:
             return f"Fehler: HTTP {r.status}"
-        data = await r.content.read(30_000_000)
+        data, _ = await read_body(r, 30_000_000)
         ctype = r.headers.get("content-type", "")
     if a.get("speichern_als"):
         info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], data)
@@ -138,7 +138,8 @@ async def dav_request(ctx, a: dict):
     body = C.resolve_placeholders(body, ctx.creds, ctx.allowed_creds) if isinstance(body, str) else body
     async with ctx.session.request(methode, url, data=(body or None), auth=_auth(cred), headers=headers,
                                    timeout=aiohttp.ClientTimeout(total=90)) as r:
-        text = (await r.content.read(2_000_000)).decode("utf-8", "ignore")
+        raw, _ = await read_body(r, 2_000_000)
+        text = raw.decode("utf-8", "ignore")
         etag = r.headers.get("ETag")
         return {"status": r.status, "etag": etag, "antwort": text[:60_000]}
 

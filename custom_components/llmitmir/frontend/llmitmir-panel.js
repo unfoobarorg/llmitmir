@@ -644,11 +644,11 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
             <option value="">Standard (${H.defaults.agent})</option>${(H.models||[]).map(t=>o`<option value=${t.id} ?selected=${C.model===t.id}>${t.name}</option>`)}</select></label>
         </div>
         <div class="card"><b>Freigaben für schreibende Aktionen</b><div class="hint" style="margin:4px 0 10px">Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.</div>
-          <div class="checks">${e.map(([t,n])=>o`<label><input type="checkbox" .checked=${(C.allow_write||[]).includes(t)}
-            @change=${l=>{let v=new Set(C.allow_write||[]);l.target.checked?v.add(t):v.delete(t),this.set("allow_write",[...v])}}>${s(n.icon,16)} ${n.label}</label>`)}</div></div>
+          <div class="checks">${e.map(([t,n])=>{let l=t==="shell"&&(C.requires||[]).includes("werkbank");return o`<label title=${l?"Freigegeben durch \u201EBraucht die Werkbank\u201C":""}><input type="checkbox" ?disabled=${l} .checked=${l||(C.allow_write||[]).includes(t)}
+            @change=${v=>{let h=new Set(C.allow_write||[]);v.target.checked?h.add(t):h.delete(t),this.set("allow_write",[...h])}}>${s(n.icon,16)} ${n.label}</label>`})}</div></div>
         <div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${(C.requires||[]).includes("werkbank")}
             @change=${t=>this.set("requires",t.target.checked?["werkbank"]:[])}><b>Braucht die Werkbank</b></label>
-          <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
+          <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Gibt „Befehl ausführen“ frei. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
           ${(C.requires||[]).includes("werkbank")?o`<textarea rows="2" placeholder="Was geht ohne Werkbank nicht? (z. B. Sprachnachrichten abschreiben)" .value=${C.requires_note||""}
             @input=${t=>this.set("requires_note",t.target.value)}></textarea>`:p}</div>
         <div class="two">
