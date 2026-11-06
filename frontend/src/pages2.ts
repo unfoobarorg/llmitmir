@@ -4,6 +4,7 @@ import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
+import { taskUsageCard, taskUsageCss } from "./taskusage";
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   .form { display: grid; gap: 14px; }
@@ -35,7 +36,12 @@ const switchEl = (checked: boolean, onChange: (v: boolean) => void) =>
 // ---------------------------------------------------------------- tasks
 @safeElement("lm-tasks")
 export class Tasks extends StoreElement {
-  static styles = [base, pageCss];
+  static styles = [base, pageCss, taskUsageCss];
+  @state() private keyDays: any[] | null = null;
+  connectedCallback() {
+    super.connectedCallback();
+    store.api.ws("usage/history").then(r => (this.keyDays = r.task_key_days || [])).catch(() => {});
+  }
   private status(task: any) {
     const q = store.data?.queue || {};
     if (q.running === task.id) return html`<span class="chip accent"><lm-spark size="14"></lm-spark> läuft</span>`;
@@ -45,6 +51,12 @@ export class Tasks extends StoreElement {
     if (l.status === "running") return html`<span class="chip accent">läuft</span>`;
     return l.status === "done" ? html`<span class="chip ok">${icon("check", 13)} ${fmtTime(l.finished)}</span>` : html`<span class="chip err">${icon("alert", 13)} ${fmtTime(l.finished)}</span>`;
   }
+  /** History from the server with today's bar kept current by live usage events. */
+  private liveDays() {
+    const days = this.keyDays; const today = store.data?.usage?.tasks?.key_today;
+    if (!days?.length || !today) return days;
+    return [...days.slice(0, -1), { ...days[days.length - 1], ...today }];
+  }
   render() {
     const tasks = store.data?.tasks || [];
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Geplant")}</h1>
@@ -52,6 +64,7 @@ export class Tasks extends StoreElement {
       <div class="banner">${icon("hourglass")}<div><b>Geplante Aufgaben laufen mit Open-Weight-Modellen.</b> Sie starten in einer gemeinsamen Warteschlange und
         können sich verzögern, wenn die Modelle ausgelastet sind oder ein Limit erreicht ist – dann wartet LLMitMir und versucht es weiter (bis zu 6 Stunden).
         Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>
+      ${tasks.length ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item" @click=${() => navigate(`/task/${x.id}`)}>
         ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
           ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}</div>

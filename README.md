@@ -23,6 +23,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als Füllanzeige.
 - **Mehrere Personen**: Alles ist pro HA-Nutzer*in getrennt. Admins legen fest, wer LLMitMir nutzen darf, und wählen,
   ob es **einen gemeinsamen Schlüssel**, **einen Schlüssel je Person (vom Admin eingetragen)** oder **eigene Schlüssel** gibt.
+- **Eigener Schlüssel für geplante Aufgaben** (optional), damit Aufgaben nicht das Kontingent für spontane Chats aufbrauchen:
+  zentral vom Admin für alle oder von jeder Person selbst gewählt (ein Schlüssel für alles, eigener Aufgaben-Schlüssel oder
+  zentraler Aufgaben-Schlüssel). Unter *Geplant* steht, wie viele Anfragen und Tokens alle Aufgaben auf diesem Schlüssel je Tag
+  verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum persönlichen Tageskontingent.
 - **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
   geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link. Chatverläufe kommen aus dem offiziellen
   Datenexport von claude.ai (ZIP hochladen).
@@ -88,6 +92,7 @@ LLMitMir adds a Claude-Desktop-style panel to Home Assistant: chats with streami
 (autonomous tool use with approvals); scheduled tasks designed for slow, rate-limited open-weight models; projects; skills;
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).
 Admins choose who may use it and whether keys are shared, assigned per user by the admin, or entered by each user.
+Scheduled tasks can run on a separate key (central or per user), with daily request/token usage of all tasks on that key.
 A Claude import prompt moves skills (with credentials extracted), scheduled tasks, projects and memory; chat history is
 imported from the official claude.ai data export.
 

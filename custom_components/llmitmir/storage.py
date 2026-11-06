@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
-from .const import CONFIG_STORE_KEY, KEY_SHARED, STORAGE_VERSION
+from .const import CONFIG_STORE_KEY, KEY_SHARED, STORAGE_VERSION, TASK_KEY_SAME
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -56,6 +56,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "key_mode": KEY_SHARED,
     "shared_key": "",
     "user_keys": {},          # user_id -> key (admin-entered)
+    "task_key_mode": TASK_KEY_SAME,
+    "shared_task_key": "",    # central key for scheduled tasks
+    "task_usage": {},         # key fingerprint -> day -> usage of all scheduled tasks on that key
     "allowed_users": [],      # user ids allowed to use the panel (admins always may configure)
     "quota_default": {"requests_day": 0, "tokens_day": 0},   # 0 = unlimited
     "quota_users": {},        # user_id -> {"requests_day", "tokens_day"}
@@ -84,6 +87,9 @@ class ConfigStore:
 
     async def async_save(self) -> None:
         await self._store.async_save(self.data)
+
+    def schedule_save(self, delay: float = 10.0) -> None:
+        self._store.async_delay_save(lambda: self.data, delay)
 
 
 class UserStore:
@@ -237,12 +243,22 @@ class UserStore:
         await self.hass.async_add_executor_job(lambda: shutil.rmtree(d, ignore_errors=True))
 
     # ---------------------------------------------------------------- usage
-    def add_usage(self, prompt: int, completion: int, requests: int = 1) -> dict:
+    def add_usage(self, prompt: int, completion: int, requests: int = 1, task: bool = False,
+                  separate: bool = False) -> dict:
+        """Count usage. ``task``: scheduled task run; ``separate``: on a task key other than the normal key."""
         day = date.today().isoformat()
         u = self.meta["usage"].setdefault(day, {"requests": 0, "prompt": 0, "completion": 0})
+        prompt, completion = int(prompt or 0), int(completion or 0)
         u["requests"] += requests
-        u["prompt"] += int(prompt or 0)
-        u["completion"] += int(completion or 0)
+        u["prompt"] += prompt
+        u["completion"] += completion
+        if task:
+            u["task_requests"] = u.get("task_requests", 0) + requests
+            u["task_prompt"] = u.get("task_prompt", 0) + prompt
+            u["task_completion"] = u.get("task_completion", 0) + completion
+        if separate:
+            u["sep_requests"] = u.get("sep_requests", 0) + requests
+            u["sep_tokens"] = u.get("sep_tokens", 0) + prompt + completion
         cutoff = (date.today() - timedelta(days=120)).isoformat()
         for d in [d for d in self.meta["usage"] if d < cutoff]:
             self.meta["usage"].pop(d, None)

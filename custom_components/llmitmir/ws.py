@@ -11,7 +11,8 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from . import credentials as C
-from .const import DOMAIN, KEY_MODES, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, VERSION
+from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
+                    TASK_KEY_MODES, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
 from .storage import mask_credential, new_id, now
 from .tools import GROUPS, REGISTRY
@@ -89,6 +90,7 @@ def _project_view(p: dict) -> dict:
 async def _bootstrap(hass, m, user, st) -> dict:
     s = dict(st.meta["settings"])
     s["has_own_key"] = bool(s.pop("own_key", ""))
+    s["has_own_task_key"] = bool(s.pop("own_task_key", ""))
     sched = m.scheduler
     runs = {r.chat_id: {"run_id": r.id, "status": r.status, "detail": r.detail, "started": r.started}
             for r in m.runs.values() if r.user_id == user.id}
@@ -429,6 +431,17 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
             cur[k] = s[k]
     if "own_key" in s and s["own_key"] != MASK:
         cur["own_key"] = str(s["own_key"]).strip()
+    if "own_task_key" in s and s["own_task_key"] != MASK:
+        cur["own_task_key"] = str(s["own_task_key"]).strip()
+    if "task_key_choice" in s:
+        choice = s["task_key_choice"] or "same"
+        if choice not in TASK_KEY_CHOICES:
+            raise ValueError("Ungültige Auswahl für den Aufgaben-Schlüssel")
+        if choice == "own" and not cur.get("own_task_key"):
+            raise ValueError("Bitte einen Schlüssel für geplante Aufgaben eintragen")
+        if choice == "shared" and choice != cur.get("task_key_choice") and not m.config.data.get("shared_task_key"):
+            raise ValueError("Es gibt keinen zentralen Aufgaben-Schlüssel – bitte den Admin fragen")
+        cur["task_key_choice"] = choice
     if "memory" in s:
         st.meta["memory"] = str(s["memory"])[:20000]
     await st.async_save_meta()
@@ -438,7 +451,9 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
 
 @command(_t("usage/history"))
 async def ws_usage_history(hass, conn, msg, m, user, st):
-    return {"days": st.meta["usage"], "snapshot": m.usage_snapshot(user.id)}
+    tk = m.task_key_info(user.id, st)["key"]
+    return {"days": st.meta["usage"], "snapshot": m.usage_snapshot(user.id),
+            "task_key_days": m.task_key_usage(tk)["days"] if tk else []}
 
 
 @command(_t("notify_services"))
@@ -471,6 +486,9 @@ def _admin_view(m, users) -> dict:
         "key_mode": cfg.get("key_mode"), "key_modes": list(KEY_MODES),
         "shared_key": MASK if cfg.get("shared_key") else "",
         "user_keys": {uid: MASK for uid, k in (cfg.get("user_keys") or {}).items() if k},
+        "task_key_mode": cfg.get("task_key_mode"), "task_key_modes": list(TASK_KEY_MODES),
+        "shared_task_key": MASK if cfg.get("shared_task_key") else "",
+        "task_usage": _task_usage_view(m),
         "allowed_users": cfg.get("allowed_users") or [],
         "quota_default": cfg.get("quota_default"), "quota_users": cfg.get("quota_users") or {},
         "models": cfg.get("models"), "known_context": KNOWN_CONTEXT,
@@ -480,6 +498,16 @@ def _admin_view(m, users) -> dict:
         "usage_today": usage,
         "key_limits": {"shared": m.provider.key_state(cfg["shared_key"]).snapshot()} if cfg.get("shared_key") else {},
     }
+
+
+def _task_usage_view(m) -> dict:
+    """Usage of all scheduled tasks on the central task key and on the shared normal key."""
+    cfg = m.config.data
+    out = {}
+    for name, key in (("central", cfg.get("shared_task_key")), ("shared", cfg.get("shared_key"))):
+        if key and (name == "central" or cfg.get("key_mode") == KEY_SHARED):
+            out[name] = m.task_key_usage(key) | {"limits": m.provider.key_state(key).snapshot()}
+    return out
 
 
 async def _users(hass):
@@ -507,6 +535,12 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         cfg["key_mode"] = c["key_mode"]
     if "shared_key" in c and c["shared_key"] != MASK:
         cfg["shared_key"] = str(c["shared_key"]).strip()
+    if "task_key_mode" in c:
+        if c["task_key_mode"] not in TASK_KEY_MODES:
+            raise ValueError("Ungültiger Modus für den Aufgaben-Schlüssel")
+        cfg["task_key_mode"] = c["task_key_mode"]
+    if "shared_task_key" in c and c["shared_task_key"] != MASK:
+        cfg["shared_task_key"] = str(c["shared_task_key"]).strip()
     if "user_keys" in c:
         keys = dict(cfg.get("user_keys") or {})
         for uid, k in c["user_keys"].items():

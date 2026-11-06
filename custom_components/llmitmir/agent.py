@@ -17,9 +17,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from . import credentials as C
+from . import taskkeys as TK
 from .const import (DEFAULT_CONTEXT, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_COWORK, PERM_ALLOW, PERM_ASK, PERM_DENY,
-                    PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TOOL_RESULT_MAX_CHARS)
+                    PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
+                    TOOL_RESULT_MAX_CHARS)
 from .provider import Provider, ProviderError, QuotaExhausted, StreamAccumulator
 from .storage import ConfigStore, UserStore, new_id, now
 from .tools import GROUPS, REGISTRY, as_text, load_all
@@ -139,6 +141,33 @@ class Manager:
             return (st.meta["settings"].get("own_key") if st else "") or ""
         return self.config.data.get("shared_key") or ""
 
+    def task_key_info(self, user_id: str, store: UserStore | None = None) -> dict:
+        """Key used by scheduled tasks of this person (see taskkeys.resolve)."""
+        cfg = self.config.data
+        st = store or self.users.get(user_id)
+        s = st.meta["settings"] if st else {}
+        return TK.resolve(cfg.get("task_key_mode") or TASK_KEY_SAME, s.get("task_key_choice"),
+                          cfg.get("shared_task_key") or "", s.get("own_task_key") or "", self.key_for(user_id, st))
+
+    def run_key(self, user_id: str, store: UserStore | None, task: bool) -> tuple[str, bool]:
+        """(key, separate) for a run; separate = scheduled task on a key other than the normal one."""
+        if not task:
+            return self.key_for(user_id, store), False
+        info = self.task_key_info(user_id, store)
+        return info["key"], info["separate"]
+
+    def record_usage(self, st: UserStore, prompt: int, completion: int, *, task: bool, key: str,
+                     separate: bool) -> None:
+        st.add_usage(prompt, completion, task=task, separate=separate)
+        if task and key:
+            TK.add_day(self.config.data.setdefault("task_usage", {}), TK.fingerprint(key), prompt, completion,
+                       keep_days=TASK_USAGE_DAYS)
+            self.config.schedule_save()
+
+    def task_key_usage(self, key: str, days: int = 14) -> dict:
+        """Usage of all scheduled tasks (of everybody) on this key."""
+        return TK.key_usage(self.config.data.get("task_usage") or {}, TK.fingerprint(key), days)
+
     def preset(self) -> dict:
         return PRESETS.get((self.config.data.get("provider") or {}).get("preset") or "", {})
 
@@ -169,17 +198,30 @@ class Manager:
         today = st.usage_today() if st else {"requests": 0, "prompt": 0, "completion": 0}
         key = self.key_for(user_id, st)
         limits = self.provider.key_state(key).snapshot() if key else {}
+        cfg = self.config.data
+        ti = self.task_key_info(user_id, st)
+        tk = ti["key"]
+        tasks = {"mode": cfg.get("task_key_mode") or TASK_KEY_SAME, "choice": ti["choice"], "source": ti["source"],
+                 "separate": ti["separate"], "fallback": ti["fallback"], "has_key": bool(tk),
+                 "has_central": bool(cfg.get("shared_task_key")),
+                 "shared_by_all": ti["source"] == "shared" or (ti["source"] == "same" and cfg.get("key_mode") == KEY_SHARED),
+                 "mine_today": TK.task_part(today),
+                 "key_today": self.task_key_usage(tk, 1)["today"] if tk else dict(TK.ZERO),
+                 "key_limits": (self.provider.key_state(tk).snapshot() if ti["separate"] else limits) if tk else {}}
         return {"today": today, "quota": self.quota(user_id), "key_limits": limits,
-                "key_mode": self.config.data.get("key_mode"), "has_key": bool(key)}
+                "key_mode": cfg.get("key_mode"), "has_key": bool(key), "tasks": tasks}
 
-    def check_quota(self, user_id: str) -> None:
+    def check_quota(self, user_id: str, separate: bool = False) -> None:
+        """Personal daily quota. Tasks on a separate task key neither count nor are limited by it."""
+        if separate:
+            return
         q = self.quota(user_id)
         st = self.users[user_id]
-        u = st.usage_today()
-        if q["requests_day"] and u["requests"] >= q["requests_day"]:
-            raise QuotaError(f"Tageskontingent erreicht ({u['requests']}/{q['requests_day']} Anfragen). Morgen geht es weiter.")
-        if q["tokens_day"] and (u["prompt"] + u["completion"]) >= q["tokens_day"]:
-            raise QuotaError(f"Tageskontingent erreicht ({u['prompt'] + u['completion']:,}/{q['tokens_day']:,} Tokens).".replace(",", "."))
+        req, tok = TK.quota_usage(st.usage_today())
+        if q["requests_day"] and req >= q["requests_day"]:
+            raise QuotaError(f"Tageskontingent erreicht ({req}/{q['requests_day']} Anfragen). Morgen geht es weiter.")
+        if q["tokens_day"] and tok >= q["tokens_day"]:
+            raise QuotaError(f"Tageskontingent erreicht ({tok:,}/{q['tokens_day']:,} Tokens).".replace(",", "."))
 
     # ------------------------------------------------------------- events
     @callback
@@ -278,7 +320,7 @@ class Manager:
         steps = MAX_STEPS_CHAT if chat["kind"] == KIND_CHAT else MAX_STEPS_COWORK
         final_status, error = "done", None
         try:
-            key = self.key_for(user.id, st)
+            key, separate = self.run_key(user.id, st, task is not None)
             if not key:
                 raise QuotaError("Kein API-Schlüssel hinterlegt. " + (
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
@@ -289,7 +331,7 @@ class Manager:
                 if run.cancel.is_set():
                     final_status = "stopped"
                     break
-                self.check_quota(user.id)
+                self.check_quota(user.id, separate)
                 messages = ctx.api_messages()
                 body = {"model": chat["model"], "messages": messages, "temperature": 0.3}
                 if tools:
@@ -320,7 +362,8 @@ class Manager:
                     self.emit(user.id, {"type": "delta", "chat_id": chat["id"], "message_id": amsg["id"],
                                         "content": pend_c, "reasoning": pend_r})
                 usage = acc.usage or {}
-                st.add_usage(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+                self.record_usage(st, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
+                                  task=task is not None, key=key, separate=separate)
                 cu = chat["usage"]
                 cu["prompt"] += int(usage.get("prompt_tokens") or 0)
                 cu["completion"] += int(usage.get("completion_tokens") or 0)
@@ -384,10 +427,10 @@ class Manager:
 
     # ------------------------------------------------------------- simple completion (vision, titles)
     async def complete(self, user_id: str, model: str, messages: list[dict], interactive: bool = True,
-                       cancel: asyncio.Event | None = None, **kw) -> str:
+                       cancel: asyncio.Event | None = None, task: bool = False, **kw) -> str:
         st = await self.user_store(user_id)
-        key = self.key_for(user_id, st)
-        self.check_quota(user_id)
+        key, separate = self.run_key(user_id, st, task)
+        self.check_quota(user_id, separate)
         acc = StreamAccumulator()
         async for chunk in self.provider.chat_stream(key, {"model": model, "messages": messages, **kw},
                                                      interactive=interactive,
@@ -395,7 +438,8 @@ class Manager:
                                                      cancel=cancel):
             acc.feed(chunk)
         u = acc.usage or {}
-        st.add_usage(u.get("prompt_tokens", 0), u.get("completion_tokens", 0))
+        self.record_usage(st, u.get("prompt_tokens", 0), u.get("completion_tokens", 0), task=task, key=key,
+                          separate=separate)
         self.emit(user_id, {"type": "usage", "usage": self.usage_snapshot(user_id)})
         return re.sub(r"<think>.*?</think>", "", acc.content, flags=re.S).strip()
 
@@ -581,7 +625,7 @@ class ToolContext:
     async def complete(self, model: str, messages: list[dict], label: str = "", **kw) -> str:
         await self.manager._status(self.run, "tool", {"label": label or "Modell", "model": model})
         return await self.manager.complete(self.user_id, model, messages, interactive=self.task is None,
-                                           cancel=self.run.cancel, **kw)
+                                           cancel=self.run.cancel, task=self.task is not None, **kw)
 
     async def emit_files(self) -> None:
         files = await self.store.async_list_files("chat", self.chat_id)

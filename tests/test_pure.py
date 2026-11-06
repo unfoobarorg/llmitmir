@@ -1,6 +1,7 @@
 """Unit tests for the parts that do not need a running Home Assistant."""
 import importlib.util
 import pathlib
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -11,12 +12,14 @@ BASE = pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "llmi
 def load(name):
     spec = importlib.util.spec_from_file_location(f"lm_{name}", BASE / f"{name}.py")
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod  # dataclasses look the module up there
     spec.loader.exec_module(mod)
     return mod
 
 
 cron = load("cron")
 creds = load("credentials")
+tk = load("taskkeys")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -92,3 +95,47 @@ def test_describe_cron():
     assert cron.describe({"type": "cron", "cron": "3 10,21 * * *"}) == "täglich um 10:03 und 21:03"
     assert cron.describe({"type": "cron", "cron": "39 8 * * 6"}) == "samstags um 08:39"
     assert cron.describe({"type": "cron", "cron": "*/5 * * * *"}) == "Cron „*/5 * * * *“"
+
+
+def test_task_key_resolve():
+    # admin: same key for everything
+    r = tk.resolve("same", "own", "CENTRAL", "OWN", "MAIN")
+    assert (r["key"], r["source"], r["separate"]) == ("MAIN", "same", False)
+    # admin: central task key for all, user choice ignored
+    r = tk.resolve("shared", "own", "CENTRAL", "OWN", "MAIN")
+    assert (r["key"], r["source"], r["separate"]) == ("CENTRAL", "shared", True)
+    # central key missing -> normal key, marked as fallback
+    r = tk.resolve("shared", None, "", "OWN", "MAIN")
+    assert (r["key"], r["source"], r["fallback"]) == ("MAIN", "same", True)
+    # each user chooses
+    assert tk.resolve("user", "own", "CENTRAL", "OWN", "MAIN")["key"] == "OWN"
+    assert tk.resolve("user", "shared", "CENTRAL", "OWN", "MAIN")["key"] == "CENTRAL"
+    assert tk.resolve("user", None, "CENTRAL", "OWN", "MAIN")["key"] == "MAIN"
+    assert tk.resolve("user", "own", "CENTRAL", "", "MAIN")["fallback"] is True
+    # same key entered twice is not "separate"
+    assert tk.resolve("user", "own", "", "MAIN", "MAIN")["separate"] is False
+
+
+def test_task_key_usage_per_day():
+    from datetime import date
+    usage = {}
+    fp = tk.fingerprint("sk-geheim")
+    assert len(fp) == 16 and "geheim" not in fp
+    d1, d2 = date(2026, 11, 5), date(2026, 11, 6)
+    tk.add_day(usage, fp, 100, 20, today=d1)
+    tk.add_day(usage, fp, 50, 10, today=d2)
+    tk.add_day(usage, fp, 5, 5, today=d2)
+    ku = tk.key_usage(usage, fp, days=3, today=d2)
+    assert ku["today"] == {"requests": 2, "prompt": 55, "completion": 15}
+    assert [x["requests"] for x in ku["days"]] == [0, 1, 2]
+    # old days are dropped, empty keys removed
+    tk.add_day(usage, "other", 1, 1, today=date(2027, 3, 1), keep_days=60)
+    assert fp not in usage and "other" in usage
+
+
+def test_quota_ignores_separate_task_key():
+    u = {"requests": 10, "prompt": 1000, "completion": 500, "task_requests": 6, "task_prompt": 600,
+         "task_completion": 300, "sep_requests": 4, "sep_tokens": 700}
+    assert tk.quota_usage(u) == (6, 800)
+    assert tk.task_part(u) == {"requests": 6, "prompt": 600, "completion": 300}
+    assert tk.quota_usage({"requests": 3, "prompt": 1, "completion": 2}) == (3, 3)

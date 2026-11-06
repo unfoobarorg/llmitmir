@@ -6,6 +6,7 @@ import { store, navigate } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
 import werkbankGuide from "../../docs/WERKBANK.md";
+import { taskUsageCard, taskUsageCss, usageBlock, taskKeyLabel } from "./taskusage";
 
 
 const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
@@ -62,7 +63,7 @@ export class SettingsPage extends StoreElement {
   @state() private imp: any = null;
   @state() private impResult: any = null;
   @state() private guide = false;
-  static styles = [base, css2];
+  static styles = [base, css2, taskUsageCss];
   connectedCallback() {
     super.connectedCallback();
     this.reset();
@@ -72,9 +73,13 @@ export class SettingsPage extends StoreElement {
   private reset() { this.s = { ...(store.data?.settings || {}) }; this.memory = store.data?.memory || ""; this.dirty = false; }
   private set(k: string, v: any) { this.s = { ...this.s, [k]: v }; this.dirty = true; }
   private async save() {
-    const payload: any = { ...this.s, memory: this.memory }; delete payload.has_own_key;
+    const payload: any = { ...this.s, memory: this.memory }; delete payload.has_own_key; delete payload.has_own_task_key;
     if (!payload.own_key) delete payload.own_key;
-    await store.api.ws("settings/save", { settings: payload }); this.dirty = false; store.notify(t("Gespeichert")); await store.load(); this.reset();
+    if (!payload.own_task_key) delete payload.own_task_key;
+    if (store.data?.usage?.tasks?.mode !== "user") delete payload.task_key_choice;
+    try { await store.api.ws("settings/save", { settings: payload }); } catch (e: any) { store.notify(e.message); return; }
+    this.dirty = false; store.notify(t("Gespeichert")); await store.load(); this.reset();
+    store.api.ws("usage/history").then(r => (this.history = r));
   }
   private async newImport() {
     const r = await store.api.ws("import/token");
@@ -98,6 +103,28 @@ export class SettingsPage extends StoreElement {
     this.impBusy = ""; this.impResult = sum;
     await store.load(); store.notify("Import abgeschlossen");
   }
+  private taskKeySection() {
+    const tk = store.data?.usage?.tasks; const s = this.s;
+    if (!tk || tk.mode === "same") return nothing;
+    if (tk.mode === "shared") return html`<section><h2>${icon("task", 18)} Schlüssel für geplante Aufgaben</h2>
+      <div class="hint">${tk.has_central ? "Deine geplanten Aufgaben laufen über den zentralen Aufgaben-Schlüssel, den der Admin eingetragen hat. Chats und Coworks behalten so ihr volles Kontingent."
+        : "Der Admin hat einen zentralen Aufgaben-Schlüssel vorgesehen, aber noch nicht eingetragen – bis dahin laufen Aufgaben über den normalen Schlüssel."}</div></section>`;
+    const choice = s.task_key_choice || "same";
+    const opts: [string, string, string, boolean][] = [
+      ["same", "Ein Schlüssel für alles", "Aufgaben, Chats und Coworks nutzen denselben Schlüssel und teilen sich dessen Limits.", true],
+      ["own", "Eigener Schlüssel für Aufgaben", "Aufgaben verbrauchen nichts vom Kontingent für spontane Chats und Coworks.", true],
+      ["shared", "Zentraler Aufgaben-Schlüssel", tk.has_central ? "Vom Admin eingetragen; alle, die ihn wählen, teilen sich seine Limits."
+        : "Nicht verfügbar – der Admin hat keinen zentralen Aufgaben-Schlüssel eingetragen.", !!tk.has_central || choice === "shared"]];
+    return html`<section><h2>${icon("task", 18)} Schlüssel für geplante Aufgaben</h2><div class="form">
+      ${opts.map(([k, l, h, ok]) => html`<label class="opt ${choice === k ? "on" : ""}" style=${ok ? "" : "opacity:.5;cursor:default"}>
+        <input type="radio" name="tkc" ?disabled=${!ok} .checked=${choice === k} @change=${() => this.set("task_key_choice", k)}>
+        <div><b>${l}</b><div class="hint">${h}</div></div></label>`)}
+      ${choice === "own" ? html`<label class="f"><span>Schlüssel für geplante Aufgaben (${store.data.provider.name})</span>
+        <input type="password" autocomplete="off" placeholder=${s.has_own_task_key ? "••• gespeichert – zum Ändern neu eingeben" : "Schlüssel eintragen"}
+          @input=${(e: any) => this.set("own_task_key", e.target.value)}></label>` : nothing}
+      <div class="hint">Gilt für alle Läufe geplanter Aufgaben, auch „Jetzt ausführen“. Läufe auf einem eigenen oder zentralen Aufgaben-Schlüssel
+        zählen nicht zum persönlichen Tageskontingent.</div></div></section>`;
+  }
   render() {
     const d = store.data; const s = this.s;
     const days = this.history ? Object.entries(this.history.days).sort(([a], [b]) => a.localeCompare(b)).slice(-30) : [];
@@ -113,6 +140,7 @@ export class SettingsPage extends StoreElement {
         <label class="f"><span>Schlüssel für ${d.provider.name}</span><input type="password" autocomplete="off" placeholder=${s.has_own_key ? "••• gespeichert – zum Ändern neu eingeben" : "Schlüssel eintragen"}
           @input=${(e: any) => this.set("own_key", e.target.value)}></label>
         <div class="hint">Der Schlüssel gilt nur für dich. Limits und Verbrauch beziehen sich auf ihn.</div></section>` : nothing}
+      ${this.taskKeySection()}
       <section><h2>${icon("bell", 18)} Benachrichtigungen</h2>
         <label class="f"><span>Gerät für Push-Nachrichten (Aufgaben, Werkzeug „Benachrichtigen“)</span><select @change=${(e: any) => this.set("notify_service", e.target.value)}>
           <option value="">keins</option>${this.notifiers.map(n => html`<option value=${n} ?selected=${s.notify_service === n}>${n}</option>`)}</select></label></section>
@@ -133,8 +161,10 @@ export class SettingsPage extends StoreElement {
         <div class="card"><div class="row"><span class="grow">Heute: <b>${d.usage.today.requests}</b> Anfragen · <b>${fmtNum(d.usage.today.prompt + d.usage.today.completion)}</b> Tokens</span>
           ${d.usage.quota.requests_day ? html`<span class="chip">Kontingent ${d.usage.quota.requests_day} Anfragen/Tag</span>` : nothing}
           ${d.usage.quota.tokens_day ? html`<span class="chip">${fmtNum(d.usage.quota.tokens_day)} Tokens/Tag</span>` : nothing}</div>
+          ${d.usage.today.task_requests ? html`<div class="hint">davon geplante Aufgaben: ${d.usage.today.task_requests} Anfragen · ${fmtNum((d.usage.today.task_prompt || 0) + (d.usage.today.task_completion || 0))} Tokens</div>` : nothing}
           ${days.length ? html`<div class="bars">${days.map(([day, v]: any) => html`<div title="${day}: ${v.requests} Anfragen, ${fmtNum(v.prompt + v.completion)} Tokens"
-            style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">Tokens je Tag, letzte ${days.length} Tage</div>` : nothing}</div></section>
+            style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">Tokens je Tag, letzte ${days.length} Tage</div>` : nothing}</div>
+        ${d.tasks?.length ? html`<div style="margin-top:12px">${taskUsageCard(d.usage.tasks, this.history?.task_key_days)}</div>` : nothing}</section>
       <section><h2>${icon("import", 18)} Import aus Claude</h2><div class="card form">
         <div><b>1. Skills, Zugänge, geplante Aufgaben, Projekte und Erinnerungen</b>
           <div class="hint">Erzeuge einen Einmal-Link (24 h gültig) und füge den Prompt in Claude ein (am besten Claude Code oder ein Cowork mit Werkzeugen).
@@ -170,7 +200,7 @@ export class AdminPage extends StoreElement {
   @state() private loading = false;
   @state() private wbTest: any = null;
   @state() private guide = false;
-  static styles = [base, css2];
+  static styles = [base, css2, taskUsageCss];
   connectedCallback() { super.connectedCallback(); this.load(); }
   private async load() { try { this.a = await store.api.ws("admin/get"); this.dirty = false; } catch (e: any) { store.notify(e.message); } }
   private set(k: string, v: any) { this.a = { ...this.a, [k]: v }; this.dirty = true; }
@@ -178,6 +208,7 @@ export class AdminPage extends StoreElement {
     const a = this.a;
     try {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
+        task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
         allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank,
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context } } });
       this.dirty = false; store.notify(t("Gespeichert"));
@@ -190,6 +221,25 @@ export class AdminPage extends StoreElement {
     try { this.a = await store.api.ws("admin/models_refresh", this.a.shared_key && this.a.shared_key !== "•••" ? { key: this.a.shared_key } : {}); store.notify("Modelle geladen"); }
     catch (e: any) { store.notify(e.message); }
     this.loading = false;
+  }
+  private taskKeySection() {
+    const a = this.a; const tm = a.task_key_mode || "same"; const tu = a.task_usage || {};
+    const modes = [["same", "Gleicher Schlüssel wie für alles andere", "Geplante Aufgaben teilen sich die Limits mit Chats und Coworks (bisheriges Verhalten)."],
+      ["shared", "Zentraler Aufgaben-Schlüssel für alle", "Alle geplanten Aufgaben aller Personen laufen über einen eigenen Schlüssel – spontane Chats und Coworks behalten ihr volles Kontingent."],
+      ["user", "Jede Person entscheidet selbst", "In den Einstellungen: ein Schlüssel für alles, ein eigener Aufgaben-Schlüssel oder der zentrale Aufgaben-Schlüssel (wenn du hier einen einträgst)."]];
+    return html`<section><h2>${icon("task", 18)} Schlüssel für geplante Aufgaben</h2><div class="form">
+      ${modes.map(([k, l, h]) => html`<label class="opt ${tm === k ? "on" : ""}"><input type="radio" name="tkm" .checked=${tm === k} @change=${() => this.set("task_key_mode", k)}>
+        <div><b>${l}</b><div class="hint">${h}</div></div></label>`)}
+      ${tm !== "same" ? html`<label class="f"><span>Zentraler Aufgaben-Schlüssel${tm === "user" ? " (optional)" : ""}</span>
+        <input type="password" autocomplete="off" placeholder="nicht gesetzt" .value=${a.shared_task_key || ""}
+          @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => this.set("shared_task_key", e.target.value)}></label>
+        ${tm === "shared" && !a.shared_task_key ? html`<div class="hint">Solange kein Schlüssel eingetragen ist, nutzen Aufgaben den normalen Schlüssel.</div>` : nothing}` : nothing}
+      ${tu.central ? usageBlock({ title: "Geplante Aufgaben auf dem zentralen Aufgaben-Schlüssel", label: taskKeyLabel("shared"), accent: true,
+          todayLabel: "Alle Aufgaben aller Personen heute", today: tu.central.today, limits: tu.central.limits, days: tu.central.days }) : nothing}
+      ${tu.shared && (tm !== "shared" || !tu.central) ? usageBlock({ title: "Geplante Aufgaben auf dem gemeinsamen Schlüssel", label: "gemeinsamer Schlüssel",
+          todayLabel: "Alle Aufgaben aller Personen heute", today: tu.shared.today, limits: tu.shared.limits, days: tu.shared.days,
+          notes: ["Nur Läufe geplanter Aufgaben; Chats und Coworks auf diesem Schlüssel sind hier nicht mitgezählt."] }) : nothing}
+    </div></section>`;
   }
   render() {
     const a = this.a;
@@ -221,6 +271,7 @@ export class AdminPage extends StoreElement {
           <td><input type="password" autocomplete="off" placeholder="nicht gesetzt" .value=${a.user_keys[u.id] || ""}
             @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => this.set("user_keys", { ...a.user_keys, [u.id]: e.target.value })}></td></tr>`)}</table></div>` : nothing}
       </div></section>
+      ${this.taskKeySection()}
       <section><h2>${icon("user", 18)} Wer darf LLMitMir nutzen?</h2>
         <div class="tw"><table><tr><th></th><th>Person</th><th>Anfragen/Tag</th><th>Tokens/Tag</th><th>Heute</th></tr>
           ${users.map((u: any) => { const q = a.quota_users[u.id] || {}; const us = a.usage_today[u.id];
@@ -231,7 +282,7 @@ export class AdminPage extends StoreElement {
                 @input=${(e: any) => this.set("quota_users", { ...a.quota_users, [u.id]: { ...q, requests_day: e.target.value === "" ? null : Number(e.target.value) } })}></td>
               <td><input type="number" min="0" style="width:120px" placeholder=${String(a.quota_default.tokens_day || "∞")} .value=${q.tokens_day ?? ""}
                 @input=${(e: any) => this.set("quota_users", { ...a.quota_users, [u.id]: { ...q, tokens_day: e.target.value === "" ? null : Number(e.target.value) } })}></td>
-              <td class="hint">${us ? `${us.requests} · ${fmtNum(us.prompt + us.completion)}` : "–"}</td></tr>`; })}</table></div>
+              <td class="hint">${us ? `${us.requests} · ${fmtNum(us.prompt + us.completion)}` : "–"}${us?.task_requests ? html`<br>Aufgaben ${us.task_requests} · ${fmtNum((us.task_prompt || 0) + (us.task_completion || 0))}` : nothing}</td></tr>`; })}</table></div>
         <div class="hint" style="margin-top:8px">Ohne Haken sieht die Person den Eintrag in der Seitenleiste, bekommt aber keinen Zugriff (HA kann Seitenleisten-Einträge nicht pro Person ausblenden).
           ${!a.allowed_users.length ? "Solange niemand angehakt ist, haben nur Admins Zugriff." : ""}</div>
         <div class="two" style="margin-top:12px"><label class="f"><span>Standard-Kontingent Anfragen/Tag (0 = unbegrenzt)</span><input type="number" min="0" .value=${String(a.quota_default.requests_day || 0)}
