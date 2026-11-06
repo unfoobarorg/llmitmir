@@ -65,6 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "models": {"enabled": [], "defaults": {}, "context": {}, "known": [], "auto_enable_new": True},
     "search": {"provider": "duckduckgo", "searxng_url": ""},
     "werkbank": {"url": "", "token": ""},
+    "views": {"default": "choice", "users": {}},   # simple (Laien) or expert view, see views.py
 }
 
 

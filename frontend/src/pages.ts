@@ -2,10 +2,11 @@
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, fmtTime, confirmDialog, safeElement } from "./ui";
-import { store, navigate } from "./api";
+import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
 import type { SendDetail } from "./composer";
+import { explainer, explainerCss, more } from "./simple";
 
 export async function startChat(d: SendDetail) {
   const kind = d.mode === "cowork" ? "cowork" : "chat";
@@ -65,17 +66,26 @@ export class Home extends StoreElement {
     const d = store.data;
     const name = (d?.user?.name || "").split(" ")[0];
     const u = d?.usage;
+    const simple = isSimple();
+    const mode = simple ? "chat" : this.mode;
     return html`<div class="wrap">
       ${u && !u.has_key ? html`<div class="card nokey row">${icon("key")}<div class="grow">${d.key_mode === "per_user_own"
         ? html`Trag zuerst deinen API-Schlüssel ein.` : html`Es ist noch kein API-Schlüssel hinterlegt. ${d.user.is_admin ? "Lege ihn unter Admin fest." : "Bitte den Admin, einen einzutragen."}`}</div>
         <button class="btn" @click=${() => navigate(d.key_mode === "per_user_own" ? "/settings" : "/admin")}>Öffnen</button></div>` : nothing}
       <h1><lm-spark size="34" .active=${false}></lm-spark>${greeting()}${name ? `, ${name}` : ""}</h1>
-      <lm-composer big showMode showProject .mode=${this.mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
-        placeholder=${this.mode === "cowork" ? t("Was soll ich erledigen?") : t("Wie kann ich helfen?")}
+      <lm-composer big ?showMode=${!simple} ?showProject=${!simple} .simple=${simple} .mode=${mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
+        placeholder=${mode === "cowork" ? t("Was soll ich erledigen?") : t("Wie kann ich helfen?")}
         @mode=${(e: CustomEvent) => { this.mode = e.detail; this.manual = false; }} @model=${(e: CustomEvent) => { this.model = e.detail; this.manual = true; }}
         @project=${(e: CustomEvent) => { this.projectId = e.detail; this.manual = false; this.pickModel(); }} @send=${this.send}></lm-composer>
       <div class="sugg">
-        ${this.mode === "chat" ? html`
+        ${simple ? html`
+          <button @click=${() => this.fill("Erkläre mir einfach und verständlich: ", "chat")}>${icon("sparkle", 16)} Etwas erklären lassen</button>
+          <button @click=${() => this.fill("Verbessere diesen Text, freundlich und gut verständlich:\n\n", "chat")}>${icon("edit", 16)} Text verbessern</button>
+          <button @click=${() => this.fill("Suche im Internet nach ", "chat")}>${icon("web", 16)} Im Internet suchen</button>
+          <button @click=${() => this.fill("Wie ist es gerade zu Hause? Ist alles in Ordnung?", "chat")}>${icon("home", 16)} Alles ok zu Hause?</button>
+          <button @click=${() => this.fill("Erinnere mich jeden Tag um 8 Uhr an ", "chat")}>${icon("task", 16)} Regelmäßig erinnern</button>
+          <button @click=${() => this.fill("Was kannst du alles für mich tun? Erkläre es mir einfach, mit ein paar Beispielen.", "chat")}>${icon("info", 16)} Was kannst du?</button>`
+        : this.mode === "chat" ? html`
           <button @click=${() => this.fill("Erkläre mir verständlich: ", "chat")}>${icon("sparkle", 16)} Erklären</button>
           <button @click=${() => this.fill("Formuliere diese E-Mail freundlich und knapp um:\n\n", "chat")}>${icon("edit", 16)} Text überarbeiten</button>
           <button @click=${() => this.fill("Suche im Web nach ", "chat")}>${icon("web", 16)} Im Web suchen</button>`
@@ -84,7 +94,8 @@ export class Home extends StoreElement {
           <button @click=${() => this.fill("Lies die Dateien im Ordner … meines Zugangs … und erstelle eine Übersicht als Tabelle.", "cowork")}>${icon("cloud", 16)} Dateien auswerten</button>
           <button @click=${() => this.fill("Recherchiere zu … und schreibe eine kurze Zusammenfassung mit Quellen in eine Datei.", "cowork")}>${icon("search", 16)} Recherche</button>`}
       </div>
-      <div class="info">${d?.provider?.name || ""} · Open-Weight-Modelle – Antworten können je nach Auslastung dauern.</div>
+      <div class="info">${simple ? "KI kann Fehler machen – Wichtiges bitte prüfen. Antworten können je nach Auslastung etwas dauern."
+        : `${d?.provider?.name || ""} · Open-Weight-Modelle – Antworten können je nach Auslastung dauern.`}</div>
     </div>`;
   }
 }
@@ -104,7 +115,8 @@ export class Chats extends StoreElement {
     const proj = (id: string) => (store.data?.projects || []).find((p: any) => p.id === id)?.name;
     return html`<div class="page"><h1>${t("Chats")}</h1>
       <input placeholder=${t("Suchen …")} .value=${this.q} @input=${(e: any) => (this.q = e.target.value)}>
-      <div class="tabs">${[["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")]].map(([k, l]) =>
+      <div class="tabs">${(isSimple() ? [["all", t("Alle")], ["task_run", "Ergebnisse geplanter Aufgaben"]]
+        : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")]]).map(([k, l]) =>
         html`<button class=${this.filter === k ? "on" : ""} @click=${() => (this.filter = k)}>${l}</button>`)}</div>
       <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
         ${icon(c.kind === "chat" ? "chat" : c.kind === "cowork" ? "cowork" : "task")}
@@ -118,7 +130,7 @@ export class Chats extends StoreElement {
 // ---------------------------------------------------------------- projects
 @safeElement("lm-projects")
 export class Projects extends StoreElement {
-  static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
+  static styles = [base, explainerCss, css`:host { display: block; height: 100%; overflow-y: auto; }
     .pc { padding: 16px; min-height: 120px; display: grid; align-content: start; gap: 6px; }
     .pc b { font-size: 15px; }
     .item.pc.new { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; border-style: dashed; color: var(--lm-muted); }`];
@@ -128,7 +140,8 @@ export class Projects extends StoreElement {
     const count = (id: string) => (store.data?.chats || []).filter((c: any) => c.project_id === id).length;
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Projekte")}</h1>
       <button class="btn primary" @click=${this.create}>${icon("plus", 18)} ${t("Neues Projekt")}</button></div>
-      <p class="hint">Projekte bündeln Anweisungen, Dateien, Zugänge und Skills. Chats und Coworks darin starten mit diesem Kontext.</p>
+      ${isSimple() ? explainer("projects", !ps.length)
+        : html`<p class="hint">Projekte bündeln Anweisungen, Dateien, Zugänge und Skills. Chats und Coworks darin starten mit diesem Kontext.</p>`}
       <div class="grid">${ps.map((p: any) => html`<div class="item pc" @click=${() => navigate(`/project/${p.id}`)}>
         <div class="row">${icon("project")}<b class="grow ellipsis">${p.name}</b></div>
         <div class="hint" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.description || (p.instructions || "").slice(0, 160) || "Noch keine Anweisungen."}</div>
@@ -144,7 +157,7 @@ export class ProjectPage extends StoreElement {
   @state() private draft: any = null;
   @state() private files: any[] = [];
   @state() private dirty = false;
-  static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
+  static styles = [base, explainerCss, css`:host { display: block; height: 100%; overflow-y: auto; }
     .cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
     .side { display: grid; gap: 14px; }
     .side .card h3 { margin: 0 0 10px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; }
@@ -196,6 +209,11 @@ export class ProjectPage extends StoreElement {
     const models = d.models || [];
     const groups = d.tool_groups || {};
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
+    const simple = isSimple();
+    const instrLabel = simple ? "Was soll LLMitMir in diesem Projekt immer wissen?" : t("Anweisungen");
+    const instrPh = simple ? "Zum Beispiel: Worum es geht, wer beteiligt ist, was wichtig ist und wie Antworten aussehen sollen."
+      : "Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)";
+    const adv = (c: unknown) => (simple ? more(c, "Mehr Optionen: Zugänge, Skills, Freigaben") : c);
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/projects")}>${icon("left")}</button>
         <label class="tw"><input class="title" placeholder="Name des Projekts" aria-label="Name des Projekts" .value=${p.name}
@@ -204,17 +222,17 @@ export class ProjectPage extends StoreElement {
       ${!p.id ? html`<div class="lock">${icon("project", 26)}<b>Neues Projekt</b><span class="hint">Gib einen Namen ein und speichere – danach kannst du Dateien hochladen und Chats und Coworks in diesem Projekt starten.</span>
         <div class="row" style="justify-content:center;margin-top:6px"><button class="btn" @click=${() => navigate("/projects")}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save} ?disabled=${!String(p.name || "").trim()}>${icon("check", 16)} Projekt anlegen</button></div></div>
-        <h2>${t("Anweisungen")}</h2><textarea rows="10" placeholder="Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)"
+        <h2>${instrLabel}</h2><textarea rows="10" placeholder=${instrPh}
           .value=${p.instructions || ""} @input=${(e: any) => this.set("instructions", e.target.value)}></textarea>` : html`
       <div class="cols"><div>
-        <lm-composer showMode .projectId=${p.id} .mode=${"chat"} .model=${p.model_chat || d.defaults.chat} placeholder="Neuer Chat in diesem Projekt …"
+        <lm-composer ?showMode=${!simple} .simple=${simple} .projectId=${p.id} .mode=${"chat"} .model=${p.model_chat || d.defaults.chat} placeholder="Neuer Chat in diesem Projekt …"
           @send=${async (e: CustomEvent) => { try { await startChat({ ...e.detail, project_id: p.id }); } catch (err: any) { store.notify(err.message); } }}></lm-composer>
         <h2>Chats & Coworks</h2>
         <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
           ${icon(c.kind === "chat" ? "chat" : c.kind === "cowork" ? "cowork" : "task")}<div class="grow ellipsis">${c.title}</div><span class="hint">${fmtTime(c.updated)}</span></div>`)
           : html`<div class="hint">Noch keine Chats in diesem Projekt.</div>`}</div>
-        <h2>${t("Anweisungen")}</h2>
-        <textarea rows="12" placeholder="Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)"
+        <h2>${instrLabel}</h2>
+        <textarea rows="12" placeholder=${instrPh}
           .value=${p.instructions || ""} @input=${(e: any) => this.set("instructions", e.target.value)}></textarea>
       </div>
       <div class="side">
@@ -223,8 +241,8 @@ export class ProjectPage extends StoreElement {
             <button class="iconbtn" @click=${async () => window.open(await store.api.fileUrl("project", p.id, f.name), "_blank")}>${icon("download", 16)}</button>
             <button class="iconbtn" @click=${async () => { this.files = await store.api.ws("file/delete", { scope: "project", owner: p.id, name: f.name }); }}>${icon("trash", 16)}</button></div>`)}
           <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${this.upload}></label>
-          <div class="hint" style="margin-top:6px">Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt).</div></div>
-        <div class="card"><h3>${icon("key", 18)} ${t("Zugänge")}</h3><div class="chips">
+          <div class="hint" style="margin-top:6px">${simple ? "LLMitMir schaut in diese Dateien, wenn sie für eine Frage wichtig sind." : "Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt)."}</div></div>
+        ${adv(html`<div class="card"><h3>${icon("key", 18)} ${t("Zugänge")}</h3><div class="chips">
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
           ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.credentials_only} @change=${(e: any) => this.set("credentials_only", e.target.checked)}> Nur diese Zugänge erlauben</label></div>
@@ -232,11 +250,11 @@ export class ProjectPage extends StoreElement {
           ${(d.skills || []).map((s: any) => html`<button class=${(p.skills || []).includes(s.id) ? "on" : ""} @click=${() => this.toggle("skills", s.id)}>${s.name}</button>`)}
           ${!(d.skills || []).length ? html`<span class="hint">Noch keine Skills angelegt.</span>` : nothing}</div>
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.skills_only} @change=${(e: any) => this.set("skills_only", e.target.checked)}> Nur diese Skills anbieten</label></div>
-        <div class="card"><h3>${icon("sparkle", 18)} Modelle</h3>
+        ${simple ? nothing : html`<div class="card"><h3>${icon("sparkle", 18)} Modelle</h3>
           <label class="f"><span>Chat</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
             <option value="">${defaultLabel("chat")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_chat === m.id}>${m.name}</option>`)}</select></label>
           <label class="f" style="margin-top:8px"><span>Cowork / Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
-            <option value="">${defaultLabel("agent")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
+            <option value="">${defaultLabel("agent")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>`}
         <div class="card"><h3>${icon("tools", 18)} ${t("Werkzeuge")} & Freigaben</h3>
           <div class="chips">${Object.entries(groups).filter(([g]) => !["files", "skills", "progress", "ha"].includes(g)).map(([g, info]: any) => {
             const on = p.tool_groups == null || p.tool_groups.includes(g);
@@ -246,7 +264,7 @@ export class ProjectPage extends StoreElement {
           <div class="hint" style="margin:10px 0 6px">Schreibende Aktionen:</div>
           ${writeTools.map(([n, v]: any) => html`<div class="row" style="padding:3px 0;font-size:13px"><span class="grow">${v.label}</span>
             <select style="width:auto;padding:4px 6px" @change=${(e: any) => this.set("permissions", { ...(p.permissions || {}), [n]: e.target.value })}>
-              ${[["ask", "fragen"], ["allow", "erlauben"], ["deny", "verbieten"]].map(([k, l]) => html`<option value=${k} ?selected=${((p.permissions || {})[n] || "ask") === k}>${l}</option>`)}</select></div>`)}</div>
+              ${[["ask", "fragen"], ["allow", "erlauben"], ["deny", "verbieten"]].map(([k, l]) => html`<option value=${k} ?selected=${((p.permissions || {})[n] || "ask") === k}>${l}</option>`)}</select></div>`)}</div>`)}
         <button class="btn danger" @click=${async () => { if (await confirmDialog(`Projekt „${p.name}“ löschen? Chats bleiben erhalten (ohne Projekt).`)) {
           try { await store.api.ws("project/delete", { project_id: p.id }); await store.load(); navigate("/projects"); } catch (e: any) { store.notify(e.message); } } }}>${icon("trash", 16)} Projekt löschen</button>
       </div></div>`}

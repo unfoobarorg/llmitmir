@@ -2,7 +2,7 @@
 import { LitElement, css, html, nothing } from "lit";
 import { state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtNum, fmtTime, copyText, safeElement } from "./ui";
-import { store, navigate } from "./api";
+import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
 import { load, loadDot, modelName } from "./modelpick";
@@ -78,6 +78,7 @@ export class SettingsPage extends StoreElement {
     if (!payload.own_key) delete payload.own_key;
     if (!payload.own_task_key) delete payload.own_task_key;
     if (store.data?.usage?.tasks?.mode !== "user") delete payload.task_key_choice;
+    if (store.data?.view?.locked) delete payload.view;
     try { await store.api.ws("settings/save", { settings: payload }); } catch (e: any) { store.notify(e.message); return; }
     this.dirty = false; store.notify(t("Gespeichert")); await store.load(); this.reset();
     store.api.ws("usage/history").then(r => (this.history = r));
@@ -135,14 +136,28 @@ export class SettingsPage extends StoreElement {
     const days = this.history ? Object.entries(this.history.days).sort(([a], [b]) => a.localeCompare(b)).slice(-30) : [];
     const max = Math.max(1, ...days.map(([, v]: any) => v.prompt + v.completion));
     const perms = Object.entries(s.permissions || {});
+    const simple = isSimple();
+    const v = d.view || {};
+    const chosen = v.locked ? v.view : s.view || v.view || "simple";
+    const views: [string, string, string, string][] = [
+      ["simple", "mdi:chat-processing-outline", "Einfache Ansicht", "Nur deine Nachricht und die Antwort – wie in einem Messenger. LLMitMir wählt die passende KI selbst, "
+        + "antwortet verständlich und erklärt Skills, geplante Aufgaben, Zugänge und Projekte."],
+      ["expert", "mdi:tune-variant", "Expertenansicht", "Alles im Blick und selbst steuern: Modellwahl und Auslastung, Cowork mit Schrittliste, "
+        + "Werkzeug-Schritte, Gedanken der Modelle, Verbrauch und alle Einstellungen."]];
     return html`<div class="page"><h1>${t("Einstellungen")}</h1>
-      <section><h2>${icon("sparkle", 18)} Modelle</h2><div class="two">
+      <section><h2>${icon("eye", 18)} Ansicht</h2><div class="form">
+        ${views.map(([k, ic, l, h]) => html`<label class="opt ${chosen === k ? "on" : ""}" style=${v.locked && chosen !== k ? "opacity:.5;cursor:default" : ""}>
+          <input type="radio" name="view" ?disabled=${v.locked} .checked=${chosen === k} @change=${() => this.set("view", k)}>
+          <div class="grow"><b class="row" style="gap:6px">${icon(ic, 18)} ${l}</b><div class="hint">${h}</div></div></label>`)}
+        ${v.locked ? html`<div class="hint">${icon("lock", 14)} Die Ansicht hat ${d.user.is_admin ? "ein Admin (unter Admin → Ansicht)" : "der Admin"} für dich festgelegt.</div>`
+          : html`<div class="hint">Wirkt nach dem Speichern sofort. Du kannst jederzeit zurückwechseln.</div>`}</div></section>
+      ${simple ? nothing : html`<section><h2>${icon("sparkle", 18)} Modelle</h2><div class="two">
         <label class="f"><span>Standard für Chats</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
           <option value="">${this.vorgabe("chat")}</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_chat === m.id}>${m.name}</option>`)}</select></label>
         <label class="f"><span>Standard für Coworks & Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
           <option value="">${this.vorgabe("agent")}</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
         <div class="hint" style="margin-top:8px">„Vorgabe“ heißt: LLMitMir nimmt das passendste Modell, das gerade nicht überlastet ist, und berücksichtigt
-          neu erschienene Modelle von selbst. Mit einem festen Modell empfiehlt der Chat einen Wechsel, wenn es stark ausgelastet ist.</div></section>
+          neu erschienene Modelle von selbst. Mit einem festen Modell empfiehlt der Chat einen Wechsel, wenn es stark ausgelastet ist.</div></section>`}
       ${d.key_mode === "per_user_own" ? html`<section><h2>${icon("key", 18)} Dein API-Schlüssel</h2>
         <label class="f"><span>Schlüssel für ${d.provider.name}</span><input type="password" autocomplete="off" placeholder=${s.has_own_key ? "••• gespeichert – zum Ändern neu eingeben" : "Schlüssel eintragen"}
           @input=${(e: any) => this.set("own_key", e.target.value)}></label>
@@ -155,15 +170,15 @@ export class SettingsPage extends StoreElement {
         <textarea rows="7" placeholder="Was soll LLMitMir immer über dich wissen? Vorlieben, Schreibstil, Zusammenhänge …" .value=${this.memory}
           @input=${(e: any) => { this.memory = e.target.value; this.dirty = true; }}></textarea>
         <div class="hint">Fließt in jeden Chat, jedes Cowork und jede Aufgabe ein.</div></section>
-      <section><h2>${icon("chat", 18)} Darstellung & Bedienung</h2><div class="form">
-        <label class="row"><input type="checkbox" style="width:auto" .checked=${s.show_reasoning !== false} @change=${(e: any) => this.set("show_reasoning", e.target.checked)}> Gedanken der Modelle anzeigen</label>
+      <section><h2>${icon("chat", 18)} ${simple ? "Bedienung" : "Darstellung & Bedienung"}</h2><div class="form">
+        ${simple ? nothing : html`<label class="row"><input type="checkbox" style="width:auto" .checked=${s.show_reasoning !== false} @change=${(e: any) => this.set("show_reasoning", e.target.checked)}> Gedanken der Modelle anzeigen</label>`}
         <label class="row"><input type="checkbox" style="width:auto" .checked=${s.send_on_enter !== false} @change=${(e: any) => this.set("send_on_enter", e.target.checked)}> Mit Enter senden (Umschalt+Enter = neue Zeile; auf Touch-Geräten immer Zeilenumbruch)</label></div></section>
       ${perms.length ? html`<section><h2>${icon("lock", 18)} Dauerhafte Freigaben (ohne Projekt)</h2>
         ${perms.map(([n, v]) => html`<div class="row" style="padding:4px 0"><span class="grow">${d.tools[n]?.label || n}: ${v === "allow" ? "erlaubt" : v === "deny" ? "verboten" : "fragen"}</span>
           <button class="btn ghost" @click=${() => { const p = { ...s.permissions }; delete p[n]; this.set("permissions", p); }}>Zurücksetzen</button></div>`)}</section>` : nothing}
-      <section><h2>${icon("mdi:console", 18)} Werkbank</h2>
+      ${simple ? nothing : html`<section><h2>${icon("mdi:console", 18)} Werkbank</h2>
         ${werkbankInfo(!!d.werkbank?.configured, this.guide, () => (this.guide = !this.guide), d.user.is_admin)}
-        ${d.user.is_admin ? html`<div class="hint" style="margin-top:8px">URL und Token trägst du unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Werkbank</a> ein.</div>` : nothing}</section>
+        ${d.user.is_admin ? html`<div class="hint" style="margin-top:8px">URL und Token trägst du unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Werkbank</a> ein.</div>` : nothing}</section>`}
       <section><h2>${icon("gauge", 18)} ${t("Verbrauch")}</h2>
         <div class="card"><div class="row"><span class="grow">Heute: <b>${d.usage.today.requests}</b> Anfragen · <b>${fmtNum(d.usage.today.prompt + d.usage.today.completion)}</b> Tokens</span>
           ${d.usage.quota.requests_day ? html`<span class="chip">Kontingent ${d.usage.quota.requests_day} Anfragen/Tag</span>` : nothing}
@@ -171,8 +186,8 @@ export class SettingsPage extends StoreElement {
           ${d.usage.today.task_requests ? html`<div class="hint">davon geplante Aufgaben: ${d.usage.today.task_requests} Anfragen · ${fmtNum((d.usage.today.task_prompt || 0) + (d.usage.today.task_completion || 0))} Tokens</div>` : nothing}
           ${days.length ? html`<div class="bars">${days.map(([day, v]: any) => html`<div title="${day}: ${v.requests} Anfragen, ${fmtNum(v.prompt + v.completion)} Tokens"
             style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">Tokens je Tag, letzte ${days.length} Tage</div>` : nothing}</div>
-        ${d.tasks?.length ? html`<div style="margin-top:12px">${taskUsageCard(d.usage.tasks, this.history?.task_key_days)}</div>` : nothing}</section>
-      <section><h2>${icon("import", 18)} Import aus Claude</h2><div class="card form">
+        ${d.tasks?.length && !simple ? html`<div style="margin-top:12px">${taskUsageCard(d.usage.tasks, this.history?.task_key_days)}</div>` : nothing}</section>
+      ${simple ? html`<div class="hint">Modelle, Werkbank und der Import aus Claude stehen in der Expertenansicht.</div>` : html`<section><h2>${icon("import", 18)} Import aus Claude</h2><div class="card form">
         <div><b>1. Skills, Zugänge, geplante Aufgaben, Projekte und Erinnerungen</b>
           <div class="hint">Erzeuge einen Einmal-Link (24 h gültig) und füge den Prompt in Claude ein (am besten Claude Code oder ein Cowork mit Werkzeugen).
             Claude sammelt alles, löst Zugangsdaten aus den Skills heraus und schickt es direkt hierher. Importierte Aufgaben sind zunächst pausiert.</div></div>
@@ -192,7 +207,7 @@ export class SettingsPage extends StoreElement {
           ${this.impResult.skills} Skills, ${this.impResult.credentials} Zugänge, ${this.impResult.tasks} Aufgaben${this.impResult.skipped ? ` · ${this.impResult.skipped} schon vorhanden (übersprungen)` : ""}
           <ul style="margin:8px 0 0;padding-left:1.2em">${this.impResult.files.map((f: any) => html`<li>${f.name}: ${f.error ? html`<span style="color:var(--lm-err)">${f.error}</span>`
             : f.info || (f.found?.length ? f.found.join(", ") : "ok")}</li>`)}</ul></div>` : nothing}
-      </div></section>
+      </div></section>`}
       ${this.dirty ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.reset()}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}
     </div>`;
@@ -216,7 +231,7 @@ export class AdminPage extends StoreElement {
     try {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
         task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
-        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank,
+        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank, views: a.views,
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false } } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
@@ -228,6 +243,27 @@ export class AdminPage extends StoreElement {
     try { this.a = await store.api.ws("admin/models_refresh", this.a.shared_key && this.a.shared_key !== "•••" ? { key: this.a.shared_key } : {}); store.notify("Modelle geladen"); }
     catch (e: any) { store.notify(e.message); }
     this.loading = false;
+  }
+  private viewSection(users: any[]) {
+    const vw = this.a.views || { default: "choice", users: {} };
+    const opts: [string, string][] = [["choice", "Selbst wählen (startet einfach)"], ["simple", "Immer einfache Ansicht"], ["expert", "Immer Expertenansicht"]];
+    const setV = (next: any) => this.set("views", { ...vw, ...next });
+    const effective = (u: any) => {
+      const p = vw.users?.[u.id] || vw.default || "choice";
+      return p === "choice" ? (u.view === "expert" ? "Experten (selbst gewählt)" : u.view === "simple" ? "Einfach (selbst gewählt)" : "Einfach") : p === "expert" ? "Experten" : "Einfach";
+    };
+    return html`<section><h2>${icon("eye", 18)} Ansicht</h2>
+      <div class="hint" style="margin-bottom:10px">Die <b>einfache Ansicht</b> zeigt nur Nachricht und Antwort wie in einem Messenger, wählt Modelle immer automatisch,
+        lässt die Modelle verständlich antworten und erklärt Skills, geplante Aufgaben, Zugänge und Projekte. Die <b>Expertenansicht</b> ist die volle Oberfläche.
+        Mit „Selbst wählen“ startet jede Person einfach und kann die Expertenansicht in ihren Einstellungen einschalten.</div>
+      <label class="f" style="max-width:420px"><span>Für alle</span><select @change=${(e: any) => setV({ default: e.target.value })}>
+        ${opts.map(([k, l]) => html`<option value=${k} ?selected=${(vw.default || "choice") === k}>${l}</option>`)}</select></label>
+      <div class="tw" style="margin-top:12px"><table><tr><th>Person</th><th>Ansicht</th><th>Derzeit</th></tr>
+        ${users.map((u: any) => html`<tr><td>${u.name}${u.is_admin ? html` <span class="chip">Admin</span>` : nothing}</td>
+          <td><select style="width:auto;padding:6px 8px" @change=${(e: any) => { const us = { ...(vw.users || {}) }; if (e.target.value) us[u.id] = e.target.value; else delete us[u.id]; setV({ users: us }); }}>
+            <option value="" ?selected=${!vw.users?.[u.id]}>Wie für alle</option>
+            ${opts.map(([k, l]) => html`<option value=${k} ?selected=${vw.users?.[u.id] === k}>${l}</option>`)}</select></td>
+          <td class="hint">${effective(u)}</td></tr>`)}</table></div></section>`;
   }
   private taskKeySection() {
     const a = this.a; const tm = a.task_key_mode || "same"; const tu = a.task_usage || {};
@@ -297,6 +333,7 @@ export class AdminPage extends StoreElement {
             @input=${(e: any) => this.set("quota_default", { ...a.quota_default, requests_day: Number(e.target.value) })}></label>
           <label class="f"><span>Standard-Kontingent Tokens/Tag (0 = unbegrenzt)</span><input type="number" min="0" .value=${String(a.quota_default.tokens_day || 0)}
             @input=${(e: any) => this.set("quota_default", { ...a.quota_default, tokens_day: Number(e.target.value) })}></label></div></section>
+      ${this.viewSection(users)}
       <section><h2>${icon("sparkle", 18)} Modelle</h2>
         <div class="row" style="margin-bottom:10px"><button class="btn" @click=${this.refresh} ?disabled=${this.loading}>${this.loading ? html`<lm-spark size="16"></lm-spark>` : icon("retry", 16)} Modellliste laden</button>
           <span class="hint">${known.length} Modelle bekannt</span></div>

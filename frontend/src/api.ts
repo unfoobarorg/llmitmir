@@ -146,6 +146,9 @@ export class Store extends EventTarget {
 
 export const store = new Store();
 
+/** Simple view (Laien-Ansicht, the default): no model choice, chats show only request and answer, features explained. */
+export const isSimple = () => store.data?.view?.view !== "expert";
+
 export function navigate(path: string, replace = false) {
   const url = `/llmitmir${path.startsWith("/") ? path : "/" + path}`;
   if (replace) history.replaceState(null, "", url); else history.pushState(null, "", url);

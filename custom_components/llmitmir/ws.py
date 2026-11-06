@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from . import credentials as C
 from . import manage as M
 from . import models as MS
+from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
                     TASK_KEY_MODES, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
@@ -91,6 +92,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
     return {
         "version": VERSION,
         "user": {"id": user.id, "name": user.name, "is_admin": user.is_admin},
+        "view": m.view(user.id),
         "provider": {"name": (m.config.data.get("provider") or {}).get("name"), "preset": (m.config.data.get("provider") or {}).get("preset"),
                      "hint": m.preset().get("hint", "")},
         "key_mode": m.config.data.get("key_mode"),
@@ -372,6 +374,13 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
         if choice == "shared" and choice != cur.get("task_key_choice") and not m.config.data.get("shared_task_key"):
             raise ValueError("Es gibt keinen zentralen Aufgaben-Schlüssel – bitte den Admin fragen")
         cur["task_key_choice"] = choice
+    if "view" in s:
+        if s["view"] not in V.VIEWS:
+            raise ValueError("Ungültige Ansicht")
+        cur_view = m.view(user.id)
+        if cur_view["locked"] and s["view"] != cur_view["view"]:
+            raise ValueError("Die Ansicht legt der Admin fest")
+        cur["view"] = s["view"]
     if "memory" in s:
         st.meta["memory"] = str(s["memory"])[:20000]
     await st.async_save_meta()
@@ -425,7 +434,9 @@ def _admin_view(m, users) -> dict:
         "auto_models": {r: MS.pick(m.live_models(), r) or "" for r in MS.ROLES},
         "search": cfg.get("search"),
         "werkbank": {"url": (cfg.get("werkbank") or {}).get("url", ""), "token": MASK if (cfg.get("werkbank") or {}).get("token") else ""},
-        "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active} for u in users],
+        "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
+                   "view": (m.users[u.id].meta["settings"].get("view") if u.id in m.users else None)} for u in users],
+        "views": V.clean(cfg.get("views")),
         "usage_today": usage,
         "key_limits": {"shared": m.provider.key_state(cfg["shared_key"]).snapshot()} if cfg.get("shared_key") else {},
     }
@@ -485,6 +496,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
     for k in ("allowed_users", "quota_default", "quota_users", "search"):
         if k in c:
             cfg[k] = c[k]
+    if "views" in c:
+        cfg["views"] = V.clean(c["views"])
     if "werkbank" in c:
         wb = dict(cfg.get("werkbank") or {})
         wb["url"] = str(c["werkbank"].get("url") or "").strip().rstrip("/")

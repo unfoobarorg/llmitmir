@@ -2,12 +2,14 @@
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtTime, fmtDuration, confirmDialog, copyText, safeElement } from "./ui";
-import { store, navigate } from "./api";
+import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
 import { taskUsageCard, taskUsageCss } from "./taskusage";
+import { explainer, explainerCss, more } from "./simple";
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
+  ${explainerCss}
   .form { display: grid; gap: 14px; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .savebar { position: sticky; bottom: 12px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -60,12 +62,13 @@ export class Tasks extends StoreElement {
   }
   render() {
     const tasks = store.data?.tasks || [];
-    return html`<div class="page"><div class="row"><h1 class="grow">${t("Geplant")}</h1>
+    return html`<div class="page"><div class="row"><h1 class="grow">${isSimple() ? t("Geplante Aufgaben") : t("Geplant")}</h1>
       <button class="btn primary" @click=${() => navigate("/task/new")}>${icon("plus", 18)} ${t("Neue Aufgabe")}</button></div>
+      ${isSimple() ? explainer("tasks", !tasks.length) : html`
       <div class="banner">${icon("hourglass")}<div><b>Geplante Aufgaben laufen mit Open-Weight-Modellen.</b> Sie starten in einer gemeinsamen Warteschlange und
         können sich verzögern, wenn die Modelle ausgelastet sind oder ein Limit erreicht ist – dann wartet LLMitMir und versucht es weiter (bis zu 6 Stunden).
-        Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>
-      ${tasks.length ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
+        Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>`}
+      ${tasks.length && !isSimple() ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item" @click=${() => navigate(`/task/${x.id}`)}>
         ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
           ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}</div>
@@ -75,7 +78,7 @@ export class Tasks extends StoreElement {
         <button class="iconbtn" title=${t("Jetzt ausführen")} @click=${async (e: Event) => { e.stopPropagation(); const r = await store.api.ws("task/run_now", { task_id: x.id });
           store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits oder wartet schon"); }}>${icon("play")}</button>
         ${switchEl(!!x.enabled, async (v) => { await store.api.ws("task/save", { task: { ...x, enabled: v } }); })}
-      </div>`) : html`<div class="hint">Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import).</div>`}</div></div>`;
+      </div>`) : html`<div class="hint">${isSimple() ? "Noch keine geplanten Aufgaben." : "Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import)."}</div>`}</div></div>`;
   }
 }
 
@@ -114,6 +117,16 @@ export class TaskPage extends StoreElement {
     const runs = (live.runs || []).map((id: string) => (d.chats || []).find((c: any) => c.id === id)).filter(Boolean);
     const waiting = x.id ? d.queue?.position?.[x.id] : 0;
     const dn = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+    const simple = isSimple();
+    const types = [["daily", "täglich"], ["weekdays", "werktags (Mo–Fr)"], ["weekly", "an bestimmten Wochentagen"], ["monthly", "monatlich"], ["interval", "alle n Stunden"],
+      ["hourly", "stündlich"], ["once", "einmalig"], ["cron", "eigener Cron-Ausdruck"]]
+      // simple view: the everyday choices (a technical schedule set earlier stays visible)
+      .filter(([k]) => !simple || ["daily", "weekdays", "weekly", "monthly", "once"].includes(k) || k === s.type);
+    const projectSel = html`<label class="f"><span>${t("Projekte")}</span><select @change=${(e: any) => this.set("project_id", e.target.value || null)}>
+      <option value="">Ohne Projekt</option>${(d.projects || []).map((p: any) => html`<option value=${p.id} ?selected=${x.project_id === p.id}>${p.name}</option>`)}</select></label>`;
+    const apprTitle = simple ? "Was darf die Aufgabe selbst tun?" : "Freigaben für schreibende Aktionen";
+    const apprHint = simple ? "Die Aufgabe läuft, ohne dich zu fragen. Sie darf nur, was hier angehakt ist – zum Beispiel dir eine Nachricht schicken."
+      : "Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.";
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.id ? x.name || "Aufgabe" : t("Neue Aufgabe")}</h1>
         ${x.id ? html`<button class="btn" @click=${async () => { const r = await store.api.ws("task/run_now", { task_id: x.id }); store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits"); }}>${icon("play", 16)} ${t("Jetzt ausführen")}</button>` : nothing}</div>
@@ -125,13 +138,14 @@ export class TaskPage extends StoreElement {
         <br><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings"); }}>Was ist die Werkbank und wie richte ich sie ein?</a></div></div>` : nothing}
       <div class="form">
         <label class="f"><span>${t("Name")}</span><input .value=${x.name} @input=${(e: any) => this.set("name", e.target.value)}></label>
-        <label class="f"><span>${t("Auftrag")}</span><textarea rows="14" placeholder="Was soll bei jedem Lauf passieren? So genau wie für einen Menschen, der das zum ersten Mal macht."
+        <label class="f"><span>${simple ? "Was soll passieren?" : t("Auftrag")}</span><textarea rows=${simple ? 8 : 14} placeholder=${simple
+          ? "Zum Beispiel: Schau dir die Wettervorhersage für heute an und schick mir eine kurze Zusammenfassung – mit dem Hinweis, ob ich einen Schirm brauche."
+          : "Was soll bei jedem Lauf passieren? So genau wie für einen Menschen, der das zum ersten Mal macht."}
           .value=${x.prompt} @input=${(e: any) => this.set("prompt", e.target.value)}></textarea></label>
         <div class="card"><b>${t("Zeitplan")}</b>
           <div class="two" style="margin-top:10px">
             <label class="f"><span>Wiederholung</span><select @change=${(e: any) => this.sched("type", e.target.value)}>
-              ${[["daily", "täglich"], ["weekdays", "werktags (Mo–Fr)"], ["weekly", "an bestimmten Wochentagen"], ["monthly", "monatlich"], ["interval", "alle n Stunden"],
-                ["hourly", "stündlich"], ["once", "einmalig"], ["cron", "eigener Cron-Ausdruck"]].map(([k, l]) => html`<option value=${k} ?selected=${s.type === k}>${l}</option>`)}</select></label>
+              ${types.map(([k, l]) => html`<option value=${k} ?selected=${s.type === k}>${l}</option>`)}</select></label>
             ${["daily", "weekdays", "weekly", "monthly", "interval"].includes(s.type) ? html`<label class="f"><span>Uhrzeit${s.type === "interval" ? " (Minute zählt)" : ""}</span>
               <input type="time" .value=${s.time || "08:00"} @change=${(e: any) => this.sched("time", e.target.value)}></label>` : nothing}
             ${s.type === "interval" ? html`<label class="f"><span>Alle … Stunden</span><input type="number" min="1" max="23" .value=${String(s.hours || 2)} @change=${(e: any) => this.sched("hours", Number(e.target.value))}></label>` : nothing}
@@ -144,14 +158,20 @@ export class TaskPage extends StoreElement {
             @click=${() => { const set = new Set(s.days || [1]); set.has(i) ? set.delete(i) : set.add(i); this.sched("days", [...set]); }}>${dn[i]}</button>`)}</div>` : nothing}
           <div class="hint" style="margin-top:10px">${this.preview?.error ? html`<span style="color:var(--lm-err)">${this.preview.error}</span>` :
             html`${this.preview?.text || ""}${this.preview?.next?.length ? html` · nächste Läufe: ${this.preview.next.slice(0, 3).map((n: string) => fmtTime(n)).join(", ")}` : ""}
-            <br>Geplant ist der Start – mit Open-Weight-Modellen beginnt ein Lauf oft später und kann länger dauern.`}</div></div>
-        <div class="two">
-          <label class="f"><span>${t("Projekte")}</span><select @change=${(e: any) => this.set("project_id", e.target.value || null)}>
-            <option value="">Ohne Projekt</option>${(d.projects || []).map((p: any) => html`<option value=${p.id} ?selected=${x.project_id === p.id}>${p.name}</option>`)}</select></label>
+            <br>${simple ? "Ist gerade viel los, startet die Aufgabe manchmal etwas später." : "Geplant ist der Start – mit Open-Weight-Modellen beginnt ein Lauf oft später und kann länger dauern."}`}</div></div>
+        ${simple ? nothing : html`<div class="two">
+          ${projectSel}
           <label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
             <option value="">${defaultLabel("agent")}</option>${(d.models || []).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
+        </div>`}
+        <div class="two">
+          <label class="f"><span>${simple ? "Nachricht aufs Handy" : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
+            ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>
+            ${!d.settings.notify_service ? html`<span class="hint">Wähle zuerst in den Einstellungen dein Gerät für Benachrichtigungen.</span>` : nothing}</label>
+          <label class="f"><span>${t("Aktiv")}</span><div class="row" style="min-height:40px">${switchEl(!!x.enabled, v => this.set("enabled", v))}<span class="muted">${x.enabled ? t("Aktiv") : t("Pausiert")}</span></div></label>
         </div>
-        <div class="card"><b>Freigaben für schreibende Aktionen</b><div class="hint" style="margin:4px 0 10px">Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.</div>
+        ${(simple ? (c: unknown) => more(c, "Mehr Optionen: Projekt, Freigaben, Werkbank") : (c: unknown) => c)(html`${simple ? projectSel : nothing}
+        <div class="card"><b>${apprTitle}</b><div class="hint" style="margin:4px 0 10px">${apprHint}</div>
           <div class="checks">${writeTools.map(([n, v]: any) => {
             // "Braucht die Werkbank" implies running commands there (server side the same rule applies)
             const viaWb = n === "shell" && (x.requires || []).includes("werkbank");
@@ -161,19 +181,13 @@ export class TaskPage extends StoreElement {
             @change=${(e: any) => this.set("requires", e.target.checked ? ["werkbank"] : [])}><b>Braucht die Werkbank</b></label>
           <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Gibt „Befehl ausführen“ frei. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
           ${(x.requires || []).includes("werkbank") ? html`<textarea rows="2" placeholder="Was geht ohne Werkbank nicht? (z. B. Sprachnachrichten abschreiben)" .value=${x.requires_note || ""}
-            @input=${(e: any) => this.set("requires_note", e.target.value)}></textarea>` : nothing}</div>
-        <div class="two">
-          <label class="f"><span>${t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
-            ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>
-            ${!d.settings.notify_service ? html`<span class="hint">Wähle zuerst in den Einstellungen dein Gerät für Benachrichtigungen.</span>` : nothing}</label>
-          <label class="f"><span>${t("Aktiv")}</span><div class="row" style="min-height:40px">${switchEl(!!x.enabled, v => this.set("enabled", v))}<span class="muted">${x.enabled ? t("Aktiv") : t("Pausiert")}</span></div></label>
-        </div>
+            @input=${(e: any) => this.set("requires_note", e.target.value)}></textarea>` : nothing}</div>`)}
       </div>
-      ${x.id ? html`<h2>${t("Läufe")}</h2><div class="list">
+      ${x.id ? html`<h2>${simple ? "Bisherige Ergebnisse" : t("Läufe")}</h2><div class="list">
         ${waiting ? html`<div class="item">${icon("wait", 18)}<span class="grow ellipsis">Wartet in der Warteschlange (Platz ${waiting})</span></div>` : nothing}
         ${runs.length ? runs.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
         ${store.runs[c.id] || c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : icon(c.status === "error" ? "alert" : "check", 18)}<span class="grow ellipsis">${c.title}</span>
-        <span class="hint">${c.usage?.requests || 0} Anfragen</span></div>`) : waiting ? nothing : html`<div class="hint">Noch keine Läufe.</div>`}</div>
+        <span class="hint">${simple ? fmtTime(c.updated) : `${c.usage?.requests || 0} Anfragen`}</span></div>`) : waiting ? nothing : html`<div class="hint">Noch keine Läufe.</div>`}</div>
         ${live.last_run?.summary ? html`<h2>Letztes Ergebnis</h2><div class="card md">${md(live.last_run.summary)}</div>` : nothing}
         <div style="margin-top:24px"><button class="btn danger" @click=${async () => { if (await confirmDialog(`Aufgabe „${x.name}“ löschen? Die bisherigen Läufe bleiben als Chats erhalten.`)) {
           await store.api.ws("task/delete", { task_id: x.id }); navigate("/tasks"); } }}>${icon("trash", 16)} Aufgabe löschen</button></div>` : nothing}
@@ -191,8 +205,9 @@ export class Skills extends StoreElement {
     const sk = store.data?.skills || [];
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Skills")}</h1>
       <button class="btn primary" @click=${() => navigate("/skill/new")}>${icon("plus", 18)} ${t("Neuer Skill")}</button></div>
+      ${isSimple() ? explainer("skills", !sk.length) : html`
       <p class="hint">Skills sind Anleitungen für wiederkehrende Themen. Das Modell sieht Name und Beschreibung und lädt die ganze Anleitung, wenn sie passt.
-        Zugangsdaten gehören nicht in den Skill-Text, sondern unter ${t("Zugänge")} – im Skill verweist du nur darauf.</p>
+        Zugangsdaten gehören nicht in den Skill-Text, sondern unter ${t("Zugänge")} – im Skill verweist du nur darauf.</p>`}
       <div class="list">${sk.length ? sk.map((s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
         ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description}</div></div>
         ${(s.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${s.credentials.length}</span>` : nothing}
@@ -223,20 +238,8 @@ export class SkillPage extends StoreElement {
   }
   render() {
     const s = this.d; if (!s) return nothing;
-    return html`<div class="page">
-      <div class="row"><button class="iconbtn" @click=${() => navigate("/skills")}>${icon("left")}</button><h1 class="grow">${s.id ? s.name : t("Neuer Skill")}</h1>
-        ${switchEl(s.enabled !== false, v => this.set("enabled", v))}</div>
-      <div class="form">
-        <label class="f"><span>${t("Name")}</span><input .value=${s.name} @input=${(e: any) => this.set("name", e.target.value)}></label>
-        <label class="f"><span>${t("Beschreibung")} – wann soll der Skill benutzt werden?</span><textarea rows="3" .value=${s.description}
-          @input=${(e: any) => this.set("description", e.target.value)} placeholder="z. B. „Immer verwenden, wenn es um … geht, auch wenn … nicht ausdrücklich genannt wird.“"></textarea></label>
-        <div><div class="row"><b class="grow">Anleitung (Markdown, wie SKILL.md)</b><div class="tabs">
-          <button class=${this.tab === "edit" ? "on" : ""} @click=${() => (this.tab = "edit")}>Bearbeiten</button>
-          <button class=${this.tab === "view" ? "on" : ""} @click=${() => (this.tab = "view")}>Vorschau</button></div></div>
-          ${this.tab === "edit" ? html`<textarea class="code" rows="22" style="margin-top:8px" .value=${s.body} @input=${(e: any) => this.set("body", e.target.value)}></textarea>`
-            : html`<div class="preview md" style="margin-top:8px">${md(s.body)}</div>`}
-          <div class="hint" style="margin-top:6px">Geheimnisse nie hineinschreiben. Verweise mit <code>{{cred:Name:feld}}</code> auf einen Zugang, z. B. <code>{{cred:Hof Nextcloud:password}}</code>.</div></div>
-        <div class="card"><b>${t("Zugänge")}, die dieser Skill nutzt</b><div class="chips" style="margin-top:8px">
+    const simple = isSimple();
+    const extra = html`<div class="card"><b>${t("Zugänge")}, die dieser Skill nutzt</b><div class="chips" style="margin-top:8px">
           ${(store.data?.credentials || []).map((c: any) => html`<button class=${(s.credentials || []).includes(c.id) ? "on" : ""}
             @click=${() => { const set = new Set(s.credentials || []); set.has(c.id) ? set.delete(c.id) : set.add(c.id); this.set("credentials", [...set]); }}>${c.name}</button>`)}
           ${!(store.data?.credentials || []).length ? html`<span class="hint">Noch keine Zugänge.</span>` : nothing}</div></div>
@@ -246,7 +249,25 @@ export class SkillPage extends StoreElement {
             <button class="iconbtn" @click=${async () => { this.files = await store.api.ws("file/delete", { scope: "skill", owner: s.id, name: f.name }); }}>${icon("trash", 16)}</button></div>`)}
           <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${async (e: any) => {
             await store.api.upload("skill", s.id, e.target.files); this.files = await store.api.ws("files", { scope: "skill", owner: s.id }); e.target.value = ""; }}></label>
-          <div class="hint" style="margin-top:6px">Skripte werden erst mit der Werkbank ausführbar; bis dahin kann das Modell sie lesen.</div></div>` : nothing}
+          <div class="hint" style="margin-top:6px">Skripte werden erst mit der Werkbank ausführbar; bis dahin kann das Modell sie lesen.</div></div>` : nothing}`;
+    return html`<div class="page">
+      <div class="row"><button class="iconbtn" @click=${() => navigate("/skills")}>${icon("left")}</button><h1 class="grow">${s.id ? s.name : t("Neuer Skill")}</h1>
+        ${switchEl(s.enabled !== false, v => this.set("enabled", v))}</div>
+      <div class="form">
+        <label class="f"><span>${t("Name")}</span><input .value=${s.name} @input=${(e: any) => this.set("name", e.target.value)}></label>
+        <label class="f"><span>${simple ? "Wann soll LLMitMir diese Anleitung benutzen?" : html`${t("Beschreibung")} – wann soll der Skill benutzt werden?`}</span><textarea rows="3" .value=${s.description}
+          @input=${(e: any) => this.set("description", e.target.value)} placeholder="z. B. „Immer verwenden, wenn es um … geht, auch wenn … nicht ausdrücklich genannt wird.“"></textarea></label>
+        ${simple ? html`<label class="f"><span>Anleitung – was soll LLMitMir dabei wissen und beachten?</span><textarea rows="14" .value=${s.body}
+          placeholder="Schreib es so auf, als würdest du es einem neuen Kollegen erklären." @input=${(e: any) => this.set("body", e.target.value)}></textarea>
+          <span class="hint">Passwörter gehören nicht hierher, sondern unter ${t("Zugänge")}.</span></label>
+          ${more(extra, "Mehr Optionen: Zugänge, Dateien")}` : html`
+        <div><div class="row"><b class="grow">Anleitung (Markdown, wie SKILL.md)</b><div class="tabs">
+          <button class=${this.tab === "edit" ? "on" : ""} @click=${() => (this.tab = "edit")}>Bearbeiten</button>
+          <button class=${this.tab === "view" ? "on" : ""} @click=${() => (this.tab = "view")}>Vorschau</button></div></div>
+          ${this.tab === "edit" ? html`<textarea class="code" rows="22" style="margin-top:8px" .value=${s.body} @input=${(e: any) => this.set("body", e.target.value)}></textarea>`
+            : html`<div class="preview md" style="margin-top:8px">${md(s.body)}</div>`}
+          <div class="hint" style="margin-top:6px">Geheimnisse nie hineinschreiben. Verweise mit <code>{{cred:Name:feld}}</code> auf einen Zugang, z. B. <code>{{cred:Hof Nextcloud:password}}</code>.</div></div>
+        ${extra}`}
         ${s.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Skill „${s.name}“ löschen?`)) { await store.api.ws("skill/delete", { skill_id: s.id }); navigate("/skills"); } }}>${icon("trash", 16)} Skill löschen</button></div>` : nothing}
       </div>
       ${this.dirty ? html`<div class="savebar fade-in">${s.id ? html`<button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>` : nothing}
@@ -266,8 +287,9 @@ export class Credentials extends StoreElement {
       ...(store.data?.projects || []).filter((p: any) => (p.credentials || []).includes(id)).map((p: any) => p.name)];
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Zugänge")}</h1>
       <button class="btn primary" @click=${() => navigate("/credential/new")}>${icon("plus", 18)} ${t("Neuer Zugang")}</button></div>
+      ${isSimple() ? explainer("credentials", !cs.length) : html`
       <div class="banner">${icon("lock")}<div>Zugangsdaten liegen getrennt von Skills und Projekten. <b>Das Modell sieht nie ein Passwort oder Token</b> – es nennt nur den Namen
-        des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>
+        des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>`}
       <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item" @click=${() => navigate(`/credential/${c.id}`)}>
         ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
         ${uses(c.id).length ? html`<span class="chip">${uses(c.id).length}× genutzt</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
@@ -323,12 +345,13 @@ export class CredentialPage extends StoreElement {
               const v = secret.has(k) ? (this.revealed || await store.api.ws("credential/reveal", { credential_id: c.id })).fields[k] : c.fields[k]; copyText(v); }}>${icon("copy", 18)}</button>` : nothing}
             ${!ty.fields.includes(k) ? html`<button class="iconbtn" title="Feld entfernen" @click=${() => { const f = { ...c.fields }; delete f[k];
               this.d = { ...c, fields: f, remove_fields: [...(c.remove_fields || []), k] }; this.dirty = true; }}>${icon("trash", 18)}</button>` : nothing}</div></label>`)}
-        <div class="row"><input placeholder="Weiteres Feld (Name)" .value=${this.newField} @input=${(e: any) => (this.newField = e.target.value)}>
+        ${(isSimple() ? (x: unknown) => more(x, "Weiteres Feld hinzufügen") : (x: unknown) => x)(html`<div class="row"><input placeholder="Weiteres Feld (Name)" .value=${this.newField} @input=${(e: any) => (this.newField = e.target.value)}>
           <button class="btn" @click=${() => { if (this.newField.trim()) { this.setField(this.newField.trim().replace(/\W+/g, "_"), ""); this.newField = ""; } }}>${icon("plus", 16)} Feld</button>
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
-            if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>
+            if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
         <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, Ablaufdatum, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
-        ${c.id ? html`<div class="card hint">Im Skill oder Auftrag verweisen: <code>{{cred:${c.name}:${ty.secret?.[0] || "feld"}}}</code> – oder in Werkzeugen <code>zugang: "${c.name}"</code>.</div>` : nothing}
+        ${isSimple() ? html`<div class="hint">${icon("lock", 15)} Deine Passwörter sieht die KI nie – LLMitMir setzt sie erst beim Zugriff im Hintergrund ein.</div>` : nothing}
+        ${c.id && !isSimple() ? html`<div class="card hint">Im Skill oder Auftrag verweisen: <code>{{cred:${c.name}:${ty.secret?.[0] || "feld"}}}</code> – oder in Werkzeugen <code>zugang: "${c.name}"</code>.</div>` : nothing}
         ${c.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Zugang „${c.name}“ löschen? Skills und Projekte verlieren den Verweis.`)) {
           await store.api.ws("credential/delete", { credential_id: c.id }); navigate("/credentials"); } }}>${icon("trash", 16)} Zugang löschen</button></div>` : nothing}
       </div>

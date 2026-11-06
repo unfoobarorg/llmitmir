@@ -24,6 +24,8 @@ export class Composer extends LitElement {
   @property({ type: Object }) chatUsage: any = null;
   @property({ type: Array }) tools: string[] | null = null;
   @property({ type: Boolean }) big = false;
+  /** Simple view: no model, tools or usage meters – the model is always chosen automatically. */
+  @property({ type: Boolean }) simple = false;
   @state() private text = "";
   @state() private files: File[] = [];
   @state() private rec: VoiceRecorder | null = null;
@@ -287,7 +289,7 @@ export class Composer extends LitElement {
   /** Before sending to an overloaded model: say so and offer a free one that does the job about as well. */
   private busyHint() {
     const m = this.modelInfo as any;
-    if (this.busy || !m?.busy || this.dismissed.has(m.id)) return nothing;
+    if (this.simple || this.busy || !m?.busy || this.dismissed.has(m.id)) return nothing;
     const needImage = this.files.some(f => f.type.startsWith("image/")) && (m.input || []).includes("image");
     const alt = alternative(m.id, this.modelRole, needImage);
     return html`<div class="bhint">${icon("hourglass", 18)}<div class="grow"><b>${m.name}</b> ist gerade ${load(m)?.text || "stark ausgelastet"} – Antworten können
@@ -341,16 +343,16 @@ export class Composer extends LitElement {
       <div class="bar">
         <label class="iconbtn" title=${t("Anhängen")}>${icon("attach")}<input type="file" multiple hidden
           @change=${(e: any) => { this.addFiles(e.target.files); e.target.value = ""; }}></label>
-        ${this.mode === "chat" ? html`<lm-menu direction="up"><button slot="trigger" class="iconbtn ${this.tools?.length ? "" : ""}" title=${t("Werkzeuge")}>${icon("tools")}</button>${this.toolsMenu()}</lm-menu>` : nothing}
+        ${this.mode === "chat" && !this.simple ? html`<lm-menu direction="up"><button slot="trigger" class="iconbtn ${this.tools?.length ? "" : ""}" title=${t("Werkzeuge")}>${icon("tools")}</button>${this.toolsMenu()}</lm-menu>` : nothing}
         ${this.showMode ? html`<span class="seg">
           <button class=${this.mode === "chat" ? "on" : ""} @click=${() => this.setMode("chat")}>${icon("chat", 16)}<span class="hide-s">Chat</span></button>
           <button class=${this.mode === "cowork" ? "on" : ""} @click=${() => this.setMode("cowork")}>${icon("cowork", 16)}<span class="hide-s">Cowork</span></button></span>` : nothing}
         ${this.showProject ? html`<lm-menu direction="up"><button slot="trigger" class="model" title=${t("Projekte")}>${icon("project", 16)}<span class="ellipsis hide-s">${proj?.name || "Projekt"}</span></button>${this.projectMenu()}</lm-menu>` : nothing}
         <span class="grow"></span>
-        <lm-menu direction="up" align="right"><button slot="trigger" class="meter" title="${t("Kontext")} & ${t("Kontingent")}">
+        ${this.simple ? nothing : html`<lm-menu direction="up" align="right"><button slot="trigger" class="meter" title="${t("Kontext")} & ${t("Kontingent")}">
           ${cu ? html`<lm-ring .value=${cf} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Kontingent")}></lm-ring></button>
           ${this.usageMenu()}</lm-menu>
-        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>
+        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
         ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
             @click=${this.toggleRec} ?disabled=${this.transcribing}>${icon("mic")}</button>`
           : !this.rec ? html`<button class="send ${busy ? "stop" : ""}" title=${busy ? t("Stopp") : t("Senden")} @click=${this.send}>${icon(busy ? "stop" : "send")}</button>` : nothing}

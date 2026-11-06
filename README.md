@@ -8,6 +8,12 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 
 ## Funktionen
 
+- **Einfache Ansicht und Expertenansicht**: Standard ist die einfache Ansicht für technische Laien – der Chat zeigt wie ein
+  Messenger nur Nachricht und Antwort mit Warte-Animation, Modelle werden nie angezeigt und immer automatisch gewählt
+  (auch bei Überlastung wechselt LLMitMir selbst), die Modelle antworten verständlich und ohne Fachbegriffe, und Skills,
+  geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
+  Folgende) schaltet jede Person unter *Einstellungen → Ansicht* frei; Admins legen unter *Admin → Ansicht* für alle oder
+  je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung).
 - **Coworks**: Das Modell arbeitet eine Aufgabe selbstständig mit Werkzeugen ab, zeigt Plan, Schritte und Ergebnisdateien.
@@ -104,7 +110,9 @@ Das Frontend ist TypeScript mit [Lit](https://lit.dev), gebündelt mit esbuild; 
 
 ## English
 
-LLMitMir adds a Claude-Desktop-style panel to Home Assistant: chats with streaming, reasoning and voice input; coworks
+LLMitMir adds a Claude-Desktop-style panel to Home Assistant. By default people get a simple view (messenger-style chat
+with request and answer only, automatic model choice, plain-language answers, explained features); the full expert view
+can be switched on in the settings, and admins can fix the view per person. The expert view offers chats with streaming, reasoning and voice input; coworks
 (autonomous tool use with approvals); scheduled tasks designed for slow, rate-limited open-weight models; projects; skills;
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).
 Admins choose who may use it and whether keys are shared, assigned per user by the admin, or entered by each user.

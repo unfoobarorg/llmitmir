@@ -21,6 +21,7 @@ from . import credentials as C
 from . import models as MS
 from . import selfdoc as SD
 from . import taskkeys as TK
+from . import views as V
 from .const import (AUTO, DEFAULT_CONTEXT, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_COWORK, PERM_ALLOW, PERM_ASK, PERM_DENY,
@@ -270,6 +271,15 @@ class Manager:
             return True
         return not allowed and user.is_admin
 
+    def view(self, user_id: str) -> dict:
+        """Simple (Laien) or expert view of this person, and whether the admin fixed it."""
+        st = self.users.get(user_id)
+        return V.resolve(self.config.data.get("views"), user_id, st.meta["settings"].get("view") if st else None)
+
+    def simple(self, user_id: str) -> bool:
+        """In the simple view nobody picks models: everything runs on the automatic choice."""
+        return self.view(user_id)["view"] == V.SIMPLE
+
     def key_for(self, user_id: str, store: UserStore | None = None) -> str:
         mode = self.config.data.get("key_mode") or KEY_SHARED
         if mode == KEY_PER_USER_ADMIN:
@@ -316,6 +326,7 @@ class Manager:
         """(model, automatic). A personal or admin choice wins while that model exists; otherwise the model that fits
         the role best right now – the newest strong model that is not overloaded."""
         st = self.users.get(user_id)
+        personal = personal and not self.simple(user_id)  # the simple view has no personal model choice
         mine = st.meta["settings"].get(f"model_{role}") if personal and st and role in ("chat", "agent") else None
         d = (self.config.data.get("models") or {}).get("defaults") or {}
         admin = d.get(role) if d.get(role) not in (None, "", AUTO) else None
@@ -409,6 +420,8 @@ class Manager:
         proj = st.meta["projects"].get(project_id or "", {})
         role = "chat" if kind == KIND_CHAT else "agent"
         default, auto = self._default(user_id, role)
+        if self.simple(user_id):
+            model, proj = None, {}  # simple view: always the automatic model, also for projects and tasks
         if model == default and auto and not proj.get(f"model_{role}"):
             model = None  # the panel sends the default it shows; it stays "automatic"
         fixed = model or (proj.get(f"model_{role}") if self.model_usable(proj.get(f"model_{role}") or "") else None)
@@ -435,7 +448,7 @@ class Manager:
             raise ValueError("Chat nicht gefunden")
         if self.active_run(chat_id):
             raise ValueError("In diesem Chat läuft schon eine Antwort")
-        if model and model != chat.get("model"):
+        if model and model != chat.get("model") and not self.simple(user.id):
             chat["model"], chat["model_auto"] = model, False
         if tools is not None:
             chat["tools"] = tools
@@ -489,6 +502,13 @@ class Manager:
                 raise QuotaError("Kein API-Schlüssel hinterlegt. " + (
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
+            simple = self.simple(user.id)
+            if simple and not chat.get("model_auto"):
+                # simple view: a model fixed earlier (expert view, project) gives way to the default
+                default, auto = self._default(user.id, "chat" if chat["kind"] == KIND_CHAT else "agent")
+                if default and (default != chat.get("model") or auto):
+                    chat["model"], chat["model_auto"] = default, auto
+                    self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
             if not self.model_usable(chat.get("model") or ""):
                 # the chosen model was withdrawn (or is down): continue with the best one for the job
                 old = chat.get("model")
@@ -546,8 +566,9 @@ class Manager:
                     except Exception:  # noqa: BLE001
                         pass
                     alt = self.alternative_for(chat)
-                    if task is not None and chat.get("model_auto") and alt:
-                        _LOGGER.info("Task run %s: %s gives no output after %ds, switching to %s",
+                    if alt and ((task is not None and chat.get("model_auto")) or simple):
+                        # nobody to ask (task) or nobody who picks models (simple view): switch on our own
+                        _LOGGER.info("Run %s: %s gives no output after %ds, switching to %s",
                                      run.id, model, waited, alt["id"])
                         run.switch_to, run.switch_auto = alt["id"], True
                         return True
@@ -810,6 +831,26 @@ class ToolContext:
             SD.ABOUT,
             SD.HA,
         ]
+        if self.manager.simple(self.user.id):
+            parts.append(
+                "## Einfache Ansicht (für technische Laien)\nDie Person nutzt die einfache Ansicht und ist technisch nicht "
+                "versiert. Sie sieht nur ihre Nachricht und deine Antwort – keine Werkzeuge, Zwischenschritte, Schrittlisten, "
+                "Gedanken oder Modellnamen. Deshalb:\n"
+                "- Die Antwort muss für sich allein verständlich sein: das Ergebnis vollständig nennen, nie auf "
+                "Zwischenschritte verweisen („siehe oben“, „laut Werkzeug“).\n"
+                "- Das Wichtigste zuerst in ein, zwei Sätzen, dann höchstens ein paar kurze Punkte. Lieber kürzer als "
+                "vollständig; Details nur, wenn die Person danach fragt (biete sie in einem Satz an).\n"
+                "- Alltagssprache statt Fachbegriffen. Keine Entity-IDs, Dienst- oder Integrationsnamen, Attribute, JSON, "
+                "Code, Pfade, Cron-Ausdrücke oder Abkürzungen wie kWh/JAZ/SoC ohne Erklärung – außer die Person fragt "
+                "ausdrücklich danach. Geräte und Räume mit ihrem Anzeigenamen nennen („Heizung im Wohnzimmer“, nicht "
+                "climate.wohnzimmer).\n"
+                "- Auswertungen (z. B. aus Home Assistant) einordnen statt nur Zahlen aufzählen: gerundete Werte mit "
+                "vertrauten Einheiten, verständliche Vergleiche („etwa so viel wie letzte Woche“, „ungefähr 4 € am Tag“), "
+                "klare Aussage, ob etwas in Ordnung ist oder Aufmerksamkeit braucht und was die Person tun kann. "
+                "Tabellen nur, wenn sie wirklich klarer sind, und dann klein.\n"
+                "- Erklärst du, wie etwas geht, dann in kurzen, nummerierten Schritten mit den Namen, die die Person auf "
+                "dem Bildschirm sieht.\n"
+                "- Hast du eine Datei angelegt, sag, wie sie heißt – die Person findet sie oben im Chat unter „Dateien“.")
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "

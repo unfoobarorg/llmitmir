@@ -3,7 +3,7 @@ const EN: Record<string, string> = {
   "Neuer Chat": "New chat", "Neues Cowork": "New cowork", "Chats": "Chats", "Projekte": "Projects", "Geplant": "Scheduled",
   "Skills": "Skills", "Zugänge": "Credentials", "Einstellungen": "Settings", "Admin": "Admin", "Zuletzt": "Recents",
   "Angeheftet": "Pinned", "Guten Morgen": "Good morning", "Guten Tag": "Good afternoon", "Guten Abend": "Good evening",
-  "Gute Nacht": "Good night", "Wie kann ich helfen?": "How can I help?", "Was soll ich erledigen?": "What should I get done?",
+  "Gute Nacht": "Good night", "Geplante Aufgaben": "Scheduled tasks", "Wie kann ich helfen?": "How can I help?", "Was soll ich erledigen?": "What should I get done?",
   "Nachricht schreiben …": "Write a message …", "Aufgabe beschreiben …": "Describe the task …", "Antworten …": "Reply …",
   "Senden": "Send", "Stopp": "Stop", "Anhängen": "Attach", "Spracheingabe": "Voice input", "Werkzeuge": "Tools",
   "Modell": "Model", "Kontext": "Context", "Heute": "Today", "Kontingent": "Quota", "Schlüssel": "Key",

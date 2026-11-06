@@ -2,7 +2,7 @@
 import { LitElement, css, html, nothing } from "lit";
 import { property, state, query } from "lit/decorators.js";
 import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles, confirmDialog, safeElement } from "./ui";
-import { store, navigate } from "./api";
+import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { modelById, modelName } from "./modelpick";
 import type { SendDetail } from "./composer";
@@ -19,6 +19,30 @@ const CHANGE_ART: Record<string, [string, string, string]> = {
   zugang: ["Zugang", "mdi:key-outline", "Zugänge"],
 };
 const CHANGE_VERB: Record<string, [string, string]> = { anlegen: ["neu", "add"], aendern: ["ändern", "upd"], loeschen: ["löschen", "del"] };
+// Simple view: what the assistant is doing, in plain words (by tool group).
+const DOING: Record<string, string> = {
+  web: "Sucht im Internet …", ha: "Schaut im Zuhause nach …", dav: "Schaut in deiner Nextcloud nach …", http: "Fragt einen Dienst ab …",
+  files: "Liest Dateien …", skills: "Liest eine Anleitung …", werkbank: "Rechnet und erstellt Dateien …", notify: "Schickt eine Nachricht …",
+  progress: "Plant die nächsten Schritte …", llmitmir: "Schaut in LLMitMir nach …", model: "Schaut sich den Anhang an …",
+};
+const GROUP_PLAIN: Record<string, string> = {
+  web: "das Internet", dav: "deine Nextcloud", http: "Abfragen bei anderen Diensten", files: "Dateien", notify: "Benachrichtigungen",
+  skills: "deine Anleitungen (Skills)", werkbank: "die Werkbank (Programme ausführen)", ha: "Home Assistant",
+};
+const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };
+const tsDate = (ts: any) => (typeof ts === "number" ? new Date(ts * 1000) : ts ? new Date(ts) : null);
+const hm = (ts: any) => tsDate(ts)?.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) || "";
+function dayLabel(ts: any): string {
+  const d = tsDate(ts); if (!d) return "";
+  const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Heute";
+  if (d.toDateString() === y.toDateString()) return "Gestern";
+  return d.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
+}
+/** Errors people can act on are shown as they are; technical ones get a plain sentence (details stay available). */
+const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellungen/.test(e) ? e
+  : "Die KI hat gerade nicht richtig geantwortet. Versuch es bitte gleich noch einmal.";
+
 const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
 
 function changeField(f: any, aktion: string) {
@@ -158,6 +182,48 @@ export class ChatView extends LitElement {
     .sheet { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.3); display: flex; justify-content: flex-end; animation: fadeIn .15s; }
     .sheet aside { width: min(360px, 88vw); height: 100%; border: 0; box-shadow: -10px 0 40px rgba(0,0,0,.2); background: var(--lm-bg); }
     .empty { text-align: center; color: var(--lm-muted); padding: 60px 20px; }
+    /* simple view: messenger-style bubbles */
+    :host { --lm-me: color-mix(in srgb, var(--lm-accent) 16%, var(--lm-panel)); }
+    .thread.simple { gap: 8px; padding-top: 14px; }
+    .day { justify-self: center; margin: 10px 0 4px; font-size: 12px; color: var(--lm-muted); background: var(--lm-panel);
+      border: 1px solid var(--lm-line); padding: 3px 11px; border-radius: 999px; }
+    .sys { justify-self: center; font-size: 12.5px; color: var(--lm-muted); background: var(--lm-hover); padding: 6px 12px; border-radius: 10px;
+      text-align: center; max-width: 90%; display: flex; gap: 6px; align-items: center; }
+    .bubble { max-width: min(84%, 640px); min-width: 0; padding: 8px 12px 5px; border-radius: 18px; line-height: 1.5; font-size: 15.5px;
+      overflow-wrap: anywhere; animation: bin .22s ease both; }
+    .bubble.me { justify-self: end; background: var(--lm-me); border-bottom-right-radius: 6px; }
+    .bubble.ai { justify-self: start; background: var(--lm-panel); border: 1px solid var(--lm-line); border-bottom-left-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .bubble .btxt { white-space: pre-wrap; }
+    .bubble .md { font-size: 15.5px; }
+    .bubble .md > :last-child { margin-bottom: 0; }
+    .bubble .md > :first-child { margin-top: 0; }
+    .bfoot { display: flex; align-items: center; justify-content: flex-end; gap: 2px; margin-top: 2px; min-height: 18px; }
+    .bt { font-size: 11px; color: var(--lm-faint); margin-left: 6px; white-space: nowrap; }
+    .bubble.me .bt { display: block; text-align: right; margin-top: 1px; }
+    .mini { border: 0; background: none; color: var(--lm-faint); width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; cursor: pointer; }
+    .mini:hover { background: var(--lm-hover); color: var(--lm-text); }
+    .batt { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+    .batt button { border: 0; background: color-mix(in srgb, var(--lm-panel) 70%, transparent); border-radius: 10px; padding: 6px 10px; font-size: 13px;
+      cursor: pointer; display: inline-flex; gap: 6px; align-items: center; max-width: 100%; }
+    .bubble.fail { border-color: color-mix(in srgb, var(--lm-err) 40%, var(--lm-line)); display: grid; gap: 8px; padding: 10px 14px 6px; }
+    .bubble.ask { border-color: color-mix(in srgb, var(--lm-accent) 55%, var(--lm-line)); display: grid; gap: 10px; padding: 12px 14px;
+      max-width: min(94%, 640px); box-shadow: var(--lm-shadow); }
+    .brow { display: flex; flex-wrap: wrap; gap: 8px; }
+    details.why > summary { cursor: pointer; font-size: 13px; color: var(--lm-muted); list-style: none; display: inline-flex; gap: 4px; align-items: center; }
+    details.why > summary::-webkit-details-marker { display: none; }
+    details.why[open] > summary { margin-bottom: 8px; }
+    details.why pre { margin: 0; font-family: var(--lm-mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 200px;
+      overflow-y: auto; background: var(--lm-side); padding: 8px 10px; border-radius: 8px; }
+    .typing { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; }
+    .dots { display: inline-flex; gap: 4px; align-items: center; height: 14px; }
+    .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--lm-accent); opacity: .35; animation: dot 1.3s ease-in-out infinite; }
+    .dots i:nth-child(2) { animation-delay: .16s; } .dots i:nth-child(3) { animation-delay: .32s; }
+    .tstat { font-size: 14px; }
+    .slowsys { justify-self: start; max-width: min(84%, 560px); font-size: 13px; color: var(--lm-muted); padding: 0 6px; line-height: 1.45; animation: fadeIn .3s; }
+    @keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-5px); opacity: 1; } }
+    @keyframes bin { from { opacity: 0; transform: translateY(6px) scale(.98); } }
+    @media (prefers-reduced-motion: reduce) { .dots i, .bubble { animation: none; } .dots i { opacity: .7; } }
     .taskinfo { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 12px; padding: 10px 12px; display: flex; gap: 8px; }
     @media (max-width: 640px) { .thread { padding: 8px 14px 24px; gap: 18px; } .foot { padding: 0 10px 10px; } header { padding: 6px 6px; } }
   `];
@@ -322,6 +388,110 @@ export class ChatView extends LitElement {
       </div><div class="hint">„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.</div></div>`);
   }
 
+  // ---------------------------------------------------------------- simple view (Laien-Ansicht)
+  /** Only request and answer, like a messenger: tool steps, thoughts and intermediate texts stay hidden. */
+  private simpleThread(chat: any, run: any) {
+    const turns: { user: any; rest: any[] }[] = [];
+    for (const m of chat.messages || []) {
+      if (m.role === "user" || !turns.length) turns.push({ user: m.role === "user" ? m : null, rest: [] });
+      if (m.role !== "user") turns[turns.length - 1].rest.push(m);
+    }
+    const out: any[] = [];
+    let lastDay = "";
+    turns.forEach((tn, i) => {
+      const isLast = i === turns.length - 1;
+      const live = !!run && isLast;
+      const day = dayLabel((tn.user || tn.rest[0])?.created);
+      if (day && day !== lastDay) { out.push(html`<div class="day">${day}</div>`); lastDay = day; }
+      if (tn.user) {
+        out.push(chat.kind === "task_run" && i === 0
+          ? html`<div class="sys">${icon("task", 15)} Automatisch gestartet · ${hm(tn.user.created)}</div>`
+          : this.meBubble(tn.user));
+      }
+      // newest first; an answer is an assistant message with text (or an error) that does not go on with tools
+      const asst = [...tn.rest].reverse().filter((m: any) => m.role === "assistant");
+      const isAnswer = (m: any) => m && (m.content || m.error) && !m.tool_calls?.length;
+      const ans = live ? (isAnswer(asst[0]) ? asst[0] : null) : asst.find(isAnswer) || asst.find((m: any) => m.content);
+      if (ans) out.push(this.aiBubble(ans, live, isLast && !run));
+    });
+    return out;
+  }
+
+  private meBubble(m: any) {
+    const text = m.content && m.content !== "(siehe Anhang)" ? m.content : "";
+    return html`<div class="bubble me">
+      ${m.attachments?.length ? html`<div class="batt">${m.attachments.map((a: string) => html`<button @click=${() => this.openFile(a)}>${icon("file", 15)}<span class="ellipsis">${a}</span></button>`)}</div>` : nothing}
+      ${text ? html`<div class="btxt">${text}</div>` : nothing}<span class="bt">${hm(m.created)}</span></div>`;
+  }
+
+  private aiBubble(m: any, streaming: boolean, last: boolean) {
+    if (m.error) return html`<div class="bubble ai fail">
+      <div><b>Das hat leider nicht geklappt.</b> ${plainError(m.error)}</div>
+      ${plainError(m.error) !== m.error ? html`<details class="why"><summary>${icon("info", 15)} Was genau ist passiert?</summary><pre>${m.error}</pre></details>` : nothing}
+      <div class="bfoot">${last ? html`<button class="btn" @click=${() => this.retry()}>${icon("retry", 16)} Noch einmal versuchen</button><span class="grow"></span>` : nothing}
+        <span class="bt">${hm(m.created)}</span></div></div>`;
+    return html`<div class="bubble ai">
+      <div class="md">${md(m.content)}${streaming ? html`<span class="caret"></span>` : nothing}</div>
+      ${streaming ? nothing : html`<div class="bfoot">
+        <button class="mini" title=${t("Kopieren")} @click=${() => copyText(m.content)}>${icon("copy", 15)}</button>
+        ${last ? html`<button class="mini" title="Neue Antwort" @click=${() => this.retry()}>${icon("retry", 15)}</button>` : nothing}
+        <span class="bt">${hm(m.created)}</span></div>`}</div>`;
+  }
+
+  /** Waiting animation: typing dots and, in plain words, what is happening right now. */
+  private typing(run: any, chat: any) {
+    if (!run || run.status === "waiting_permission") return nothing;
+    const last = chat.messages[chat.messages.length - 1];
+    if (last?.role === "assistant" && (last.content || last.error) && !last.tool_calls?.length) return nothing;  // the answer is there
+    const el = this.now / 1000 - (run.started || this.now / 1000);
+    const d = run.detail || {};
+    let text: string;
+    if (run.status === "queued") text = "Gleich geht's los …";
+    else if (run.status === "retry") text = "Gerade ist viel los – gleich geht's weiter …";
+    else if (run.status === "quota_wait") text = `Tageslimit erreicht – weiter in ${fmtDuration(d.seconds)}`;
+    else if (run.status === "tool") text = DOING[d.tool ? store.data?.tools?.[d.tool]?.group : d.model ? "model" : ""] || "Arbeitet daran …";
+    else if (d.switched_from) text = "Wechselt zu einer weniger ausgelasteten KI …";
+    else {
+      const verbs = (d.step || 1) > 1 ? ["Wertet aus", "Denkt nach", "Fasst zusammen"] : ["Denkt nach", "Überlegt", "Formuliert eine Antwort"];
+      text = verbs[Math.floor(el / 5) % verbs.length] + " …";
+    }
+    const slow = run.hint ? "Die KI ist gerade sehr gefragt – das kann ein paar Minuten dauern."
+      : el > 45 || run.status === "retry" ? "Das dauert gerade etwas länger." : "";
+    return html`<div class="bubble ai typing" role="status" aria-live="polite">
+        <lm-spark size="20"></lm-spark><span class="dots"><i></i><i></i><i></i></span><span class="tstat shimmer">${text}</span></div>
+      ${slow ? html`<div class="slowsys">${slow} Du kannst die Seite ruhig verlassen – die Antwort erscheint hier, sobald sie fertig ist.</div>` : nothing}`;
+  }
+
+  /** Questions from the assistant as plain yes/no messages; the details stay one tap away. */
+  private simplePerms() {
+    const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
+    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => {
+      if (p.change) {
+        const del = p.change.aktion === "loeschen";
+        const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change.aktion] || p.change.aktion;
+        return html`<div class="bubble ai ask">
+          <div>Soll ich ${CHANGE_WHAT[p.change.art] || p.change.art} <b>„${p.change.name}“</b> ${verb}?</div>
+          ${p.change.hinweis ? html`<div class="hint">${icon("alert", 15)} ${p.change.hinweis}</div>` : nothing}
+          <details class="why"><summary>${icon("eye", 15)} Genau ansehen</summary>${changeView(p.change)}</details>
+          <div class="brow"><button class="btn primary ${del ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja, ${del ? "löschen" : "übernehmen"}</button>
+            <button class="btn" @click=${() => answer(p, "deny")}>Nein</button></div></div>`;
+      }
+      if (p.group) return html`<div class="bubble ai ask">
+        <div>Darf ich dafür <b>${GROUP_PLAIN[p.group] || p.group_label}</b> benutzen?</div>
+        <details class="why"><summary>${icon("eye", 15)} Was genau?</summary><div class="hint" style="margin-bottom:6px">${p.label}</div><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
+        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja</button>
+          <button class="btn" @click=${() => answer(p, "always")}>Ja, in diesem Chat immer</button>
+          <button class="btn ghost" @click=${() => answer(p, "deny")}>Nein</button></div></div>`;
+      return html`<div class="bubble ai ask">
+        <div>Darf ich das tun? <b>${p.label}</b></div>
+        <details class="why"><summary>${icon("eye", 15)} Genau ansehen</summary><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
+        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja, diesmal</button>
+          <button class="btn" @click=${() => answer(p, "always")}>Immer erlauben</button>
+          <button class="btn ghost" @click=${() => answer(p, "deny")}>Nein</button></div>
+        <div class="hint">„Immer erlauben“ lässt sich in den Einstellungen zurücknehmen.</div></div>`;
+    });
+  }
+
   private side(chat: any) {
     const files = store.chatFiles.get(chat.id) || [];
     const prog = chat.progress || [];
@@ -358,16 +528,21 @@ export class ChatView extends LitElement {
     const isWork = chat.kind !== "chat";
     const task = chat.task_id ? (store.data?.tasks || []).find((x: any) => x.id === chat.task_id) : null;
     const proj = (store.data?.projects || []).find((p: any) => p.id === chat.project_id);
+    const simple = isSimple();
+    const files = simple ? store.chatFiles.get(chat.id) || [] : [];
     return html`<div class="main">
       <header>
         <slot name="menu"></slot>
         ${this.editTitle ? html`<input .value=${chat.title || ""} @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") this.rename((e.target as HTMLInputElement).value); if (e.key === "Escape") this.editTitle = false; }}
             @blur=${(e: any) => this.rename(e.target.value)} autofocus>`
           : html`<span class="title ellipsis" @click=${() => (this.editTitle = true)}>${chat.title || t("Neuer Chat")}</span>`}
-        ${isWork ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
+        ${isWork && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
         <span class="grow"></span>
-        ${isWork && this.narrow ? html`<button class="iconbtn" @click=${() => (this.panel = true)} title="Details">${icon("panel")}</button>` : nothing}
+        ${files.length ? html`<lm-menu direction="down" align="right"><button slot="trigger" class="btn ghost" title=${t("Dateien")}>${icon("file", 18)}${this.narrow ? "" : ` ${t("Dateien")}`} <span class="chip">${files.length}</span></button>
+          <div class="mh">Dateien in diesem Chat</div>
+          ${files.map((f: any) => html`<button class="mi" data-close @click=${() => this.openFile(f.name)}>${icon("file", 18)}<span class="grow ellipsis">${f.name}</span>${icon("download", 16)}</button>`)}</lm-menu>` : nothing}
+        ${isWork && this.narrow && !simple ? html`<button class="iconbtn" @click=${() => (this.panel = true)} title="Details">${icon("panel")}</button>` : nothing}
         <lm-menu direction="down" align="right"><button slot="trigger" class="iconbtn">${icon("dots")}</button>
           <button class="mi" data-close @click=${() => (this.editTitle = true)}>${icon("edit", 18)} ${t("Umbenennen")}</button>
           <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
@@ -378,23 +553,23 @@ export class ChatView extends LitElement {
           <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog("Diesen Chat endgültig löschen?")) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
         </lm-menu>
       </header>
-      <div class="scroll" @scroll=${this.onScroll}><div class="thread">
-        ${task ? html`<div class="taskinfo">${icon("task", 18)}<span>Lauf der geplanten Aufgabe <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/task/${task.id}`); }}>${task.name}</a>.
-          Open-Weight-Modelle können verzögert starten und länger laufen.</span></div>` : nothing}
-        ${chat.messages.length === 0 && !run ? html`<div class="empty">${isWork ? "Beschreibe die Aufgabe – LLMitMir plant und arbeitet sie selbstständig ab." : "Schreib einfach los."}</div>` : nothing}
-        ${this.renderMessages(chat, run)}
-        ${this.permCards()}
-        ${this.runIndicator(run, chat)}
+      <div class="scroll" @scroll=${this.onScroll}><div class="thread ${simple ? "simple" : ""}">
+        ${task ? html`<div class="taskinfo">${icon("task", 18)}<span>${simple ? "Ergebnis" : "Lauf"} der geplanten Aufgabe <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/task/${task.id}`); }}>${task.name}</a>.
+          ${simple ? "Sie läuft von selbst nach Zeitplan." : "Open-Weight-Modelle können verzögert starten und länger laufen."}</span></div>` : nothing}
+        ${chat.messages.length === 0 && !run ? html`<div class="empty">${simple ? "Schreib einfach los – die Antwort erscheint hier." : isWork ? "Beschreibe die Aufgabe – LLMitMir plant und arbeitet sie selbstständig ab." : "Schreib einfach los."}</div>` : nothing}
+        ${simple ? this.simpleThread(chat, run) : this.renderMessages(chat, run)}
+        ${simple ? this.simplePerms() : this.permCards()}
+        ${simple ? this.typing(run, chat) : this.runIndicator(run, chat)}
       </div></div>
       <div class="foot">
-        <lm-composer .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
+        <lm-composer .simple=${simple} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .tools=${chat.tools ?? null} .projectId=${chat.project_id}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
           @send=${this.send} @stop=${this.stop}></lm-composer>
         <div class="note">${chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter." : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
       </div>
     </div>
-    ${isWork && !this.narrow ? this.side(chat) : nothing}
-    ${isWork && this.narrow && this.panel ? html`<div class="sheet" @click=${(e: Event) => e.target === e.currentTarget && (this.panel = false)}>${this.side(chat)}</div>` : nothing}`;
+    ${isWork && !simple && !this.narrow ? this.side(chat) : nothing}
+    ${isWork && !simple && this.narrow && this.panel ? html`<div class="sheet" @click=${(e: Event) => e.target === e.currentTarget && (this.panel = false)}>${this.side(chat)}</div>` : nothing}`;
   }
 }

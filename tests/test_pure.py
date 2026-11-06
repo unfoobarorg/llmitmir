@@ -20,6 +20,7 @@ def load(name):
 cron = load("cron")
 creds = load("credentials")
 tk = load("taskkeys")
+views = load("views")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -423,3 +424,25 @@ def test_real_output_ignores_role_header():
     assert not prov.real_output({"choices": [{"delta": {"role": "assistant"}}]})
     assert prov.real_output({"choices": [{"delta": {"reasoning_content": "hm"}}]})
     assert prov.real_output({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+
+
+def test_views_resolve_and_clean():
+    # nobody configured anything: everybody starts in the simple view and may switch
+    assert views.resolve(None, "u1", None) == {"view": "simple", "locked": False, "policy": "choice"}
+    assert views.resolve({}, "u1", "expert")["view"] == "expert"
+    assert views.resolve({}, "u1", "kaputt")["view"] == "simple"
+    cfg = {"default": "choice", "users": {"u2": "expert", "u3": "simple"}}
+    # a rule for the person wins over the own choice and locks it
+    assert views.resolve(cfg, "u2", "simple") == {"view": "expert", "locked": True, "policy": "expert"}
+    assert views.resolve(cfg, "u3", "expert") == {"view": "simple", "locked": True, "policy": "simple"}
+    assert views.resolve(cfg, "u1", "expert") == {"view": "expert", "locked": False, "policy": "choice"}
+    # a rule for everybody applies to people without their own rule
+    assert views.resolve({"default": "simple", "users": {"u2": "choice"}}, "u1", "expert")["view"] == "simple"
+    assert views.resolve({"default": "simple", "users": {"u2": "choice"}}, "u2", "expert")["view"] == "expert"
+    # cleaning drops "as for everybody" entries and rejects unknown values
+    assert views.clean({"default": "expert", "users": {"a": "", "b": "simple"}}) == {"default": "expert", "users": {"b": "simple"}}
+    assert views.clean(None) == {"default": "choice", "users": {}}
+    with pytest.raises(ValueError):
+        views.clean({"default": "laie"})
+    with pytest.raises(ValueError):
+        views.clean({"users": {"a": "laie"}})

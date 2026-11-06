@@ -1,7 +1,7 @@
 // LLMitMir panel root: layout, sidebar, routing, event subscription.
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
-import { Api, store, navigate } from "./api";
+import { Api, store, navigate, isSimple } from "./api";
 import { tokens, base, icon, fmtTime, menuItemStyles, confirmDialog, safeElement } from "./ui";
 import { setLang, t } from "./i18n";
 import "./composer";
@@ -198,10 +198,10 @@ export class LLMitMirPanel extends LitElement {
         <button class="iconbtn" title="Seitenleiste" @click=${this.toggleCollapse}>${icon(this.small ? "close" : "sidebar")}</button></div>
       <div class="nv">
         <button class="ni new" title=${t("Neuer Chat")} @click=${() => navigate("/")}><span class="plus">${icon("plus", 18)}</span><span class="lbl">${t("Neuer Chat")}</span></button>
-        ${ni("/cowork", "cowork", t("Neues Cowork"), p === "cowork")}
+        ${isSimple() ? nothing : ni("/cowork", "cowork", t("Neues Cowork"), p === "cowork")}
         ${ni("/chats", "chat", t("Chats"), p === "chats")}
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
-        ${ni("/tasks", "task", t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
+        ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
         ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
         ${ni("/credentials", "key", t("Zugänge"), p === "credentials" || p === "credential")}
       </div>
@@ -217,7 +217,7 @@ export class LLMitMirPanel extends LitElement {
     const [p, id] = this.path;
     switch (p) {
       case "chat": return html`<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
-      case "cowork": return this.wrap(html`<lm-home initialMode="cowork"></lm-home>`);
+      case "cowork": return this.wrap(html`<lm-home initialMode=${isSimple() ? "chat" : "cowork"}></lm-home>`);
       case "chats": return this.wrap(html`<lm-chats></lm-chats>`);
       case "projects": return this.wrap(html`<lm-projects></lm-projects>`);
       case "project": return this.wrap(html`<lm-project .projectId=${id}></lm-project>`);

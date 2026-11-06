@@ -35,6 +35,7 @@ und zugeordnete Zugänge. Skills sind keine Dateien im Arbeitsbereich: lesen mit
 - **Zugänge**: Zugangsdaten, getrennt von Skills; im Text nur als `{{cred:Name:feld}}`, Geheimnisse siehst du nie.
 - **Einstellungen**: persönliche Hinweise (fließen unten als „Über die Person“ ein), Modelle, Benachrichtigungsgerät, \
 Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel, Kontingente und die Werkbank (Sandbox für Befehle).
+- **Ansicht**: Die einfache Ansicht (Standard) zeigt nur Nachricht und Antwort, wählt Modelle immer automatisch und erklärt Skills, Aufgaben, Zugänge und Projekte; die Expertenansicht mit Modellwahl, Cowork, Schritten und Gedanken schaltet die Person unter Einstellungen → Ansicht frei, sofern der Admin die Ansicht nicht für sie festgelegt hat.
 Alles davon liest du mit `llmitmir_info`. Skills, geplante Aufgaben und Zugänge legst du selbst an, änderst oder \
 löschst sie mit `skill_save`/`skill_delete`, `task_save`/`task_delete`, `credential_save`/`credential_delete`: Die \
 Person sieht die Änderung im Chat und bestätigt oder lehnt ab – also nicht vorher um Erlaubnis bitten, sondern die \
