@@ -187,6 +187,14 @@ def test_progress_short_form():
 selfdoc = load("selfdoc")
 
 
+def test_more_steps_answers():
+    """The "more steps?" question offers a little more (15) and a lot more (100); anything else wraps up."""
+    const = load("const")
+    assert const.MORE_STEPS == {"once": 15, "lots": 100}
+    assert const.MORE_STEPS.get("deny", 0) == 0 and const.MORE_STEPS.get("always", 0) == 0
+    assert const.MAX_STEPS_MORE_LOTS > const.MAX_STEPS_MORE
+
+
 def test_selfdoc_tool_names_exist():
     """Every tool the self-knowledge texts mention must really be registered."""
     import re

@@ -374,9 +374,10 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
         <button class="btn ghost" @click=${()=>this.hideHint=C.run_id+L.model}>Weiter warten</button>
       </div></div>`}switchModel(C){s.api.ws("chat/switch_model",{chat_id:this.chatId,model:C}).catch(H=>s.notify(String(H.message||H)))}permCards(){let C=(H,L)=>s.api.ws("permission/answer",{permission_id:H.id,decision:L});return s.permissions.filter(H=>H.chat_id===this.chatId).map(H=>H.steps?t`<div class="perm">
       <div class="row">${d("list")}<b class="grow">LLMitMir ist noch nicht fertig – weitere ${H.steps.more} Schritte verwenden?</b></div>
-      <div class="hint">${H.steps.used} von ${H.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${H.steps.limit-H.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.</div>
+      <div class="hint">${H.steps.used} von ${H.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${H.steps.limit-H.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.${H.steps.lots?` Mit ${H.steps.lots} weiteren Schritten wird die Frage so schnell nicht wieder f\xE4llig.`:""}</div>
       <div class="row">
         <button class="btn primary" @click=${()=>C(H,"once")}>${d("check",16)} ${H.steps.more} weitere Schritte</button>
+        ${H.steps.lots?t`<button class="btn" @click=${()=>C(H,"lots")}>${d("check",16)} ${H.steps.lots} weitere Schritte</button>`:l}
         <button class="btn ghost" @click=${()=>C(H,"deny")}>Zum Ende kommen</button>
       </div></div>`:H.change?t`<div class="perm">
       <div class="row">${d("edit")}<b class="grow">LLMitMir schlägt diese Änderung vor</b></div>

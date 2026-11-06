@@ -25,7 +25,7 @@ from . import views as V
 from .const import (AUTO, DEFAULT_CONTEXT, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
-                    MAX_STEPS_MORE, PERM_ALLOW, PERM_ASK, PERM_DENY,
+                    MAX_STEPS_MORE, MAX_STEPS_MORE_LOTS, MORE_STEPS, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
@@ -538,7 +538,7 @@ class Manager:
                         final_status = "stopped"
                         break
                     if more:
-                        steps += MAX_STEPS_MORE
+                        steps += more
                 self.check_quota(user.id, separate)
                 left = steps - step
                 final = bool(tools) and left == 1
@@ -708,12 +708,16 @@ class Manager:
             if task is not None and self.scheduler:
                 await self.scheduler.run_finished(user, task, chat, final_status, error)
 
-    async def _ask_more_steps(self, run: Run, steps: int) -> bool:
-        """Ask (expert view) whether the run may go on for MAX_STEPS_MORE more steps instead of wrapping up."""
+    async def _ask_more_steps(self, run: Run, steps: int) -> int:
+        """Ask (expert view) how many more steps the run may use instead of wrapping up.
+
+        Returns 0 (wrap up now), MAX_STEPS_MORE (a little more) or MAX_STEPS_MORE_LOTS (a lot more, so the
+        question does not come back soon)."""
         decision = await self.ask_permission(run, {"tool": "more_steps", "label": f"{MAX_STEPS_MORE} weitere Schritte",
                                                    "icon": "list", "steps": {"used": steps - WRAPUP_STEPS,
-                                                                              "limit": steps, "more": MAX_STEPS_MORE}})
-        return decision != "deny"
+                                                                              "limit": steps, "more": MAX_STEPS_MORE,
+                                                                              "lots": MAX_STEPS_MORE_LOTS}})
+        return MORE_STEPS.get(decision, 0)
 
     async def _apply_switch(self, run: Run, chat: dict, st: UserStore, amsg: dict | None) -> None:
         old, new = chat["model"], run.switch_to or chat["model"]
@@ -767,7 +771,9 @@ class Manager:
         item = self.permissions.get(pid)
         if not item or item[0] != user_id or item[1].done():
             return False
-        item[1].set_result(decision if decision in ("once", "always", "deny") else "deny")
+        if decision == "lots" and item[2].get("tool") != "more_steps":
+            decision = "once"  # "a lot more" only means something for the step limit
+        item[1].set_result(decision if decision in ("once", "always", "lots", "deny") else "deny")
         return True
 
 

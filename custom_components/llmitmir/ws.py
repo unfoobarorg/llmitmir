@@ -233,7 +233,7 @@ async def ws_chat_stop(hass, conn, msg, m, user, st):
     return {"stopped": m.stop(user.id, msg["chat_id"])}
 
 
-@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "deny"])})
+@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "lots", "deny"])})
 async def ws_permission(hass, conn, msg, m, user, st):
     return {"ok": m.answer_permission(user.id, msg["permission_id"], msg["decision"])}
 
