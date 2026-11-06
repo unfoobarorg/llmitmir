@@ -11,6 +11,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from . import credentials as C
+from . import manage as M
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
                     TASK_KEY_MODES, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
@@ -113,7 +114,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "models": _models_for_users(m),
         "defaults": {r: m.default_model(user.id, r) for r in ("chat", "agent", "vision")},
         "tool_groups": GROUPS,
-        "tools": {n: {"group": t.group, "label": t.label, "icon": t.icon, "write": bool(t.write)} for n, t in REGISTRY.items()},
+        "tools": {n: {"group": t.group, "label": t.label, "icon": t.icon, "write": bool(t.write), "confirm": t.preview is not None}
+                  for n, t in REGISTRY.items()},
         "usage": m.usage_snapshot(user.id),
         "queue": sched.queue_info(user.id) if sched else {},
         "runs": runs,
@@ -287,58 +289,19 @@ async def ws_project_delete(hass, conn, msg, m, user, st):
 # ---------------------------------------------------------------- skills
 @command(_t("skill/save") | {vol.Required("skill"): dict})
 async def ws_skill_save(hass, conn, msg, m, user, st):
-    s = msg["skill"]
-    sid = s.get("id") or new_id("s")
-    old = st.meta["skills"].get(sid, {"created": now()})
-    name = str(s.get("name") or old.get("name") or "").strip()
-    if not name:
-        raise ValueError("Name fehlt")
-    skill = dict(old, id=sid, name=name[:80], description=str(s.get("description") or "")[:1024],
-                 body=str(s.get("body") or ""), credentials=list(s.get("credentials") or []),
-                 enabled=bool(s.get("enabled", True)), updated=now())
-    st.meta["skills"][sid] = skill
-    await st.async_save_meta()
-    m.emit(user.id, {"type": "meta", "section": "skills"})
-    return skill
+    return await M.save_skill(m, user.id, st, msg["skill"])
 
 
 @command(_t("skill/delete") | {vol.Required("skill_id"): str})
 async def ws_skill_delete(hass, conn, msg, m, user, st):
-    st.meta["skills"].pop(msg["skill_id"], None)
-    await st.async_delete_scope("skill", msg["skill_id"])
-    await st.async_save_meta()
-    m.emit(user.id, {"type": "meta", "section": "skills"})
+    await M.delete_skill(m, user.id, st, msg["skill_id"])
     return {"ok": True}
 
 
 # ---------------------------------------------------------------- credentials
 @command(_t("credential/save") | {vol.Required("credential"): dict})
 async def ws_cred_save(hass, conn, msg, m, user, st):
-    c = msg["credential"]
-    cid = c.get("id") or new_id("k")
-    old = st.meta["credentials"].get(cid, {"created": now(), "fields": {}})
-    typ = c.get("type") or old.get("type") or "other"
-    if typ not in C.TYPES:
-        raise ValueError("Unbekannter Typ")
-    fields = dict(old.get("fields") or {})
-    for k, v in (c.get("fields") or {}).items():
-        if v == MASK:
-            continue  # unchanged secret
-        fields[str(k)[:60]] = str(v)
-    for k in c.get("remove_fields") or []:
-        fields.pop(k, None)
-    name = str(c.get("name") or old.get("name") or "").strip()
-    if not name:
-        raise ValueError("Name fehlt")
-    for other in st.meta["credentials"].values():
-        if other["id"] != cid and other.get("name", "").casefold() == name.casefold():
-            raise ValueError("Es gibt schon einen Zugang mit diesem Namen")
-    cred = dict(old, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
-                secret_fields=list(c.get("secret_fields") or old.get("secret_fields") or []),
-                project_ids=list(c.get("project_ids") or []), updated=now())
-    st.meta["credentials"][cid] = cred
-    await st.async_save_meta()
-    m.emit(user.id, {"type": "meta", "section": "credentials"})
+    cred = await M.save_credential(m, user.id, st, msg["credential"])
     return mask_credential(cred, C.secret_fields(cred))
 
 
@@ -352,50 +315,19 @@ async def ws_cred_reveal(hass, conn, msg, m, user, st):
 
 @command(_t("credential/delete") | {vol.Required("credential_id"): str})
 async def ws_cred_delete(hass, conn, msg, m, user, st):
-    cid = msg["credential_id"]
-    st.meta["credentials"].pop(cid, None)
-    for p in st.meta["projects"].values():
-        if cid in (p.get("credentials") or []):
-            p["credentials"].remove(cid)
-    for s in st.meta["skills"].values():
-        if cid in (s.get("credentials") or []):
-            s["credentials"].remove(cid)
-    await st.async_save_meta()
-    m.emit(user.id, {"type": "meta", "section": "all"})
+    await M.delete_credential(m, user.id, st, msg["credential_id"])
     return {"ok": True}
 
 
 # ---------------------------------------------------------------- tasks
 @command(_t("task/save") | {vol.Required("task"): dict})
 async def ws_task_save(hass, conn, msg, m, user, st):
-    t = msg["task"]
-    tid = t.get("id") or new_id("t")
-    old = st.meta["tasks"].get(tid, {"created": now(), "runs": []})
-    sched = t.get("schedule") or old.get("schedule") or {"type": "daily", "time": "08:00"}
-    schedule_to_cron(sched)  # validates
-    task = dict(old, id=tid, name=str(t.get("name") or "Aufgabe")[:100], prompt=str(t.get("prompt") or ""),
-                project_id=t.get("project_id") or None, model=t.get("model") or None, schedule=sched,
-                enabled=bool(t.get("enabled", True)), allow_write=list(t.get("allow_write") or []),
-                tool_groups=t.get("tool_groups") or None, notify=t.get("notify") or "always",
-                requires=[r for r in (t.get("requires", old.get("requires")) or []) if r in ("werkbank",)],
-                requires_note=str(t.get("requires_note", old.get("requires_note")) or "")[:1500], updated=now())
-    if not task["prompt"].strip():
-        raise ValueError("Der Auftrag (Prompt) fehlt")
-    st.meta["tasks"][tid] = task
-    m.scheduler.plan(user.id, task)
-    await st.async_save_meta()
-    m.emit(user.id, {"type": "meta", "section": "tasks"})
-    return _task_view(m, user.id, task)
+    return _task_view(m, user.id, await M.save_task(m, user.id, st, msg["task"]))
 
 
 @command(_t("task/delete") | {vol.Required("task_id"): str})
 async def ws_task_delete(hass, conn, msg, m, user, st):
-    t = st.meta["tasks"].pop(msg["task_id"], None)
-    if t:
-        t["enabled"] = False
-        m.scheduler.plan(user.id, t)
-    await st.async_save_meta()
-    m.emit(user.id, {"type": "meta", "section": "tasks"})
+    await M.delete_task(m, user.id, st, msg["task_id"])
     return {"ok": True}
 
 

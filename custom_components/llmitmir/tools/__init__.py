@@ -20,6 +20,11 @@ class Tool:
     write: bool | Callable[[dict], bool] = False
     label: str = ""
     icon: str = "mdi:tools"
+    # Changes to LLMitMir itself (skills, tasks, credentials): async (ctx, args) -> change set shown for approval,
+    # raises ValueError for invalid input. Such tools always ask – no "always allow", never in scheduled runs.
+    preview: Callable[["ToolContext", dict], Awaitable[dict]] | None = None
+    # (ctx, args) -> args as stored in the chat and shown to the person (e.g. secrets masked)
+    redact: Callable[["ToolContext", dict], dict] | None = None
 
     def is_write(self, args: dict) -> bool:
         return self.write(args) if callable(self.write) else bool(self.write)
@@ -90,4 +95,4 @@ async def read_body(resp, limit: int) -> tuple[bytes, bool]:
 
 def load_all() -> None:
     # import modules for their side effect of registering tools
-    from . import dav, files, ha, http, misc, web, werkbank  # noqa: F401
+    from . import dav, files, ha, http, manage, misc, web, werkbank  # noqa: F401

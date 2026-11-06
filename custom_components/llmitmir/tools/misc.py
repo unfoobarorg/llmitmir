@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.core import Context
 
 from .. import credentials as C
+from .. import selfdoc
 from . import Tool, advance_progress, obj, register
 
 
@@ -81,6 +82,26 @@ async def credentials_list(ctx, a: dict):
     return C.describe_for_model(ctx.creds, ctx.allowed_creds) or "Keine Zugänge verfügbar."
 
 
+async def llmitmir_info(ctx, a: dict):
+    meta = ctx.store.meta
+    if not a.get("teil"):
+        return selfdoc.MANUAL + "\n\n" + selfdoc.overview(meta, ctx.allowed_skills, ctx.allowed_creds)
+    found = selfdoc.find(meta, a.get("teil"), a.get("name"), ctx.allowed_skills)
+    if not found:
+        return (f"Fehler: {a.get('teil')} „{a.get('name') or ''}“ nicht gefunden.\n\n"
+                + selfdoc.overview(meta, ctx.allowed_skills, ctx.allowed_creds))
+    section, item = found
+    scope = {"skills": "skill", "projects": "project"}.get(section)
+    files = [f["name"] for f in await ctx.store.async_list_files(scope, item["id"])] if scope else None
+    return selfdoc.detail(meta, section, item, files)
+
+
+register(Tool("llmitmir_info", "llmitmir",
+              "Wie LLMitMir funktioniert (Chats, Coworks, Projekte, geplante Aufgaben, Skills, Zugänge, Werkbank) und was die "
+              "Person davon angelegt hat. Ohne Argumente: Handbuch und Bestand. Mit teil (skill/aufgabe/projekt) und name: "
+              "alle Felder dieses Eintrags, z. B. den vollständigen Auftrag einer Aufgabe. Statt Websuche für alle Fragen zu LLMitMir.",
+              obj({"teil": {"type": "string", "enum": ["skill", "aufgabe", "projekt"]}, "name": {"type": "string"}}),
+              llmitmir_info, label="LLMitMir nachschlagen", icon="mdi:robot-outline"))
 register(Tool("notify", "notify", "Schickt eine Push-Benachrichtigung an die Person (HA-App), z. B. mit dem Ergebnis einer Aufgabe.",
               obj({"titel": {"type": "string"}, "text": {"type": "string"}}, ["text"]), notify,
               write=True, label="Benachrichtigen", icon="mdi:bell-ring-outline"))

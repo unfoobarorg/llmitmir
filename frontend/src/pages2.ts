@@ -106,7 +106,7 @@ export class TaskPage extends StoreElement {
   render() {
     const x = this.d; if (!x) return nothing;
     const d = store.data; const s = x.schedule || {};
-    const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write);
+    const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
     // Runs and the last result come from the live task in the store, not from the edit copy in this.d,
     // so a run started here ("Jetzt ausführen" or on schedule) shows up without reopening the page.
     const live = (d.tasks || []).find((y: any) => y.id === x.id) || x;

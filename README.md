@@ -11,7 +11,14 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung).
 - **Coworks**: Das Modell arbeitet eine Aufgabe selbstständig mit Werkzeugen ab, zeigt Plan, Schritte und Ergebnisdateien.
-  Schreibende Aktionen fragen nach („Einmal erlauben“, „Immer erlauben“, „Ablehnen“).
+  Schreibende Aktionen fragen nach („Einmal erlauben“, „Immer erlauben“, „Ablehnen“). Braucht das Modell ein Werkzeug,
+  das im Chat oder Projekt nicht eingeschaltet ist, fragt es ebenfalls („Einmal erlauben“, „Für diesen Chat einschalten“),
+  statt die Aufgabe abzulehnen.
+- **Kennt sich selbst**: Wie LLMitMir funktioniert und wie man Home Assistant gezielt abfragt, steht fest im Systemprompt
+  und in `llmitmir_info` – das Modell sucht dafür nie im Web.
+- **Skills, Aufgaben und Zugänge im Chat verwalten**: Das Modell legt sie an, ändert oder löscht sie; jede Änderung
+  erscheint als Karte mit allen betroffenen Feldern (lange Texte Zeile für Zeile) und gilt erst nach „Übernehmen“.
+  Geheimnisse bleiben dabei verdeckt, geplante Läufe dürfen das nie.
 - **Geplante Aufgaben** mit Zeitplan (täglich, werktags, Wochentage, monatlich, Intervall, einmalig, Cron), gemeinsamer
   Warteschlange, langen Wiederholungsfristen und Push-Benachrichtigung über die HA-App. Ausdrücklich für Open-Weight-Modelle
   gebaut: Läufe dürfen verzögert starten und lange dauern.
@@ -42,6 +49,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | HTTP | `http_request` (GET frei, sonst*) |
 | Dateien | `file_list`, `file_read` (Textebene oder Bildmodell), `file_write` |
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |
+| LLMitMir (immer an) | `llmitmir_info`; mit Bestätigung jeder einzelnen Änderung: `skill_save`, `skill_delete`, `task_save`, `task_delete`, `credential_save`, `credential_delete` |
 | Werkbank (optional) | `shell`*, `werkbank_files`, `werkbank_fetch`, `werkbank_push` |
 
 \* schreibend – braucht eine Freigabe (bei geplanten Aufgaben beim Anlegen festgelegt).

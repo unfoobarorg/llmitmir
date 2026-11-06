@@ -159,7 +159,7 @@ class UserStore:
 
     def chat_summary(self, chat: dict) -> dict:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "created", "updated",
-                                        "pinned", "status", "usage")} | {"messages": len(chat.get("messages") or [])}
+                                        "pinned", "status", "usage", "tools")} | {"messages": len(chat.get("messages") or [])}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:
         if not keep_updated or not chat.get("updated"):

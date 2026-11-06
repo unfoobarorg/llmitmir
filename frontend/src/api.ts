@@ -94,7 +94,7 @@ export class Store extends EventTarget {
         if (i >= 0) d.chats[i] = e.chat; else d.chats.unshift(e.chat);
         d.chats.sort((a: any, b: any) => (b.updated || 0) - (a.updated || 0));
         const full = this.chats.get(e.chat.id);
-        if (full) Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, pinned: e.chat.pinned, project_id: e.chat.project_id });
+        if (full) Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
         break;
       }
       case "chat_deleted":

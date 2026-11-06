@@ -12,6 +12,46 @@ const STATUS_TEXT: Record<string, string> = {
   waiting_permission: "Wartet auf Freigabe", retry: "Modell ausgelastet – neuer Versuch", quota_wait: "Limit erreicht – wartet",
 };
 
+// Proposed / applied changes to skills, scheduled tasks and credentials (change sets from changes.py).
+const CHANGE_ART: Record<string, [string, string, string]> = {
+  skill: ["Skill", "mdi:school-outline", "Skills"], aufgabe: ["Geplante Aufgabe", "mdi:calendar-clock-outline", "Geplant"],
+  zugang: ["Zugang", "mdi:key-outline", "Zugänge"],
+};
+const CHANGE_VERB: Record<string, [string, string]> = { anlegen: ["neu", "add"], aendern: ["ändern", "upd"], loeschen: ["löschen", "del"] };
+const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
+
+function changeField(f: any, aktion: string) {
+  let val: any;
+  if (f.diff) {
+    val = html`<div class="diff">${f.diff.map(([op, line]: [string, any]) => op === "…"
+      ? html`<div class="s">⋯ ${line} unveränderte Zeile${line === 1 ? "" : "n"}</div>`
+      : html`<div class=${op === "+" ? "a" : op === "-" ? "d" : "c"}>${line || " "}</div>`)}</div>`;
+  } else if (aktion === "aendern") {
+    val = isLong(f.alt) || isLong(f.neu)
+      ? html`${f.alt ? html`<div class="blk gone">${f.alt}</div>` : nothing}${f.neu ? html`<div class="blk add">${f.neu}</div>` : html`<span class="old">leer</span>`}`
+      : html`${f.alt ? html`<span class="old">${f.alt}</span>` : html`<span class="muted">leer</span>`}<span class="arrow">→</span>${f.neu ? html`<span class="new">${f.neu}</span>` : html`<span class="muted">leer</span>`}`;
+  } else {
+    const v = aktion === "loeschen" ? f.alt : f.neu;
+    val = isLong(v) ? html`<div class="blk ${aktion === "loeschen" ? "gone" : ""}">${v}</div>` : html`<span class=${aktion === "loeschen" ? "gonetxt" : ""}>${v || "–"}</span>`;
+  }
+  return html`<div class="k">${f.feld}</div><div class="v">${val}</div>`;
+}
+
+export function changeView(ch: any, status?: string) {
+  const [art, ic] = CHANGE_ART[ch.art] || [ch.art, "mdi:tools"];
+  const [verb, cls] = CHANGE_VERB[ch.aktion] || [ch.aktion, "upd"];
+  const st = status === "ok" ? html`<span class="chip ok">${icon("check", 14)} übernommen</span>`
+    : status === "denied" ? html`<span class="chip warn">abgelehnt</span>`
+    : status === "error" ? html`<span class="chip err">fehlgeschlagen</span>`
+    : status === "running" ? html`<span class="spin"></span>` : nothing;
+  return html`<div class="chg ${cls}">
+    <div class="chg-h">${icon(ic, 18)}<span class="grow"><span class="muted">${art}</span> <b>${ch.name}</b></span>
+      <span class="badge ${cls}">${verb}</span>${st}</div>
+    ${ch.hinweis ? html`<div class="chg-note">${icon("alert", 16)} ${ch.hinweis}</div>` : nothing}
+    ${ch.felder?.length ? html`<div class="chg-f">${ch.felder.map((f: any) => changeField(f, ch.aktion))}</div>` : nothing}
+  </div>`;
+}
+
 @safeElement("lm-chat")
 export class ChatView extends LitElement {
   @property() chatId = "";
@@ -68,6 +108,36 @@ export class ChatView extends LitElement {
     .perm pre { margin: 0; font-family: var(--lm-mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 180px;
       overflow-y: auto; background: var(--lm-side); padding: 8px 10px; border-radius: 8px; }
     .perm .row { flex-wrap: wrap; }
+    .chg { border: 1px solid var(--lm-line); border-radius: 12px; background: var(--lm-panel); overflow: hidden; cursor: auto; }
+    .chg-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--lm-line); font-size: 14px; }
+    .chg-h .chip { display: inline-flex; align-items: center; gap: 3px; }
+    .badge { font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .03em; }
+    .badge.add { background: color-mix(in srgb, var(--lm-ok) 15%, transparent); color: var(--lm-ok); }
+    .badge.upd { background: var(--lm-accent-soft); color: var(--lm-accent); }
+    .badge.del { background: color-mix(in srgb, var(--lm-err) 13%, transparent); color: var(--lm-err); }
+    .chg.add { border-left: 3px solid var(--lm-ok); } .chg.upd { border-left: 3px solid var(--lm-accent); } .chg.del { border-left: 3px solid var(--lm-err); }
+    .chg-note { display: flex; gap: 6px; align-items: center; padding: 8px 12px; font-size: 13px; color: var(--lm-warn);
+      background: color-mix(in srgb, var(--lm-warn) 8%, transparent); border-bottom: 1px solid var(--lm-line); }
+    .chg-f { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 14px; padding: 11px 12px; font-size: 13.5px; align-items: baseline; }
+    .chg-f .k { color: var(--lm-muted); font-size: 12.5px; }
+    .chg-f .v { min-width: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+    .chg-f .v > .diff, .chg-f .v > .blk { flex: 1 1 100%; }
+    .old { text-decoration: line-through; color: var(--lm-err); background: color-mix(in srgb, var(--lm-err) 9%, transparent); border-radius: 4px; padding: 0 5px; }
+    .new { color: var(--lm-ok); background: color-mix(in srgb, var(--lm-ok) 11%, transparent); border-radius: 4px; padding: 0 5px; font-weight: 520; }
+    .arrow { color: var(--lm-faint); } .gonetxt { text-decoration: line-through; color: var(--lm-muted); }
+    .blk { white-space: pre-wrap; font-size: 13px; line-height: 1.5; max-height: 240px; overflow-y: auto; background: var(--lm-side);
+      border-radius: 8px; padding: 7px 10px; }
+    .blk.add { border-left: 3px solid var(--lm-ok); } .blk.gone { border-left: 3px solid var(--lm-err); color: var(--lm-muted); text-decoration: line-through; }
+    .diff { font-family: var(--lm-mono); font-size: 12px; line-height: 1.55; border: 1px solid var(--lm-line); border-radius: 8px; overflow-y: auto; max-height: 340px; }
+    .diff > div { white-space: pre-wrap; word-break: break-word; padding: 1px 10px 1px 24px; position: relative; }
+    .diff .a { background: color-mix(in srgb, var(--lm-ok) 13%, transparent); }
+    .diff .a::before { content: "+"; position: absolute; left: 9px; color: var(--lm-ok); font-weight: 700; }
+    .diff .d { background: color-mix(in srgb, var(--lm-err) 11%, transparent); }
+    .diff .d::before { content: "−"; position: absolute; left: 9px; color: var(--lm-err); font-weight: 700; }
+    .diff .c { color: var(--lm-muted); }
+    .diff .s { color: var(--lm-faint); font-style: italic; background: var(--lm-side); padding-left: 10px; font-family: inherit; }
+    .chgd { padding: 0 12px 12px 12px; background: var(--lm-panel); cursor: auto; }
+    @media (max-width: 560px) { .chg-f { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .chg-f .v { margin-bottom: 8px; } }
     .foot { padding: 0 16px 14px; max-width: 812px; margin: 0 auto; width: 100%; }
     .note { text-align: center; font-size: 11.5px; color: var(--lm-faint); margin-top: 6px; }
     aside { width: 320px; border-left: 1px solid var(--lm-line); background: var(--lm-bg); overflow-y: auto; padding: 14px; flex: none;
@@ -138,7 +208,8 @@ export class ChatView extends LitElement {
         <span class="st">${st === "running" ? html`<span class="spin"></span>` : st === "ok" ? html`<span class="ok">${icon("check", 16)}</span>`
           : st === "denied" ? html`<span class="den">${icon("lock", 16)}</span>` : html`<span class="err">${icon("alert", 16)}</span>`}
           ${m.ms ? (m.ms > 1000 ? (m.ms / 1000).toFixed(1).replace(".", ",") + " s" : m.ms + " ms") : ""}${icon(open ? "down" : "right", 16)}</span></div>
-      ${open ? html`<div class="detail"><b>Eingabe</b><pre>${JSON.stringify(m.args || {}, null, 2)}</pre>
+      ${m.change ? html`<div class="chgd">${changeView(m.change, st)}</div>` : nothing}
+      ${open ? html`<div class="detail">${m.change ? nothing : html`<b>Eingabe</b><pre>${JSON.stringify(m.args || {}, null, 2)}</pre>`}
         ${m.content ? html`<b>Ergebnis</b><pre>${m.content.slice(0, 6000)}${m.content.length > 6000 ? "\n…" : ""}</pre>` : nothing}</div>` : nothing}`;
   }
 
@@ -196,7 +267,24 @@ export class ChatView extends LitElement {
   }
 
   private permCards() {
-    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => html`<div class="perm">
+    const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
+    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => p.change ? html`<div class="perm">
+      <div class="row">${icon("edit")}<b class="grow">LLMitMir schlägt diese Änderung vor</b></div>
+      ${changeView(p.change)}
+      <div class="row">
+        <button class="btn primary ${p.change.aktion === "loeschen" ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} ${p.change.aktion === "loeschen" ? t("Löschen") : t("Übernehmen")}</button>
+        <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
+      </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
+    : p.group ? html`<div class="perm">
+      <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte „${p.group_label}“ nutzen: ${p.label}</b></div>
+      <div class="hint">Diese Werkzeuge sind ${this.chat?.project_id ? "in diesem Chat oder Projekt" : "in diesem Chat"} nicht eingeschaltet.</div>
+      <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
+      <div class="row">
+        <button class="btn primary" @click=${() => answer(p, "once")}>${t("Einmal erlauben")}</button>
+        <button class="btn" @click=${() => answer(p, "always")}>${t("Für diesen Chat einschalten")}</button>
+        <button class="btn ghost danger" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
+      </div><div class="hint">„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.</div></div>`
+    : html`<div class="perm">
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte: ${p.label}</b></div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">

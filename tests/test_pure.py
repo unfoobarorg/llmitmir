@@ -178,3 +178,90 @@ def test_progress_short_form():
     assert [x["status"] for x in tools.advance_progress(items, 4)] == ["erledigt", "erledigt", "fehler", "laeuft"]
     assert [x["status"] for x in tools.advance_progress(items, 2)] == ["erledigt", "laeuft", "fehler", "offen"]
     assert all(x["status"] in ("erledigt", "fehler") for x in tools.advance_progress(items, 5))
+
+
+selfdoc = load("selfdoc")
+
+
+def test_selfdoc_tool_names_exist():
+    """Every tool the self-knowledge texts mention must really be registered."""
+    import re
+
+    registered = set()
+    for f in (BASE / "tools").glob("*.py"):
+        registered |= set(re.findall(r'register\(Tool\("(\w+)"', f.read_text()))
+    text = selfdoc.ABOUT + selfdoc.HA + selfdoc.MANUAL
+    mentioned = set(re.findall(r"\b((?:ha|dav|caldav|file|skill|web|werkbank|http|progress|credentials|llmitmir)_\w+|notify|shell)\b", text))
+    assert "llmitmir_info" in registered
+    assert mentioned - registered == set()
+
+
+def test_selfdoc_overview_and_detail():
+    meta = {
+        "projects": {"p1": {"id": "p1", "name": "Hof", "description": "Hofladen", "instructions": "Sei nett",
+                            "skills": ["s1"], "skills_only": True}},
+        "skills": {"s1": {"id": "s1", "name": "sawiko-gmail", "description": "Mails lesen", "body": "So geht es",
+                          "credentials": ["k1"]},
+                   "s2": {"id": "s2", "name": "geheim", "description": "x", "enabled": False}},
+        "tasks": {"t1": {"id": "t1", "name": "Mails prüfen", "prompt": "Prüfe die Mails " * 50, "project_id": "p1",
+                         "schedule": {"type": "daily", "time": "07:30"}, "allow_write": ["notify"], "notify": "error",
+                         "last_run": {"status": "error", "error": "Zeitüberschreitung", "started": 1_700_000_000}}},
+        "credentials": {"k1": {"id": "k1", "name": "Gmail", "type": "imap", "fields": {"password": "pw"}}},
+    }
+    o = selfdoc.overview(meta)
+    assert "sawiko-gmail [Zugänge: Gmail]" in o and "geheim (deaktiviert)" in o
+    assert "Mails prüfen (täglich um 07:30; aktiv; Projekt Hof" in o and "Gmail (imap)" in o and "pw" not in o
+    assert "geheim" not in selfdoc.overview(meta, allowed_skills={"s1"})
+
+    sec, t = selfdoc.find(meta, "Aufgabe", "mails")
+    d = selfdoc.detail(meta, sec, t)
+    assert sec == "tasks" and d.count("Prüfe die Mails") == 50 and "Freigaben: notify" in d
+    assert "nur bei Fehlern" in d and "Zeitüberschreitung" in d and "Projekt: Hof" in d
+    sec, s = selfdoc.find(meta, "skills", "SAWIKO-GMAIL")
+    d = selfdoc.detail(meta, sec, s, ["a.py"])
+    assert "So geht es" in d and "Gmail" in d and "a.py" in d and "pw" not in d
+    sec, p = selfdoc.find(meta, "projekt", "p1")
+    assert "Sei nett" in selfdoc.detail(meta, sec, p) and "sawiko-gmail (nur diese)" in selfdoc.detail(meta, sec, p)
+    assert selfdoc.find(meta, "skill", "geheim", allowed_skills={"s1"}) is None
+    assert selfdoc.find(meta, "zugang", "Gmail") is None
+
+
+changes = load("changes")
+
+
+def test_line_diff_folds_unchanged_lines():
+    old = "\n".join(f"Zeile {i}" for i in range(1, 21))
+    new = old.replace("Zeile 10", "Zeile zehn")
+    d = changes.line_diff(old, new)
+    assert ["-", "Zeile 10"] in d and ["+", "Zeile zehn"] in d
+    assert d[0] == ["…", 7] and d[-1] == ["…", 8]  # 2 lines of context around the change
+    assert [r for r in d if r[0] == " "] == [[" ", "Zeile 8"], [" ", "Zeile 9"], [" ", "Zeile 11"], [" ", "Zeile 12"]]
+    assert changes.line_diff("a", "a\nb") == [[" ", "a"], ["+", "b"]]
+
+
+def test_change_sets():
+    meta = {"credentials": {"k1": {"id": "k1", "name": "Gmail"}}, "projects": {"p1": {"id": "p1", "name": "Hof"}}}
+    new = {"name": "mail", "description": "Mails", "body": "Schritt 1\nSchritt 2", "credentials": ["k1"]}
+    ch = changes.build("skill", "mail", [], changes.skill_fields(new, meta))
+    assert ch["aktion"] == "anlegen" and {f["feld"] for f in ch["felder"]} == {"Name", "Beschreibung", "Anleitung", "Zugänge", "Aktiv"}
+    upd = dict(new, body="Schritt 1\nSchritt 2b", enabled=False)
+    ch = changes.build("skill", "mail", changes.skill_fields(new, meta), changes.skill_fields(upd, meta))
+    assert ch["aktion"] == "aendern" and [f["feld"] for f in ch["felder"]] == ["Anleitung", "Aktiv"]
+    assert ch["felder"][0]["diff"] == [[" ", "Schritt 1"], ["-", "Schritt 2"], ["+", "Schritt 2b"]]
+    assert changes.summary(ch) == "Skill „mail“ geändert (geändert: Anleitung, Aktiv)."
+    task = {"name": "Post", "prompt": "Prüfe", "schedule": {"type": "weekdays", "time": "07:00"}, "project_id": "p1"}
+    ch = changes.build("aufgabe", "Post", changes.task_fields(task, meta), [])
+    assert ch["aktion"] == "loeschen" and {"feld": "Zeitplan", "alt": "werktags um 07:00", "neu": None} in ch["felder"]
+
+
+def test_credential_change_never_shows_secrets():
+    old = {"name": "Mail", "type": "imap", "fields": {"imap_host": "a", "password": "alt-geheim"}}
+    same = dict(old, fields=dict(old["fields"], imap_host="b"))
+    ch = changes.build("zugang", "Mail", changes.credential_fields(old, {"password"}),
+                       changes.credential_fields(same, {"password"}, old))
+    assert [f["feld"] for f in ch["felder"]] == ["imap_host"]
+    new = dict(old, fields=dict(old["fields"], password="neu-geheim"))
+    ch = changes.build("zugang", "Mail", changes.credential_fields(old, {"password"}),
+                       changes.credential_fields(new, {"password"}, old))
+    assert ch["felder"] == [{"feld": "password", "alt": "•••", "neu": "••• (neu)"}]
+    assert "geheim" not in str(changes.build("zugang", "Mail", [], changes.credential_fields(new, {"password"})))

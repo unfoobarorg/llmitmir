@@ -192,7 +192,7 @@ export class ProjectPage extends StoreElement {
     const chats = (d.chats || []).filter((c: any) => c.project_id === p.id);
     const models = d.models || [];
     const groups = d.tool_groups || {};
-    const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write);
+    const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/projects")}>${icon("left")}</button>
         <label class="tw"><input class="title" placeholder="Name des Projekts" aria-label="Name des Projekts" .value=${p.name}
