@@ -428,19 +428,19 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
         <div class="brow"><button class="btn primary" @click=${()=>C(H,"once")}>${d("check",16)} Ja, diesmal</button>
           <button class="btn" @click=${()=>C(H,"always")}>Immer erlauben</button>
           <button class="btn ghost" @click=${()=>C(H,"deny")}>Nein</button></div>
-        <div class="hint">„Immer erlauben“ lässt sich in den Einstellungen zurücknehmen.</div></div>`})}side(C){let H=s.chatFiles.get(C.id)||[],L=C.progress||[],e=(s.data?.projects||[]).find(i=>i.id===C.project_id),M=C.usage||{};return t`<aside>
+        <div class="hint">„Immer erlauben“ lässt sich in den Einstellungen zurücknehmen.</div></div>`})}side(C){let H=s.chatFiles.get(C.id)||[],L=C.progress||[],e=!!s.runs[C.id]||C.status==="running",M=A=>A.status==="laeuft"&&!e?"erledigt":A.status,i=(s.data?.projects||[]).find(A=>A.id===C.project_id),a=C.usage||{};return t`<aside>
       ${this.narrow?t`<div class="row"><b class="grow">Details</b><button class="iconbtn" @click=${()=>this.panel=!1}>${d("close")}</button></div>`:l}
       <div><h3>${d("list",18)} ${v("Fortschritt")}</h3>
-        ${L.length?t`<div class="prog">${L.map(i=>t`<div>
-          ${i.status==="erledigt"?t`<span class="ok">${d("check",18)}</span>`:i.status==="laeuft"?t`<span class="spin"></span>`:i.status==="fehler"?t`<span class="err">${d("alert",18)}</span>`:t`<span class="muted">${d("mdi:circle-outline",18)}</span>`}
-          <span class=${i.status==="erledigt"?"done":""}>${i.text}</span></div>`)}</div>`:t`<div class="hint">Der Plan erscheint hier, sobald das Modell ihn anlegt.</div>`}</div>
+        ${L.length?t`<div class="prog">${L.map(A=>{let n=M(A);return t`<div>
+          ${n==="erledigt"?t`<span class="ok">${d("check",18)}</span>`:n==="laeuft"?t`<span class="spin"></span>`:n==="fehler"?t`<span class="err">${d("alert",18)}</span>`:t`<span class="muted">${d("mdi:circle-outline",18)}</span>`}
+          <span class=${n==="erledigt"?"done":""}>${A.text}</span></div>`})}</div>`:t`<div class="hint">Der Plan erscheint hier, sobald das Modell ihn anlegt.</div>`}</div>
       <div><h3>${d("file",18)} ${v("Dateien")}</h3>
-        ${H.length?H.map(i=>t`<div class="fl" @click=${()=>this.openFile(i.name)}>${d("file",18)}<span class="grow ellipsis">${i.name}</span>
-          <span class="muted" style="font-size:11.5px">${G(i.size)} B</span>${d("download",16)}</div>`):t`<div class="hint">Noch keine Dateien.</div>`}</div>
+        ${H.length?H.map(A=>t`<div class="fl" @click=${()=>this.openFile(A.name)}>${d("file",18)}<span class="grow ellipsis">${A.name}</span>
+          <span class="muted" style="font-size:11.5px">${G(A.size)} B</span>${d("download",16)}</div>`):t`<div class="hint">Noch keine Dateien.</div>`}</div>
       <div><h3>${d("info",18)} Info</h3><div class="hint" style="display:grid;gap:4px">
-        ${e?t`<span>${v("Projekte")}: <a href="#" @click=${i=>{i.preventDefault(),y(`/project/${e.id}`)}}>${e.name}</a></span>`:l}
+        ${i?t`<span>${v("Projekte")}: <a href="#" @click=${A=>{A.preventDefault(),y(`/project/${i.id}`)}}>${i.name}</a></span>`:l}
         <span>${v("Modell")}: ${b1(C.model)}${C.model_auto?" (automatisch gew\xE4hlt)":""}</span>
-        <span>Anfragen: ${M.requests||0} · Tokens: ${G((M.prompt||0)+(M.completion||0))}</span>
+        <span>Anfragen: ${a.requests||0} · Tokens: ${G((a.prompt||0)+(a.completion||0))}</span>
         <span>Erstellt: ${r1(C.created)}</span></div></div>
     </aside>`}async rename(C){this.editTitle=!1,C.trim()&&C!==this.chat.title&&await s.api.ws("chat/update",{chat_id:this.chatId,title:C.trim()})}render(){let C=this.chat;if(!C)return t`<div class="main"><div class="empty"><lm-spark></lm-spark><p>${v("Laden \u2026")}</p></div></div>`;let H=s.runs[C.id],L=C.kind!=="chat",e=C.task_id?(s.data?.tasks||[]).find(A=>A.id===C.task_id):null,M=(s.data?.projects||[]).find(A=>A.id===C.project_id),i=z(),a=i?s.chatFiles.get(C.id)||[]:[];return t`<div class="main">
       <header>

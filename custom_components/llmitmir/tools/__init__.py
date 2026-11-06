@@ -64,6 +64,15 @@ def as_text(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
+def finish_progress(items: list[dict]) -> list[dict]:
+    """Close the visible list when a run ends normally: nothing runs any more.
+
+    The step that was running counts as done (the run ended with its report); steps the model never
+    reached stay open, and a step marked as failed stays failed – the report says what did not work.
+    """
+    return [dict(p, status="erledigt") if p.get("status") == "laeuft" else p for p in items]
+
+
 def advance_progress(items: list[dict], current: int) -> list[dict]:
     """Short form: steps before `current` (1-based) are done (unless failed), `current` is running."""
     out = []

@@ -179,6 +179,9 @@ def test_progress_short_form():
     assert [x["status"] for x in tools.advance_progress(items, 4)] == ["erledigt", "erledigt", "fehler", "laeuft"]
     assert [x["status"] for x in tools.advance_progress(items, 2)] == ["erledigt", "laeuft", "fehler", "offen"]
     assert all(x["status"] in ("erledigt", "fehler") for x in tools.advance_progress(items, 5))
+    # a finished run closes the list: nothing keeps running, unreached and failed steps stay as they are
+    assert [x["status"] for x in tools.finish_progress(items)] == ["erledigt", "erledigt", "fehler", "offen"]
+    assert [x["status"] for x in tools.finish_progress([{"text": "a", "status": "laeuft"}])] == ["erledigt"]
 
 
 selfdoc = load("selfdoc")

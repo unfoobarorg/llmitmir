@@ -30,7 +30,7 @@ from .const import (AUTO, DEFAULT_CONTEXT, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, S
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
 from .storage import ConfigStore, UserStore, new_id, now
-from .tools import GROUPS, REGISTRY, as_text, load_all
+from .tools import GROUPS, REGISTRY, as_text, finish_progress, load_all
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -544,7 +544,8 @@ class Manager:
                 final = bool(tools) and left == 1
                 prog = chat.get("progress") or []
                 extra: list[dict] = []
-                if (not final and "progress" in ctx.groups() and prog and step - last_progress >= PROGRESS_NUDGE_STEPS
+                if (not final and left > WRAPUP_STEPS and "progress" in ctx.groups() and prog
+                        and step - last_progress >= PROGRESS_NUDGE_STEPS
                         and any(p.get("status") != "erledigt" for p in prog)):
                     # the visible list lags behind; remind the model once, then wait again
                     last_progress = step
@@ -553,8 +554,8 @@ class Manager:
                     extra.append({"role": "user", "content": (
                         f"[LLMitMir] Die sichtbare Schrittliste steht seit {PROGRESS_NUDGE_STEPS} Schritten auf "
                         f"„{now_item}. {prog[now_item - 1].get('text', '')}“. Bist du weiter, rufe `progress_update` mit "
-                        "`aktuell` = Nummer des laufenden Schritts auf – zusammen mit deinem nächsten Werkzeug, "
-                        "nicht als eigener Schritt.")})
+                        "`aktuell` = Nummer des laufenden Schritts auf (alle erledigt: Anzahl + 1) – zusammen mit "
+                        "deinem nächsten Werkzeug, nicht als eigener Schritt.")})
                 if tools and left <= WRAPUP_STEPS:
                     # tell the model about the limit so it ends with a report instead of being cut off
                     extra.append({"role": "user", "content": (
@@ -692,8 +693,11 @@ class Manager:
                                          "error": error})
             # drop a dangling empty streaming message
             chat["messages"] = [m for m in chat["messages"] if not (m.get("streaming") and not m.get("content"))]
-            if final_status != "done" and chat.get("progress"):
-                chat["progress"] = [dict(p, status="offen") if p.get("status") == "laeuft" else p for p in chat["progress"]]
+            if chat.get("progress"):
+                # the run is over: nothing may keep spinning. Normally the list is closed (open steps count as done,
+                # failed ones stay failed); after a stop or an error the running step goes back to open.
+                chat["progress"] = (finish_progress(chat["progress"]) if final_status == "done" else
+                                    [dict(p, status="offen") if p.get("status") == "laeuft" else p for p in chat["progress"]])
                 self.emit(user.id, {"type": "progress", "chat_id": chat["id"], "items": chat["progress"]})
             chat["status"] = final_status if final_status != "done" else "idle"
             chat["last_run"] = {"status": final_status, "error": error, "finished": now(), "started": run.started}
@@ -879,7 +883,8 @@ class ToolContext:
                 "`progress_update` mit `aktuell` = seiner Nummer aufrufen, im selben Zug wie das nächste Werkzeug. "
                 "Nutze die Werkzeuge, prüfe Ergebnisse, rate nichts. "
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
-                "was erledigt ist, was offen ist, Rückfragen.")
+                "was erledigt ist, was offen ist, Rückfragen. Bist du fertig, rufe `progress_update` mit `aktuell` = "
+                "Anzahl der Schritte + 1 auf, damit die Liste abgeschlossen ist, bevor du den Bericht schreibst.")
         if self.task is not None:
             perms = sorted(self.task_write_allowed())
             g = self.groups()

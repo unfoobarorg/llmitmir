@@ -502,15 +502,18 @@ export class ChatView extends LitElement {
   private side(chat: any) {
     const files = store.chatFiles.get(chat.id) || [];
     const prog = chat.progress || [];
+    // a finished run must not keep spinning: without a live run, a step marked "laeuft" is shown as done
+    const live = !!store.runs[chat.id] || chat.status === "running";
+    const status = (p: any) => (p.status === "laeuft" && !live ? "erledigt" : p.status);
     const proj = (store.data?.projects || []).find((p: any) => p.id === chat.project_id);
     const u = chat.usage || {};
     return html`<aside>
       ${this.narrow ? html`<div class="row"><b class="grow">Details</b><button class="iconbtn" @click=${() => (this.panel = false)}>${icon("close")}</button></div>` : nothing}
       <div><h3>${icon("list", 18)} ${t("Fortschritt")}</h3>
-        ${prog.length ? html`<div class="prog">${prog.map((p: any) => html`<div>
-          ${p.status === "erledigt" ? html`<span class="ok">${icon("check", 18)}</span>` : p.status === "laeuft" ? html`<span class="spin"></span>`
-            : p.status === "fehler" ? html`<span class="err">${icon("alert", 18)}</span>` : html`<span class="muted">${icon("mdi:circle-outline", 18)}</span>`}
-          <span class=${p.status === "erledigt" ? "done" : ""}>${p.text}</span></div>`)}</div>`
+        ${prog.length ? html`<div class="prog">${prog.map((p: any) => { const st = status(p); return html`<div>
+          ${st === "erledigt" ? html`<span class="ok">${icon("check", 18)}</span>` : st === "laeuft" ? html`<span class="spin"></span>`
+            : st === "fehler" ? html`<span class="err">${icon("alert", 18)}</span>` : html`<span class="muted">${icon("mdi:circle-outline", 18)}</span>`}
+          <span class=${st === "erledigt" ? "done" : ""}>${p.text}</span></div>`; })}</div>`
           : html`<div class="hint">Der Plan erscheint hier, sobald das Modell ihn anlegt.</div>`}</div>
       <div><h3>${icon("file", 18)} ${t("Dateien")}</h3>
         ${files.length ? files.map((f: any) => html`<div class="fl" @click=${() => this.openFile(f.name)}>${icon("file", 18)}<span class="grow ellipsis">${f.name}</span>
