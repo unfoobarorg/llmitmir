@@ -136,6 +136,11 @@ export class Store extends EventTarget {
         if (e.usage?.external) d.external = e.usage.external;
         if (e.chat_id && e.chat_usage) { const c = this.chats.get(e.chat_id); if (c) c.usage = e.chat_usage; }
         break;
+      case "cred_usage": {
+        const c = (d.credentials || []).find((x: any) => x.id === e.id);
+        if (c) { c.ext_uses = e.ext_uses; c.ext_last = e.ext_last; }
+        break;
+      }
       case "tasks_queue": d.queue = e.queue; break;
       case "models": d.models = e.models; d.defaults = e.defaults; if (e.external) d.external = e.external; break;
       case "meta": this.load(); return;

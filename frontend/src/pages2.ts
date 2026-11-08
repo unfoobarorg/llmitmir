@@ -307,6 +307,7 @@ export class Credentials extends StoreElement {
   render() {
     const cs = store.data?.credentials || [];
     const types = store.data?.credential_types || {};
+    const extShown = !!(ext().configured || ext().has_access || cs.some((c: any) => c.external || c.ext_uses));
     const uses = (id: string) => [...(store.data?.skills || []).filter((s: any) => (s.credentials || []).includes(id)).map((s: any) => s.name),
       ...(store.data?.projects || []).filter((p: any) => (p.credentials || []).includes(id)).map((p: any) => p.name)];
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Zugänge")}</h1>
@@ -316,7 +317,9 @@ export class Credentials extends StoreElement {
         des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>`}
       <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item" @click=${() => navigate(`/credential/${c.id}`)}>
         ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
-        ${c.external ? html`<span class="chip" title="Auch für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>` : nothing}
+        ${extShown ? (c.external ? html`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>`
+          : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
+        ${c.ext_uses ? html`<span class="chip" title=${`Zuletzt ${fmtTime(c.ext_last)}`}>${c.ext_uses}× extern genutzt</span>` : nothing}
         ${uses(c.id).length ? html`<span class="chip">${uses(c.id).length}× genutzt</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
   }
 }
@@ -375,11 +378,16 @@ export class CredentialPage extends StoreElement {
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
         <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, Ablaufdatum, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
-        ${ext().has_access || c.external ? html`<div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!c.external}
-            @change=${(e: any) => this.set("external", e.target.checked)}><b>Auch für kostenpflichtige externe Modelle freigeben</b></label>
-          <div class="hint" style="margin:4px 0 0">Aus: Dieser Zugang ist für externe Modelle (Claude bei Microsoft Azure oder Anthropic) komplett gesperrt – sie sehen weder
-            ihn noch seine Ergebnisse. An: Externe Modelle dürfen ihn nutzen; die Inhalte, die sie damit abrufen (z. B. Dateien), gehen dann an den externen Anbieter.
-            Das Passwort selbst bekommt nie ein Modell zu sehen. Gib nur Zugänge frei, deren Inhalte nicht sensibel sind.</div></div>` : nothing}
+        ${ext().configured || ext().has_access || c.external || c.ext_uses ? html`<div class="card"><b>${icon("euro", 16)} Kostenpflichtige externe Modelle</b>
+          <div class="form" style="margin-top:8px;gap:8px">
+            <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!c.external}
+              @change=${() => this.set("external", false)}><span><b>Gesperrt</b> (Standard)<br><span class="hint">Externe Modelle (Claude bei Microsoft Azure oder Anthropic)
+              sehen diesen Zugang gar nicht, können ihn nicht nutzen, und frühere Ergebnisse aus ihm werden aus dem Verlauf entfernt.</span></span></label>
+            <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!!c.external}
+              @change=${() => this.set("external", true)}><span><b>Freigegeben</b><br><span class="hint">Externe Modelle dürfen ihn nutzen; was sie damit abrufen
+              (z. B. Dateien, Termine), geht an den externen Anbieter. Das Passwort selbst bekommt nie ein Modell zu sehen. Nur für Zugänge ohne sensible Inhalte.</span></span></label>
+            <div class="hint">${c.ext_uses ? html`Von externen Modellen genutzt: <b>${c.ext_uses}×</b>, zuletzt ${fmtTime(c.ext_last)}.` : "Noch nie von einem externen Modell genutzt."}</div>
+          </div></div>` : nothing}
         ${isSimple() ? html`<div class="hint">${icon("lock", 15)} Deine Passwörter sieht die KI nie – LLMitMir setzt sie erst beim Zugriff im Hintergrund ein.</div>` : nothing}
         ${c.id && !isSimple() ? html`<div class="card hint">Im Skill oder Auftrag verweisen: <code>{{cred:${c.name}:${ty.secret?.[0] || "feld"}}}</code> – oder in Werkzeugen <code>zugang: "${c.name}"</code>.</div>` : nothing}
         ${c.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Zugang „${c.name}“ löschen? Skills und Projekte verlieren den Verweis.`)) {

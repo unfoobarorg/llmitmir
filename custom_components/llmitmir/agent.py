@@ -341,6 +341,8 @@ class Manager:
         ps = self.provider_state(user_id)
         models = self.user_ext_models(user_id)
         return {"has_access": bool(models) and self.ext_limit(user_id) > 0, "consent": self.has_consent(user_id),
+                # an external provider is switched on: Zugänge show their lock for external models
+                "configured": any(p.get("enabled") for p in ps["order"] if p["id"] != PV.MAIN),
                 "month_eur": round(self.ext_month(user_id), 4), "limit_eur": self.ext_limit(user_id),
                 "emergency": ps["emergency"], "main_usable": ps["usable"].get(PV.MAIN, True),
                 "main_why": ps["why"].get(PV.MAIN, ""),
@@ -1604,7 +1606,23 @@ class ToolContext:
         if len(text) > TOOL_RESULT_MAX_CHARS:
             text = text[:TOOL_RESULT_MAX_CHARS] + f"\n… (gekürzt, {len(text)} Zeichen insgesamt)"
         msg.update(content=text, status=status, ms=round((time.monotonic() - t0) * 1000))
+        if self.external:
+            self._count_external_use(args)
         return msg
+
+    def _count_external_use(self, args: dict) -> None:
+        """Count per Zugang how often an external model used it (shown on the Zugänge page)."""
+        allowed = self.creds  # only Zugänge released for external models can have been used
+        for name in _creds_in_args(args):
+            c = C.find(allowed, name)
+            if not c:
+                continue
+            c["ext_uses"] = int(c.get("ext_uses") or 0) + 1
+            c["ext_last"] = now()
+            c["ext_last_model"] = self.chat.get("model")
+            self.store.schedule_save(1.0)
+            self.manager.emit(self.user_id, {"type": "cred_usage", "id": c["id"], "ext_uses": c["ext_uses"],
+                                             "ext_last": c["ext_last"]})
 
     def _remember_allow(self, name: str) -> None:
         if self.project:
