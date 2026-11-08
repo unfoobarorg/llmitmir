@@ -1313,7 +1313,9 @@ class ToolContext:
                 "Tabellen nur, wenn sie wirklich klarer sind, und dann klein.\n"
                 "- Erklärst du, wie etwas geht, dann in kurzen, nummerierten Schritten mit den Namen, die die Person auf "
                 "dem Bildschirm sieht.\n"
-                "- Hast du eine Datei angelegt, sag, wie sie heißt – die Person findet sie oben im Chat unter „Dateien“.")
+                "- Hast du eine Datei angelegt, sag, wie sie heißt – die Person findet sie oben im Chat unter „Dateien“.\n"
+                "- Vor und zwischen Werkzeugaufrufen keinen Text schreiben (keine Ankündigungen wie „Ich schaue kurz nach“): "
+                "Die Person sieht nur deine fertige Antwort.")
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "

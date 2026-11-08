@@ -44,6 +44,10 @@ function dayLabel(ts: any): string {
 const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellungen|Zustimmung|extern|Projekt/.test(e) ? e
   : "Die KI hat gerade nicht richtig geantwortet. Versuch es bitte gleich noch einmal.";
 
+/** Simple view: text of an external model is only shown once its step is over. Claude announces nearly every tool call
+ *  with a sentence ("Ich schaue kurz nach …"); streamed live, it flashed up and vanished again when the tool call came. */
+const heldBack = (m: any) => !!m?.streaming && isExternal(m.model);
+
 const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
 
 function changeField(f: any, aktion: string) {
@@ -425,7 +429,7 @@ export class ChatView extends LitElement {
       // newest first; an answer is an assistant message with text (or an error) that does not go on with tools
       const asst = [...tn.rest].reverse().filter((m: any) => m.role === "assistant");
       const isAnswer = (m: any) => m && (m.content || m.error) && !m.tool_calls?.length;
-      const ans = live ? (isAnswer(asst[0]) ? asst[0] : null) : asst.find(isAnswer) || asst.find((m: any) => m.content);
+      const ans = live ? (isAnswer(asst[0]) && !heldBack(asst[0]) ? asst[0] : null) : asst.find(isAnswer) || asst.find((m: any) => m.content);
       if (ans) out.push(this.aiBubble(ans, live, isLast && !run));
     });
     return out;
@@ -457,7 +461,7 @@ export class ChatView extends LitElement {
   private typing(run: any, chat: any) {
     if (!run || run.status === "waiting_permission") return nothing;
     const last = chat.messages[chat.messages.length - 1];
-    if (last?.role === "assistant" && (last.content || last.error) && !last.tool_calls?.length) return nothing;  // the answer is there
+    if (last?.role === "assistant" && (last.content || last.error) && !last.tool_calls?.length && !heldBack(last)) return nothing;  // the answer is there
     const el = this.now / 1000 - (run.started || this.now / 1000);
     const d = run.detail || {};
     let text: string;
