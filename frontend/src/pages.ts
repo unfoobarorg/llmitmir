@@ -246,15 +246,18 @@ export class ProjectPage extends StoreElement {
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
           ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.credentials_only} @change=${(e: any) => this.set("credentials_only", e.target.checked)}> Nur diese Zugänge erlauben</label></div>
+        ${d.external?.has_access || p.no_external ? html`<div class="card"><h3>${icon("euro", 18)} Externe Modelle</h3>
+          <label class="row hint"><input type="checkbox" style="width:auto" .checked=${!!p.no_external} @change=${(e: any) => this.set("no_external", e.target.checked)}> Nie an kostenpflichtige externe Modelle senden</label>
+          <div class="hint" style="margin-top:6px">Für Projekte mit sensiblen Inhalten: Chats und Aufgaben dieses Projekts laufen dann nur beim Hauptanbieter – auch im Notfall.</div></div>` : nothing}
         <div class="card"><h3>${icon("skill", 18)} ${t("Skills")}</h3><div class="chips">
           ${(d.skills || []).map((s: any) => html`<button class=${(p.skills || []).includes(s.id) ? "on" : ""} @click=${() => this.toggle("skills", s.id)}>${s.name}</button>`)}
           ${!(d.skills || []).length ? html`<span class="hint">Noch keine Skills angelegt.</span>` : nothing}</div>
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.skills_only} @change=${(e: any) => this.set("skills_only", e.target.checked)}> Nur diese Skills anbieten</label></div>
         ${simple ? nothing : html`<div class="card"><h3>${icon("sparkle", 18)} Modelle</h3>
           <label class="f"><span>Chat</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
-            <option value="">${defaultLabel("chat")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_chat === m.id}>${m.name}</option>`)}</select></label>
+            <option value="">${defaultLabel("chat")}</option>${models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${p.model_chat === m.id}>${m.name}</option>`)}</select></label>
           <label class="f" style="margin-top:8px"><span>Cowork / Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
-            <option value="">${defaultLabel("agent")}</option>${models.map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>`}
+            <option value="">${defaultLabel("agent")}</option>${models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>`}
         <div class="card"><h3>${icon("tools", 18)} ${t("Werkzeuge")} & Freigaben</h3>
           <div class="chips">${Object.entries(groups).filter(([g]) => !["files", "skills", "progress", "ha"].includes(g)).map(([g, info]: any) => {
             const on = p.tool_groups == null || p.tool_groups.includes(g);

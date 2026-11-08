@@ -53,6 +53,19 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   zentral vom Admin für alle oder von jeder Person selbst gewählt (ein Schlüssel für alles, eigener Aufgaben-Schlüssel oder
   zentraler Aufgaben-Schlüssel). Unter *Geplant* steht, wie viele Anfragen und Tokens alle Aufgaben auf diesem Schlüssel je Tag
   verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum persönlichen Tageskontingent.
+- **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
+  einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte
+  Claude-Modell und eigene Deployment-Namen per kostenloser Token-Zählung). Der Admin bringt die Anbieter in eine **Reihenfolge**
+  und stellt je Anbieter ein, ob seine Modelle **immer** oder **nur im Notfall** wählbar sind – „Notfall“ heißt: alle eingeschalteten
+  Anbieter davor sind für die Person gerade nicht nutzbar (Limit erreicht, Schlüssel abgelehnt, Monatslimit verbraucht). Externe
+  Modelle wählt LLMitMir **nie von selbst**: nur im Modellmenü (vom günstigsten zum teuersten sortiert), über ein Ersatz-Angebot im
+  Chat, wenn der Hauptanbieter ausfällt, oder bei geplanten Aufgaben mit „Im Notfall auf externe Modelle ausweichen“. Vor der ersten
+  Nutzung erklärt ein Dialog verständlich, was dorthin geht und dass keine sensiblen Daten eingegeben werden sollen.
+  **Zugänge** sind für externe Modelle gesperrt, bis die Person sie einzeln freigibt (gesperrte Zugänge und ihre Ergebnisse sieht das
+  Modell gar nicht), Passwörter gehen nie hinaus (jede Anfrage wird zusätzlich geschwärzt), **Projekte** lassen sich ganz sperren.
+  **Abrechnung**: Jede Anfrage wird dauerhaft mit Tokens und Euro-Kosten je Person und Modell gebucht (Anthropic-Listenpreise mit
+  einstellbarem Dollarkurs oder eigene Preise); der Admin setzt je Person ein **Monatslimit in Euro** und sieht die Kosten aller Personen
+  über die letzten zwölf Monate. Claude wird mit adaptivem Denken, Prompt-Caching und unverändert zurückgespielten Denkblöcken genutzt.
 - **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
   geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link. Chatverläufe kommen aus dem offiziellen
   Datenexport von claude.ai (ZIP hochladen).
@@ -95,12 +108,13 @@ unter *Einstellungen → Werkbank* einblendbar). Code: [`werkbank/`](werkbank/).
 Dann *Einstellungen → Geräte & Dienste → Integration hinzufügen → LLMitMir*. Danach erscheint **LLMitMir** in der
 Seitenleiste; dort unter *Admin* Schlüssel, Personen, Kontingente und Modelle einstellen.
 
-Voraussetzung: Home Assistant 2025.1 oder neuer. Zusätzliche Python-Abhängigkeit: `pypdfium2` (wird automatisch installiert).
+Voraussetzung: Home Assistant 2025.1 oder neuer. Zusätzliche Python-Abhängigkeiten: `pypdfium2` und `anthropic` (offizielles SDK
+für die externen Claude-Modelle; beide werden automatisch installiert).
 
 ### Daten
 
 Pro Person unter `<config>/.storage/llmitmir/<user_id>/` (Chats als einzelne Dateien, Anhänge und Arbeitsbereiche unter
-`files/`), die Admin-Konfiguration in `.storage/llmitmir.config`. Beides ist Teil normaler HA-Backups. Zugangsdaten
+`files/`), die Admin-Konfiguration in `.storage/llmitmir.config`, das Kostenbuch der externen Modelle in `.storage/llmitmir.billing`. Beides ist Teil normaler HA-Backups. Zugangsdaten
 und Schlüssel liegen dort wie bei anderen Integrationen unverschlüsselt.
 
 ## Entwicklung
@@ -122,6 +136,11 @@ can be switched on in the settings, and admins can fix the view per person. The 
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).
 Admins choose who may use it and whether keys are shared, assigned per user by the admin, or entered by each user.
 Scheduled tasks can run on a separate key (central or per user), with daily request/token usage of all tasks on that key.
+Optionally, Claude can be added through a Microsoft Foundry resource and/or an Anthropic API key as usage-billed external
+providers: the admin orders all providers and sets each external one to "always selectable" or "emergency only" (unlocked while
+every provider before it is unusable for that person). External models are never chosen automatically, credentials are closed to
+them unless released one by one, projects can be locked, every request is booked permanently with tokens and euro cost, and the
+admin sets a monthly euro limit per person.
 The default model is chosen automatically per role from the provider's live model list (refreshed every three minutes,
 including load and new releases); when a model is overloaded or hangs, the chat recommends a free model of similar quality
 and can switch mid-run, and scheduled tasks switch on their own.

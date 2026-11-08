@@ -88,6 +88,19 @@ def scrub(text: str, secrets_: list[str]) -> str:
     return text
 
 
+def scrub_obj(obj: Any, secrets_: list[str]) -> Any:
+    """``scrub`` for every string in a nested structure (requests to external models)."""
+    if not secrets_:
+        return obj
+    if isinstance(obj, str):
+        return scrub(obj, secrets_)
+    if isinstance(obj, list):
+        return [scrub_obj(x, secrets_) for x in obj]
+    if isinstance(obj, dict):
+        return {k: (v if k in ("signature", "data") else scrub_obj(v, secrets_)) for k, v in obj.items()}
+    return obj
+
+
 def auth_for(cred: dict) -> tuple[dict, Any]:
     """Headers and aiohttp BasicAuth for a credential."""
     import aiohttp

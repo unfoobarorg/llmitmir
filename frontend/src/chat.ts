@@ -5,6 +5,7 @@ import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles,
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { modelById, modelName } from "./modelpick";
+import { offerCard, isExternal, externalCss } from "./external";
 import type { SendDetail } from "./composer";
 import "./composer";
 
@@ -40,7 +41,7 @@ function dayLabel(ts: any): string {
   return d.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
 }
 /** Errors people can act on are shown as they are; technical ones get a plain sentence (details stay available). */
-const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellungen/.test(e) ? e
+const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellungen|Zustimmung|extern|Projekt/.test(e) ? e
   : "Die KI hat gerade nicht richtig geantwortet. Versuch es bitte gleich noch einmal.";
 
 const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
@@ -91,8 +92,10 @@ export class ChatView extends LitElement {
   private _tick: any;
   private _onChange = () => { this.requestUpdate(); this.updateComplete.then(() => this.autoscroll()); };
 
-  static styles = [base, menuItemStyles, css`
+  static styles = [base, menuItemStyles, externalCss, css`
     :host { display: flex; height: 100%; min-height: 0; }
+    .offer { display: grid; gap: 8px; font-size: 13.5px; margin-top: 4px; }
+    .offer svg { vertical-align: -3px; color: var(--lm-warn); }
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
     header { display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 52px; }
     header .title { font-weight: 560; font-size: 15px; padding: 6px 8px; border-radius: 8px; cursor: pointer; max-width: 60vw; }
@@ -309,12 +312,13 @@ export class ChatView extends LitElement {
         ${m.reasoning && showThink ? html`<details class="think" ?open=${streaming && !m.content}><summary>${icon("brain", 16)} ${streaming && !m.content ? html`<span class="shimmer">${t("Denkt nach …")}</span>` : t("Gedanken")}</summary>
           <div class="txt">${m.reasoning}</div></details>` : nothing}
         ${m.content ? html`<div class="md">${md(m.content)}${streaming ? html`<span class="caret"></span>` : nothing}</div>` : nothing}
-        ${m.error ? html`<div class="error">${icon("alert")}<div class="grow"><b>Das hat nicht geklappt.</b><div>${m.error}</div></div>
+        ${m.error ? html`<div class="error">${icon("alert")}<div class="grow"><b>Das hat nicht geklappt.</b><div>${m.error}</div>
+            ${offerCard(chat.id, m.offer, false, last && !run)}</div>
           <button class="btn" @click=${() => this.retry()}>${icon("retry", 16)} ${t("Erneut versuchen")}</button></div>` : nothing}
         ${(m.content || m.error) && !streaming ? html`<div class="meta">
           ${m.content ? html`<button class="iconbtn" title=${t("Kopieren")} @click=${() => copyText(m.content)}>${icon("copy", 16)}</button>` : nothing}
           ${last && !run ? html`<button class="iconbtn" title=${t("Erneut versuchen")} @click=${() => this.retry()}>${icon("retry", 16)}</button>` : nothing}
-          <span>${(store.data?.models || []).find((x: any) => x.id === m.model)?.name || m.model || ""}${m.usage?.completion ? ` · ${fmtNum(m.usage.completion)} Tokens` : ""} · ${fmtTime(m.created)}</span></div>` : nothing}
+          <span>${(store.data?.models || []).find((x: any) => x.id === m.model)?.name || m.model || ""}${isExternal(m.model) ? " · extern" : ""}${m.usage?.completion ? ` · ${fmtNum(m.usage.completion)} Tokens` : ""} · ${fmtTime(m.created)}</span></div>` : nothing}
       </div>`);
       i++;
     }
@@ -331,7 +335,9 @@ export class ChatView extends LitElement {
     if (run.status === "tool") text = (d.label || "Werkzeug") + " …";
     if (run.status === "retry") text = `Modell ausgelastet – neuer Versuch in ${d.seconds} s (Versuch ${d.attempt})`;
     if (run.status === "quota_wait") text = `Limit des Schlüssels erreicht – geht in ${fmtDuration(d.seconds)} weiter`;
-    if (run.status === "thinking" && d.switched_from) text = `${d.auto ? "Automatisch gewechselt" : "Gewechselt"} von ${modelName(d.switched_from)} zu ${modelName(chat.model)} – denkt nach …`;
+    if (run.status === "thinking" && d.switched_from) text = isExternal(chat.model) && d.auto
+      ? `Hauptanbieter nicht nutzbar – weiter mit ${modelName(chat.model)} (kostenpflichtig) – denkt nach …`
+      : `${d.auto ? "Automatisch gewechselt" : "Gewechselt"} von ${modelName(d.switched_from)} zu ${modelName(chat.model)} – denkt nach …`;
     const el = (this.now / 1000) - (run.started || this.now / 1000);
     return html`<div class="running"><lm-spark></lm-spark><span class="shimmer">${text}</span>
       ${el > 20 ? html`<span class="muted" style="font-size:12px">· ${fmtDuration(el)}</span>` : nothing}</div>
@@ -436,6 +442,7 @@ export class ChatView extends LitElement {
     if (m.error) return html`<div class="bubble ai fail">
       <div><b>Das hat leider nicht geklappt.</b> ${plainError(m.error)}</div>
       ${plainError(m.error) !== m.error ? html`<details class="why"><summary>${icon("info", 15)} Was genau ist passiert?</summary><pre>${m.error}</pre></details>` : nothing}
+      ${offerCard(this.chatId, m.offer, true, last)}
       <div class="bfoot">${last ? html`<button class="btn" @click=${() => this.retry()}>${icon("retry", 16)} Noch einmal versuchen</button><span class="grow"></span>` : nothing}
         <span class="bt">${hm(m.created)}</span></div></div>`;
     return html`<div class="bubble ai">
@@ -549,6 +556,7 @@ export class ChatView extends LitElement {
           : html`<span class="title ellipsis" @click=${() => (this.editTitle = true)}>${chat.title || t("Neuer Chat")}</span>`}
         ${isWork && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
+        ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon("euro", 14)} ${simple ? "Ersatz-KI" : "extern"}</span>` : nothing}
         <span class="grow"></span>
         ${files.length ? html`<lm-menu direction="down" align="right"><button slot="trigger" class="btn ghost" title=${t("Dateien")}>${icon("file", 18)}${this.narrow ? "" : ` ${t("Dateien")}`} <span class="chip">${files.length}</span></button>
           <div class="mh">Dateien in diesem Chat</div>
@@ -573,11 +581,12 @@ export class ChatView extends LitElement {
         ${simple ? this.typing(run, chat) : this.runIndicator(run, chat)}
       </div></div>
       <div class="foot">
-        <lm-composer .simple=${simple} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
+        <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .tools=${chat.tools ?? null} .projectId=${chat.project_id}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
           @send=${this.send} @stop=${this.stop}></lm-composer>
-        <div class="note">${chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter." : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
+        <div class="note">${isExternal(chat.model) ? `Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"} – bitte keine sensiblen Daten eingeben.`
+          : chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter." : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
       </div>
     </div>
     ${isWork && !simple && !this.narrow ? this.side(chat) : nothing}

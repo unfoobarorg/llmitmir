@@ -8,6 +8,7 @@ import { claudeImportPrompt } from "./importprompt";
 import { load, loadDot, modelName } from "./modelpick";
 import werkbankGuide from "../../docs/WERKBANK.md";
 import { taskUsageCard, taskUsageCss, usageBlock, taskKeyLabel } from "./taskusage";
+import { ensureConsent, externalCss, externalExplanation, fmtEur, priceText } from "./external";
 
 
 const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
@@ -30,6 +31,15 @@ const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
   .wbgrid ul { margin: 6px 0 0; padding-left: 1.2em; } .wbgrid li { margin: 3px 0; font-size: 13.5px; }
   .guide { margin-top: 12px; max-height: 70vh; overflow-y: auto; }
   .status { display: inline-flex; align-items: center; gap: 6px; }
+  .prov { display: grid; gap: 10px; }
+  .prov .card { display: grid; gap: 10px; }
+  .prov .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .prov .pos { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--lm-accent-soft); color: var(--lm-accent); font-weight: 600; font-size: 13px; flex: none; }
+  .prov .off { opacity: .6; }
+  .mbars { display: flex; align-items: flex-end; gap: 2px; height: 34px; min-width: 120px; }
+  .mbars div { flex: 1; background: var(--lm-accent); border-radius: 2px 2px 0 0; min-height: 1px; opacity: .8; }
+  td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .matrix td, .matrix th { text-align: center; } .matrix td:first-child, .matrix th:first-child { text-align: left; }
   @media (max-width: 640px) { .wbgrid { grid-template-columns: 1fr; } }
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }`;
 
@@ -66,7 +76,7 @@ export class SettingsPage extends StoreElement {
   @state() private imp: any = null;
   @state() private impResult: any = null;
   @state() private guide = false;
-  static styles = [base, css2, taskUsageCss];
+  static styles = [base, css2, taskUsageCss, externalCss];
   connectedCallback() {
     super.connectedCallback();
     this.reset();
@@ -135,6 +145,26 @@ export class SettingsPage extends StoreElement {
       <div class="hint">Gilt für alle Läufe geplanter Aufgaben, auch „Jetzt ausführen“. Läufe auf einem eigenen oder zentralen Aufgaben-Schlüssel
         zählen nicht zum persönlichen Tageskontingent.</div></div></section>`;
   }
+  private externalSection() {
+    const e = store.data?.external || {};
+    if (!e.has_access && !e.consent) return nothing;
+    const months: any[] = this.history?.external?.months || [];
+    const max = Math.max(0.01, ...months.map(m => m.eur));
+    const names = this.history?.external?.names || {};
+    const cur = months[months.length - 1];
+    return html`<section><h2>${icon("euro", 18)} Kostenpflichtige externe Modelle</h2><div class="card form">
+      ${externalExplanation()}
+      <div class="row" style="flex-wrap:wrap">${e.consent ? html`<span class="chip ok">${icon("check", 13)} Du hast zugestimmt</span>
+          <button class="btn ghost" @click=${async () => { await store.api.ws("external/consent", { accept: false }); await store.load(); store.notify("Zustimmung zurückgenommen"); }}>Zustimmung zurücknehmen</button>
+          <span class="hint">Danach sind externe Modelle für dich gesperrt; Aufgaben weichen nicht mehr aus.</span>`
+        : html`<button class="btn primary" @click=${async () => { if (await ensureConsent()) store.notify("Zugestimmt"); }}>Lesen und zustimmen …</button>`}</div>
+      <div><div class="row"><b class="grow">Diesen Monat</b><span>${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)}</span></div>
+        <div style="height:6px;border-radius:4px;background:var(--lm-hover);overflow:hidden;margin-top:6px"><div style="height:100%;width:${Math.min(100, Math.round(100 * (e.month_eur || 0) / (e.limit_eur || 1)))}%;background:var(--lm-accent)"></div></div>
+        ${cur && Object.keys(cur.models || {}).length ? html`<div class="hint" style="margin-top:6px">${Object.entries(cur.models).map(([k, v]: any) => `${names[k] || k}: ${fmtEur(v.eur)} (${v.requests} Anfragen)`).join(" · ")}</div>` : nothing}</div>
+      ${months.some(m => m.eur > 0) ? html`<div><div class="bars" style="height:80px">${months.map(m => html`<div title="${m.month}: ${fmtEur(m.eur)} · ${m.requests} Anfragen" style="height:${Math.max(2, (m.eur / max) * 74)}px"></div>`)}</div>
+        <div class="hint">Kosten je Monat, letzte 12 Monate. Das Limit legt der Admin fest; am Monatsersten beginnt es neu.</div></div>` : nothing}
+    </div></section>`;
+  }
   private vorgabe(role: "chat" | "agent") {
     const b = store.data.defaults.base?.[role] || {};
     return b.auto ? `Vorgabe – automatisch (derzeit ${modelName(b.model)})` : `Vorgabe (${modelName(b.model)})`;
@@ -161,9 +191,9 @@ export class SettingsPage extends StoreElement {
           : html`<div class="hint">Wirkt nach dem Speichern sofort. Du kannst jederzeit zurückwechseln.</div>`}</div></section>
       ${simple ? nothing : html`<section><h2>${icon("sparkle", 18)} Modelle</h2><div class="two">
         <label class="f"><span>Standard für Chats</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
-          <option value="">${this.vorgabe("chat")}</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_chat === m.id}>${m.name}</option>`)}</select></label>
+          <option value="">${this.vorgabe("chat")}</option>${d.models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${s.model_chat === m.id}>${m.name}</option>`)}</select></label>
         <label class="f"><span>Standard für Coworks & Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
-          <option value="">${this.vorgabe("agent")}</option>${d.models.map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
+          <option value="">${this.vorgabe("agent")}</option>${d.models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
         <div class="hint" style="margin-top:8px">„Vorgabe“ heißt: LLMitMir nimmt das passendste Modell, das gerade nicht überlastet ist, und berücksichtigt
           neu erschienene Modelle von selbst. Mit einem festen Modell empfiehlt der Chat einen Wechsel, wenn es stark ausgelastet ist.</div></section>`}
       ${d.key_mode === "per_user_own" ? html`<section><h2>${icon("key", 18)} Dein API-Schlüssel</h2>
@@ -171,6 +201,7 @@ export class SettingsPage extends StoreElement {
           @input=${(e: any) => this.set("own_key", e.target.value)}></label>
         <div class="hint">Der Schlüssel gilt nur für dich. Limits und Verbrauch beziehen sich auf ihn.</div></section>` : nothing}
       ${this.taskKeySection()}
+      ${this.externalSection()}
       <section><h2>${icon("bell", 18)} Benachrichtigungen</h2>
         ${!this.devicesLoaded ? html`<div class="hint">Geräte werden geladen …</div>` : this.devices.length ? html`<label class="f"><span>Gerät für Push-Nachrichten (Aufgaben, Werkzeug „Benachrichtigen“)</span>
           <select @change=${(e: any) => { this.deviceSel = e.target.value; this.dirty = true; }}>
@@ -249,7 +280,9 @@ export class AdminPage extends StoreElement {
         task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
         allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank, views: a.views,
         notify_devices: { overrides: a.notify_overrides || {} },
-        models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false } } });
+        models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
+        providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
+        model_access: a.model_access, billing: a.billing } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -290,6 +323,112 @@ export class AdminPage extends StoreElement {
         : html`<div class="hint">Keine Geräte gefunden – die Home-Assistant-App muss auf dem Handy eingerichtet sein.</div>`}
       <div class="hint" style="margin-top:10px">${users.map((u: any) => html`<div>${u.name}: ${byUser.get(u.id)?.join(", ") || "kein Gerät"}</div>`)}</div>
       <div class="hint" style="margin-top:6px">Hat eine Person mehrere Geräte, wählt sie selbst; hat sie nur eines, gilt das automatisch.</div></section>`;
+  }
+  @state() private provBusy = "";
+  private setProv(pid: string, patch: any) { this.set("providers", this.a.providers.map((p: any) => (p.id === pid ? { ...p, ...patch } : p))); }
+  private moveProv(i: number, dir: number) {
+    const list = [...this.a.providers]; const j = i + dir; if (j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]]; this.set("providers", list);
+  }
+  private async refreshProv(pid: string) {
+    if (this.dirty) { await this.save(); if (this.dirty) return; }
+    this.provBusy = pid;
+    try { this.a = await store.api.ws("admin/provider_refresh", { provider_id: pid }); store.notify("Modelle abgerufen"); if (store.data) await store.load(); }
+    catch (e: any) { store.notify(e.message); }
+    this.provBusy = "";
+  }
+  private providersSection() {
+    const a = this.a; const info = a.provider_info || {};
+    const keyInput = (p: any, label: string, ph: string) => html`<label class="f"><span>${label}</span><input type="password" autocomplete="off" placeholder=${ph} .value=${p.key || ""}
+      @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => this.setProv(p.id, { key: e.target.value })}></label>`;
+    return html`<section><h2>${icon("list", 18)} KI-Anbieter und Reihenfolge</h2>
+      <div class="hint" style="margin-bottom:10px">Neben dem Hauptanbieter oben kannst du kostenpflichtige Anbieter für Claude hinterlegen. Die <b>Reihenfolge</b> entscheidet über den Notfall:
+        Ein Anbieter mit „Nur im Notfall“ wird erst wählbar, wenn <b>alle</b> eingeschalteten Anbieter davor für die Person gerade nicht nutzbar sind (Limit erreicht, Schlüssel abgelehnt,
+        Monatslimit verbraucht). „Immer wählbar“ heißt: im Modellmenü jederzeit auswählbar. LLMitMir nimmt externe Modelle nie von selbst – nur auf ausdrücklichen Wunsch
+        oder wenn eine geplante Aufgabe im Notfall ausweichen darf. Wer welches Modell bekommt und die Preise legst du unten fest.</div>
+      ${a.sdk === false ? html`<div class="card" style="color:var(--lm-err)">${icon("alert", 16)} Das Python-Paket „anthropic“ fehlt noch – Home Assistant neu starten, damit es installiert wird.</div>` : nothing}
+      <div class="prov">${a.providers.map((p: any, i: number) => { const ext = p.id !== "main"; const st = p.state || {};
+        return html`<div class="card ${ext && !p.enabled ? "off" : ""}">
+          <div class="head"><span class="pos">${i + 1}</span><b class="grow">${ext ? info[p.id]?.label : `${a.provider.name || "Hauptanbieter"} (Hauptanbieter)`}</b>
+            <button class="iconbtn" title="Nach oben" ?disabled=${i === 0} @click=${() => this.moveProv(i, -1)}>${icon("up", 18)}</button>
+            <button class="iconbtn" title="Nach unten" ?disabled=${i === a.providers.length - 1} @click=${() => this.moveProv(i, 1)}>${icon("arrowDown", 18)}</button>
+            ${ext ? html`<label class="row" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${!!p.enabled} @change=${(e: any) => this.setProv(p.id, { enabled: e.target.checked })}> eingeschaltet</label>` : nothing}</div>
+          ${!ext ? html`<div class="hint">Vorlage, Basis-URL und Schlüssel stehen oben unter „Anbieter“ und „API-Schlüssel“. Kostenlos für die Personen, immer wählbar; nur seine Modelle wählt LLMitMir automatisch.</div>` : html`
+          <div class="two"><label class="f"><span>Verfügbarkeit</span><select @change=${(e: any) => this.setProv(p.id, { mode: e.target.value })}>
+              <option value="fallback" ?selected=${p.mode !== "always"}>Nur im Notfall</option><option value="always" ?selected=${p.mode === "always"}>Immer wählbar</option></select></label>
+            ${p.id === "foundry" ? html`<label class="f"><span>Endpunkt (Ressource oder URL)</span><input placeholder="https://<ressource>.services.ai.azure.com/anthropic" .value=${p.endpoint || ""}
+              @input=${(e: any) => this.setProv(p.id, { endpoint: e.target.value })}></label>` : keyInput(p, "API-Schlüssel (Anthropic Console)", "sk-ant-…")}</div>
+          ${p.id === "foundry" ? html`<div class="two">${keyInput(p, "API-Schlüssel der Foundry-Ressource", "Schlüssel aus „Schlüssel und Endpunkt“")}
+            <label class="f"><span>Weitere Deployment-Namen (optional, durch Komma getrennt)</span><input placeholder="z. B. mein-claude-sonnet" .value=${(p.extra_models || []).join(", ")}
+              @input=${(e: any) => this.setProv(p.id, { extra_models: e.target.value.split(",").map((x: string) => x.trim()).filter(Boolean) })}></label></div>
+            <div class="hint">Foundry hat keine Modellliste: LLMitMir fragt jedes bekannte Claude-Modell (und die Namen oben) kostenlos per Token-Zählung ab und übernimmt die Deployments, die antworten.
+              Nur „Hosted on Azure“-Deployments verlassen Azure nicht. Abgerechnet wird über die Azure-Rechnung zu den Anthropic-Listenpreisen.</div>`
+            : html`<div class="hint">Die Modellliste kommt direkt von der Anthropic-API. Abgerechnet wird über die Anthropic Console – dort am besten zusätzlich ein Ausgabenlimit setzen.</div>`}
+          <div class="row" style="flex-wrap:wrap">
+            <button class="btn" ?disabled=${!p.enabled || this.provBusy === p.id} @click=${() => this.refreshProv(p.id)}>${this.provBusy === p.id ? html`<lm-spark size="16"></lm-spark>` : icon("retry", 16)} Modelle abrufen${this.dirty ? " (speichert vorher)" : ""}</button>
+            <span class="hint">${(p.models || []).length} Modelle${p.models_at ? ` · abgerufen ${fmtTime(p.models_at)}` : ""}</span>
+            ${st.blocked ? html`<span class="chip err">${icon("alert", 13)} gesperrt: ${st.reason} (noch ${Math.ceil(st.blocked_for / 60)} min)</span>`
+              : st.last_ok ? html`<span class="chip ok">${icon("check", 13)} zuletzt erfolgreich ${fmtTime(st.last_ok)}</span>` : nothing}
+            ${st.last_error && !st.blocked ? html`<span class="hint" style="color:var(--lm-err)">${st.last_error}</span>` : nothing}</div>`}
+        </div>`; })}</div></section>`;
+  }
+  private extModelsSection(users: any[]) {
+    const a = this.a; const b = a.billing || {}; const models = a.ext_models || [];
+    if (!models.length) return nothing;
+    const acc = a.model_access || {};
+    const setAcc = (key: string, uid: string, on: boolean) => {
+      const cur = new Set<string>(acc[key] || []); on ? cur.add(uid) : cur.delete(uid);
+      this.set("model_access", { ...acc, [key]: [...cur] });
+    };
+    const setPrice = (key: string, k: string, v: string) => {
+      const pr = { ...(b.prices || {}) }; const cur = { ...(pr[key] || {}) };
+      if (v === "") delete cur[k]; else cur[k] = v.replace(",", ".");
+      if (!cur.in && !cur.out) delete pr[key]; else pr[key] = cur;
+      this.set("billing", { ...b, prices: pr });
+    };
+    const sorted = [...models].sort((x: any, y: any) => (x.blended || 0) - (y.blended || 0));
+    return html`<section><h2>${icon("euro", 18)} Externe Modelle: Preise und Freigaben</h2>
+      <div class="hint" style="margin-bottom:10px">Ein externes Modell bekommt nur, wer hier angehakt ist <b>und</b> unten ein Monatslimit über 0 € hat. Preise in € je Million Tokens;
+        leer = Anthropic-Listenpreis umgerechnet mit dem Kurs unten. Ohne Preis wird ein Modell niemandem angeboten (keine Abrechnung möglich). Die Personen sehen die Modelle vom günstigsten zum teuersten.</div>
+      <div class="tw"><table class="matrix"><tr><th>Modell</th><th class="num">Lesen €/Mio.</th><th class="num">Schreiben €/Mio.</th>${users.map((u: any) => html`<th>${u.name}</th>`)}</tr>
+        ${sorted.map((m: any) => { const ov = (b.prices || {})[m.key] || {}; const p = m.price;
+          return html`<tr><td>${m.name}<div class="hint">${m.provider_name} · ${m.id}${p ? "" : html` · <span style="color:var(--lm-err)">Preis fehlt</span>`}</div></td>
+            <td class="num"><input style="width:84px" inputmode="decimal" placeholder=${p ? String(p.in).replace(".", ",") : "?"} .value=${ov.in != null ? String(ov.in).replace(".", ",") : ""} @input=${(e: any) => setPrice(m.key, "in", e.target.value)}></td>
+            <td class="num"><input style="width:84px" inputmode="decimal" placeholder=${p ? String(p.out).replace(".", ",") : "?"} .value=${ov.out != null ? String(ov.out).replace(".", ",") : ""} @input=${(e: any) => setPrice(m.key, "out", e.target.value)}></td>
+            ${users.map((u: any) => html`<td><input type="checkbox" .checked=${(acc[m.key] || []).includes(u.id)} @change=${(e: any) => setAcc(m.key, u.id, e.target.checked)}></td>`)}</tr>`; })}</table></div>
+      <div class="two" style="margin-top:12px">
+        <label class="f"><span>Umrechnungskurs USD → EUR (für Listenpreise)</span><input inputmode="decimal" .value=${String(b.usd_eur ?? 0.86).replace(".", ",")}
+          @input=${(e: any) => this.set("billing", { ...b, usd_eur: e.target.value.replace(",", ".") })}></label>
+        <label class="f"><span>Ersatzmodell für Notfälle (einfache Ansicht, Aufgaben)</span><select @change=${(e: any) => this.set("billing", { ...b, fallback_model: e.target.value })}>
+          <option value="" ?selected=${!b.fallback_model}>Das günstigste freigegebene Modell</option>
+          ${sorted.map((m: any) => html`<option value=${m.key} ?selected=${b.fallback_model === m.key}>${m.name} (${m.provider_name})</option>`)}</select></label></div>
+      <div class="hint" style="margin-top:6px">Cache-Preise (wiederholt gelesener Verlauf) leitet LLMitMir aus dem Lesepreis ab (Listenpreise: genau nach Anthropic). Jede Anfrage wird mit dem Preis
+        gebucht, der in dem Moment galt – spätere Preisänderungen ändern die Vergangenheit nicht.</div></section>`;
+  }
+  private costsSection(users: any[]) {
+    const a = this.a; const b = a.billing || {}; const costs = a.costs || {};
+    if (!(a.providers || []).some((p: any) => p.id !== "main" && p.enabled) && !Object.values(costs).some((c: any) => c.months?.some((m: any) => m.eur > 0))) return nothing;
+    const limits = b.limits || {};
+    const all = users.map((u: any) => costs[u.id]?.months || []);
+    const max = Math.max(0.01, ...all.flat().map((m: any) => m.eur));
+    const total = all.reduce((sum: number, ms: any[]) => sum + (ms[ms.length - 1]?.eur || 0), 0);
+    const monthLabel = (k: string) => { const [y, m] = k.split("-"); return `${m}/${y.slice(2)}`; };
+    return html`<section><h2>${icon("gauge", 18)} Kosten und Monatslimits (externe Modelle)</h2>
+      <div class="hint" style="margin-bottom:10px">Jede Anfrage an ein externes Modell wird dauerhaft mit Tokens und Kosten erfasst. Das Monatslimit gilt je Person in Euro;
+        ist es erreicht, sind externe Modelle für sie bis zum Monatsersten gesperrt (ein laufender Schritt wird noch fertig). 0 € = keine externen Modelle.</div>
+      <label class="f" style="max-width:320px"><span>Standard-Limit je Person (€/Monat)</span><input inputmode="decimal" .value=${String(b.limit_default ?? 0).replace(".", ",")}
+        @input=${(e: any) => this.set("billing", { ...b, limit_default: e.target.value.replace(",", ".") })}></label>
+      <div class="tw" style="margin-top:12px"><table><tr><th>Person</th><th class="num">Limit €/Monat</th><th class="num">Dieser Monat</th><th>Letzte 12 Monate</th><th class="num">Gesamt</th></tr>
+        ${users.map((u: any, i: number) => { const ms = all[i]; const cur = ms[ms.length - 1] || {}; const sum = ms.reduce((x: number, m: any) => x + m.eur, 0);
+          const lim = costs[u.id]?.limit || 0;
+          return html`<tr><td>${u.name}</td>
+            <td class="num"><input style="width:90px" inputmode="decimal" placeholder=${String(b.limit_default || 0).replace(".", ",")} .value=${limits[u.id] != null ? String(limits[u.id]).replace(".", ",") : ""}
+              @input=${(e: any) => { const l = { ...limits }; if (e.target.value === "") delete l[u.id]; else l[u.id] = e.target.value.replace(",", "."); this.set("billing", { ...b, limits: l }); }}></td>
+            <td class="num">${fmtEur(cur.eur || 0)}${lim ? html`<div class="hint">${Math.round(100 * (cur.eur || 0) / lim)} %</div>` : nothing}</td>
+            <td><div class="mbars">${ms.map((m: any) => html`<div title="${monthLabel(m.month)}: ${fmtEur(m.eur)} · ${m.requests} Anfragen · ${fmtNum(m.input + m.output + m.cache_read + m.cache_write)} Tokens${m.task_eur ? ` · davon Aufgaben ${fmtEur(m.task_eur)}` : ""}"
+              style="height:${Math.max(1, (m.eur / max) * 32)}px"></div>`)}</div></td>
+            <td class="num">${fmtEur(sum)}</td></tr>`; })}
+        <tr><td><b>Alle</b></td><td></td><td class="num"><b>${fmtEur(total)}</b></td><td></td><td></td></tr></table></div></section>`;
   }
   private viewSection(users: any[]) {
     const vw = this.a.views || { default: "choice", users: {} };
@@ -363,6 +502,9 @@ export class AdminPage extends StoreElement {
             @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => this.set("user_keys", { ...a.user_keys, [u.id]: e.target.value })}></td></tr>`)}</table></div>` : nothing}
       </div></section>
       ${this.taskKeySection()}
+      ${this.providersSection()}
+      ${this.extModelsSection(users)}
+      ${this.costsSection(users)}
       <section><h2>${icon("user", 18)} Wer darf LLMitMir nutzen?</h2>
         <div class="tw"><table><tr><th></th><th>Person</th><th>Anfragen/Tag</th><th>Tokens/Tag</th><th>Heute</th></tr>
           ${users.map((u: any) => { const q = a.quota_users[u.id] || {}; const us = a.usage_today[u.id];

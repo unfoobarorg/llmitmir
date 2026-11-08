@@ -14,11 +14,14 @@ from . import credentials as C
 from . import manage as M
 from . import models as MS
 from . import notifydevices as ND
+from . import pricing as PR
+from . import providers as PV
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
                     TASK_KEY_MODES, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
 from .storage import mask_credential, new_id, now
+from .claude_client import available as claude_available
 from .tools import GROUPS, REGISTRY
 
 MASK = "•••"
@@ -67,8 +70,8 @@ def _t(s: str) -> dict:
     return {vol.Required("type"): f"{DOMAIN}/{s}"}
 
 
-def _models_for_users(m) -> list[dict]:
-    return m.models_for_users()
+def _models_for_users(m, user_id: str) -> list[dict]:
+    return m.models_for_user(user_id)
 
 
 def _task_view(m, user_id: str, t: dict) -> dict:
@@ -112,8 +115,9 @@ async def _bootstrap(hass, m, user, st) -> dict:
                              for k, v in C.TYPES.items()},
         "tasks": [_task_view(m, user.id, t) for t in st.meta["tasks"].values()],
         "chats": sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True),
-        "models": _models_for_users(m),
+        "models": _models_for_users(m, user.id),
         "defaults": m.defaults_view(user.id),
+        "external": m.external_view(user.id),
         "tool_groups": GROUPS,
         "tools": {n: {"group": t.group, "label": t.label, "icon": t.icon, "write": bool(t.write), "confirm": t.preview is not None}
                   for n, t in REGISTRY.items()},
@@ -281,7 +285,10 @@ async def ws_project_save(hass, conn, msg, m, user, st):
     pid = p.get("id") or new_id("p")
     old = st.meta["projects"].get(pid, {"created": now()})
     keep = ("name", "description", "instructions", "icon", "color", "credentials", "skills", "credentials_only",
-            "skills_only", "model_chat", "model_agent", "tool_groups", "permissions")
+            "skills_only", "model_chat", "model_agent", "tool_groups", "permissions", "no_external")
+    for k in ("model_chat", "model_agent"):
+        if PV.is_external(p.get(k) or ""):
+            raise ValueError("Externe Modelle lassen sich nicht als Standard eines Projekts festlegen – nur im Chat auswählen.")
     proj = dict(old, **{k: p[k] for k in keep if k in p}, id=pid, updated=now())
     if not str(proj.get("name") or "").strip():
         raise ValueError("Name fehlt")
@@ -346,7 +353,13 @@ async def ws_cred_delete(hass, conn, msg, m, user, st):
 # ---------------------------------------------------------------- tasks
 @command(_t("task/save") | {vol.Required("task"): dict})
 async def ws_task_save(hass, conn, msg, m, user, st):
-    return _task_view(m, user.id, await M.save_task(m, user.id, st, msg["task"]))
+    t = msg["task"]
+    ext = m.external_view(user.id)
+    if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
+        raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
+    if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
+        raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
+    return _task_view(m, user.id, await M.save_task(m, user.id, st, t))
 
 
 @command(_t("task/delete") | {vol.Required("task_id"): str})
@@ -382,6 +395,9 @@ async def ws_task_preview(hass, conn, msg, m, user, st):
 async def ws_settings_save(hass, conn, msg, m, user, st):
     s = msg["settings"]
     cur = st.meta["settings"]
+    for k in ("model_chat", "model_agent"):
+        if PV.is_external(s.get(k) or ""):
+            raise ValueError("Externe Modelle lassen sich nicht als Standard festlegen – nur im Chat oder bei einer Aufgabe auswählen.")
     for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
@@ -424,7 +440,24 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
 async def ws_usage_history(hass, conn, msg, m, user, st):
     tk = m.task_key_info(user.id, st)["key"]
     return {"days": st.meta["usage"], "snapshot": m.usage_snapshot(user.id),
-            "task_key_days": m.task_key_usage(tk)["days"] if tk else []}
+            "task_key_days": m.task_key_usage(tk)["days"] if tk else [],
+            "external": {"months": PR.months(m.billing.ledger, user.id, 12), "days": PR.days(m.billing.ledger, user.id),
+                         "names": {x["key"]: x["name"] for x in m.ext_models()}}}
+
+
+@command(_t("external/consent") | {vol.Required("accept"): bool})
+async def ws_external_consent(hass, conn, msg, m, user, st):
+    """The person read the explanation about external models and agrees (or takes it back)."""
+    if msg["accept"]:
+        st.meta["settings"]["external_consent"] = now()
+    else:
+        st.meta["settings"].pop("external_consent", None)
+        for t in st.meta["tasks"].values():  # without consent no task may move there either
+            t["external_fallback"] = False
+    await st.async_save_meta()
+    m.emit(user.id, {"type": "usage", "usage": m.usage_snapshot(user.id)})
+    m.emit_models()
+    return {"ok": True, "external": m.external_view(user.id)}
 
 
 async def _devices(hass, m) -> list[dict]:
@@ -483,7 +516,23 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "notify_overrides": (cfg.get("notify_devices") or {}).get("overrides") or {},
         "usage_today": usage,
         "key_limits": {"shared": m.provider.key_state(cfg["shared_key"]).snapshot()} if cfg.get("shared_key") else {},
+        "providers": [_provider_view(m, p) for p in m.providers()],
+        "provider_info": PV.INFO,
+        "ext_models": [{k: v for k, v in x.items()} for x in m.ext_models()],
+        "list_prices": PR.KNOWN_USD,
+        "model_access": cfg.get("model_access") or {},
+        "billing": {k: (cfg.get("billing") or {}).get(k) for k in ("usd_eur", "prices", "limits", "limit_default", "fallback_model")},
+        "costs": {u.id: {"months": PR.months(m.billing.ledger, u.id, 12), "limit": m.ext_limit(u.id)} for u in users},
+        "sdk": claude_available(),
     }
+
+
+def _provider_view(m, p: dict) -> dict:
+    out = {k: v for k, v in p.items() if k != "key"}
+    if p["id"] != PV.MAIN:
+        out["key"] = MASK if p.get("key") else ""
+        out["state"] = m.ext_state(p["id"])
+    return out
 
 
 def _task_usage_view(m) -> dict:
@@ -550,6 +599,48 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         if c["werkbank"].get("token") != MASK:
             wb["token"] = str(c["werkbank"].get("token") or "").strip()
         cfg["werkbank"] = wb
+    if "providers" in c:
+        old = {p["id"]: p for p in m.providers()}
+        new = []
+        for p in c["providers"]:
+            pid = p.get("id")
+            if pid not in old:
+                continue
+            q = dict(old[pid])
+            if pid != PV.MAIN:
+                q["enabled"] = bool(p.get("enabled"))
+                q["mode"] = p.get("mode") if p.get("mode") in PV.MODES else "fallback"
+                if p.get("key") != MASK:
+                    q["key"] = str(p.get("key") or "").strip()
+                if pid == PV.FOUNDRY:
+                    q["endpoint"] = str(p.get("endpoint") or "").strip()
+                    q["extra_models"] = [str(x).strip() for x in (p.get("extra_models") or []) if str(x).strip()][:30]
+            new.append(q)
+        cfg["providers"] = PV.normalize(new)
+    if "model_access" in c:
+        cfg["model_access"] = {str(k): [str(u) for u in (v or [])] for k, v in (c["model_access"] or {}).items() if v is not None}
+    if "billing" in c:
+        b = dict(cfg.get("billing") or {})
+        nb = c["billing"] or {}
+        if "usd_eur" in nb:
+            rate = PR._num(nb.get("usd_eur"))
+            if not rate or rate <= 0 or rate > 10:
+                raise ValueError("Bitte einen gültigen Umrechnungskurs USD → EUR eintragen (z. B. 0,86).")
+            b["usd_eur"] = rate
+        if "prices" in nb:
+            prices = {}
+            for key, pr in (nb.get("prices") or {}).items():
+                vals = {k: PR._num((pr or {}).get(k)) for k in PR.PRICE_KEYS}
+                if vals["in"] is not None and vals["out"] is not None:
+                    prices[key] = {k: v for k, v in vals.items() if v is not None}
+            b["prices"] = prices
+        if "limits" in nb:
+            b["limits"] = {uid: PR._num(v) for uid, v in (nb.get("limits") or {}).items() if PR._num(v) is not None}
+        if "limit_default" in nb:
+            b["limit_default"] = PR._num(nb.get("limit_default")) or 0
+        if "fallback_model" in nb:
+            b["fallback_model"] = str(nb.get("fallback_model") or "")
+        cfg["billing"] = b
     if "models" in c:
         mm = dict(cfg.get("models") or {})
         for k in ("enabled", "defaults", "context", "auto_enable_new"):
@@ -559,6 +650,21 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
     await m.config.async_save()
     for uid in list(m.subscribers):
         m.emit(uid, {"type": "meta", "section": "all"})
+    m.emit_models()
+    return _admin_view(m, await _users(hass), await _devices(hass, m))
+
+
+@command(_t("admin/provider_refresh") | {vol.Required("provider_id"): vol.In(list(PV.EXTERNAL))}, admin=True)
+async def ws_provider_refresh(hass, conn, msg, m, user, st):
+    """Ask an external provider for its models (Foundry: which Claude deployments answer)."""
+    from .provider import ProviderError
+
+    try:
+        found = await m.refresh_ext_models(msg["provider_id"])
+    except ProviderError as e:
+        raise ValueError(str(e)) from e
+    if not found:
+        raise ValueError("Keine Modelle gefunden. Bei Foundry: Deployment-Namen prüfen und unter „Weitere Deployments“ eintragen.")
     return _admin_view(m, await _users(hass), await _devices(hass, m))
 
 
@@ -570,7 +676,7 @@ async def ws_models_refresh(hass, conn, msg, m, user, st):
     m._models_at = 0
     if not await m.refresh_models(key=key, max_age=0):
         raise ValueError("Modellliste konnte nicht geladen werden (Schlüssel und Basis-URL prüfen)")
-    return _admin_view(m, await _users(hass))
+    return _admin_view(m, await _users(hass), await _devices(hass, m))
 
 
 @command(_t("admin/werkbank_test") | {vol.Optional("url"): str, vol.Optional("token"): str}, admin=True)

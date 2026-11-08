@@ -7,6 +7,7 @@ import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
 import { taskUsageCard, taskUsageCss } from "./taskusage";
 import { explainer, explainerCss, more } from "./simple";
+import { ensureConsent, ext, fmtEur, isExternal, priceText } from "./external";
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   ${explainerCss}
@@ -71,7 +72,9 @@ export class Tasks extends StoreElement {
       ${tasks.length && !isSimple() ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item" @click=${() => navigate(`/task/${x.id}`)}>
         ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
-          ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}</div>
+          ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}
+          ${x.external_fallback ? html`<span class="chip" title="Darf im Notfall auf kostenpflichtige externe Modelle ausweichen">${icon("euro", 13)} Notfall extern</span>` : nothing}
+          ${x.last_run?.external ? html`<span class="chip warn" title="Der letzte Lauf lief über ein externes Modell">${icon("euro", 13)} zuletzt extern</span>` : nothing}</div>
           <div class="hint">${x.schedule_text}${x.enabled && x.next_run ? ` · nächster Lauf ${fmtTime(x.next_run)}` : ""}${x.schedule_error ? ` · ⚠ ${x.schedule_error}` : ""}</div>
           <div class="st-narrow">${this.status(x)}</div></div>
         <span class="st-wide">${this.status(x)}</span>
@@ -106,6 +109,20 @@ export class TaskPage extends StoreElement {
       this.dirty = false; store.notify(t("Gespeichert")); await store.load();
       if (this.taskId === "new") navigate(`/task/${r.id}`, true);
     } catch (e: any) { store.notify(e.message); }
+  }
+  private fallbackCard(x: any) {
+    const e = ext();
+    if (!e.has_access && !x.external_fallback) return nothing;
+    const simple = isSimple();
+    return html`<div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!x.external_fallback}
+        @change=${async (ev: any) => { const on = ev.target.checked;
+          if (on && !(await ensureConsent())) { ev.target.checked = false; return; }
+          this.set("external_fallback", on); }}>
+        <b>${simple ? "Im Notfall mit einer kostenpflichtigen Ersatz-KI ausführen" : "Im Notfall auf kostenpflichtige externe Modelle ausweichen"}</b></label>
+      <div class="hint" style="margin:4px 0 0">Ist der Hauptanbieter gerade nicht nutzbar (z. B. Limit erreicht), läuft diese Aufgabe dann über ein externes Modell
+        (${(e.providers || []).filter((p: any) => p.id !== "main").map((p: any) => p.operator).join(" oder ") || "Claude"}), statt auszufallen. Dabei gehen der Auftrag
+        und die Ergebnisse der Werkzeuge dorthin – nie Passwörter, und nur Zugänge, die für externe Modelle freigegeben sind. Kosten zählen zu deinem
+        Monatslimit (${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)} verbraucht). Bitte nur ankreuzen, wenn der Auftrag keine sensiblen Informationen enthält.</div></div>`;
   }
   render() {
     const x = this.d; if (!x) return nothing;
@@ -161,9 +178,16 @@ export class TaskPage extends StoreElement {
             <br>${simple ? "Ist gerade viel los, startet die Aufgabe manchmal etwas später." : "Geplant ist der Start – mit Open-Weight-Modellen beginnt ein Lauf oft später und kann länger dauern."}`}</div></div>
         ${simple ? nothing : html`<div class="two">
           ${projectSel}
-          <label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
-            <option value="">${defaultLabel("agent")}</option>${(d.models || []).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
+          <label class="f"><span>${t("Modell")}</span><select @change=${async (e: any) => {
+              const v = e.target.value || null;
+              if (v && isExternal(v) && !(await ensureConsent())) { e.target.value = x.model || ""; return; }
+              this.set("model", v); }}>
+            <option value="">${defaultLabel("agent")}</option>
+            ${(d.models || []).filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}
+            ${(d.models || []).some((m: any) => m.external) ? html`<optgroup label="Kostenpflichtig (extern)">${(d.models || []).filter((m: any) => m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}${m.locked ? " – nur im Notfall" : ""}</option>`)}</optgroup>` : nothing}</select>
+            ${isExternal(x.model) ? html`<span class="hint">${icon("euro", 13)} Jeder Lauf kostet Geld (${priceText((d.models || []).find((m: any) => m.id === x.model)?.price)}). Ist das Modell gerade nicht wählbar, läuft die Aufgabe beim Hauptanbieter.</span>` : nothing}</label>
         </div>`}
+        ${this.fallbackCard(x)}
         <div class="two">
           <label class="f"><span>${simple ? "Nachricht aufs Handy" : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
             ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>
@@ -292,6 +316,7 @@ export class Credentials extends StoreElement {
         des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>`}
       <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item" @click=${() => navigate(`/credential/${c.id}`)}>
         ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
+        ${c.external ? html`<span class="chip" title="Auch für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>` : nothing}
         ${uses(c.id).length ? html`<span class="chip">${uses(c.id).length}× genutzt</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
   }
 }
@@ -350,6 +375,11 @@ export class CredentialPage extends StoreElement {
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
         <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, Ablaufdatum, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
+        ${ext().has_access || c.external ? html`<div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!c.external}
+            @change=${(e: any) => this.set("external", e.target.checked)}><b>Auch für kostenpflichtige externe Modelle freigeben</b></label>
+          <div class="hint" style="margin:4px 0 0">Aus: Dieser Zugang ist für externe Modelle (Claude bei Microsoft Azure oder Anthropic) komplett gesperrt – sie sehen weder
+            ihn noch seine Ergebnisse. An: Externe Modelle dürfen ihn nutzen; die Inhalte, die sie damit abrufen (z. B. Dateien), gehen dann an den externen Anbieter.
+            Das Passwort selbst bekommt nie ein Modell zu sehen. Gib nur Zugänge frei, deren Inhalte nicht sensibel sind.</div></div>` : nothing}
         ${isSimple() ? html`<div class="hint">${icon("lock", 15)} Deine Passwörter sieht die KI nie – LLMitMir setzt sie erst beim Zugriff im Hintergrund ein.</div>` : nothing}
         ${c.id && !isSimple() ? html`<div class="card hint">Im Skill oder Auftrag verweisen: <code>{{cred:${c.name}:${ty.secret?.[0] || "feld"}}}</code> – oder in Werkzeugen <code>zugang: "${c.name}"</code>.</div>` : nothing}
         ${c.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Zugang „${c.name}“ löschen? Skills und Projekte verlieren den Verweis.`)) {

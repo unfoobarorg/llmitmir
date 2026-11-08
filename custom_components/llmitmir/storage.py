@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
-from .const import CONFIG_STORE_KEY, KEY_SHARED, STORAGE_VERSION, TASK_KEY_SAME
+from .const import BILLING_STORE_KEY, CONFIG_STORE_KEY, KEY_SHARED, STORAGE_VERSION, TASK_KEY_SAME
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -67,6 +67,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "werkbank": {"url": "", "token": ""},
     "views": {"default": "choice", "users": {}},   # simple (Laien) or expert view, see views.py
     "notify_devices": {"overrides": {}},   # device key -> user id, where an admin corrected the link, see notifydevices.py
+    # AI providers in the admin's order (providers.py): the main provider above plus usage-billed external ones
+    "providers": [],
+    "model_access": {},       # model key -> [user ids]; external models: nobody unless listed, main models: everybody
+    "billing": {"usd_eur": 0.86, "prices": {}, "limits": {}, "limit_default": 0, "fallback_model": ""},
 }
 
 
@@ -92,6 +96,29 @@ class ConfigStore:
 
     def schedule_save(self, delay: float = 10.0) -> None:
         self._store.async_delay_save(lambda: self.data, delay)
+
+
+class BillingStore:
+    """Permanent cost ledger of usage-billed models (pricing.book): user -> day -> model -> tokens and euros."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._store = Store(hass, STORAGE_VERSION, BILLING_STORE_KEY, private=True)
+        self.data: dict[str, Any] = {"ledger": {}}
+
+    async def async_load(self) -> None:
+        data = await self._store.async_load() or {}
+        data.setdefault("ledger", {})
+        self.data = data
+
+    async def async_save(self) -> None:
+        await self._store.async_save(self.data)
+
+    def schedule_save(self, delay: float = 5.0) -> None:
+        self._store.async_delay_save(lambda: self.data, delay)
+
+    @property
+    def ledger(self) -> dict:
+        return self.data["ledger"]
 
 
 class UserStore:
@@ -246,8 +273,9 @@ class UserStore:
 
     # ---------------------------------------------------------------- usage
     def add_usage(self, prompt: int, completion: int, requests: int = 1, task: bool = False,
-                  separate: bool = False) -> dict:
-        """Count usage. ``task``: scheduled task run; ``separate``: on a task key other than the normal key."""
+                  separate: bool = False, external: bool = False) -> dict:
+        """Count usage. ``task``: scheduled task run; ``separate``: on a task key other than the normal key;
+        ``external``: a usage-billed external model (limited in euros, not by the daily quota)."""
         day = date.today().isoformat()
         u = self.meta["usage"].setdefault(day, {"requests": 0, "prompt": 0, "completion": 0})
         prompt, completion = int(prompt or 0), int(completion or 0)
@@ -258,9 +286,12 @@ class UserStore:
             u["task_requests"] = u.get("task_requests", 0) + requests
             u["task_prompt"] = u.get("task_prompt", 0) + prompt
             u["task_completion"] = u.get("task_completion", 0) + completion
-        if separate:
+        if separate or external:
             u["sep_requests"] = u.get("sep_requests", 0) + requests
             u["sep_tokens"] = u.get("sep_tokens", 0) + prompt + completion
+        if external:
+            u["ext_requests"] = u.get("ext_requests", 0) + requests
+            u["ext_tokens"] = u.get("ext_tokens", 0) + prompt + completion
         cutoff = (date.today() - timedelta(days=120)).isoformat()
         for d in [d for d in self.meta["usage"] if d < cutoff]:
             self.meta["usage"].pop(d, None)

@@ -53,6 +53,8 @@ def build_credential(st, c: dict) -> dict:
     return dict(old, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
                 secret_fields=list(c.get("secret_fields") or old.get("secret_fields") or []),
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
+                # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
+                external=bool(c["external"]) if "external" in c else bool(old.get("external")),
                 updated=now())
 
 
@@ -86,7 +88,8 @@ def build_task(st, t: dict) -> dict:
                 enabled=bool(t.get("enabled", True)), allow_write=list(t.get("allow_write") or []),
                 tool_groups=t.get("tool_groups") or None, notify=t.get("notify") or "always",
                 requires=[r for r in (t.get("requires", old.get("requires")) or []) if r in ("werkbank",)],
-                requires_note=str(t.get("requires_note", old.get("requires_note")) or "")[:1500], updated=now())
+                requires_note=str(t.get("requires_note", old.get("requires_note")) or "")[:1500],
+                external_fallback=bool(t.get("external_fallback", old.get("external_fallback"))), updated=now())
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
     return task

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.6.3"
+VERSION = "0.7.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -12,6 +12,7 @@ PANEL_ELEMENT = "llmitmir-panel"
 
 STORAGE_VERSION = 1
 CONFIG_STORE_KEY = "llmitmir.config"
+BILLING_STORE_KEY = "llmitmir.billing"
 
 # Key modes chosen by the admin
 KEY_SHARED = "shared"            # one central key for everybody
@@ -88,6 +89,13 @@ SLOW_AFTER_TASK = 180          # … in a scheduled task with an automatic model
 SLOW_MEMORY = 600              # a model that hung counts as overloaded for this long (unless it answers quickly again)
 FAST_FIRST_TOKEN = 10          # first output within this many seconds clears that mark
 NEW_MODEL_DAYS = 14            # models first seen within this many days are marked "neu"
+
+# External (usage-billed) models
+EXT_MODELS_REFRESH = 6 * 3600  # look for new deployments / models this often
+FALLBACK_AFTER = 30 * 60       # a scheduled task allowed to move to an external model does so once the main provider
+                               # has been blocked (limit, 429) for longer than this
+EFFORT_CHAT = "medium"         # Claude: thinking effort for chats …
+EFFORT_AGENT = "high"          # … and for coworks and scheduled tasks
 
 # Retry policies (seconds)
 RETRY_INTERACTIVE_MAX_WAIT = 240

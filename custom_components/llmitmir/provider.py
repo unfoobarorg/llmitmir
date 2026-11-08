@@ -13,6 +13,8 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+BLOCK_AUTH = 15 * 60  # a refused key counts as unusable for this long
+BLOCK_RATE = 15 * 60  # … and one that kept answering 429
 
 
 class ProviderError(Exception):
@@ -37,6 +39,22 @@ class KeyState:
     limits: dict[str, Any] = field(default_factory=dict)  # parsed x-ratelimit-* headers
     updated: float = 0.0
     waiting_interactive: int = 0
+    blocked_until: float = 0.0  # the key hit a limit or was refused: providers after this one may step in
+    blocked_reason: str = ""
+
+    def block(self, seconds: float, reason: str) -> None:
+        self.blocked_until = max(self.blocked_until, time.time() + seconds)
+        self.blocked_reason = reason
+
+    def blocked(self) -> bool:
+        if self.blocked_until > time.time():
+            return True
+        snap = self.snapshot()
+        for per in ("day", "hour"):
+            rem = snap.get(f"remaining_requests_{per}")
+            if isinstance(rem, int) and rem <= 0 and float(snap.get(f"reset_requests_{per}") or 0) > 0:
+                return True
+        return False
 
     def snapshot(self) -> dict:
         lim = dict(self.limits)
@@ -125,6 +143,13 @@ class Provider:
                 if reset > 0:
                     raise QuotaExhausted(f"Limit des API-Schlüssels erreicht ({per})", reset)
 
+    def _quota_hit(self, key: str) -> bool:
+        try:
+            self._check_daily(key)
+        except QuotaExhausted:
+            return True
+        return False
+
     async def list_models(self, key: str) -> list[dict]:
         async with self.session.get(f"{self.base_url}/models", headers={"Authorization": f"Bearer {key}"},
                                     timeout=aiohttp.ClientTimeout(total=30)) as r:
@@ -181,7 +206,10 @@ class Provider:
                         text = (await r.text())[:400]
                         if r.status in RETRY_STATUS:
                             raise _Retry(f"HTTP {r.status}: {text}", _retry_after(r.headers, r.status))
+                        if r.status in (401, 402, 403):
+                            st.block(BLOCK_AUTH, f"Schlüssel abgelehnt (HTTP {r.status})")
                         raise ProviderError(f"HTTP {r.status}: {text}")
+                    st.blocked_until, st.blocked_reason = 0.0, ""
                     got_any = False
                     buf = b""
                     async for raw in r.content.iter_any():
@@ -210,15 +238,20 @@ class Provider:
             except QuotaExhausted as e:
                 waited = time.time() - started
                 if waited + e.reset_in > max_wait:
+                    self.key_state(key).block(min(e.reset_in, 24 * 3600), str(e))
                     raise
                 if on_status:
                     await on_status("quota_wait", {"seconds": round(e.reset_in), "reason": str(e)})
                 await _sleep(min(e.reset_in + 5, 3600), cancel)
             except (_Retry, aiohttp.ClientError, asyncio.TimeoutError) as e:
+                if isinstance(e, _Retry) and self._quota_hit(key):
+                    continue  # a 429 because the key's day/hour limit is used up: the quota branch handles it at once
                 wait = e.wait if isinstance(e, _Retry) else min(15 * attempt, 120)
                 wait = min(max(wait, 5), 600 if not interactive else 60)
                 waited = time.time() - started
                 if waited + wait > max_wait:
+                    if "429" in str(e):
+                        self.key_state(key).block(BLOCK_RATE, "Limit erreicht (HTTP 429)")
                     raise ProviderError(f"Modell nicht erreichbar nach {attempt} Versuchen: {e}") from e
                 if on_status:
                     await on_status("retry", {"attempt": attempt, "seconds": round(wait), "reason": str(e)[:200]})
@@ -340,11 +373,14 @@ class StreamAccumulator:
         self.usage: dict = {}
         self.finish_reason: str | None = None
         self.model: str | None = None
+        self.claude: dict | None = None  # Claude: the answer's content blocks (replayed unchanged) and stop reason
 
     def feed(self, chunk: dict) -> tuple[str, str]:
         """Returns (content_delta, reasoning_delta)."""
         if chunk.get("usage"):
             self.usage = chunk["usage"]
+        if chunk.get("_claude"):
+            self.claude = chunk["_claude"]
         self.model = chunk.get("model") or self.model
         c_d = r_d = ""
         for ch in chunk.get("choices") or []:

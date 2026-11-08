@@ -5,6 +5,7 @@ import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeEle
 import { store } from "./api";
 import { t } from "./i18n";
 import { alternative, load, loadDot, type Role } from "./modelpick";
+import { confirmExternal, ext, fmtEur, isExternal, priceText, stepCost } from "./external";
 
 // Status lines while speech is transcribed, rotating every few seconds (English via i18n).
 const TX_VERBS = ["Hört genau hin", "Sortiert Silben", "Fügt Wörter zusammen", "Entziffert Genuschel", "Setzt Satzzeichen",
@@ -26,6 +27,8 @@ export class Composer extends LitElement {
   @property({ type: Boolean }) big = false;
   /** Simple view: no model, tools or usage meters – the model is always chosen automatically. */
   @property({ type: Boolean }) simple = false;
+  /** The chat already has messages (moving it to an external model sends the history along). */
+  @property({ type: Boolean }) history = false;
   @state() private text = "";
   @state() private files: File[] = [];
   @state() private rec: VoiceRecorder | null = null;
@@ -251,6 +254,8 @@ export class Composer extends LitElement {
         <div class="k muted"><span>Diese Stunde übrig</span><span>${lim.remaining_requests_hour} / ${lim.limit_requests_hour}</span></div>${bar(keyHour)}
         ${lim.reset_requests_day ? html`<div class="hint">Tageslimit setzt in ${fmtDuration(lim.reset_requests_day)} zurück.</div>` : nothing}</div>` :
         html`<div class="hint">Limits des Schlüssels erscheinen nach der ersten Anfrage.</div>`}
+      ${ext().has_access ? html`<div><div class="k"><b>Kostenpflichtig (extern)</b><span>${fmtEur(ext().month_eur)} / ${fmtEur(ext().limit_eur)}</span></div>
+        ${bar(fr(ext().month_eur, ext().limit_eur))}<div class="hint">Diesen Monat · Limit vom Admin</div></div>` : nothing}
     </div>`;
   }
 
@@ -265,31 +270,56 @@ export class Composer extends LitElement {
 
   private get modelRole(): Role { return this.mode === "chat" ? "chat" : "agent"; }
 
-  private pickModel(id: string) { this.model = id; this.dispatchEvent(new CustomEvent("model", { detail: id })); }
+  private async pickModel(id: string) {
+    if (isExternal(id) && id !== this.model && !(await confirmExternal(id, this.history))) return;
+    this.model = id; this.dispatchEvent(new CustomEvent("model", { detail: id }));
+  }
 
   private modelMenu() {
     const d = store.data;
     const role = this.modelRole;
     const def = d?.defaults?.[role];
     const rec = d?.defaults?.auto?.[role];
-    // best fit first, so the strong and currently free models are on top
-    const list = [...this.models].sort((a, b) => (b.quality?.[role] || 0) - (a.quality?.[role] || 0));
-    return html`<div class="mh">${t("Modell")}</div>
-      ${list.map(m => { const l = load(m); return html`<button class="mi ${m.id === this.model ? "sel" : ""}" data-close @click=${() => this.pickModel(m.id)}>
-        <div class="grow"><div class="row">${loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
+    // cheapest first; among the free models the best fit for the job, so the strong and currently free ones are on top
+    const list = [...this.models].sort((a, b) => (a.blended || 0) - (b.blended || 0) || (b.quality?.[role] || 0) - (a.quality?.[role] || 0));
+    const free = list.filter(m => !m.external); const paid = list.filter(m => m.external);
+    const row = (m: any) => { const l = load(m); const off = m.external && (m.locked || !m.usable);
+      return html`<button class="mi ${m.id === this.model ? "sel" : ""}" ?data-close=${!off} ?disabled=${off} style=${off ? "opacity:.55;cursor:default" : ""}
+        title=${off ? m.why || "" : ""} @click=${() => { if (!off) this.pickModel(m.id); }}>
+        <div class="grow"><div class="row">${m.external ? icon(off ? "lock" : "euro", 14) : loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
           ${m.id === rec && m.id !== def ? html`<span class="badge" style="color:var(--lm-accent)">Empfohlen</span>` : nothing}
           ${m.new ? html`<span class="badge" style="color:var(--lm-accent)">neu</span>` : nothing}
+          ${m.external && m.locked ? html`<span class="badge">nur im Notfall</span>` : nothing}
           ${m.status === "unavailable" ? html`<span class="badge" style="color:var(--lm-err)">nicht verfügbar</span>` : nothing}</div>
-          <div class="sub">${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? "Bilder · " : ""}${(m.output || []).includes("thought") ? "denkt nach · " : ""}${fmtNum(m.context)} Kontext</div></div>
-        ${m.id === this.model ? icon("check", 18) : nothing}</button>`; })}
+          <div class="sub">${m.external ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} je Schritt${off && m.why ? html` · ${m.why}` : nothing}`
+            : html`${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? "Bilder · " : ""}${(m.output || []).includes("thought") ? "denkt nach · " : ""}${fmtNum(m.context)} Kontext`}</div></div>
+        ${m.id === this.model ? icon("check", 18) : nothing}</button>`; };
+    return html`<div class="mh">${t("Modell")}</div>
+      ${free.map(row)}
+      ${paid.length ? html`<div class="msep"></div><div class="mh">Kostenpflichtig (extern)</div>${paid.map(row)}
+        <div class="hint" style="padding:2px 10px 6px">${fmtEur(ext().month_eur)} von ${fmtEur(ext().limit_eur)} diesen Monat verbraucht. Externe Modelle laufen bei
+          einem anderen Anbieter – keine sensiblen Daten eingeben. ${paid.some(m => m.locked) ? "„Nur im Notfall“ heißt: erst wählbar, wenn die Anbieter davor gerade nicht nutzbar sind." : ""}</div>` : nothing}
       <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Der Punkt zeigt die aktuelle Auslastung beim Anbieter (grün frei, gelb etwas, rot stark).
         „Standard“ wählt automatisch das passendste Modell, das gerade nicht überlastet ist.</div>`;
+  }
+
+  /** The main provider is down: say so and point to the emergency models that are unlocked now (expert view). */
+  private emergencyHint() {
+    const e = ext();
+    if (this.simple || this.busy || !e.emergency || isExternal(this.model) || this.dismissed.has("__emergency")) return nothing;
+    const paid = this.models.filter(m => m.external && !m.locked && m.usable);
+    if (!paid.length) return nothing;
+    const cheapest = paid.sort((a, b) => (a.blended || 0) - (b.blended || 0))[0];
+    return html`<div class="bhint">${icon("euro", 18)}<div class="grow">Der Hauptanbieter ist gerade nicht nutzbar${e.main_why ? ` (${e.main_why})` : ""}.
+        Kostenpflichtige Ersatzmodelle sind im Modellmenü freigeschaltet – z. B. <b>${cheapest.name}</b> (${priceText(cheapest.price)}).</div>
+      <button class="btn" @click=${() => this.pickModel(cheapest.id)}>${cheapest.name} nehmen</button>
+      <button class="iconbtn" title=${t("Schließen")} @click=${() => { this.dismissed = new Set([...this.dismissed, "__emergency"]); }}>${icon("close", 16)}</button></div>`;
   }
 
   /** Before sending to an overloaded model: say so and offer a free one that does the job about as well. */
   private busyHint() {
     const m = this.modelInfo as any;
-    if (this.simple || this.busy || !m?.busy || this.dismissed.has(m.id)) return nothing;
+    if (this.simple || this.busy || !m?.busy || m.external || this.dismissed.has(m.id)) return nothing;
     const needImage = this.files.some(f => f.type.startsWith("image/")) && (m.input || []).includes("image");
     const alt = alternative(m.id, this.modelRole, needImage);
     return html`<div class="bhint">${icon("hourglass", 18)}<div class="grow"><b>${m.name}</b> ist gerade ${load(m)?.text || "stark ausgelastet"} – Antworten können
@@ -327,7 +357,7 @@ export class Composer extends LitElement {
     const cu = this.chatUsage;
     const cf = cu?.context && cu?.context_max ? cu.context / cu.context_max : 0;
     const secs = this.rec ? Math.floor((Date.now() - this.recStart) / 1000) : 0;
-    return html`${this.busyHint()}<div class="box ${this.big ? "big" : ""} ${this.drag ? "drag" : ""}"
+    return html`${this.busyHint()}${this.emergencyHint()}<div class="box ${this.big ? "big" : ""} ${this.drag ? "drag" : ""}"
         @dragover=${(e: DragEvent) => { e.preventDefault(); this.drag = true; }} @dragleave=${() => (this.drag = false)}
         @drop=${(e: DragEvent) => { e.preventDefault(); this.drag = false; this.addFiles(e.dataTransfer?.files || null); }}>
       ${this.files.length ? html`<div class="files">${this.files.map((f, i) => html`<span class="file">${icon(f.type.startsWith("image/") ? "image" : "file", 16)}
@@ -352,7 +382,7 @@ export class Composer extends LitElement {
         ${this.simple ? nothing : html`<lm-menu direction="up" align="right"><button slot="trigger" class="meter" title="${t("Kontext")} & ${t("Kontingent")}">
           ${cu ? html`<lm-ring .value=${cf} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Kontingent")}></lm-ring></button>
           ${this.usageMenu()}</lm-menu>
-        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
+        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${(this.modelInfo as any).external ? icon("euro", 14) : loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
         ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
             @click=${this.toggleRec} ?disabled=${this.transcribing}>${icon("mic")}</button>`
           : !this.rec ? html`<button class="send ${busy ? "stop" : ""}" title=${busy ? t("Stopp") : t("Senden")} @click=${this.send}>${icon(busy ? "stop" : "send")}</button>` : nothing}

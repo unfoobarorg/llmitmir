@@ -154,7 +154,9 @@ class Scheduler:
         st = await self.m.user_store(user.id)
         last = task.get("last_run") or {}
         answer = next((m.get("content") for m in reversed(chat["messages"]) if m["role"] == "assistant" and m.get("content")), "")
-        last.update({"status": status, "finished": now(), "error": error, "summary": (answer or "")[:400]})
+        last.update({"status": status, "finished": now(), "error": error, "summary": (answer or "")[:400],
+                     "external": chat.get("model") if chat.get("external_used") else None,
+                     "fallback": bool(chat.get("model_fallback"))})
         task["last_run"] = last
         prev_summary = task.get("_prev_summary")
         task["_prev_summary"] = last["summary"]
@@ -169,6 +171,8 @@ class Scheduler:
             devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
             device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
             title = ("✓ " if status == "done" else "⚠ ") + str(task.get("name") or "Aufgabe")
+            if chat.get("external_used") and chat.get("model_fallback"):
+                title += " (Notfall: externes Modell)"
             text = re.sub(r"[#*_`>]+", "", (error or answer or "Fertig.")).strip()
             try:
                 if device:

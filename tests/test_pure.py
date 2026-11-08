@@ -496,3 +496,138 @@ def test_notify_device_links_by_admin():
     assert nd.clean_links({"overrides": {"d2": "", "d3": "doro"}}) == {"overrides": {"d3": "doro"}}
     assert nd.clean_links(None) == {"overrides": {}}
     assert nd.clean_name("  NiPad \n") == "NiPad"
+
+
+# ---------------------------------------------------------------- external providers, prices, Claude format
+pr = load("pricing")
+pv = load("providers")
+cc = load("claude_convert")
+
+
+def test_prices_and_cost():
+    p = pr.price_eur("claude-sonnet-5-5", None, 1.0)
+    assert (p["in"], p["out"], p["source"]) == (2.0, 10.0, "list")
+    assert pr.price_eur("my-claude-opus-5-5", None, 1.0)["in"] == 4.0  # deployment names with a prefix
+    assert pr.price_eur("kimi-k3", None, 1.0) is None  # unknown → never offered
+    own = pr.price_eur("kimi-k3", {"in": "1,5", "out": 6}, 0.9)
+    assert (own["in"], own["out"], own["cache_read"], own["source"]) == (1.5, 6.0, 0.15, "admin")
+    # 1 M input + 100 k output on Sonnet 5.5 at 0.86 €/$: 1.72 + 0.86
+    eur = pr.cost({"input": 1_000_000, "output": 100_000}, pr.price_eur("claude-sonnet-5-5", None, 0.86))
+    assert round(eur, 4) == 2.58
+    # Haiku 5.5 is dearer above 100 k prompt tokens
+    h = pr.price_eur("claude-haiku-5-5", None, 1.0)
+    assert pr.cost({"input": 50_000}, h) == 50_000 * 0.10 / 1e6
+    assert pr.cost({"input": 150_000}, h) == 150_000 * 0.50 / 1e6
+    assert pr.blended(pr.price_eur("claude-haiku-5-5", None, 1)) < pr.blended(pr.price_eur("claude-opus-5-5", None, 1))
+
+
+def test_ledger_months_and_limits():
+    from datetime import date
+    led = {}
+    pr.book(led, "u1", "foundry:claude-sonnet-5-5", {"input": 1000, "output": 10}, 0.5, day=date(2026, 10, 30))
+    pr.book(led, "u1", "foundry:claude-sonnet-5-5", {"input": 1000, "output": 10}, 0.25, day=date(2026, 11, 2), task=True)
+    pr.book(led, "u1", "anthropic:claude-opus-5-5", {"input": 10}, 1.0, day=date(2026, 11, 3))
+    assert pr.month_cost(led, "u1", "2026-11") == 1.25
+    assert pr.month_cost(led, "u1", "2026-10") == 0.5
+    ms = pr.months(led, "u1", 3, today=date(2026, 11, 8))
+    assert [x["month"] for x in ms] == ["2026-09", "2026-10", "2026-11"]
+    assert ms[2]["eur"] == 1.25 and ms[2]["task_eur"] == 0.25 and ms[2]["requests"] == 2
+    assert set(ms[2]["models"]) == {"foundry:claude-sonnet-5-5", "anthropic:claude-opus-5-5"}
+    assert pr.limit_for({"u1": "12,5"}, 5, "u1") == 12.5
+    assert pr.limit_for({}, 5, "u2") == 5 and pr.limit_for({}, None, "u2") == 0
+
+
+def test_provider_order_and_emergency():
+    order = pv.normalize([{"id": "main"}, {"id": "foundry", "enabled": True, "mode": "fallback"},
+                          {"id": "anthropic", "enabled": True, "mode": "fallback"}])
+    st = pv.unlocked(order, {"main": True, "foundry": True, "anthropic": True})
+    assert st["foundry"]["unlocked"] is False and st["anthropic"]["unlocked"] is False and not pv.emergency(st)
+    st = pv.unlocked(order, {"main": False, "foundry": True, "anthropic": True})
+    assert st["foundry"] == {"unlocked": True, "why": "fallback"} and st["anthropic"]["unlocked"] is False
+    st = pv.unlocked(order, {"main": False, "foundry": False, "anthropic": True})
+    assert st["anthropic"]["unlocked"] and pv.emergency(st)
+    # "always" providers can be picked any time; a disabled one does not count in the chain
+    order2 = pv.normalize([{"id": "foundry", "enabled": True, "mode": "always"}, {"id": "main"},
+                           {"id": "anthropic", "enabled": False}])
+    st = pv.unlocked(order2, {"main": True, "foundry": True})
+    assert st["foundry"]["unlocked"] and st["main"]["unlocked"] and st["anthropic"]["why"] == "disabled"
+    assert [p["id"] for p in pv.normalize([{"id": "anthropic"}, {"id": "bogus"}])] == ["anthropic", "main", "foundry"]
+    assert pv.split("foundry:claude-sonnet-5-5") == ("foundry", "claude-sonnet-5-5")
+    assert pv.split("llama3:8b") == ("main", "llama3:8b") and not pv.is_external("glm-5.3")
+    models = [{"key": "foundry:claude-opus-5-5", "provider": "foundry", "blended": 8},
+              {"key": "foundry:claude-haiku-5-5", "provider": "foundry", "blended": 0.2},
+              {"key": "anthropic:claude-sonnet-5-5", "provider": "anthropic", "blended": 4}]
+    st = pv.unlocked(order, {"main": False, "foundry": True, "anthropic": True})
+    usable = {"main": False, "foundry": True, "anthropic": True}
+    assert pv.pick_fallback(order, st, usable, models) == "foundry:claude-haiku-5-5"
+    assert pv.pick_fallback(order, st, usable, models, "foundry:claude-opus-5-5") == "foundry:claude-opus-5-5"
+    assert pv.pick_fallback(order, st, usable, models, "anthropic:claude-sonnet-5-5") == "foundry:claude-haiku-5-5"  # locked
+
+
+def test_foundry_endpoint_forms():
+    assert pv.foundry_base("https://res.services.ai.azure.com/anthropic/v1/messages") == ("https://res.services.ai.azure.com/anthropic", "")
+    assert pv.foundry_base("https://res.services.ai.azure.com/") == ("https://res.services.ai.azure.com/anthropic", "")
+    assert pv.foundry_base("res.services.ai.azure.com/anthropic") == ("https://res.services.ai.azure.com/anthropic", "")
+    assert pv.foundry_base("myresource") == ("", "myresource")
+
+
+def test_claude_messages_from_chat():
+    chat = [
+        {"role": "user", "content": "Hallo", "notes": None},
+        {"role": "assistant", "content": "Ich schaue nach.", "tool_calls": [
+            {"id": "chatcmpl-tool:1", "function": {"name": "ha_states", "arguments": '{"filter": "sensor."}'}},
+            {"id": "call_2", "function": {"name": "web_search", "arguments": "kaputt"}}]},
+        {"role": "tool", "tool_call_id": "chatcmpl-tool:1", "content": "21 °C", "notes": ["[LLMitMir] Nur noch 3 Schritte"]},
+        {"role": "tool", "tool_call_id": "unbekannt", "content": "verwaist"},
+        {"role": "user", "content": [{"type": "text", "text": "Und das Bild?"},
+                                     {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,QUJD"}}]},
+        {"role": "assistant", "content": "", "claude_blocks": [
+            {"type": "thinking", "thinking": "hm", "signature": "sig", "extra": 1},
+            {"type": "text", "text": "Ein Hund.", "citations": None}, {"type": "text", "text": ""}]},
+    ]
+    out = cc.to_messages(chat)
+    assert [m["role"] for m in out] == ["user", "assistant", "user", "assistant"]
+    a = out[1]["content"]
+    assert a[1] == {"type": "tool_use", "id": "chatcmpl-tool_1", "name": "ha_states", "input": {"filter": "sensor."}}
+    assert a[2]["input"] == {}  # invalid JSON arguments
+    u = out[2]["content"]
+    # results first (the missing one marked as aborted), the orphan dropped, then the reminder and the next message
+    assert [b["type"] for b in u] == ["tool_result", "tool_result", "text", "text", "image"]
+    assert u[0]["tool_use_id"] == "chatcmpl-tool_1" and u[1]["tool_use_id"] == "call_2" and u[1]["content"] == cc.ABORTED
+    assert u[4]["source"] == {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"}
+    assert out[3]["content"] == [{"type": "thinking", "thinking": "hm", "signature": "sig"}, {"type": "text", "text": "Ein Hund."}]
+    assert cc.to_messages(chat) == out  # deterministic
+    assert all(b["type"] != "thinking" for m in cc.strip_thinking(out) for b in m["content"])
+    assert cc.to_messages([{"role": "assistant", "content": "x"}])[0]["role"] == "user"
+    t = cc.to_tools([{"type": "function", "function": {"name": "f", "description": "d", "parameters": {"properties": {"a": {}}}}}])
+    assert t == [{"name": "f", "description": "d", "input_schema": {"properties": {"a": {}}, "type": "object"}}]
+
+
+def test_claude_stream_translation():
+    tr = cc.StreamTranslator()
+    evs = [
+        {"type": "message_start", "message": {"model": "claude-sonnet-5-5", "usage": {"input_tokens": 100, "cache_read_input_tokens": 900, "output_tokens": 1}}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Denke"}},
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Hallo"}},
+        {"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "toolu_1", "name": "ha_states"}},
+        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"a":'}},
+        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '1}'}},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 42}},
+        {"type": "text", "text": "Hallo"},  # SDK helper events are ignored
+    ]
+    chunks = [c for c in (tr.feed(e) for e in evs) if c]
+    assert tr.started and tr.usage == {"input": 100, "output": 42, "cache_read": 900, "cache_write": 0}
+    assert chunks[0]["choices"][0]["delta"] == {"reasoning": "Denke"}
+    assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    args = "".join(tc["function"]["arguments"] for c in chunks for ch in c["choices"] for tc in ch["delta"].get("tool_calls") or [])
+    assert args == '{"a":1}'
+    assert tr.usage_chunk()["usage"]["prompt_tokens"] == 1000
+
+
+def test_scrub_nested():
+    req = {"system": "pw geheim123", "messages": [{"content": [{"type": "text", "text": "x geheim123"},
+                                                              {"type": "thinking", "signature": "geheim123"}]}]}
+    out = creds.scrub_obj(req, ["geheim123"])
+    assert out["system"] == "pw •••" and out["messages"][0]["content"][0]["text"] == "x •••"
+    assert out["messages"][0]["content"][1]["signature"] == "geheim123"  # signatures stay untouched
