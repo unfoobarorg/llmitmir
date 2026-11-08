@@ -1617,12 +1617,14 @@ class ToolContext:
             c = C.find(allowed, name)
             if not c:
                 continue
+            c["ext_uses_since"] = int(c.get("ext_uses_since", c.get("ext_uses")) or 0) + 1  # since the last new secret
             c["ext_uses"] = int(c.get("ext_uses") or 0) + 1
             c["ext_last"] = now()
+            c["ext_last_since"] = c["ext_last"]
             c["ext_last_model"] = self.chat.get("model")
             self.store.schedule_save(1.0)
             self.manager.emit(self.user_id, {"type": "cred_usage", "id": c["id"], "ext_uses": c["ext_uses"],
-                                             "ext_last": c["ext_last"]})
+                                             "ext_uses_since": c["ext_uses_since"], "ext_last": c["ext_last"]})
 
     def _remember_allow(self, name: str) -> None:
         if self.project:

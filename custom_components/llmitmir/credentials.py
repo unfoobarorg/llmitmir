@@ -7,6 +7,7 @@ Every tool result is scrubbed of all secret values of the user.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -69,14 +70,44 @@ def resolve_placeholders(text: str, creds: dict[str, dict], allowed: set[str] | 
     return PLACEHOLDER.sub(rep, text) if isinstance(text, str) else text
 
 
+def variants(value: str) -> set[str]:
+    """The forms in which a secret can come back from a service: as is, URL-encoded, JSON- or HTML-escaped and in
+    Base64 (standard and URL-safe, with and without padding)."""
+    import base64
+    import html
+    import urllib.parse
+
+    v = str(value)
+    out = {v, urllib.parse.quote(v, safe=""), urllib.parse.quote_plus(v), json.dumps(v)[1:-1], html.escape(v)}
+    raw = v.encode()
+    for enc in (base64.b64encode(raw).decode(), base64.urlsafe_b64encode(raw).decode()):
+        out |= {enc, enc.rstrip("=")}
+    return {x for x in out if len(x) >= 4}
+
+
 def secret_values(creds: dict[str, dict]) -> list[str]:
-    vals = []
+    """Everything to black out: each secret in all its forms, plus Basic-Auth credentials (user:password in Base64)."""
+    import base64
+
+    vals: set[str] = set()
     for c in creds.values():
+        f = c.get("fields") or {}
         for k in secret_fields(c):
-            v = (c.get("fields") or {}).get(k)
+            v = f.get(k)
             if v and len(str(v)) >= 4:
-                vals.append(str(v))
-    return sorted(set(vals), key=len, reverse=True)
+                vals |= variants(str(v))
+        if c.get("type") in ("webdav", "basic", "imap") and f.get("password"):
+            user = f.get("username") or f.get("share_token") or ""
+            pair = base64.b64encode(f"{user}:{f['password']}".encode()).decode()
+            vals |= {pair, pair.rstrip("=")}
+    return sorted(vals, key=len, reverse=True)
+
+
+def secret_changes(old: dict, new: dict) -> bool:
+    """True if a secret field of a Zugang got another value (or was removed): the old form is no longer valid."""
+    sec = secret_fields(old) | secret_fields(new)
+    of, nf = old.get("fields") or {}, new.get("fields") or {}
+    return any((of.get(k) or "") != (nf.get(k) or "") for k in sec if of.get(k))
 
 
 def scrub(text: str, secrets_: list[str]) -> str:

@@ -301,6 +301,29 @@ export class SkillPage extends StoreElement {
 }
 
 // ---------------------------------------------------------------- credentials
+/** External uses since the secret last changed (older Zugänge without a change: all uses count). */
+const usesSince = (c: any) => (c.ext_uses_since ?? c.ext_uses ?? 0) as number;
+
+function extUseChip(c: any) {
+  if (!c.ext_uses && !c.secret_changed) return nothing;
+  const since = usesSince(c);
+  if (c.secret_changed) return html`<span class="chip ${since ? "warn" : "ok"}" title=${`Geheimnis geändert ${fmtTime(c.secret_changed)} · insgesamt ${c.ext_uses || 0}× extern genutzt`}>
+    ${since ? `seit Änderung ${since}× extern genutzt` : "seit Änderung nicht extern genutzt"}</span>`;
+  return html`<span class="chip warn" title=${`Zuletzt ${fmtTime(c.ext_last)}`}>${since}× extern genutzt</span>`;
+}
+
+function extUseText(c: any) {
+  const since = usesSince(c);
+  if (c.secret_changed) {
+    const before = c.ext_uses_before ?? Math.max(0, (c.ext_uses || 0) - since);
+    return html`Passwort bzw. Token zuletzt geändert am ${fmtTime(c.secret_changed)}.
+      ${since ? html`Seitdem <b>${since}×</b> von externen Modellen genutzt, zuletzt ${fmtTime(c.ext_last)}.` : html`Seitdem <b>nicht</b> von externen Modellen genutzt.`}
+      ${before ? ` Davor ${before}× – die alte Form ist durch die Änderung ungültig.` : ""}`;
+  }
+  return c.ext_uses ? html`Von externen Modellen genutzt: <b>${c.ext_uses}×</b>, zuletzt ${fmtTime(c.ext_last)}. Das Passwort selbst geht dabei nie hinaus;
+    wer ganz sichergehen will, ändert es beim Dienst und trägt das neue hier ein – dann zählt LLMitMir neu.` : "Noch nie von einem externen Modell genutzt.";
+}
+
 @safeElement("lm-credentials")
 export class Credentials extends StoreElement {
   static styles = [base, pageCss];
@@ -319,7 +342,7 @@ export class Credentials extends StoreElement {
         ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
         ${extShown ? (c.external ? html`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>`
           : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
-        ${c.ext_uses ? html`<span class="chip" title=${`Zuletzt ${fmtTime(c.ext_last)}`}>${c.ext_uses}× extern genutzt</span>` : nothing}
+        ${extUseChip(c)}
         ${uses(c.id).length ? html`<span class="chip">${uses(c.id).length}× genutzt</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
   }
 }
@@ -386,7 +409,7 @@ export class CredentialPage extends StoreElement {
             <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!!c.external}
               @change=${() => this.set("external", true)}><span><b>Freigegeben</b><br><span class="hint">Externe Modelle dürfen ihn nutzen; was sie damit abrufen
               (z. B. Dateien, Termine), geht an den externen Anbieter. Das Passwort selbst bekommt nie ein Modell zu sehen. Nur für Zugänge ohne sensible Inhalte.</span></span></label>
-            <div class="hint">${c.ext_uses ? html`Von externen Modellen genutzt: <b>${c.ext_uses}×</b>, zuletzt ${fmtTime(c.ext_last)}.` : "Noch nie von einem externen Modell genutzt."}</div>
+            <div class="hint">${extUseText(c)}</div>
           </div></div>` : nothing}
         ${isSimple() ? html`<div class="hint">${icon("lock", 15)} Deine Passwörter sieht die KI nie – LLMitMir setzt sie erst beim Zugriff im Hintergrund ein.</div>` : nothing}
         ${c.id && !isSimple() ? html`<div class="card hint">Im Skill oder Auftrag verweisen: <code>{{cred:${c.name}:${ty.secret?.[0] || "feld"}}}</code> – oder in Werkzeugen <code>zugang: "${c.name}"</code>.</div>` : nothing}

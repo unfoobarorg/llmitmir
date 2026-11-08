@@ -628,6 +628,21 @@ def test_claude_stream_translation():
     assert tr.usage_chunk()["usage"]["prompt_tokens"] == 1000
 
 
+def test_scrub_variants_and_rotation():
+    import base64, urllib.parse
+    store = {"k1": {"id": "k1", "name": "NC", "type": "webdav", "fields": {"url": "https://x", "username": "niko", "password": "p@ss w/rd+1"}}}
+    sec = creds.secret_values(store)
+    pw = "p@ss w/rd+1"
+    for leaked in (pw, urllib.parse.quote(pw, safe=""), urllib.parse.quote_plus(pw), base64.b64encode(pw.encode()).decode(),
+                   base64.b64encode(b"niko:" + pw.encode()).decode()):
+        assert leaked not in creds.scrub(f"Fehler: {leaked} abgelehnt", sec), leaked
+    assert creds.scrub("Authorization: Basic " + base64.b64encode(b"niko:" + pw.encode()).decode(), sec) == "Authorization: Basic •••"
+    old = store["k1"]
+    assert creds.secret_changes(old, {"type": "webdav", "fields": dict(old["fields"], password="neu")})
+    assert not creds.secret_changes(old, {"type": "webdav", "fields": dict(old["fields"], url="https://y")})
+    assert creds.secret_changes(old, {"type": "webdav", "fields": {"url": "https://x", "username": "niko"}})  # removed
+
+
 def test_scrub_nested():
     req = {"system": "pw geheim123", "messages": [{"content": [{"type": "text", "text": "x geheim123"},
                                                               {"type": "thinking", "signature": "geheim123"}]}]}

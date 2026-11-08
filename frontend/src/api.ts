@@ -138,7 +138,7 @@ export class Store extends EventTarget {
         break;
       case "cred_usage": {
         const c = (d.credentials || []).find((x: any) => x.id === e.id);
-        if (c) { c.ext_uses = e.ext_uses; c.ext_last = e.ext_last; }
+        if (c) { c.ext_uses = e.ext_uses; c.ext_uses_since = e.ext_uses_since; c.ext_last = e.ext_last; }
         break;
       }
       case "tasks_queue": d.queue = e.queue; break;

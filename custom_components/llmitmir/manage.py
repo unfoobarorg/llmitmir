@@ -50,7 +50,13 @@ def build_credential(st, c: dict) -> dict:
     for other in st.meta["credentials"].values():
         if other["id"] != cid and other.get("name", "").casefold() == name.casefold():
             raise ValueError("Es gibt schon einen Zugang mit diesem Namen")
-    return dict(old, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
+    rotated = {}
+    if old.get("id") and C.secret_changes(old, {"type": typ, "fields": fields,
+                                               "secret_fields": c.get("secret_fields") or old.get("secret_fields")}):
+        # new password/token: external use counts again from zero, so the person sees whether the new one was used
+        rotated = {"secret_changed": now(), "ext_uses_since": 0,
+                   "ext_uses_before": int(old.get("ext_uses") or 0)}
+    return dict(old, **rotated, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
                 secret_fields=list(c.get("secret_fields") or old.get("secret_fields") or []),
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
                 # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
