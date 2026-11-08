@@ -569,6 +569,9 @@ def test_foundry_endpoint_forms():
     assert pv.foundry_base("https://res.services.ai.azure.com/") == ("https://res.services.ai.azure.com/anthropic", "")
     assert pv.foundry_base("res.services.ai.azure.com/anthropic") == ("https://res.services.ai.azure.com/anthropic", "")
     assert pv.foundry_base("myresource") == ("", "myresource")
+    # the Azure OpenAI address of the same resource works too
+    assert pv.foundry_base("https://claude-unfoobar.openai.azure.com/openai/v1") == ("https://claude-unfoobar.services.ai.azure.com/anthropic", "")
+    assert pv.foundry_base("https://Res.cognitiveservices.azure.com/") == ("https://res.services.ai.azure.com/anthropic", "")
 
 
 def test_claude_messages_from_chat():

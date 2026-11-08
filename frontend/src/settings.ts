@@ -356,12 +356,13 @@ export class AdminPage extends StoreElement {
           ${!ext ? html`<div class="hint">Vorlage, Basis-URL und Schlüssel stehen oben unter „Anbieter“ und „API-Schlüssel“. Kostenlos für die Personen, immer wählbar; nur seine Modelle wählt LLMitMir automatisch.</div>` : html`
           <div class="two"><label class="f"><span>Verfügbarkeit</span><select @change=${(e: any) => this.setProv(p.id, { mode: e.target.value })}>
               <option value="fallback" ?selected=${p.mode !== "always"}>Nur im Notfall</option><option value="always" ?selected=${p.mode === "always"}>Immer wählbar</option></select></label>
-            ${p.id === "foundry" ? html`<label class="f"><span>Endpunkt (Ressource oder URL)</span><input placeholder="https://<ressource>.services.ai.azure.com/anthropic" .value=${p.endpoint || ""}
+            ${p.id === "foundry" ? html`<label class="f"><span>Endpunkt (Ressourcenname oder Claude-Adresse)</span><input placeholder="https://<ressource>.services.ai.azure.com/anthropic" .value=${p.endpoint || ""}
               @input=${(e: any) => this.setProv(p.id, { endpoint: e.target.value })}></label>` : keyInput(p, "API-Schlüssel (Anthropic Console)", "sk-ant-…")}</div>
           ${p.id === "foundry" ? html`<div class="two">${keyInput(p, "API-Schlüssel der Foundry-Ressource", "Schlüssel aus „Schlüssel und Endpunkt“")}
             <label class="f"><span>Weitere Deployment-Namen (optional, durch Komma getrennt)</span><input placeholder="z. B. mein-claude-sonnet" .value=${(p.extra_models || []).join(", ")}
               @input=${(e: any) => this.setProv(p.id, { extra_models: e.target.value.split(",").map((x: string) => x.trim()).filter(Boolean) })}></label></div>
-            <div class="hint">Foundry hat keine Modellliste: LLMitMir fragt jedes bekannte Claude-Modell (und die Namen oben) kostenlos per Token-Zählung ab und übernimmt die Deployments, die antworten.
+            <div class="hint">Endpunkt: der Name der Ressource oder die Claude-Adresse <code>https://&lt;ressource&gt;.services.ai.azure.com/anthropic</code> (die Azure-OpenAI-Adresse
+              derselben Ressource rechnet LLMitMir um). Foundry hat keine Modellliste: LLMitMir fragt jedes bekannte Claude-Modell (und die Namen oben) kostenlos per Token-Zählung ab und übernimmt die Deployments, die antworten.
               Nur „Hosted on Azure“-Deployments verlassen Azure nicht. Abgerechnet wird über die Azure-Rechnung zu den Anthropic-Listenpreisen.</div>`
             : html`<div class="hint">Die Modellliste kommt direkt von der Anthropic-API. Abgerechnet wird über die Anthropic Console – dort am besten zusätzlich ein Ausgabenlimit setzen.</div>`}
           <div class="row" style="flex-wrap:wrap">

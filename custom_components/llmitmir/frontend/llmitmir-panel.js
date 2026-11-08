@@ -1382,12 +1382,13 @@ erzeugen (Token aus dem Vault), \`docker build -t llmitmir-werkbank-sandbox:late
           ${i?r`
           <div class="two"><label class="f"><span>Verfügbarkeit</span><select @change=${l=>this.setProv(e.id,{mode:l.target.value})}>
               <option value="fallback" ?selected=${e.mode!=="always"}>Nur im Notfall</option><option value="always" ?selected=${e.mode==="always"}>Immer wählbar</option></select></label>
-            ${e.id==="foundry"?r`<label class="f"><span>Endpunkt (Ressource oder URL)</span><input placeholder="https://<ressource>.services.ai.azure.com/anthropic" .value=${e.endpoint||""}
+            ${e.id==="foundry"?r`<label class="f"><span>Endpunkt (Ressourcenname oder Claude-Adresse)</span><input placeholder="https://<ressource>.services.ai.azure.com/anthropic" .value=${e.endpoint||""}
               @input=${l=>this.setProv(e.id,{endpoint:l.target.value})}></label>`:L(e,"API-Schl\xFCssel (Anthropic Console)","sk-ant-\u2026")}</div>
           ${e.id==="foundry"?r`<div class="two">${L(e,"API-Schl\xFCssel der Foundry-Ressource","Schl\xFCssel aus \u201ESchl\xFCssel und Endpunkt\u201C")}
             <label class="f"><span>Weitere Deployment-Namen (optional, durch Komma getrennt)</span><input placeholder="z. B. mein-claude-sonnet" .value=${(e.extra_models||[]).join(", ")}
               @input=${l=>this.setProv(e.id,{extra_models:l.target.value.split(",").map(o=>o.trim()).filter(Boolean)})}></label></div>
-            <div class="hint">Foundry hat keine Modellliste: LLMitMir fragt jedes bekannte Claude-Modell (und die Namen oben) kostenlos per Token-Zählung ab und übernimmt die Deployments, die antworten.
+            <div class="hint">Endpunkt: der Name der Ressource oder die Claude-Adresse <code>https://&lt;ressource&gt;.services.ai.azure.com/anthropic</code> (die Azure-OpenAI-Adresse
+              derselben Ressource rechnet LLMitMir um). Foundry hat keine Modellliste: LLMitMir fragt jedes bekannte Claude-Modell (und die Namen oben) kostenlos per Token-Zählung ab und übernimmt die Deployments, die antworten.
               Nur „Hosted on Azure“-Deployments verlassen Azure nicht. Abgerechnet wird über die Azure-Rechnung zu den Anthropic-Listenpreisen.</div>`:r`<div class="hint">Die Modellliste kommt direkt von der Anthropic-API. Abgerechnet wird über die Anthropic Console – dort am besten zusätzlich ein Ausgabenlimit setzen.</div>`}
           <div class="row" style="flex-wrap:wrap">
             <button class="btn" ?disabled=${!e.enabled||this.provBusy===e.id} @click=${()=>this.refreshProv(e.id)}>${this.provBusy===e.id?r`<lm-spark size="16"></lm-spark>`:d("retry",16)} Modelle abrufen${this.dirty?" (speichert vorher)":""}</button>

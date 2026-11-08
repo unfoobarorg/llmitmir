@@ -11,6 +11,8 @@ LLMitMir never picks an external model by itself; it only offers them.
 """
 from __future__ import annotations
 
+import re
+
 MAIN = "main"
 FOUNDRY = "foundry"
 ANTHROPIC = "anthropic"
@@ -65,6 +67,11 @@ def foundry_base(endpoint: str) -> tuple[str, str]:
         if "." not in e and "/" not in e:
             return "", e  # just the resource name
         return foundry_base("https://" + e)
+    m = re.match(r"https?://([a-z0-9-]+)\.(openai\.azure\.com|cognitiveservices\.azure\.com|services\.ai\.azure\.com)(/.*)?$",
+                 e, re.I)
+    if m:
+        # any address of the resource (also the Azure OpenAI one, …/openai/v1): Claude lives under services.ai/anthropic
+        return f"https://{m.group(1).lower()}.services.ai.azure.com/anthropic", ""
     for tail in ("/v1/messages", "/v1"):
         if e.endswith(tail):
             e = e[: -len(tail)]

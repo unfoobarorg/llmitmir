@@ -126,25 +126,35 @@ class ClaudeClient:
         sem = asyncio.Semaphore(4)
         found: dict[str, dict] = {}
         auth_error: list[str] = []
+        other_error: list[str] = []
 
         async def probe(name: str) -> None:
             async with sem:
                 try:
                     await c.messages.count_tokens(model=name, messages=[{"role": "user", "content": "Hallo"}])
-                except anthropic.NotFoundError:
+                except anthropic.NotFoundError as e:
+                    other_error.append(f"{name}: {_short(e)}")
                     return
                 except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
                     auth_error.append(_short(e))
                     return
                 except anthropic.APIError as e:  # 400 for unknown names, 5xx, network: not (reliably) there
                     _LOGGER.debug("Foundry probe %s: %s", name, e)
+                    other_error.append(f"{name}: {_short(e)}")
                     return
                 found[name] = {"id": name, "name": _display(name), "context": _context(name),
                                "input": ["text", "image"], "output": ["text", "thought"]}
 
         await asyncio.gather(*(probe(n) for n in names))
+        base, resource = PV.foundry_base(self.endpoint)
+        where = base or f"Ressource {resource}"
         if auth_error and not found:
-            raise ProviderError(f"Schlüssel oder Endpunkt abgelehnt: {auth_error[0]}")
+            raise ProviderError(f"Schlüssel oder Endpunkt abgelehnt ({where}): {auth_error[0]}")
+        if not found:
+            hint = next((x for x in other_error if names[0] in x or "claude-sonnet" in x), other_error[0] if other_error else "")
+            raise ProviderError(f"Kein Claude-Deployment unter {where} gefunden. Der Endpunkt muss die Claude-Adresse "
+                                "https://<ressource>.services.ai.azure.com/anthropic sein, die Deployment-Namen wie in "
+                                f"Foundry. Antwort z. B.: {hint}")
         return [found[n] for n in names if n in found]
 
     # ------------------------------------------------------------------ chat
