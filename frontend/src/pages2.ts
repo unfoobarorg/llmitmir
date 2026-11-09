@@ -190,7 +190,7 @@ export class TaskPage extends StoreElement {
         ${this.fallbackCard(x)}
         <div class="two">
           <label class="f"><span>${simple ? "Nachricht aufs Handy" : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
-            ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>
+            ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis, Rückfrage oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>
             ${!d.settings.notify_device ? html`<span class="hint">Wähle zuerst in den Einstellungen dein Gerät für Benachrichtigungen.</span>` : nothing}</label>
           <label class="f"><span>${t("Aktiv")}</span><div class="row" style="min-height:40px">${switchEl(!!x.enabled, v => this.set("enabled", v))}<span class="muted">${x.enabled ? t("Aktiv") : t("Pausiert")}</span></div></label>
         </div>

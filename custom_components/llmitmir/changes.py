@@ -18,8 +18,8 @@ except ImportError:  # loaded standalone in tests
     _s.loader.exec_module(_m)
     describe = _m.describe
 
-NOTIFY = {"always": "nach jedem Lauf", "on_change": "nur bei neuem Ergebnis oder Fehler", "error": "nur bei Fehlern",
-          "never": "nie"}
+NOTIFY = {"always": "nach jedem Lauf", "on_change": "nur bei neuem Ergebnis, Rückfrage oder Fehler",
+          "error": "nur bei Fehlern", "never": "nie"}
 TYPE_LABELS = {"webdav": "Nextcloud / WebDAV / CalDAV", "basic": "HTTP Basic Auth", "bearer": "Bearer-Token",
                "header": "API-Key im Header", "telegram": "Telegram-Bot", "imap": "E-Mail (IMAP/SMTP)",
                "other": "Sonstiges"}

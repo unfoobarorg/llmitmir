@@ -84,6 +84,9 @@ Modell für Chats und für Coworks/Aufgaben, erlaubte Werkzeuggruppen, Freigaben
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \
 Zeitplan, Aktiv/Pausiert, Freigaben für schreibende Aktionen (z. B. notify, file_write, dav_write, ha_service, shell), \
 Benachrichtigen (nach jedem Lauf / nur bei neuem Ergebnis oder Fehler / nur bei Fehlern / nie), „Braucht die Werkbank“.
+Ob eine Nachricht aufs Handy geht, entscheidet das Ergebnis, das der Lauf selbst meldet (`task_result`: nichts zu melden, \
+neues Ergebnis, Rückfrage) – nicht die Länge des Berichts. „Nur bei neuem Ergebnis oder Fehler“ schickt also nur dann etwas, \
+wenn der Lauf etwas Neues gefunden hat, eine Rückfrage offen ist oder er gescheitert ist; ein Lauf ohne Neues bleibt still.
 Zeitpläne: täglich HH:MM, werktags HH:MM, wöchentlich an Wochentagen, monatlich am Tag X, stündlich zur Minute M, alle n Stunden, \
 einmalig zu einem Zeitpunkt, Cron mit 5 Feldern (Minute Stunde Tag Monat Wochentag, 0 = Sonntag) in Ortszeit.
 Ein Lauf ist ein unbeaufsichtigter Cowork: nicht freigegebene schreibende Werkzeuge werden abgelehnt, Rückfragen gehen in den \
@@ -104,7 +107,7 @@ Geheime Felder siehst du nie; verwende den Namen als `zugang` in dav_*/http_requ
 Websuche & Abrufen (web_search, web_fetch) · Home Assistant (ha_states, ha_history, ha_service, ha_ws – immer an) · \
 Nextcloud/WebDAV/CalDAV (dav_list, dav_read, dav_write, dav_request, caldav_events) · HTTP-Anfragen (http_request) · \
 Dateien (file_list, file_read, file_write) · Benachrichtigungen (notify, an das eigene, in den Einstellungen gewählte Gerät der Person) · \
-Skills (skill_load, skill_file, credentials_list) · Fortschritt (progress_update, nur Cowork) · \
+Skills (skill_load, skill_file, credentials_list) · Fortschritt (progress_update, nur Cowork; task_result nur bei geplanten Aufgaben) · \
 Werkbank (shell, werkbank_files, werkbank_fetch, werkbank_push – nur wenn ein Admin sie eingerichtet hat).
 Schreibende Werkzeuge fragen die Person, sofern sie in den Einstellungen oder im Projekt nicht dauerhaft erlaubt/verboten sind.
 

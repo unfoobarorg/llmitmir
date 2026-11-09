@@ -848,7 +848,9 @@ class Manager:
                         f"[LLMitMir] Letzter Schritt (Höchstzahl {steps}): Werkzeuge stehen nicht mehr zur Verfügung. "
                         "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
                         f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
-                        "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")})
+                        "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")
+                        + ("" if final or self.task is None or chat.get("result") else
+                           " Vergiss `task_result` nicht – ohne diesen Aufruf bekommt die Person keine Nachricht.")})
                 if run.switch_to:
                     await self._apply_switch(run, chat, st, None)
                 await self._status(run, "thinking", {"step": step + 1})
@@ -1340,6 +1342,15 @@ class ToolContext:
                    + "." if partly else "")
                 + " Liefert ein Werkzeug ein unerwartetes Ergebnis, prüfe das höchstens zwei-, dreimal und arbeite dann "
                 "mit dem Rest weiter bzw. melde das Problem im Bericht, statt immer neue Varianten auszuprobieren.")
+            parts.append(
+                "## Benachrichtigung\nOb die Person eine Nachricht aufs Handy bekommt, entscheidet allein `task_result` – "
+                "nicht die Länge deines Berichts. Rufe es am Ende jedes Laufs genau einmal auf:\n"
+                "- `art` = „nichts“, wenn es nichts zu melden gibt (alles wie erwartet, nichts Neues, nichts zu tun).\n"
+                "- `art` = „ergebnis“, wenn es etwas Neues gibt, das die Person wissen sollte.\n"
+                "- `art` = „frage“, wenn die Person etwas entscheiden oder beantworten muss.\n"
+                "`text` ist eine einzige Zeile, die man auf dem Handy ohne Zusammenhang versteht (bei „frage“ die Frage "
+                "selbst, bei „ergebnis“ das Ergebnis in Kurzform, bei „nichts“ leer). Ein Bericht mit vielen Details ist "
+                "kein Ergebnis: Gibt es nichts Neues, ist es „nichts“, auch wenn du viel geprüft hast.")
             if "werkbank" in (self.task.get("requires") or []) and self.manager.werkbank is None:
                 parts.append(
                     "## Ohne Werkbank\nDiese Aufgabe braucht für einen Teil die Werkbank (Befehle/Python), die noch nicht "

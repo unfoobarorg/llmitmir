@@ -649,3 +649,22 @@ def test_scrub_nested():
     out = creds.scrub_obj(req, ["geheim123"])
     assert out["system"] == "pw •••" and out["messages"][0]["content"][0]["text"] == "x •••"
     assert out["messages"][0]["content"][1]["signature"] == "geheim123"  # signatures stay untouched
+
+def test_task_notify_decision():
+    """Only what the run itself declares reaches the phone: nothing, a new result, or a question."""
+    tn = load("tasknotify")
+    # "nur bei neuem Ergebnis oder Fehler": a run without news stays silent, however long its report is
+    assert not tn.should_notify("on_change", "done", "nichts", "", "")
+    assert tn.should_notify("on_change", "done", "ergebnis", "Neue Rechnung 85,16 €", "")
+    assert not tn.should_notify("on_change", "done", "ergebnis", "Neue Rechnung 85,16 €", "Neue Rechnung 85,16 €")
+    assert tn.should_notify("on_change", "done", "frage", "Wem gehört der OBI-Bon?", "")
+    assert tn.should_notify("on_change", "error", "nichts", "", "")
+    # "nur bei Fehlern": questions and results stay silent, a stopped run is no error
+    assert tn.should_notify("error", "error", "nichts", "", "")
+    assert not tn.should_notify("error", "done", "frage", "Wem gehört der OBI-Bon?", "")
+    assert not tn.should_notify("error", "stopped", "frage", "", "")
+    # "nach jedem Lauf" and "nie"
+    assert tn.should_notify("always", "done", "nichts", "", "")
+    assert not tn.should_notify("never", "error", "frage", "", "")
+    # an unknown declaration counts as "nothing to report"
+    assert not tn.should_notify("on_change", "done", "", "", "")

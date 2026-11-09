@@ -6,6 +6,7 @@ from homeassistant.core import Context
 from .. import credentials as C
 from .. import notifydevices as ND
 from .. import selfdoc
+from .. import tasknotify as TN
 from . import Tool, advance_progress, obj, register
 
 
@@ -78,6 +79,18 @@ async def progress_update(ctx, a: dict):
     return {"ok": True, "schritte": len(items)}
 
 
+async def task_result(ctx, a: dict):
+    """What a scheduled run has to tell: nothing, a new result, or a question for the person."""
+    if ctx.task is None:
+        return "Fehler: „task_result“ gilt nur für geplante Aufgaben."
+    art = str(a.get("art") or "").strip()
+    if art not in TN.ARTS:
+        return "Fehler: „art“ ist eines von " + ", ".join(TN.ARTS) + "."
+    text = " ".join(str(a.get("text") or "").split())[:400]
+    ctx.chat["result"] = {"art": art, "text": text}
+    return {"ok": True, "art": art, "text": text}
+
+
 async def credentials_list(ctx, a: dict):
     return C.describe_for_model(ctx.creds, ctx.allowed_creds) or "Keine Zugänge verfügbar."
 
@@ -119,5 +132,12 @@ register(Tool("progress_update", "progress",
                   "text": {"type": "string"}, "status": {"type": "string", "enum": ["offen", "laeuft", "erledigt", "fehler"]}}}},
                    "aktuell": {"type": "integer", "description": "Nummer des Schritts, der jetzt läuft (1 = erster)"}}),
               progress_update, label="Fortschritt", icon="mdi:format-list-checks"))
+register(Tool("task_result", "progress",
+              "Ergebnis des Laufs für die Benachrichtigung festlegen (nur geplante Aufgaben): „nichts“ = nichts zu melden, "
+              "„ergebnis“ = neues Ergebnis, „frage“ = die Person muss etwas entscheiden. Am Ende jedes Laufs einmal aufrufen, "
+              "mit „text“ als einer Zeile, die man auf dem Handy lesen kann.",
+              obj({"art": {"type": "string", "enum": list(TN.ARTS)},
+                   "text": {"type": "string", "description": "eine Zeile für die Benachrichtigung"}}, ["art"]),
+              task_result, label="Ergebnis melden", icon="mdi:bell-check-outline"))
 register(Tool("credentials_list", "skills", "Listet die verfügbaren Zugänge (ohne Geheimnisse).", obj({}), credentials_list,
               label="Zugänge ansehen", icon="mdi:key-outline"))

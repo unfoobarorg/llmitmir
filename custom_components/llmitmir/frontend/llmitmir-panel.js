@@ -940,7 +940,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
         ${this.fallbackCard(C)}
         <div class="two">
           <label class="f"><span>${o?"Nachricht aufs Handy":v("Benachrichtigen")}</span><select @change=${x=>this.set("notify",x.target.value)}>
-            ${[["always","nach jedem Lauf"],["on_change","nur bei neuem Ergebnis oder Fehler"],["error","nur bei Fehlern"],["never","nie"]].map(([x,$])=>r`<option value=${x} ?selected=${C.notify===x}>${$}</option>`)}</select>
+            ${[["always","nach jedem Lauf"],["on_change","nur bei neuem Ergebnis, R\xFCckfrage oder Fehler"],["error","nur bei Fehlern"],["never","nie"]].map(([x,$])=>r`<option value=${x} ?selected=${C.notify===x}>${$}</option>`)}</select>
             ${H.settings.notify_device?s:r`<span class="hint">Wähle zuerst in den Einstellungen dein Gerät für Benachrichtigungen.</span>`}</label>
           <label class="f"><span>${v("Aktiv")}</span><div class="row" style="min-height:40px">${s7(!!C.enabled,x=>this.set("enabled",x))}<span class="muted">${C.enabled?v("Aktiv"):v("Pausiert")}</span></div></label>
         </div>

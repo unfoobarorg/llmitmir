@@ -10,6 +10,7 @@ from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.util import dt as dt_util
 
+from . import tasknotify as TN
 from .const import KIND_TASK_RUN
 from .storage import new_id, now
 
@@ -158,13 +159,15 @@ class Scheduler:
                      "external": chat.get("model") if chat.get("external_used") else None,
                      "fallback": bool(chat.get("model_fallback"))})
         task["last_run"] = last
-        prev_summary = task.get("_prev_summary")
-        task["_prev_summary"] = last["summary"]
+        # what the model declared with `task_result` decides whether the phone rings – not the length of the report
+        res = chat.get("result") or {}
+        art = res.get("art") if res.get("art") in TN.ARTS else "nichts"
+        prev = task.get("_prev_result") or {}
+        task["_prev_result"] = {"art": art, "text": res.get("text") or ""}
         await st.async_save_meta()
         self.m.emit(user.id, {"type": "meta", "section": "tasks"})
         mode = task.get("notify") or "always"
-        send = mode == "always" or (mode == "error" and status != "done") \
-            or (mode == "on_change" and (status != "done" or last["summary"] != prev_summary))
+        send = TN.should_notify(mode, status, art, res.get("text") or "", prev.get("text") or "")
         if send:
             from . import notifydevices as ND
 
@@ -173,7 +176,7 @@ class Scheduler:
             title = ("✓ " if status == "done" else "⚠ ") + str(task.get("name") or "Aufgabe")
             if chat.get("external_used") and chat.get("model_fallback"):
                 title += " (Notfall: externes Modell)"
-            text = re.sub(r"[#*_`>]+", "", (error or answer or "Fertig.")).strip()
+            text = re.sub(r"[#*_`>]+", "", (error or res.get("text") or answer or "Fertig.")).strip()
             try:
                 if device:
                     await ND.async_send(self.hass, device, title[:100], text[:900],
