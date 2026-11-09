@@ -679,8 +679,12 @@ def test_task_notify_same_news():
     assert not tn.same_news("Neue Rechnung OBI 85,16 €", "Neue Rechnung OBI 85,17 €")
     assert not tn.same_news("Keine neuen Belege.", "Neuer Beleg: Stadtwerke 120,00 €.")
     assert not tn.same_news("", "irgendwas")
-    # a question needs a decision, so it rings again until it is answered
-    assert tn.should_notify("on_change", "done", "frage", "Vault-Passwörter neu setzen?", "Vault-Passwörter neu setzen?")
+    # the same question does not ring every run – but comes back as a reminder after a week
+    day = 86400.0
+    assert not tn.should_notify("on_change", "done", "frage", "Vault-Passwörter neu setzen?",
+                                "Vault-Passwörter neu setzen?", 1000.0, 1000.0 + 2 * day)
+    assert tn.should_notify("on_change", "done", "frage", "Vault-Passwörter neu setzen?",
+                            "Vault-Passwörter neu setzen?", 1000.0, 1000.0 + 8 * day)
     assert not tn.should_notify("on_change", "done", "ergebnis", mail, mail2)
     assert not tn.should_notify("on_change", "done", "ergebnis", mail2, mail)
     assert tn.should_notify("on_change", "done", "ergebnis", "Neue Mail von Google Play: Händlerstatus prüfen.", mail2)

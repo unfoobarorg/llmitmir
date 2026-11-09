@@ -11,6 +11,12 @@ from . import Tool, advance_progress, obj, register
 
 
 async def notify(ctx, a: dict):
+    if ctx.task is not None:
+        # in a scheduled task the person's setting decides what reaches the phone – never a second, direct push
+        text = " ".join(str(a.get("text") or "").split())[:400]
+        ctx.chat["result"] = {"art": "ergebnis", "text": text}
+        return {"ok": True, "vorgemerkt": True,
+                "hinweis": "In einer geplanten Aufgabe wird nichts direkt verschickt; der Text steht als Ergebnis fest."}
     devices = ND.apply_links(await ND.async_devices(ctx.hass), ctx.manager.config.data.get("notify_devices"))
     device = ND.resolve(ND.for_user(devices, ctx.user_id), ctx.user_id, ctx.store.meta["settings"])
     if not device:
@@ -115,7 +121,8 @@ register(Tool("llmitmir_info", "llmitmir",
               "alle Felder dieses Eintrags, z. B. den vollständigen Auftrag einer Aufgabe. Statt Websuche für alle Fragen zu LLMitMir.",
               obj({"teil": {"type": "string", "enum": ["skill", "aufgabe", "projekt"]}, "name": {"type": "string"}}),
               llmitmir_info, label="LLMitMir nachschlagen", icon="mdi:robot-outline"))
-register(Tool("notify", "notify", "Schickt eine Push-Benachrichtigung an die Person (HA-App), z. B. mit dem Ergebnis einer Aufgabe.",
+register(Tool("notify", "notify", "Schickt eine Push-Benachrichtigung an die Person (HA-App). In einer geplanten Aufgabe "
+              "verschickt es nichts, sondern merkt den Text als Ergebnis des Laufs vor.",
               obj({"titel": {"type": "string"}, "text": {"type": "string"}}, ["text"]), notify,
               write=True, label="Benachrichtigen", icon="mdi:bell-ring-outline"))
 register(Tool("skill_load", "skills", "Lädt die vollständige Anleitung eines Skills. Vor der Arbeit an einem passenden Thema immer zuerst laden.",

@@ -166,11 +166,13 @@ class Scheduler:
         prev = task.get("_prev_result") or {}
         task["_prev_result"] = {"art": art, "text": text}
         # compared against what the person was last told, so a standing state does not ring again
-        told = task.get("_last_notified") or prev.get("text") or ""
+        told = task.get("_last_notified") or {}
+        if not told and prev.get("text"):
+            told = {"text": prev["text"], "at": prev.get("at")}
         mode = task.get("notify") or "always"
-        send = TN.should_notify(mode, status, art, text, told)
+        send = TN.should_notify(mode, status, art, text, told.get("text") or "", told.get("at"), now())
         if send and art != "nichts":
-            task["_last_notified"] = text
+            task["_last_notified"] = {"text": text, "at": now()}
         await st.async_save_meta()
         self.m.emit(user.id, {"type": "meta", "section": "tasks"})
         if send:
