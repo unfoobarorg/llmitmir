@@ -162,12 +162,17 @@ class Scheduler:
         # what the model declared with `task_result` decides whether the phone rings – not the length of the report
         res = chat.get("result") or {}
         art = res.get("art") if res.get("art") in TN.ARTS else "nichts"
+        text = res.get("text") or ""
         prev = task.get("_prev_result") or {}
-        task["_prev_result"] = {"art": art, "text": res.get("text") or ""}
+        task["_prev_result"] = {"art": art, "text": text}
+        # compared against what the person was last told, so a standing state does not ring again
+        told = task.get("_last_notified") or prev.get("text") or ""
+        mode = task.get("notify") or "always"
+        send = TN.should_notify(mode, status, art, text, told)
+        if send and art != "nichts":
+            task["_last_notified"] = text
         await st.async_save_meta()
         self.m.emit(user.id, {"type": "meta", "section": "tasks"})
-        mode = task.get("notify") or "always"
-        send = TN.should_notify(mode, status, art, res.get("text") or "", prev.get("text") or "")
         if send:
             from . import notifydevices as ND
 
@@ -176,7 +181,7 @@ class Scheduler:
             title = ("✓ " if status == "done" else "⚠ ") + str(task.get("name") or "Aufgabe")
             if chat.get("external_used") and chat.get("model_fallback"):
                 title += " (Notfall: externes Modell)"
-            text = re.sub(r"[#*_`>]+", "", (error or res.get("text") or answer or "Fertig.")).strip()
+            text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
             try:
                 if device:
                     await ND.async_send(self.hass, device, title[:100], text[:900],

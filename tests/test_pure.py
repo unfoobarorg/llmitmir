@@ -668,3 +668,19 @@ def test_task_notify_decision():
     assert not tn.should_notify("never", "error", "frage", "", "")
     # an unknown declaration counts as "nothing to report"
     assert not tn.should_notify("on_change", "done", "", "", "")
+
+
+def test_task_notify_same_news():
+    """A standing state the person already knows is no news, a changed number always is."""
+    tn = load("tasknotify")
+    mail = "Postfach: keine neuen Mails, kein Spam. Offen: Google Play – Händlerstatus bis 01.02.2027 angeben."
+    mail2 = "Postfach: keine neuen Mails, keine Werbung. Offen: Google Play – Händlerstatus bis 01.02.2027 angeben (sonst App-Entfernung)."
+    assert tn.same_news(mail, mail2)
+    assert not tn.same_news("Neue Rechnung OBI 85,16 €", "Neue Rechnung OBI 85,17 €")
+    assert not tn.same_news("Keine neuen Belege.", "Neuer Beleg: Stadtwerke 120,00 €.")
+    assert not tn.same_news("", "irgendwas")
+    # a question needs a decision, so it rings again until it is answered
+    assert tn.should_notify("on_change", "done", "frage", "Vault-Passwörter neu setzen?", "Vault-Passwörter neu setzen?")
+    assert not tn.should_notify("on_change", "done", "ergebnis", mail, mail2)
+    assert not tn.should_notify("on_change", "done", "ergebnis", mail2, mail)
+    assert tn.should_notify("on_change", "done", "ergebnis", "Neue Mail von Google Play: Händlerstatus prüfen.", mail2)

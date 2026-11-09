@@ -1350,7 +1350,14 @@ class ToolContext:
                 "- `art` = „frage“, wenn die Person etwas entscheiden oder beantworten muss.\n"
                 "`text` ist eine einzige Zeile, die man auf dem Handy ohne Zusammenhang versteht (bei „frage“ die Frage "
                 "selbst, bei „ergebnis“ das Ergebnis in Kurzform, bei „nichts“ leer). Ein Bericht mit vielen Details ist "
-                "kein Ergebnis: Gibt es nichts Neues, ist es „nichts“, auch wenn du viel geprüft hast.")
+                "kein Ergebnis: Gibt es nichts Neues, ist es „nichts“, auch wenn du viel geprüft hast. Ein Zustand, den "
+                "du der Person schon einmal gemeldet hast und der sich nicht geändert hat, ist ebenfalls „nichts“ – "
+                "„keine neuen Mails“ oder „alles unverändert“ ist keine Neuigkeit. Schicke Statusmeldungen nie zusätzlich "
+                "mit `notify` – die Benachrichtigung ergibt sich aus `task_result`.")
+            prev = (self.task.get("_prev_result") or {}).get("text") or ""
+            if prev:
+                parts.append(f"## Zuletzt gemeldet\nDer Person wurde bei diesem Lauf zuletzt gemeldet: „{prev}“. Ist es "
+                             "weiter so, melde „nichts“.")
             if "werkbank" in (self.task.get("requires") or []) and self.manager.werkbank is None:
                 parts.append(
                     "## Ohne Werkbank\nDiese Aufgabe braucht für einen Teil die Werkbank (Befehle/Python), die noch nicht "
