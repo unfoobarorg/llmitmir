@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild frontend/src/main.ts --bundle --minify --format=esm --target=es2021 --outfile=custom_components/llmitmir/frontend/llmitmir-panel.js --legal-comments=none --loader:.md=text",
-    "watch": "npm run build -- --watch",
+    "bundle": "esbuild frontend/src/main.ts --bundle --minify --format=esm --target=es2021 --outfile=custom_components/llmitmir/frontend/llmitmir-panel.js --legal-comments=eof --loader:.md=text",
+    "build": "npm run bundle && node frontend/licenses.mjs",
+    "watch": "npm run bundle -- --watch",
     "check": "tsc --noEmit -p frontend"
   },
   "dependencies": {

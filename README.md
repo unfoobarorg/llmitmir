@@ -121,7 +121,8 @@ und Schlüssel liegen dort wie bei anderen Integrationen unverschlüsselt.
 
 ```bash
 npm install
-npm run build      # baut custom_components/llmitmir/frontend/llmitmir-panel.js (wird mit eingecheckt)
+npm run build      # baut custom_components/llmitmir/frontend/llmitmir-panel.js und THIRD_PARTY_LICENSES.txt (beide eingecheckt)
+npm run watch      # baut das Bundle bei jeder Änderung neu (ohne Lizenzdatei)
 npm run check      # TypeScript prüfen
 ```
 
@@ -149,4 +150,6 @@ imported from the official claude.ai data export.
 
 ## Lizenz
 
-MIT – siehe [LICENSE](LICENSE).
+MIT – siehe [LICENSE](LICENSE). Die Lizenzen der im Panel gebündelten Bibliotheken (Lit, marked, DOMPurify,
+Material Design Icons) stehen in
+[THIRD_PARTY_LICENSES.txt](custom_components/llmitmir/frontend/THIRD_PARTY_LICENSES.txt).

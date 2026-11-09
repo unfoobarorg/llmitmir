@@ -212,7 +212,7 @@ def test_selfdoc_overview_and_detail():
     meta = {
         "projects": {"p1": {"id": "p1", "name": "Hof", "description": "Hofladen", "instructions": "Sei nett",
                             "skills": ["s1"], "skills_only": True}},
-        "skills": {"s1": {"id": "s1", "name": "sawiko-gmail", "description": "Mails lesen", "body": "So geht es",
+        "skills": {"s1": {"id": "s1", "name": "team-gmail", "description": "Mails lesen", "body": "So geht es",
                           "credentials": ["k1"]},
                    "s2": {"id": "s2", "name": "geheim", "description": "x", "enabled": False}},
         "tasks": {"t1": {"id": "t1", "name": "Mails prüfen", "prompt": "Prüfe die Mails " * 50, "project_id": "p1",
@@ -221,7 +221,7 @@ def test_selfdoc_overview_and_detail():
         "credentials": {"k1": {"id": "k1", "name": "Gmail", "type": "imap", "fields": {"password": "pw"}}},
     }
     o = selfdoc.overview(meta)
-    assert "sawiko-gmail [Zugänge: Gmail]" in o and "geheim (deaktiviert)" in o
+    assert "team-gmail [Zugänge: Gmail]" in o and "geheim (deaktiviert)" in o
     assert "Mails prüfen (täglich um 07:30; aktiv; Projekt Hof" in o and "Gmail (imap)" in o and "pw" not in o
     assert "geheim" not in selfdoc.overview(meta, allowed_skills={"s1"})
 
@@ -229,11 +229,11 @@ def test_selfdoc_overview_and_detail():
     d = selfdoc.detail(meta, sec, t)
     assert sec == "tasks" and d.count("Prüfe die Mails") == 50 and "Freigaben: notify" in d
     assert "nur bei Fehlern" in d and "Zeitüberschreitung" in d and "Projekt: Hof" in d
-    sec, s = selfdoc.find(meta, "skills", "SAWIKO-GMAIL")
+    sec, s = selfdoc.find(meta, "skills", "TEAM-GMAIL")
     d = selfdoc.detail(meta, sec, s, ["a.py"])
     assert "So geht es" in d and "Gmail" in d and "a.py" in d and "pw" not in d
     sec, p = selfdoc.find(meta, "projekt", "p1")
-    assert "Sei nett" in selfdoc.detail(meta, sec, p) and "sawiko-gmail (nur diese)" in selfdoc.detail(meta, sec, p)
+    assert "Sei nett" in selfdoc.detail(meta, sec, p) and "team-gmail (nur diese)" in selfdoc.detail(meta, sec, p)
     assert selfdoc.find(meta, "skill", "geheim", allowed_skills={"s1"}) is None
     assert selfdoc.find(meta, "zugang", "Gmail") is None
 
@@ -468,34 +468,34 @@ def _dev(key, name, user, service="", available=True):
 
 
 def test_notify_devices_only_own_and_readable_names():
-    devs = [_dev("d1", "FP5G", "niko", "notify.mobile_app_fp5g"), _dev("d2", "NiPad", "niko", "notify.mobile_app_nipad"),
-            _dev("d3", "Klaus S26", "klaus", "notify.mobile_app_klaus_s26"), _dev("d4", "Lautsprecher", None)]
+    devs = [_dev("d1", "Pixel 8", "anna", "notify.mobile_app_pixel_8"), _dev("d2", "Tablet", "anna", "notify.mobile_app_tablet"),
+            _dev("d3", "Galaxy S24", "carla", "notify.mobile_app_galaxy_s24"), _dev("d4", "Lautsprecher", None)]
     # only the person's own devices, and never an identifier instead of the name
-    assert [d["name"] for d in nd.for_user(devs, "niko")] == ["FP5G", "NiPad"]
-    assert nd.for_user(devs, "doro") == []
+    assert [d["name"] for d in nd.for_user(devs, "anna")] == ["Pixel 8", "Tablet"]
+    assert nd.for_user(devs, "ben") == []
     # own choice wins
-    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {"notify_device": "d2"})["name"] == "NiPad"
+    assert nd.resolve(nd.for_user(devs, "anna"), "anna", {"notify_device": "d2"})["name"] == "Tablet"
     # a device of somebody else is never used
-    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {"notify_device": "d3"}) is None
+    assert nd.resolve(nd.for_user(devs, "anna"), "anna", {"notify_device": "d3"}) is None
     # exactly one device: no choice needed
-    assert nd.resolve(nd.for_user(devs, "klaus"), "klaus", {})["name"] == "Klaus S26"
+    assert nd.resolve(nd.for_user(devs, "carla"), "carla", {})["name"] == "Galaxy S24"
     # several devices and nothing chosen: ask instead of guessing
-    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {}) is None
+    assert nd.resolve(nd.for_user(devs, "anna"), "anna", {}) is None
     # setting from before the change (a notify service) still resolves to the device
-    assert nd.resolve(nd.for_user(devs, "niko"), "niko", {"notify_service": "notify.mobile_app_nipad"})["name"] == "NiPad"
+    assert nd.resolve(nd.for_user(devs, "anna"), "anna", {"notify_service": "notify.mobile_app_tablet"})["name"] == "Tablet"
 
 
 def test_notify_device_links_by_admin():
-    devs = [_dev("d1", "FP5G", "niko"), _dev("d2", "Klaus S26", "klaus"), _dev("d3", "Altes Handy", None)]
-    linked = nd.apply_links(devs, {"overrides": {"d2": "niko", "d3": "doro"}})
-    assert [d["name"] for d in nd.for_user(linked, "niko")] == ["FP5G", "Klaus S26"]
-    assert [d["name"] for d in nd.for_user(linked, "doro")] == ["Altes Handy"]
-    assert nd.for_user(linked, "klaus") == []
+    devs = [_dev("d1", "Pixel 8", "anna"), _dev("d2", "Galaxy S24", "carla"), _dev("d3", "Altes Handy", None)]
+    linked = nd.apply_links(devs, {"overrides": {"d2": "anna", "d3": "ben"}})
+    assert [d["name"] for d in nd.for_user(linked, "anna")] == ["Pixel 8", "Galaxy S24"]
+    assert [d["name"] for d in nd.for_user(linked, "ben")] == ["Altes Handy"]
+    assert nd.for_user(linked, "carla") == []
     assert all(d.get("linked_by_admin") for d in linked if d["key"] in ("d2", "d3"))
     # an empty value means "as Home Assistant says"
-    assert nd.clean_links({"overrides": {"d2": "", "d3": "doro"}}) == {"overrides": {"d3": "doro"}}
+    assert nd.clean_links({"overrides": {"d2": "", "d3": "ben"}}) == {"overrides": {"d3": "ben"}}
     assert nd.clean_links(None) == {"overrides": {}}
-    assert nd.clean_name("  NiPad \n") == "NiPad"
+    assert nd.clean_name("  Tablet \n") == "Tablet"
 
 
 # ---------------------------------------------------------------- external providers, prices, Claude format
@@ -570,7 +570,7 @@ def test_foundry_endpoint_forms():
     assert pv.foundry_base("res.services.ai.azure.com/anthropic") == ("https://res.services.ai.azure.com/anthropic", "")
     assert pv.foundry_base("myresource") == ("", "myresource")
     # the Azure OpenAI address of the same resource works too
-    assert pv.foundry_base("https://claude-unfoobar.openai.azure.com/openai/v1") == ("https://claude-unfoobar.services.ai.azure.com/anthropic", "")
+    assert pv.foundry_base("https://my-resource.openai.azure.com/openai/v1") == ("https://my-resource.services.ai.azure.com/anthropic", "")
     assert pv.foundry_base("https://Res.cognitiveservices.azure.com/") == ("https://res.services.ai.azure.com/anthropic", "")
 
 
@@ -630,17 +630,17 @@ def test_claude_stream_translation():
 
 def test_scrub_variants_and_rotation():
     import base64, urllib.parse
-    store = {"k1": {"id": "k1", "name": "NC", "type": "webdav", "fields": {"url": "https://x", "username": "niko", "password": "p@ss w/rd+1"}}}
+    store = {"k1": {"id": "k1", "name": "NC", "type": "webdav", "fields": {"url": "https://x", "username": "anna", "password": "p@ss w/rd+1"}}}
     sec = creds.secret_values(store)
     pw = "p@ss w/rd+1"
     for leaked in (pw, urllib.parse.quote(pw, safe=""), urllib.parse.quote_plus(pw), base64.b64encode(pw.encode()).decode(),
-                   base64.b64encode(b"niko:" + pw.encode()).decode()):
+                   base64.b64encode(b"anna:" + pw.encode()).decode()):
         assert leaked not in creds.scrub(f"Fehler: {leaked} abgelehnt", sec), leaked
-    assert creds.scrub("Authorization: Basic " + base64.b64encode(b"niko:" + pw.encode()).decode(), sec) == "Authorization: Basic •••"
+    assert creds.scrub("Authorization: Basic " + base64.b64encode(b"anna:" + pw.encode()).decode(), sec) == "Authorization: Basic •••"
     old = store["k1"]
     assert creds.secret_changes(old, {"type": "webdav", "fields": dict(old["fields"], password="neu")})
     assert not creds.secret_changes(old, {"type": "webdav", "fields": dict(old["fields"], url="https://y")})
-    assert creds.secret_changes(old, {"type": "webdav", "fields": {"url": "https://x", "username": "niko"}})  # removed
+    assert creds.secret_changes(old, {"type": "webdav", "fields": {"url": "https://x", "username": "anna"}})  # removed
 
 
 def test_scrub_nested():
