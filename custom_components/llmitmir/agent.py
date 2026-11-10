@@ -1640,7 +1640,7 @@ class ToolContext:
             self.store.schedule_save(1.0)
             self.manager.emit(self.user_id, {"type": "cred_usage", "id": c["id"], "uses": c["uses"],
                                              "last_used": c["last_used"], "last_model": c.get("last_model"),
-                                             "ext_uses": c["ext_uses"], "ext_uses_since": c.get("ext_uses_since"),
+                                             "ext_uses": c.get("ext_uses", 0), "ext_uses_since": c.get("ext_uses_since"),
                                              "ext_last": c.get("ext_last")})
 
     def _remember_allow(self, name: str) -> None:
