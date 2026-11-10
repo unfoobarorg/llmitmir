@@ -10,5 +10,5 @@
   "issue_tracker": "https://git.unfoobar.org/ha-integrations/llmitmir/-/issues",
   "requirements": ["pypdfium2>=4.30.0", "anthropic>=2.6.0"],
   "single_config_entry": true,
-  "version": "0.7.7"
+  "version": "0.7.8"
 }

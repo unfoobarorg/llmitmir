@@ -78,7 +78,10 @@ DOMPurify.addHook("afterSanitizeAttributes", (node: any) => {
 });
 export function md(text: string, opts: { breaks?: boolean } = {}) {
   // chat messages keep single line breaks; documents (breaks: false) reflow wrapped lines
-  const raw = marked.parse(text || "", { async: false, gfm: true, breaks: opts.breaks ?? true }) as string;
+  let raw = marked.parse(text || "", { async: false, gfm: true, breaks: opts.breaks ?? true }) as string;
+  // Tabellen in einen eigenen Scrollkasten setzen: sonst zieht eine breite Tabelle den
+  // ganzen Chat in die Breite, statt nur in ihrem Kasten zu scrollen.
+  raw = raw.replace(/<table>/g, '<div class="md-tw"><table>').replace(/<\/table>/g, "</table></div>");
   return unsafeHTML(DOMPurify.sanitize(raw, { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] }));
 }
 
@@ -135,7 +138,8 @@ export const base = css`
   textarea.code { font-family: var(--lm-mono); font-size: 13px; }
   label.f { display: grid; gap: 6px; font-size: 13px; color: var(--lm-muted); }
   label.f > span { font-weight: 550; color: var(--lm-text); }
-  .hint { font-size: 12.5px; color: var(--lm-muted); line-height: 1.45; }
+  .hint { font-size: 12.5px; color: var(--lm-muted); line-height: 1.45; overflow-wrap: anywhere; }
+  code { overflow-wrap: anywhere; }
   .shimmer { background: linear-gradient(90deg, var(--lm-muted) 0%, var(--lm-text) 45%, var(--lm-muted) 90%); background-size: 200% 100%;
     -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2.2s linear infinite; }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
@@ -154,23 +158,25 @@ export const base = css`
   .page .row:has(> h1) { margin-bottom: 18px; flex-wrap: wrap; row-gap: 10px; }
   .page .row > h1 { margin: 4px 0; }
   a { color: var(--lm-accent); }
-  .page h1 { font-family: var(--lm-head); font-weight: 650; font-size: 28px; margin: 4px 0 18px; letter-spacing: -.02em; }
+  .page h1 { font-family: var(--lm-head); font-weight: 650; font-size: 28px; margin: 4px 0 18px; letter-spacing: -.02em; overflow-wrap: anywhere; }
   .page h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 12px; }
   .list { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
   .list > *, .grid > * { min-width: 0; }
   .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--lm-line); border-radius: 12px;
-    background: var(--lm-panel); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+    background: var(--lm-panel); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; min-width: 0; }
+  .item > * { min-width: 0; }
   .item:hover { border-color: color-mix(in srgb, var(--lm-accent) 35%, var(--lm-line)); box-shadow: var(--lm-shadow); }
-  .md { line-height: 1.62; font-size: 15.5px; overflow-wrap: anywhere; }
+  .md { line-height: 1.62; font-size: 15.5px; overflow-wrap: anywhere; min-width: 0; }
   .md p { margin: 0 0 .75em; } .md p:last-child { margin-bottom: 0; }
   .md h1, .md h2, .md h3 { font-family: var(--lm-head); font-weight: 600; line-height: 1.3; margin: 1.1em 0 .5em; }
   .md h1 { font-size: 1.45em; } .md h2 { font-size: 1.25em; } .md h3 { font-size: 1.08em; }
   .md code { font-family: var(--lm-mono); font-size: .86em; background: var(--lm-hover); padding: .1em .35em; border-radius: 5px; }
-  .md pre { background: var(--lm-side); border: 1px solid var(--lm-line); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
+  .md pre { background: var(--lm-side); border: 1px solid var(--lm-line); padding: 12px 14px; border-radius: 10px; overflow-x: auto; max-width: 100%; }
   .md pre code { background: none; padding: 0; font-size: 13px; }
-  .md table { border-collapse: collapse; display: block; overflow-x: auto; margin: .6em 0; font-size: 14px; }
+  .md-tw { max-width: 100%; overflow-x: auto; margin: .6em 0; }
+  .md table { border-collapse: collapse; width: max-content; min-width: 100%; margin: 0; font-size: 14px; }
   .md th, .md td { border: 1px solid var(--lm-line); padding: 6px 10px; text-align: left; overflow-wrap: normal; word-break: normal; }
   .md td { min-width: 4.5em; }
   .md th { background: var(--lm-side); }

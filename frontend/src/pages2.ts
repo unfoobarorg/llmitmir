@@ -11,8 +11,8 @@ import { ensureConsent, ext, fmtEur, isExternal, priceText } from "./external";
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   ${explainerCss}
-  .form { display: grid; gap: 14px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .savebar { position: sticky; bottom: 12px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
   .banner { display: flex; gap: 10px; align-items: flex-start; background: var(--lm-accent-soft); color: var(--lm-text); border-radius: 12px;
     padding: 12px 14px; font-size: 13.5px; line-height: 1.5; margin-bottom: 16px; }
@@ -247,7 +247,7 @@ export class SkillPage extends StoreElement {
   @state() private tab = "edit";
   @state() private dirty = false;
   static styles = [base, pageCss, css`.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; }
+    .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
     .chips button.on { background: var(--lm-accent-soft); border-color: transparent; color: var(--lm-accent); }`];
   updated(ch: Map<string, any>) { if (ch.has("skillId")) this.reload(); }
   private async reload() {

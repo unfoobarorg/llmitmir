@@ -168,10 +168,10 @@ export class ProjectPage extends StoreElement {
     .tw .pen { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--lm-faint); pointer-events: none; }
     .lock { display: grid; place-items: center; text-align: center; gap: 8px; padding: 28px 16px; border: 1px dashed var(--lm-line); border-radius: 16px; color: var(--lm-muted); }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-    .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
+    .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
     .chips button.on { background: var(--lm-accent-soft); border-color: transparent; color: var(--lm-accent); }
     .savebar { position: sticky; bottom: 12px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-    @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }`];
+    @media (max-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr); } }`];
   updated(ch: Map<string, any>) {
     if (ch.has("projectId")) this.reload();
   }

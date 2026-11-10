@@ -13,7 +13,7 @@ import { ensureConsent, externalCss, externalExplanation, fmtEur, priceText } fr
 
 const css2 = css`:host { display: block; height: 100%; overflow-y: auto; }
   section { margin-bottom: 26px; } section > h2 { display: flex; gap: 8px; align-items: center; }
-  .form { display: grid; gap: 14px; } .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; } .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .savebar { position: sticky; bottom: 12px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
   .bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding-top: 10px; }
   .bars div { flex: 1; background: var(--lm-accent); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .85; position: relative; transition: height .4s; }

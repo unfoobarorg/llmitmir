@@ -101,30 +101,36 @@ export class ChatView extends LitElement {
     .offer { display: grid; gap: 8px; font-size: 13.5px; margin-top: 4px; }
     .offer svg { vertical-align: -3px; color: var(--lm-warn); }
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
-    header { display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 52px; }
+    header { display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 52px; overflow: hidden; }
+    header > .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; }
     header .title { font-weight: 560; font-size: 15px; padding: 6px 8px; border-radius: 8px; cursor: pointer; max-width: 60vw; }
     header .title:hover { background: var(--lm-hover); }
     header input { max-width: 420px; padding: 6px 8px; }
-    .scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
-    .thread { max-width: 780px; margin: 0 auto; padding: 10px 22px 30px; display: grid; gap: 22px; }
+    /* Der Chat darf nie breiter als das Fenster werden: Raster mit minmax(0, 1fr) und
+       min-width: 0 an den Kindern, damit breite Inhalte (Code, Tabellen) nur in ihrem
+       eigenen Kasten scrollen und nicht den ganzen Verlauf auseinanderziehen. */
+    .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scroll-behavior: smooth; }
+    .thread { max-width: 780px; margin: 0 auto; padding: 10px 22px 30px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+    .thread > * { min-width: 0; }
     .user { justify-self: end; max-width: min(85%, 640px); background: var(--lm-user); border-radius: 18px 18px 6px 18px;
       padding: 10px 15px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 15.5px; animation: fadeIn .25s; }
     .att { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; }
     .att button { border: 1px solid var(--lm-line); background: var(--lm-raise); border-radius: 10px; padding: 4px 9px; font-size: 12.5px;
       cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
-    .asst { display: grid; gap: 8px; animation: fadeIn .25s; }
+    .asst { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; animation: fadeIn .25s; }
+    .asst > * { min-width: 0; }
     .meta { display: flex; align-items: center; gap: 2px; color: var(--lm-faint); font-size: 12px; opacity: 0; transition: opacity .2s; }
     .asst:hover .meta, .asst.last .meta { opacity: 1; }
     .meta .iconbtn { width: 30px; height: 30px; }
     .think { border-left: 2px solid var(--lm-line); padding: 2px 0 2px 12px; }
     .think summary { cursor: pointer; color: var(--lm-muted); font-size: 13px; list-style: none; display: flex; gap: 6px; align-items: center; }
     .think summary::-webkit-details-marker { display: none; }
-    .think .txt { white-space: pre-wrap; color: var(--lm-muted); font-size: 13.5px; line-height: 1.55; margin-top: 6px; max-height: 320px; overflow-y: auto; }
+    .think .txt { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lm-muted); font-size: 13.5px; line-height: 1.55; margin-top: 6px; max-height: 320px; overflow-y: auto; }
     .steps { border: 1px solid var(--lm-line); border-radius: 14px; overflow: hidden; background: var(--lm-panel); }
     .step { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
     .step + .step, .step + .detail, .detail + .step { border-top: 1px solid var(--lm-line); }
     .step:hover { background: var(--lm-hover); }
-    .step .lbl { font-weight: 520; } .step .arg { color: var(--lm-muted); }
+    .step .lbl { font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .step .arg { color: var(--lm-muted); min-width: 0; }
     .step .st { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--lm-faint); font-size: 12px; flex: none; }
     .ok { color: var(--lm-ok); } .err { color: var(--lm-err); } .den { color: var(--lm-warn); }
     .detail { padding: 10px 12px 12px 40px; font-size: 12.5px; background: var(--lm-side); }
@@ -153,14 +159,14 @@ export class ChatView extends LitElement {
     .chg.add { border-left: 3px solid var(--lm-ok); } .chg.upd { border-left: 3px solid var(--lm-accent); } .chg.del { border-left: 3px solid var(--lm-err); }
     .chg-note { display: flex; gap: 6px; align-items: center; padding: 8px 12px; font-size: 13px; color: var(--lm-warn);
       background: color-mix(in srgb, var(--lm-warn) 8%, transparent); border-bottom: 1px solid var(--lm-line); }
-    .chg-f { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 9px 14px; padding: 11px 12px; font-size: 13.5px; align-items: baseline; }
+    .chg-f { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 9px 14px; padding: 11px 12px; font-size: 13.5px; align-items: baseline; }
     .chg-f .k { color: var(--lm-muted); font-size: 12.5px; }
     .chg-f .v { min-width: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
     .chg-f .v > .diff, .chg-f .v > .blk { flex: 1 1 100%; }
     .old { text-decoration: line-through; color: var(--lm-err); background: color-mix(in srgb, var(--lm-err) 9%, transparent); border-radius: 4px; padding: 0 5px; }
     .new { color: var(--lm-ok); background: color-mix(in srgb, var(--lm-ok) 11%, transparent); border-radius: 4px; padding: 0 5px; font-weight: 520; }
     .arrow { color: var(--lm-faint); } .gonetxt { text-decoration: line-through; color: var(--lm-muted); }
-    .blk { white-space: pre-wrap; font-size: 13px; line-height: 1.5; max-height: 240px; overflow-y: auto; background: var(--lm-side);
+    .blk { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; max-height: 240px; overflow-y: auto; background: var(--lm-side);
       border-radius: 8px; padding: 7px 10px; }
     .blk.add { border-left: 3px solid var(--lm-ok); } .blk.gone { border-left: 3px solid var(--lm-err); color: var(--lm-muted); text-decoration: line-through; }
     .diff { font-family: var(--lm-mono); font-size: 12px; line-height: 1.55; border: 1px solid var(--lm-line); border-radius: 8px; overflow-y: auto; max-height: 340px; }
@@ -179,7 +185,7 @@ export class ChatView extends LitElement {
       display: grid; align-content: start; gap: 14px; }
     aside h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; display: flex; gap: 6px; align-items: center; }
     .prog { display: grid; gap: 6px; }
-    .prog div { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.4; }
+    .prog div { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; line-height: 1.4; overflow-wrap: anywhere; }
     .prog .done { color: var(--lm-muted); text-decoration: line-through; text-decoration-color: var(--lm-faint); }
     .spin { width: 16px; height: 16px; border: 2px solid var(--lm-accent-soft); border-top-color: var(--lm-accent); border-radius: 50%;
       animation: rot .8s linear infinite; flex: none; margin-top: 1px; }
@@ -201,7 +207,8 @@ export class ChatView extends LitElement {
     .bubble.me { justify-self: end; background: var(--lm-me); border-bottom-right-radius: 6px; }
     .bubble.ai { justify-self: start; background: var(--lm-panel); border: 1px solid var(--lm-line); border-bottom-left-radius: 6px;
       box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-    .bubble .btxt { white-space: pre-wrap; }
+    .bubble > * { min-width: 0; }
+    .bubble .btxt { white-space: pre-wrap; overflow-wrap: anywhere; }
     .bubble .md { font-size: 15.5px; }
     .bubble .md > :last-child { margin-bottom: 0; }
     .bubble .md > :first-child { margin-top: 0; }
