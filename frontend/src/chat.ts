@@ -50,6 +50,16 @@ const heldBack = (m: any) => !!m?.streaming && isExternal(m.model);
 
 const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
 
+/** Bis zu zwei Zeilen aus einem Befehl – genug, um zu sehen, was gerade läuft. */
+function cmdPreview(a: any): string[] {
+  const raw = String(a?.befehl ?? "").trim();
+  if (!raw) return [];
+  const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+  const out = lines.slice(0, 2).map(l => (l.length > 110 ? l.slice(0, 109) + "…" : l));
+  if (lines.length > 2) out[out.length - 1] += " …";
+  return out;
+}
+
 function changeField(f: any, aktion: string) {
   let val: any;
   if (f.diff) {
@@ -91,10 +101,24 @@ export class ChatView extends LitElement {
   @state() private editTitle = false;
   @state() private now = Date.now();
   @state() private hideHint = "";
+  @state() private stick = true;
   @query(".scroll") private scroller!: HTMLElement;
-  private stick = true;
+  private _selfScroll = false;
+  private _jumping = false;
   private _tick: any;
-  private _onChange = () => { this.requestUpdate(); this.updateComplete.then(() => this.autoscroll()); };
+  private _pending = false;
+  /** Beim Schreiben kommen viele kleine Ereignisse: hoechstens alle 16 ms neu zeichnen,
+   *  sonst haengt das Scrollen hinterher. setTimeout statt requestAnimationFrame, damit
+   *  auch im Hintergrund weiter gezeichnet wird. */
+  private _onChange = () => {
+    if (this._pending) return;
+    this._pending = true;
+    setTimeout(() => {
+      this._pending = false;
+      this.requestUpdate();
+      this.updateComplete.then(() => this.autoscroll());
+    }, 16);
+  };
 
   static styles = [base, menuItemStyles, externalCss, css`
     :host { display: flex; height: 100%; min-height: 0; }
@@ -109,7 +133,7 @@ export class ChatView extends LitElement {
     /* Der Chat darf nie breiter als das Fenster werden: Raster mit minmax(0, 1fr) und
        min-width: 0 an den Kindern, damit breite Inhalte (Code, Tabellen) nur in ihrem
        eigenen Kasten scrollen und nicht den ganzen Verlauf auseinanderziehen. */
-    .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scroll-behavior: smooth; }
+    .scroll { flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
     .thread { max-width: 780px; margin: 0 auto; padding: 10px 22px 30px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
     .thread > * { min-width: 0; }
     .user { justify-self: end; max-width: min(85%, 640px); background: var(--lm-user); border-radius: 18px 18px 6px 18px;
@@ -127,11 +151,15 @@ export class ChatView extends LitElement {
     .think summary::-webkit-details-marker { display: none; }
     .think .txt { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lm-muted); font-size: 13.5px; line-height: 1.55; margin-top: 6px; max-height: 320px; overflow-y: auto; }
     .steps { border: 1px solid var(--lm-line); border-radius: 14px; overflow: hidden; background: var(--lm-panel); }
-    .step { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
+    .step { display: grid; gap: 2px; padding: 9px 12px; cursor: pointer; font-size: 13.5px; }
     .step + .step, .step + .detail, .detail + .step { border-top: 1px solid var(--lm-line); }
     .step:hover { background: var(--lm-hover); }
+    .step .srow { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .step .lbl { font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .step .arg { color: var(--lm-muted); min-width: 0; }
     .step .st { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--lm-faint); font-size: 12px; flex: none; }
+    /* Kurze Vorschau auf den Befehl: höchstens zwei Zeilen, jede in einer Zeile gekürzt. */
+    .step .prev { font-family: var(--lm-mono); font-size: 11.5px; line-height: 1.45; color: var(--lm-muted); padding-left: 28px; min-width: 0; }
+    .step .prev div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ok { color: var(--lm-ok); } .err { color: var(--lm-err); } .den { color: var(--lm-warn); }
     .detail { padding: 10px 12px 12px 40px; font-size: 12.5px; background: var(--lm-side); }
     .detail pre { margin: 4px 0 8px; white-space: pre-wrap; word-break: break-word; font-family: var(--lm-mono); font-size: 12px;
@@ -139,6 +167,8 @@ export class ChatView extends LitElement {
     .perm.slow { border-color: color-mix(in srgb, var(--lm-warn) 45%, var(--lm-line)); }
     .perm.slow > .row:first-child svg { color: var(--lm-warn); }
     .running { display: flex; align-items: center; gap: 10px; color: var(--lm-muted); font-size: 14px; padding: 4px 0; }
+    .runcmd { font-family: var(--lm-mono); font-size: 11.5px; color: var(--lm-faint); padding-left: 30px; margin-top: -4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .caret { display: inline-block; width: 8px; height: 1.05em; background: var(--lm-accent); border-radius: 2px; vertical-align: text-bottom;
       margin-left: 2px; animation: caret 1s steps(2) infinite; }
     @keyframes caret { 50% { opacity: 0; } }
@@ -179,7 +209,9 @@ export class ChatView extends LitElement {
     .diff .s { color: var(--lm-faint); font-style: italic; background: var(--lm-side); padding-left: 10px; font-family: inherit; }
     .chgd { padding: 0 12px 12px 12px; background: var(--lm-panel); cursor: auto; }
     @media (max-width: 560px) { .chg-f { grid-template-columns: minmax(0, 1fr); gap: 2px 0; } .chg-f .v { margin-bottom: 8px; } }
-    .foot { padding: 0 16px 14px; max-width: 812px; margin: 0 auto; width: 100%; }
+    .foot { padding: 0 16px 14px; max-width: 812px; margin: 0 auto; width: 100%; position: relative; }
+    .jump { position: absolute; top: -46px; left: 50%; transform: translateX(-50%); }
+    .jump .btn { border-radius: 999px; background: var(--lm-panel); box-shadow: var(--lm-shadow); font-size: 13px; padding: 6px 14px; min-height: 32px; }
     .note { text-align: center; font-size: 11.5px; color: var(--lm-faint); margin-top: 6px; }
     aside { width: 320px; border-left: 1px solid var(--lm-line); background: var(--lm-bg); overflow-y: auto; padding: 14px; flex: none;
       display: grid; align-content: start; gap: 14px; }
@@ -256,11 +288,33 @@ export class ChatView extends LitElement {
     }
   }
 
+  /** Nachziehen nur, wenn die Person unten ist – und ohne Animation: bei schnell aufeinander
+   *  folgenden Nachrichten bleibt eine weiche Animation hinterher und ruckelt. */
   private autoscroll(force = false) {
     const s = this.scroller; if (!s) return;
-    if (force || this.stick) { s.style.scrollBehavior = force ? "auto" : "smooth"; s.scrollTop = s.scrollHeight; }
+    if (!force && !this.stick) return;
+    const top = s.scrollHeight - s.clientHeight;
+    if (top - s.scrollTop < 2) return;
+    this._selfScroll = true;
+    s.scrollTop = top;
+    setTimeout(() => { this._selfScroll = false; }, 150);
   }
-  private onScroll() { const s = this.scroller; this.stick = s.scrollHeight - s.scrollTop - s.clientHeight < 120; }
+
+  /** Eigenes Nachziehen zählt nicht als „hochgescrollt“; wer selbst nach oben scrollt, löst den Chat sofort. */
+  private onScroll() {
+    const s = this.scroller; if (!s || this._jumping) return;
+    const near = s.scrollHeight - s.scrollTop - s.clientHeight < 24;
+    if (this._selfScroll && near) return;
+    this.stick = near;
+  }
+
+  private jumpDown() {
+    const s = this.scroller; if (!s) return;
+    this.stick = true;
+    this._jumping = true;
+    s.scrollTo({ top: s.scrollHeight, behavior: "smooth" });
+    setTimeout(() => { this._jumping = false; }, 700);
+  }
 
   private get chat() { return store.chats.get(this.chatId); }
 
@@ -286,12 +340,15 @@ export class ChatView extends LitElement {
     const open = this.openSteps.has(m.id);
     const a = m.args || {};
     const argText = a.anfrage || a.url || a.pfad || a.name || a.entity_id || a.filter || a.typ || (a.domain ? `${a.domain}.${a.service}` : "") || "";
+    // „Befehl ausführen“ allein sagt nichts: darunter die ersten Zeilen des Befehls (wie Claude Code es zeigt).
+    const prev = !open && m.name === "shell" ? cmdPreview(a) : [];
     const st = m.status;
     return html`<div class="step" @click=${() => { const s = new Set(this.openSteps); open ? s.delete(m.id) : s.add(m.id); this.openSteps = s; }}>
-        ${icon(m.icon || "tools", 18)}<span class="lbl">${m.label || m.name}</span><span class="arg ellipsis">${argText ? `· ${String(argText).slice(0, 80)}` : ""}</span>
+        <div class="srow">${icon(m.icon || "tools", 18)}<span class="lbl">${m.label || m.name}</span><span class="arg ellipsis">${argText ? `· ${String(argText).slice(0, 80)}` : ""}</span>
         <span class="st">${st === "running" ? html`<span class="spin"></span>` : st === "ok" ? html`<span class="ok">${icon("check", 16)}</span>`
           : st === "denied" ? html`<span class="den">${icon("lock", 16)}</span>` : html`<span class="err">${icon("alert", 16)}</span>`}
           ${m.ms ? (m.ms > 1000 ? (m.ms / 1000).toFixed(1).replace(".", ",") + " s" : m.ms + " ms") : ""}${icon(open ? "down" : "right", 16)}</span></div>
+        ${prev.length ? html`<div class="prev">${prev.map(l => html`<div>${l}</div>`)}</div>` : nothing}</div>
       ${m.change ? html`<div class="chgd">${changeView(m.change, st)}</div>` : nothing}
       ${open ? html`<div class="detail">${m.change ? nothing : html`<b>Eingabe</b><pre>${JSON.stringify(m.args || {}, null, 2)}</pre>`}
         ${m.content ? html`<b>Ergebnis</b><pre>${m.content.slice(0, 6000)}${m.content.length > 6000 ? "\n…" : ""}</pre>` : nothing}</div>` : nothing}`;
@@ -350,8 +407,10 @@ export class ChatView extends LitElement {
       ? `Hauptanbieter nicht nutzbar – weiter mit ${modelName(chat.model)} (kostenpflichtig) – denkt nach …`
       : `${d.auto ? "Automatisch gewechselt" : "Gewechselt"} von ${modelName(d.switched_from)} zu ${modelName(chat.model)} – denkt nach …`;
     const el = (this.now / 1000) - (run.started || this.now / 1000);
+    const cmd = run.status === "tool" && d.tool === "shell" ? cmdPreview(d.args)[0] || "" : "";
     return html`<div class="running"><lm-spark></lm-spark><span class="shimmer">${text}</span>
       ${el > 20 ? html`<span class="muted" style="font-size:12px">· ${fmtDuration(el)}</span>` : nothing}</div>
+      ${cmd ? html`<div class="runcmd">${cmd}</div>` : nothing}
       ${this.slowCard(run, chat)}`;
   }
 
@@ -592,6 +651,7 @@ export class ChatView extends LitElement {
         ${simple ? this.typing(run, chat) : this.runIndicator(run, chat)}
       </div></div>
       <div class="foot">
+        ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} Nach unten</button></div>`}
         <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .tools=${chat.tools ?? null} .projectId=${chat.project_id}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}

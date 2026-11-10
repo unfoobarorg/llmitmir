@@ -76,13 +76,23 @@ marked.setOptions({ gfm: true, breaks: true });
 DOMPurify.addHook("afterSanitizeAttributes", (node: any) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
 });
+// Markdown wird bei jedem Neuzeichnen erneut gebraucht (der Chat zeichnet bei jedem
+// eingehenden Textstueck neu). Ergebnis merken: marked und DOMPurify sind sonst der
+// teuerste Teil und liessen das Scrollen waehrend laufender Arbeit stocken.
+const mdCache = new Map<string, string>();
 export function md(text: string, opts: { breaks?: boolean } = {}) {
+  const key = (opts.breaks === false ? "d" : "c") + "\u0000" + (text || "");
+  const hit = mdCache.get(key);
+  if (hit !== undefined) return unsafeHTML(hit);
   // chat messages keep single line breaks; documents (breaks: false) reflow wrapped lines
   let raw = marked.parse(text || "", { async: false, gfm: true, breaks: opts.breaks ?? true }) as string;
   // Tabellen in einen eigenen Scrollkasten setzen: sonst zieht eine breite Tabelle den
   // ganzen Chat in die Breite, statt nur in ihrem Kasten zu scrollen.
   raw = raw.replace(/<table>/g, '<div class="md-tw"><table>').replace(/<\/table>/g, "</table></div>");
-  return unsafeHTML(DOMPurify.sanitize(raw, { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] }));
+  const out = DOMPurify.sanitize(raw, { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] });
+  if (mdCache.size > 300) mdCache.clear();
+  mdCache.set(key, out);
+  return unsafeHTML(out);
 }
 
 export function copyText(text: string) {
