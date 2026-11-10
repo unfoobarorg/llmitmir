@@ -849,7 +849,7 @@ class Manager:
                         "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
                         f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
                         "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")
-                        + ("" if final or self.task is None or chat.get("result") else
+                        + ("" if final or task is None or chat.get("result") else
                            " Vergiss `task_result` nicht – ohne diesen Aufruf bekommt die Person keine Nachricht.")})
                 if run.switch_to:
                     await self._apply_switch(run, chat, st, None)
