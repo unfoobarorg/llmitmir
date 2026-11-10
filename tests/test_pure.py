@@ -688,3 +688,17 @@ def test_task_notify_same_news():
     assert not tn.should_notify("on_change", "done", "ergebnis", mail, mail2)
     assert not tn.should_notify("on_change", "done", "ergebnis", mail2, mail)
     assert tn.should_notify("on_change", "done", "ergebnis", "Neue Mail von Google Play: Händlerstatus prüfen.", mail2)
+
+def test_credential_use_counter():
+    """Every tool call that got through counts, external models additionally in their own counter."""
+    c = {"id": "k1", "name": "Hof Nextcloud", "type": "webdav", "fields": {"password": "pw"}}
+    creds.note_use(c, model="glm-5.3", external=False, ts=100.0)
+    assert (c["uses"], c["last_used"], c["last_model"]) == (1, 100.0, "glm-5.3")
+    assert "ext_uses" not in c
+    creds.note_use(c, model="claude-sonnet-4-5", external=True, ts=200.0)
+    assert (c["uses"], c["last_used"], c["last_model"]) == (2, 200.0, "claude-sonnet-4-5")
+    assert (c["ext_uses"], c["ext_uses_since"], c["ext_last"]) == (1, 1, 200.0)
+    # after a new secret the external counter starts again, the general one keeps counting
+    c.update(ext_uses_since=0)
+    creds.note_use(c, model="claude-sonnet-4-5", external=True, ts=300.0)
+    assert (c["uses"], c["ext_uses"], c["ext_uses_since"]) == (3, 2, 1)

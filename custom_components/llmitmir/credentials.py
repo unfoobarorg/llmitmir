@@ -103,6 +103,29 @@ def secret_values(creds: dict[str, dict]) -> list[str]:
     return sorted(vals, key=len, reverse=True)
 
 
+def note_use(cred: dict, model: str | None = None, external: bool = False, ts: float | None = None) -> dict:
+    """Zaehlt eine Nutzung des Zugangs fuer die Anzeige auf der Seite „Zugaenge“.
+
+    ``uses``/``last_used`` zaehlen jede Nutzung durch ein Werkzeug, ``ext_uses``/``ext_last`` nur die durch
+    kostenpflichtige externe Modelle (dort zusaetzlich ``ext_uses_since`` seit der letzten Geheimnis-Aenderung).
+    """
+    import time
+
+    ts = round(time.time(), 3) if ts is None else ts
+    cred["uses"] = int(cred.get("uses") or 0) + 1
+    cred["last_used"] = ts
+    if model:
+        cred["last_model"] = model
+    if external:
+        cred["ext_uses_since"] = int(cred.get("ext_uses_since", cred.get("ext_uses")) or 0) + 1
+        cred["ext_uses"] = int(cred.get("ext_uses") or 0) + 1
+        cred["ext_last"] = ts
+        cred["ext_last_since"] = ts
+        if model:
+            cred["ext_last_model"] = model
+    return cred
+
+
 def secret_changes(old: dict, new: dict) -> bool:
     """True if a secret field of a Zugang got another value (or was removed): the old form is no longer valid."""
     sec = secret_fields(old) | secret_fields(new)

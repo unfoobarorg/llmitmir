@@ -304,12 +304,23 @@ export class SkillPage extends StoreElement {
 /** External uses since the secret last changed (older Zugänge without a change: all uses count). */
 const usesSince = (c: any) => (c.ext_uses_since ?? c.ext_uses ?? 0) as number;
 
+/** How often tools used the Zugang at all (every model), with the last time. */
+function useChip(c: any) {
+  if (!c.uses) return nothing;
+  return html`<span class="chip" title=${`Zuletzt ${fmtTime(c.last_used)}${c.last_model ? ` mit ${c.last_model}` : ""}`}>${c.uses}× genutzt</span>`;
+}
+
 function extUseChip(c: any) {
   if (!c.ext_uses && !c.secret_changed) return nothing;
   const since = usesSince(c);
   if (c.secret_changed) return html`<span class="chip ${since ? "warn" : "ok"}" title=${`Geheimnis geändert ${fmtTime(c.secret_changed)} · insgesamt ${c.ext_uses || 0}× extern genutzt`}>
     ${since ? `seit Änderung ${since}× extern genutzt` : "seit Änderung nicht extern genutzt"}</span>`;
   return html`<span class="chip warn" title=${`Zuletzt ${fmtTime(c.ext_last)}`}>${since}× extern genutzt</span>`;
+}
+
+function useText(c: any) {
+  if (!c.uses) return "Von Werkzeugen noch nicht genutzt.";
+  return html`Von Werkzeugen genutzt: <b>${c.uses}×</b>, zuletzt ${fmtTime(c.last_used)}${c.last_model ? ` mit ${c.last_model}` : ""}.`;
 }
 
 function extUseText(c: any) {
@@ -331,7 +342,8 @@ export class Credentials extends StoreElement {
     const cs = store.data?.credentials || [];
     const types = store.data?.credential_types || {};
     const extShown = !!(ext().configured || ext().has_access || cs.some((c: any) => c.external || c.ext_uses));
-    const uses = (id: string) => [...(store.data?.skills || []).filter((s: any) => (s.credentials || []).includes(id)).map((s: any) => s.name),
+    // Skills and projects that point at the Zugang – not a usage counter, that is c.uses
+    const refs = (id: string) => [...(store.data?.skills || []).filter((s: any) => (s.credentials || []).includes(id)).map((s: any) => s.name),
       ...(store.data?.projects || []).filter((p: any) => (p.credentials || []).includes(id)).map((p: any) => p.name)];
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Zugänge")}</h1>
       <button class="btn primary" @click=${() => navigate("/credential/new")}>${icon("plus", 18)} ${t("Neuer Zugang")}</button></div>
@@ -342,8 +354,9 @@ export class Credentials extends StoreElement {
         ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
         ${extShown ? (c.external ? html`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>`
           : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
+        ${useChip(c)}
         ${extUseChip(c)}
-        ${uses(c.id).length ? html`<span class="chip">${uses(c.id).length}× genutzt</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
+        ${refs(c.id).length ? html`<span class="chip" title=${`Wird verwendet von: ${refs(c.id).join(", ")}`}>${refs(c.id).length}× verknüpft</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
   }
 }
 
@@ -401,6 +414,7 @@ export class CredentialPage extends StoreElement {
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
         <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, Ablaufdatum, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
+        ${c.id ? html`<div class="hint">${useText(c)}</div>` : nothing}
         ${ext().configured || ext().has_access || c.external || c.ext_uses ? html`<div class="card"><b>${icon("euro", 16)} Kostenpflichtige externe Modelle</b>
           <div class="form" style="margin-top:8px;gap:8px">
             <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!c.external}

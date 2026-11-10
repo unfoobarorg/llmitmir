@@ -1626,25 +1626,22 @@ class ToolContext:
         if len(text) > TOOL_RESULT_MAX_CHARS:
             text = text[:TOOL_RESULT_MAX_CHARS] + f"\n… (gekürzt, {len(text)} Zeichen insgesamt)"
         msg.update(content=text, status=status, ms=round((time.monotonic() - t0) * 1000))
-        if self.external:
-            self._count_external_use(args)
+        if status == "ok":  # only a call that really got through counts as a use of the Zugang
+            self._count_credential_use(args)
         return msg
 
-    def _count_external_use(self, args: dict) -> None:
-        """Count per Zugang how often an external model used it (shown on the Zugänge page)."""
-        allowed = self.creds  # only Zugänge released for external models can have been used
+    def _count_credential_use(self, args: dict) -> None:
+        """Count per Zugang how often a tool used it (shown on the Zugänge page), separately for external models."""
         for name in _creds_in_args(args):
-            c = C.find(allowed, name)
+            c = C.find(self.creds, name)  # with an external model only Zugänge released for external models
             if not c:
                 continue
-            c["ext_uses_since"] = int(c.get("ext_uses_since", c.get("ext_uses")) or 0) + 1  # since the last new secret
-            c["ext_uses"] = int(c.get("ext_uses") or 0) + 1
-            c["ext_last"] = now()
-            c["ext_last_since"] = c["ext_last"]
-            c["ext_last_model"] = self.chat.get("model")
+            C.note_use(c, model=self.chat.get("model"), external=self.external)
             self.store.schedule_save(1.0)
-            self.manager.emit(self.user_id, {"type": "cred_usage", "id": c["id"], "ext_uses": c["ext_uses"],
-                                             "ext_uses_since": c["ext_uses_since"], "ext_last": c["ext_last"]})
+            self.manager.emit(self.user_id, {"type": "cred_usage", "id": c["id"], "uses": c["uses"],
+                                             "last_used": c["last_used"], "last_model": c.get("last_model"),
+                                             "ext_uses": c["ext_uses"], "ext_uses_since": c.get("ext_uses_since"),
+                                             "ext_last": c.get("ext_last")})
 
     def _remember_allow(self, name: str) -> None:
         if self.project:
