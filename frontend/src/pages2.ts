@@ -350,13 +350,14 @@ export class Credentials extends StoreElement {
       ${isSimple() ? explainer("credentials", !cs.length) : html`
       <div class="banner">${icon("lock")}<div>Zugangsdaten liegen getrennt von Skills und Projekten. <b>Das Modell sieht nie ein Passwort oder Token</b> – es nennt nur den Namen
         des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>`}
-      <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item" @click=${() => navigate(`/credential/${c.id}`)}>
+      <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item cred" @click=${() => navigate(`/credential/${c.id}`)}>
         ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
+        <div class="tags">
         ${extShown ? (c.external ? html`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>`
           : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
         ${useChip(c)}
         ${extUseChip(c)}
-        ${refs(c.id).length ? html`<span class="chip" title=${`Wird verwendet von: ${refs(c.id).join(", ")}`}>${refs(c.id).length}× verknüpft</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
+        ${refs(c.id).length ? html`<span class="chip" title=${`Wird verwendet von: ${refs(c.id).join(", ")}`}>${refs(c.id).length}× verknüpft</span>` : nothing}</div></div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
   }
 }
 

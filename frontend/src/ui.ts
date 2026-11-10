@@ -177,6 +177,12 @@ export const base = css`
   .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--lm-line); border-radius: 12px;
     background: var(--lm-panel); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; min-width: 0; }
   .item > * { min-width: 0; }
+  /* Chips einer Zeile: duerfen umbrechen und draengen den Namen nicht weg */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; min-width: 0; }
+  .tags .chip { flex: none; }
+  /* Zugangsliste: der Name behaelt mindestens 8em, die Chips rutschen bei Platzmangel darunter */
+  .item.cred { flex-wrap: wrap; row-gap: 8px; }
+  .item.cred > .grow { flex: 1 1 8em; }
   .item:hover { border-color: color-mix(in srgb, var(--lm-accent) 35%, var(--lm-line)); box-shadow: var(--lm-shadow); }
   .md { line-height: 1.62; font-size: 15.5px; overflow-wrap: anywhere; min-width: 0; }
   .md p { margin: 0 0 .75em; } .md p:last-child { margin-bottom: 0; }
@@ -197,7 +203,9 @@ export const base = css`
   .md img { max-width: 100%; border-radius: 8px; }
   .fade-in { animation: fadeIn .28s ease both; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  @media (max-width: 640px) { .page { padding: 16px 14px 90px; } .page h1 { font-size: 25px; } }
+  @media (max-width: 640px) { .page { padding: 16px 14px 90px; } .page h1 { font-size: 25px; }
+    /* Schmaler Bildschirm: Name und Chips untereinander statt Name auf Briefmarkengroesse */
+    .item.cred > .tags { flex: 1 1 100%; justify-content: flex-start; } }
 `;
 
 // ------------------------------------------------------------------ base class for pages

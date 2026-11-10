@@ -66,12 +66,23 @@ export class Composer extends LitElement {
     .model { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--lm-muted); font-size: 13px;
       padding: 6px 8px; border-radius: 9px; cursor: pointer; max-width: 210px; }
     .model:hover { background: var(--lm-hover); color: var(--lm-text); }
-    .bhint { display: flex; align-items: center; gap: 10px; margin: 0 6px 8px; padding: 9px 10px 9px 12px; border-radius: 14px; font-size: 13.5px;
-      background: color-mix(in srgb, var(--lm-warn) 12%, var(--lm-panel)); border: 1px solid color-mix(in srgb, var(--lm-warn) 35%, var(--lm-line));
-      color: var(--lm-text); animation: fadeIn .2s; }
+    /* Hinweis ueber dem Eingabefeld: Text bekommt mindestens 12em, der Knopf rutscht
+       sonst in die naechste Zeile statt den Text auf ein Wort je Zeile zu quetschen */
+    .bhint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 6px 8px; padding: 9px 10px 9px 12px;
+      border-radius: 14px; font-size: 13.5px; background: color-mix(in srgb, var(--lm-warn) 12%, var(--lm-panel));
+      border: 1px solid color-mix(in srgb, var(--lm-warn) 35%, var(--lm-line)); color: var(--lm-text); animation: fadeIn .2s; }
     .bhint > svg { color: var(--lm-warn); flex: none; }
-    .bhint .btn { white-space: nowrap; flex: none; }
-    @container (max-width: 520px) { .bhint { flex-wrap: wrap; } }
+    .bhint > .grow { flex: 1 1 12em; min-width: 0; }
+    .bhint .btn { white-space: nowrap; flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .bhint .iconbtn { flex: none; }
+    /* Schmal: Symbol, Text und Schliessen in der ersten Zeile, der Knopf darunter –
+       sonst quetscht der Knopf den Text auf ein Wort je Zeile */
+    @container (max-width: 520px) {
+      .bhint { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; }
+      .bhint > .grow { grid-column: 2; }
+      .bhint .btn { grid-column: 2; justify-self: start; margin-top: 2px; }
+      .bhint .iconbtn { grid-column: 3; grid-row: 1; }
+    }
     .files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .file { display: inline-flex; align-items: center; gap: 6px; background: var(--lm-hover); border-radius: 10px; padding: 5px 6px 5px 10px;
       font-size: 12.5px; max-width: 240px; animation: fadeIn .2s; }

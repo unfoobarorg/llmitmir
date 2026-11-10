@@ -129,6 +129,12 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
   .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--lm-line); border-radius: 12px;
     background: var(--lm-panel); cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; min-width: 0; }
   .item > * { min-width: 0; }
+  /* Chips einer Zeile: duerfen umbrechen und draengen den Namen nicht weg */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; min-width: 0; }
+  .tags .chip { flex: none; }
+  /* Zugangsliste: der Name behaelt mindestens 8em, die Chips rutschen bei Platzmangel darunter */
+  .item.cred { flex-wrap: wrap; row-gap: 8px; }
+  .item.cred > .grow { flex: 1 1 8em; }
   .item:hover { border-color: color-mix(in srgb, var(--lm-accent) 35%, var(--lm-line)); box-shadow: var(--lm-shadow); }
   .md { line-height: 1.62; font-size: 15.5px; overflow-wrap: anywhere; min-width: 0; }
   .md p { margin: 0 0 .75em; } .md p:last-child { margin-bottom: 0; }
@@ -149,7 +155,9 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
   .md img { max-width: 100%; border-radius: 8px; }
   .fade-in { animation: fadeIn .28s ease both; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  @media (max-width: 640px) { .page { padding: 16px 14px 90px; } .page h1 { font-size: 25px; } }
+  @media (max-width: 640px) { .page { padding: 16px 14px 90px; } .page h1 { font-size: 25px; }
+    /* Schmaler Bildschirm: Name und Chips untereinander statt Name auf Briefmarkengroesse */
+    .item.cred > .tags { flex: 1 1 100%; justify-content: flex-start; } }
 `,M1=class extends Y{constructor(){super(...arguments);this.__onStore=()=>this.requestUpdate()}connectedCallback(){super.connectedCallback(),p.addEventListener("change",this.__onStore)}disconnectedCallback(){super.disconnectedCallback(),p.removeEventListener("change",this.__onStore)}},A2=class extends Y{constructor(){super(...arguments);this.active=!0;this.size=22}render(){return r`<svg class=${this.active?"on":""} width=${this.size} height=${this.size} viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <g class="bot">
@@ -344,12 +352,23 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
     .model { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--lm-muted); font-size: 13px;
       padding: 6px 8px; border-radius: 9px; cursor: pointer; max-width: 210px; }
     .model:hover { background: var(--lm-hover); color: var(--lm-text); }
-    .bhint { display: flex; align-items: center; gap: 10px; margin: 0 6px 8px; padding: 9px 10px 9px 12px; border-radius: 14px; font-size: 13.5px;
-      background: color-mix(in srgb, var(--lm-warn) 12%, var(--lm-panel)); border: 1px solid color-mix(in srgb, var(--lm-warn) 35%, var(--lm-line));
-      color: var(--lm-text); animation: fadeIn .2s; }
+    /* Hinweis ueber dem Eingabefeld: Text bekommt mindestens 12em, der Knopf rutscht
+       sonst in die naechste Zeile statt den Text auf ein Wort je Zeile zu quetschen */
+    .bhint { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 6px 8px; padding: 9px 10px 9px 12px;
+      border-radius: 14px; font-size: 13.5px; background: color-mix(in srgb, var(--lm-warn) 12%, var(--lm-panel));
+      border: 1px solid color-mix(in srgb, var(--lm-warn) 35%, var(--lm-line)); color: var(--lm-text); animation: fadeIn .2s; }
     .bhint > svg { color: var(--lm-warn); flex: none; }
-    .bhint .btn { white-space: nowrap; flex: none; }
-    @container (max-width: 520px) { .bhint { flex-wrap: wrap; } }
+    .bhint > .grow { flex: 1 1 12em; min-width: 0; }
+    .bhint .btn { white-space: nowrap; flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .bhint .iconbtn { flex: none; }
+    /* Schmal: Symbol, Text und Schliessen in der ersten Zeile, der Knopf darunter –
+       sonst quetscht der Knopf den Text auf ein Wort je Zeile */
+    @container (max-width: 520px) {
+      .bhint { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; }
+      .bhint > .grow { grid-column: 2; }
+      .bhint .btn { grid-column: 2; justify-self: start; margin-top: 2px; }
+      .bhint .iconbtn { grid-column: 3; grid-row: 1; }
+    }
     .files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     .file { display: inline-flex; align-items: center; gap: 6px; background: var(--lm-hover); border-radius: 10px; padding: 5px 6px 5px 10px;
       font-size: 12.5px; max-width: 240px; animation: fadeIn .2s; }
@@ -1036,12 +1055,13 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
       ${N()?P2("credentials",!V.length):r`
       <div class="banner">${s("lock")}<div>Zugangsdaten liegen getrennt von Skills und Projekten. <b>Das Modell sieht nie ein Passwort oder Token</b> – es nennt nur den Namen
         des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>`}
-      <div class="list">${V.length?V.map(L=>r`<div class="item" @click=${()=>O(`/credential/${L.id}`)}>
+      <div class="list">${V.length?V.map(L=>r`<div class="item cred" @click=${()=>O(`/credential/${L.id}`)}>
         ${s("key")}<div class="grow"><div class="ellipsis">${L.name}</div><div class="hint ellipsis">${C[L.type]?.label||L.type}${L.fields?.url?` \xB7 ${L.fields.url}`:""}${L.fields?.username?` \xB7 ${L.fields.username}`:""}</div></div>
+        <div class="tags">
         ${H?L.external?r`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${s("euro",13)} extern frei</span>`:r`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${s("lock",13)} extern gesperrt</span>`:A}
         ${CC(L)}
         ${HC(L)}
-        ${e(L.id).length?r`<span class="chip" title=${`Wird verwendet von: ${e(L.id).join(", ")}`}>${e(L.id).length}× verknüpft</span>`:A}</div>`):r`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`}};x5.styles=[W,R2],x5=u([z("lm-credentials")],x5);var f1=class extends M1{constructor(){super(...arguments);this.credId="";this.d=null;this.shown=new Set;this.revealed=null;this.dirty=!1;this.newField=""}updated(C){C.has("credId")&&this.reload()}reload(){let C=(p.data?.credentials||[]).find(H=>H.id===this.credId);this.d=C?JSON.parse(JSON.stringify(C)):{name:"",type:"webdav",fields:{},notes:""},this.revealed=null,this.shown=new Set,this.dirty=!C}set(C,H){this.d={...this.d,[C]:H},this.dirty=!0}setField(C,H){this.d={...this.d,fields:{...this.d.fields,[C]:H}},this.dirty=!0}async reveal(C){!this.revealed&&this.d.id&&(this.revealed=await p.api.ws("credential/reveal",{credential_id:this.d.id}));let H=new Set(this.shown);H.has(C)?H.delete(C):H.add(C),this.shown=H,this.revealed&&this.d.fields[C]==="\u2022\u2022\u2022"&&(this.d={...this.d,fields:{...this.d.fields,[C]:this.revealed.fields[C]}})}async save(){try{let C=await p.api.ws("credential/save",{credential:this.d});this.dirty=!1,p.notify(v("Gespeichert")),await p.load(),this.credId==="new"?O(`/credential/${C.id}`,!0):this.reload()}catch(C){p.notify(C.message)}}render(){let C=this.d;if(!C)return A;let H=p.data?.credential_types||{},e=H[C.type]||{fields:[],secret:[]},L=new Set([...e.secret||[],...C.secret_fields||[]]),M=[...e.fields,...Object.keys(C.fields||{}).filter(a=>!e.fields.includes(a))],i={url:"URL",username:"Benutzername",password:"Passwort",token:"Token",share_token:"Freigabe-Token",header:"Header-Name",key:"Schl\xFCssel",chat_ids:"Chat-IDs",imap_host:"IMAP-Server",smtp_host:"SMTP-Server"};return r`<div class="page">
+        ${e(L.id).length?r`<span class="chip" title=${`Wird verwendet von: ${e(L.id).join(", ")}`}>${e(L.id).length}× verknüpft</span>`:A}</div></div>`):r`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`}};x5.styles=[W,R2],x5=u([z("lm-credentials")],x5);var f1=class extends M1{constructor(){super(...arguments);this.credId="";this.d=null;this.shown=new Set;this.revealed=null;this.dirty=!1;this.newField=""}updated(C){C.has("credId")&&this.reload()}reload(){let C=(p.data?.credentials||[]).find(H=>H.id===this.credId);this.d=C?JSON.parse(JSON.stringify(C)):{name:"",type:"webdav",fields:{},notes:""},this.revealed=null,this.shown=new Set,this.dirty=!C}set(C,H){this.d={...this.d,[C]:H},this.dirty=!0}setField(C,H){this.d={...this.d,fields:{...this.d.fields,[C]:H}},this.dirty=!0}async reveal(C){!this.revealed&&this.d.id&&(this.revealed=await p.api.ws("credential/reveal",{credential_id:this.d.id}));let H=new Set(this.shown);H.has(C)?H.delete(C):H.add(C),this.shown=H,this.revealed&&this.d.fields[C]==="\u2022\u2022\u2022"&&(this.d={...this.d,fields:{...this.d.fields,[C]:this.revealed.fields[C]}})}async save(){try{let C=await p.api.ws("credential/save",{credential:this.d});this.dirty=!1,p.notify(v("Gespeichert")),await p.load(),this.credId==="new"?O(`/credential/${C.id}`,!0):this.reload()}catch(C){p.notify(C.message)}}render(){let C=this.d;if(!C)return A;let H=p.data?.credential_types||{},e=H[C.type]||{fields:[],secret:[]},L=new Set([...e.secret||[],...C.secret_fields||[]]),M=[...e.fields,...Object.keys(C.fields||{}).filter(a=>!e.fields.includes(a))],i={url:"URL",username:"Benutzername",password:"Passwort",token:"Token",share_token:"Freigabe-Token",header:"Header-Name",key:"Schl\xFCssel",chat_ids:"Chat-IDs",imap_host:"IMAP-Server",smtp_host:"SMTP-Server"};return r`<div class="page">
       <div class="row"><button class="iconbtn" @click=${()=>O("/credentials")}>${s("left")}</button><h1 class="grow">${C.id?C.name:v("Neuer Zugang")}</h1></div>
       <div class="form">
         <div class="two"><label class="f"><span>${v("Name")}</span><input .value=${C.name} placeholder="z. B. Hof Nextcloud" @input=${a=>this.set("name",a.target.value)}></label>
