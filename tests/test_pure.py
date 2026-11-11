@@ -19,6 +19,7 @@ def load(name):
 
 cron = load("cron")
 creds = load("credentials")
+ck = load("credcheck")
 tk = load("taskkeys")
 views = load("views")
 TZ = timezone(timedelta(hours=1))
@@ -731,3 +732,36 @@ def test_share_summary():
     assert sharing.summary(share, names) == "Doro (bearbeiten und Benachrichtigung), Hannes (nur ansehen), Niko (bearbeiten)"
     assert sharing.summary(None) == "niemand"
     assert sharing.summary({"users": {"u9": {"edit": False, "notify": True}}}) == "u9 (Benachrichtigung)"
+
+
+def test_credential_check_verdict():
+    # abgelehnte Anmeldung ist der Fall, der in der Liste rot werden muss
+    assert ck.verdict(401) == (False, "HTTP 401: Benutzername, Passwort oder Token wurde abgelehnt")
+    assert ck.verdict(403)[0] is False
+    assert ck.verdict(404)[0] is False
+    assert ck.verdict(404, reachable_404=True)[0] is True
+    assert ck.verdict(200) == (True, "HTTP 200: erreichbar")
+    assert ck.verdict(429)[0] is True  # erreichbar, nur gerade ausgelastet
+    assert ck.verdict(503)[0] is False
+    assert ck.verdict(None, "Keine Verbindung: ClientConnectorError")[0] is False
+
+
+def test_credential_check_state():
+    broken = {"check": {"ok": False, "message": "HTTP 401: abgelehnt"}}
+    good = {"check": {"ok": True, "message": "HTTP 200: erreichbar"}}
+    assert ck.failed(broken) and not ck.failed(good) and not ck.failed({})
+    assert ck.summary(broken) == "HTTP 401: abgelehnt"
+    assert ck.summary(good) == "" and ck.summary({}) == ""
+
+
+def test_credential_check_auth_errors():
+    assert ck.looks_like_auth_error("Fehler: HTTP 401 bei Hof Share")
+    assert ck.looks_like_auth_error("Anmeldung abgelehnt: [AUTHENTICATIONFAILED] Invalid credentials")
+    assert not ck.looks_like_auth_error("Fehler: HTTP 500")
+    assert not ck.looks_like_auth_error("")
+
+
+def test_credential_check_missing_fields():
+    assert ck._missing({"type": "bearer", "fields": {"url": "https://x", "token": ""}}) == "token"
+    assert ck._missing({"type": "bearer", "fields": {"url": "https://x", "token": "abc"}}) == ""
+    assert ck._missing({"type": "other", "fields": {}}) == ""

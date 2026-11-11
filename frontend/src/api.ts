@@ -142,6 +142,11 @@ export class Store extends EventTarget {
           c.ext_uses = e.ext_uses; c.ext_uses_since = e.ext_uses_since; c.ext_last = e.ext_last; }
         break;
       }
+      case "cred_check": {
+        const c = (d.credentials || []).find((x: any) => x.id === e.id);
+        if (c) c.check = e.check;
+        break;
+      }
       case "tasks_queue": d.queue = e.queue; break;
       case "models": d.models = e.models; d.defaults = e.defaults; if (e.external) d.external = e.external; break;
       case "meta": this.load(); return;

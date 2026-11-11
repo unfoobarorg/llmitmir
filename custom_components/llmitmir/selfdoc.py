@@ -107,7 +107,10 @@ Gute Anleitungen nennen die LLMitMir-Werkzeuge, mit denen etwas geht (z. B. `dav
 
 ## Zugänge (Seite „Zugänge“)
 Typen: webdav, basic, bearer, header, telegram, imap, other. Felder je nach Typ (url, username, password, token …) plus Notiz. \
-Geheime Felder siehst du nie; verwende den Namen als `zugang` in dav_*/http_request oder Platzhalter `{{cred:Name:feld}}`.
+Geheime Felder siehst du nie; verwende den Namen als `zugang` in dav_*/http_request oder Platzhalter `{{cred:Name:feld}}`. \
+LLMitMir prüft jeden Zugang mit einer harmlosen Leseanfrage (nach dem Speichern, auf Knopfdruck und wenn ein Werkzeug \
+abgelehnt wird) und markiert ihn auf der Seite „Zugänge“ rot, wenn er nicht funktioniert – dann der Person sagen, \
+was die Prüfung meldet, statt es weiter zu versuchen.
 
 ## Werkzeuggruppen
 Websuche & Abrufen (web_search, web_fetch) · Home Assistant (ha_states, ha_history, ha_service, ha_ws – immer an) · \

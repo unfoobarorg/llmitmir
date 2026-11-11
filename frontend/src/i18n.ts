@@ -25,6 +25,8 @@ const EN: Record<string, string> = {
   "Chats auswählen": "Select chats", "{n} ausgewählt": "{n} selected", "Keine": "None",
   "Diesen Chat löschen?": "Delete this chat?", "{n} Chats löschen?": "Delete {n} chats?",
   "Chat gelöscht": "Chat deleted", "{n} Chats gelöscht": "{n} chats deleted",
+  "Alle prüfen": "Check all", "Prüfe …": "Checking …", "Jetzt prüfen": "Check now",
+  "Funktionieren die Zugangsdaten?": "Do the credentials work?", "Zugang funktioniert": "Credential works",
 };
 
 let lang = "de";

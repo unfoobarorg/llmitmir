@@ -57,12 +57,16 @@ def build_credential(st, c: dict) -> dict:
         # new password/token: external use counts again from zero, so the person sees whether the new one was used
         rotated = {"secret_changed": now(), "ext_uses_since": 0,
                    "ext_uses_before": int(old.get("ext_uses") or 0)}
-    return dict(old, **rotated, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
+    cred = dict(old, **rotated, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
                 secret_fields=list(c.get("secret_fields") or old.get("secret_fields") or []),
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
                 # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
                 external=bool(c["external"]) if "external" in c else bool(old.get("external")),
                 updated=now())
+    if rotated or (old.get("fields") or {}) != fields:
+        # andere Adresse, anderer Benutzer oder neues Geheimnis: die alte Pruefung sagt nichts mehr aus
+        cred.pop("check", None)
+    return cred
 
 
 async def save_credential(m, user_id: str, st, c: dict) -> dict:

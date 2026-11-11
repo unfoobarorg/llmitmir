@@ -10,6 +10,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
+from . import credcheck as CK
 from . import credentials as C
 from . import manage as M
 from . import models as MS
@@ -397,6 +398,11 @@ async def ws_skill_delete(hass, conn, msg, m, user, st):
 @command(_t("credential/save") | {vol.Required("credential"): dict})
 async def ws_cred_save(hass, conn, msg, m, user, st):
     cred = await M.save_credential(m, user.id, st, msg["credential"])
+    # Nach dem Speichern gleich einmal pruefen: ein falsch eingetragenes Passwort faellt so sofort auf
+    if cred.get("type") != "other":
+        cred["check"] = await CK.check_credential(m.session, cred)
+        st.schedule_save(1.0)
+        m.emit(user.id, {"type": "cred_check", "id": cred["id"], "check": cred["check"]})
     return mask_credential(cred, C.secret_fields(cred))
 
 
@@ -412,6 +418,32 @@ async def ws_cred_reveal(hass, conn, msg, m, user, st):
 async def ws_cred_delete(hass, conn, msg, m, user, st):
     await M.delete_credential(m, user.id, st, msg["credential_id"])
     return {"ok": True}
+
+
+@command(_t("credential/check") | {vol.Required("credential_id"): str})
+async def ws_cred_check(hass, conn, msg, m, user, st):
+    """Prueft einen Zugang mit einer harmlosen Leseanfrage und merkt sich das Ergebnis (rot in der Liste)."""
+    c = st.meta["credentials"].get(msg["credential_id"])
+    if not c:
+        raise ValueError("Zugang nicht gefunden")
+    res = await CK.check_credential(m.session, c)
+    c["check"] = res
+    st.schedule_save(1.0)
+    m.emit(user.id, {"type": "cred_check", "id": c["id"], "check": res})
+    return res
+
+
+@command(_t("credential/check_all"))
+async def ws_cred_check_all(hass, conn, msg, m, user, st):
+    """Alle Zugaenge nacheinander pruefen (Knopf „Alle prüfen“ auf der Seite „Zugaenge“)."""
+    out = {}
+    for c in list(st.meta["credentials"].values()):
+        res = await CK.check_credential(m.session, c)
+        c["check"] = res
+        out[c["id"]] = res
+        m.emit(user.id, {"type": "cred_check", "id": c["id"], "check": res})
+    st.schedule_save(1.0)
+    return {"checks": out}
 
 
 # ---------------------------------------------------------------- tasks

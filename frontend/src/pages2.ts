@@ -32,6 +32,16 @@ const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   .st-narrow { display: none; margin-top: 6px; }
   @media (max-width: 640px) { .st-wide { display: none; } .st-narrow { display: block; } }
   .preview { border: 1px solid var(--lm-line); border-radius: 10px; padding: 14px; background: var(--lm-panel); min-height: 200px; }
+  /* Zugang, dessen letzte Pruefung fehlgeschlagen ist: sofort ins Auge fallend */
+  .item.cred.bad { border-color: var(--lm-err); background: color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel)); }
+  .item.cred.bad > .i { color: var(--lm-err); }
+  .item.cred.bad:hover { border-color: var(--lm-err); }
+  .cred-err { color: var(--lm-err); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+  .checkbox { display: flex; gap: 10px; align-items: flex-start; border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; }
+  .checkbox.ok { background: rgba(63,143,91,.10); }
+  .checkbox.err { background: rgba(194,69,59,.10); border: 1px solid var(--lm-err); }
+  .checkbox .i { flex: none; margin-top: 1px; }
+  .checkbox.ok .i { color: var(--lm-ok); } .checkbox.err .i { color: var(--lm-err); }
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }`;
 
 const switchEl = (checked: boolean, onChange: (v: boolean) => void) =>
@@ -385,6 +395,23 @@ function extUseChip(c: any) {
   return html`<span class="chip warn" title=${`Zuletzt ${fmtTime(c.ext_last)}`}>${since}× extern genutzt</span>`;
 }
 
+/** Letzte Prüfung der Zugangsdaten: grün, wenn sie durchging, rot, wenn nicht. */
+function checkChip(c: any) {
+  const k = c.check;
+  if (!k) return nothing;
+  const when = `Zuletzt geprüft ${fmtTime(k.at)}`;
+  if (k.ok) return html`<span class="chip ok" title=${`${when}: ${k.message}`}>${icon("check", 13)} geprüft</span>`;
+  return html`<span class="chip err" title=${`${when}: ${k.message}`}>${icon("alert", 13)} Prüfung fehlgeschlagen</span>`;
+}
+
+/** Klartext zur letzten Prüfung, für die Seite des Zugangs. */
+function checkText(c: any) {
+  const k = c.check;
+  if (!k) return html`Noch nicht geprüft. Die Prüfung meldet sich mit einer harmlosen Leseanfrage an – sie liest nichts,
+    ändert nichts und kostet nichts.`;
+  return html`${k.ok ? "Zuletzt geprüft" : "Zuletzt fehlgeschlagen"} ${fmtTime(k.at)}: <b>${k.message}</b>`;
+}
+
 function useText(c: any) {
   if (!c.uses) return "Von Werkzeugen noch nicht genutzt.";
   return html`Von Werkzeugen genutzt: <b>${c.uses}×</b>, zuletzt ${fmtTime(c.last_used)}${c.last_model ? ` mit ${c.last_model}` : ""}.`;
@@ -405,6 +432,13 @@ function extUseText(c: any) {
 @safeElement("lm-credentials")
 export class Credentials extends StoreElement {
   static styles = [base, pageCss];
+  @state() private checking = false;
+  private async checkAll() {
+    this.checking = true;
+    try { await store.api.ws("credential/check_all"); await store.load(); }
+    catch (e: any) { store.notify(e.message); }
+    finally { this.checking = false; }
+  }
   render() {
     const cs = store.data?.credentials || [];
     const types = store.data?.credential_types || {};
@@ -412,14 +446,23 @@ export class Credentials extends StoreElement {
     // Skills and projects that point at the Zugang – not a usage counter, that is c.uses
     const refs = (id: string) => [...(store.data?.skills || []).filter((s: any) => (s.credentials || []).includes(id)).map((s: any) => s.name),
       ...(store.data?.projects || []).filter((p: any) => (p.credentials || []).includes(id)).map((p: any) => p.name)];
+    const broken = cs.filter((c: any) => c.check && !c.check.ok);
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Zugänge")}</h1>
+      ${cs.length ? html`<button class="btn" ?disabled=${this.checking} @click=${this.checkAll}>
+        ${icon("shield", 18)} ${this.checking ? t("Prüfe …") : t("Alle prüfen")}</button>` : nothing}
       <button class="btn primary" @click=${() => navigate("/credential/new")}>${icon("plus", 18)} ${t("Neuer Zugang")}</button></div>
+      ${broken.length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
+        <div><b>${broken.length === 1 ? "Ein Zugang funktioniert nicht" : `${broken.length} Zugänge funktionieren nicht`}:</b>
+        ${broken.map((c: any) => c.name).join(", ")}. Öffne den Zugang und trag das neue Passwort bzw. den neuen Token ein –
+        sonst schlagen die Aufgaben fehl, die ihn brauchen.</div></div>` : nothing}
       ${isSimple() ? explainer("credentials", !cs.length) : html`
       <div class="banner">${icon("lock")}<div>Zugangsdaten liegen getrennt von Skills und Projekten. <b>Das Modell sieht nie ein Passwort oder Token</b> – es nennt nur den Namen
         des Zugangs, und die Werkzeuge setzen die Geheimnisse auf dem Server ein. Ergebnisse werden zusätzlich nach Geheimnissen durchsucht und geschwärzt.</div></div>`}
-      <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item cred" @click=${() => navigate(`/credential/${c.id}`)}>
-        ${icon("key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div></div>
+      <div class="list">${cs.length ? cs.map((c: any) => html`<div class="item cred ${c.check && !c.check.ok ? "bad" : ""}" @click=${() => navigate(`/credential/${c.id}`)}>
+        ${icon(c.check && !c.check.ok ? "alert" : "key")}<div class="grow"><div class="ellipsis">${c.name}</div><div class="hint ellipsis">${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}${c.fields?.username ? ` · ${c.fields.username}` : ""}</div>
+        ${c.check && !c.check.ok ? html`<div class="cred-err">${c.check.message}</div>` : nothing}</div>
         <div class="tags">
+        ${checkChip(c)}
         ${extShown ? (c.external ? html`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>`
           : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
         ${useChip(c)}
@@ -435,6 +478,7 @@ export class CredentialPage extends StoreElement {
   @state() private shown = new Set<string>();
   @state() private revealed: any = null;
   @state() private dirty = false;
+  @state() private checking = false;
   @state() private newField = "";
   static styles = [base, pageCss, css`.fieldrow { display: flex; gap: 6px; align-items: center; } .fieldrow input { flex: 1; font-family: var(--lm-mono); font-size: 13.5px; }`];
   updated(ch: Map<string, any>) { if (ch.has("credId")) this.reload(); }
@@ -453,6 +497,15 @@ export class CredentialPage extends StoreElement {
   private async save() {
     try { const r = await store.api.ws("credential/save", { credential: this.d }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
       if (this.credId === "new") navigate(`/credential/${r.id}`, true); else this.reload(); } catch (e: any) { store.notify(e.message); }
+  }
+  private async check() {
+    if (!this.d?.id) return;
+    this.checking = true;
+    try { const r = await store.api.ws("credential/check", { credential_id: this.d.id });
+      this.d = { ...this.d, check: r }; await store.load();
+      store.notify(r.ok ? t("Zugang funktioniert") : r.message); }
+    catch (e: any) { store.notify(e.message); }
+    finally { this.checking = false; }
   }
   render() {
     const c = this.d; if (!c) return nothing;
@@ -482,6 +535,12 @@ export class CredentialPage extends StoreElement {
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
         <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, Ablaufdatum, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
+        ${c.id ? html`<div class="card"><b>${icon("shield", 16)} ${t("Funktionieren die Zugangsdaten?")}</b>
+          <div class="checkbox ${c.check ? (c.check.ok ? "ok" : "err") : ""}" style="margin-top:8px">
+            ${icon(c.check && !c.check.ok ? "alert" : c.check ? "check" : "info", 18)}<div>${checkText(c)}</div></div>
+          <div class="row" style="margin-top:10px"><button class="btn" ?disabled=${this.checking} @click=${this.check}>
+            ${icon("shield", 16)} ${this.checking ? t("Prüfe …") : t("Jetzt prüfen")}</button>
+            <span class="hint">Meldet sich mit einer Leseanfrage an, ändert nichts.</span></div></div>` : nothing}
         ${c.id ? html`<div class="hint">${useText(c)}</div>` : nothing}
         ${ext().configured || ext().has_access || c.external || c.ext_uses ? html`<div class="card"><b>${icon("euro", 16)} Kostenpflichtige externe Modelle</b>
           <div class="form" style="margin-top:8px;gap:8px">

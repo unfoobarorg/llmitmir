@@ -18,6 +18,7 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.util import dt as dt_util
 
 from . import claude_convert as CC
+from . import credcheck as CK
 from . import credentials as C
 from . import models as MS
 from . import pricing as PR
@@ -1445,9 +1446,13 @@ class ToolContext:
                          + "\n".join(f"- **{s['name']}**: {s.get('description', '')[:400]}" for s in skills))
         creds = C.describe_for_model(self.creds, self.allowed_creds)
         if creds and self.groups() & {"dav", "http"}:
+            broken = [f"- {c.get('name')}: {CK.summary(c)}" for c in self.creds.values()
+                      if (self.allowed_creds is None or c["id"] in self.allowed_creds) and CK.failed(c)]
             parts.append("## Zugänge\nGeheimnisse kennst du nicht und gibst sie nie aus. Nutze Werkzeuge mit dem Namen des "
                          "Zugangs (`zugang`) oder Platzhalter `{{cred:Name:feld}}`.\n"
-                         + json.dumps(creds, ensure_ascii=False))
+                         + json.dumps(creds, ensure_ascii=False)
+                         + ("\n\nBei diesen Zugängen hat die letzte Prüfung einen Fehler ergeben – nenne ihn der Person, "
+                            "statt es weiter zu versuchen:\n" + "\n".join(broken) if broken else ""))
         if ext:
             pid = PV.split(self.chat["model"])[0]
             parts.append(
@@ -1681,7 +1686,20 @@ class ToolContext:
         msg.update(content=text, status=status, ms=round((time.monotonic() - t0) * 1000))
         if status == "ok":  # only a call that really got through counts as a use of the Zugang
             self._count_credential_use(args)
+        elif CK.looks_like_auth_error(text):
+            self._mark_credential_failed(args, text)
         return msg
+
+    def _mark_credential_failed(self, args: dict, text: str) -> None:
+        """Ein Werkzeug wurde abgewiesen: den Zugang in der Liste rot markieren, damit er gleich auffaellt."""
+        for name in _creds_in_args(args):
+            c = C.find(self.creds, name)
+            if not c:
+                continue
+            c["check"] = {"ok": False, "message": f"Abgelehnt bei der letzten Nutzung: {text[:200]}",
+                          "status": None, "at": now()}
+            self.store.schedule_save(1.0)
+            self.manager.emit(self.user_id, {"type": "cred_check", "id": c["id"], "check": c["check"]})
 
     def _count_credential_use(self, args: dict) -> None:
         """Count per Zugang how often a tool used it (shown on the Zugänge page), separately for external models."""
