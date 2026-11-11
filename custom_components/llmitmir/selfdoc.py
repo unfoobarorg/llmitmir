@@ -69,7 +69,7 @@ MANUAL = """# LLMitMir – Handbuch für dich
 
 ## Chat und Cowork
 - Chat: Unterhaltung; Werkzeuge wählt die Person im Eingabefeld (Standard: Web, Dateien, Skills; Home Assistant ist immer an). \
-Höchstens 25 Werkzeugschritte je Antwort in der einfachen Ansicht; in der Expertenansicht 15, kurz vor \
+Höchstens 40 Werkzeugschritte je Antwort in der einfachen Ansicht; in der Expertenansicht 30, kurz vor \
 der Grenze fragt LLMitMir die Person, ob es um weitere 15 oder gleich 100 Schritte verlängern darf (beliebig oft).
 - Cowork: selbstständige Arbeit mit allen freigeschalteten Werkzeugen, sichtbarer Schrittliste (`progress_update`) und bis zu \
 60 Schritten. Ergebnisse als Datei im Arbeitsbereich (`file_write`), die Person lädt sie herunter.

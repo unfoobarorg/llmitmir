@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.8.1"
+VERSION = "0.8.2"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -71,8 +71,8 @@ KNOWN_CONTEXT = {
 }
 
 # Agent limits
-MAX_STEPS_CHAT = 15         # expert view: before the limit the person is asked whether more steps may be used
-MAX_STEPS_CHAT_SIMPLE = 25  # simple view: nobody is asked, so the limit is higher from the start
+MAX_STEPS_CHAT = 30         # expert view: before the limit the person is asked whether more steps may be used
+MAX_STEPS_CHAT_SIMPLE = 40  # simple view: nobody is asked, so the limit is higher from the start
 MAX_STEPS_COWORK = 60
 MAX_STEPS_MORE = 15         # steps added each time the person (expert view) allows a little more
 MAX_STEPS_MORE_LOTS = 100   # … or a lot more, when the person does not want to be asked again soon
