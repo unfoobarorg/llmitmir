@@ -97,6 +97,12 @@ export class Store extends EventTarget {
         if (full) Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, model_auto: e.chat.model_auto, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
         break;
       }
+      case "queued": {
+        // Nachrichten, die während eines Laufs geschrieben wurden und noch warten
+        const c = this.chats.get(e.chat_id);
+        if (c) c.queued = e.items || [];
+        break;
+      }
       case "chat_deleted":
         d.chats = d.chats.filter((c: any) => c.id !== e.chat_id); this.chats.delete(e.chat_id); break;
       case "message": {
@@ -108,6 +114,8 @@ export class Store extends EventTarget {
             // tool result replaces its "running" placeholder (same id)
             c.messages.push(e.message);
           }
+          // eine wartende Nachricht ist jetzt dran: aus der Warteschlange in den Verlauf
+          if (c.queued?.length) c.queued = c.queued.filter((q: any) => q.id !== e.message.id);
           if (e.message.role === "tool" && e.message.status !== "running") {
             c.messages = c.messages.filter((m: any) => !(m.status === "running" && m.tool_call_id === e.message.tool_call_id && m.id !== e.message.id));
           }

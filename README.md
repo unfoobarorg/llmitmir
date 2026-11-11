@@ -17,6 +17,11 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
+- **Weiterschreiben während einer Antwort** (wie bei Claude): Läuft schon eine Antwort, lässt sich die nächste Nachricht
+  trotzdem abschicken – mit Enter oder dem Senden-Knopf. Sie erscheint blass unter der laufenden Antwort („Kommt als
+  Nächstes dran“) und wird beantwortet, sobald der laufende Schritt fertig ist; das Modell sieht sie nicht mitten im Lauf.
+  Mehrere Nachrichten stellen sich der Reihe nach an, ein ✕ nimmt eine wieder zurück. Der Knopf ist nur noch dann
+  *Stopp*, wenn das Eingabefeld leer ist.
 - **Coworks**: Das Modell arbeitet eine Aufgabe selbstständig mit Werkzeugen ab, zeigt Plan, Schritte und Ergebnisdateien.
   Schreibende Aktionen fragen nach („Einmal erlauben“, „Immer erlauben“, „Ablehnen“). Braucht das Modell ein Werkzeug,
   das im Chat oder Projekt nicht eingeschaltet ist, fragt es ebenfalls („Einmal erlauben“, „Für diesen Chat einschalten“),

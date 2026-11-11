@@ -135,8 +135,14 @@ export class Composer extends LitElement {
     ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, window.innerHeight * 0.4) + "px";
   }
 
+  /** Wie bei Claude: läuft eine Antwort, schickt derselbe Knopf die nächste Nachricht hinterher.
+   *  Nur ohne Text ist er der Stopp-Knopf. */
+  private get canQueue() { return this.busy && !!(this.text.trim() || this.files.length); }
+
+  private stopRun() { this.dispatchEvent(new CustomEvent("stop")); }
+
   private send() {
-    if (this.busy) { this.dispatchEvent(new CustomEvent("stop")); return; }
+    if (this.busy && !this.canQueue) { this.stopRun(); return; }
     const text = this.text.trim();
     if (!text && !this.files.length) return;
     const d: SendDetail = { text, files: this.files, model: this.model, mode: this.mode, tools: this.tools, project_id: this.projectId };
@@ -150,7 +156,8 @@ export class Composer extends LitElement {
     const touch = matchMedia("(pointer: coarse)").matches;
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && enterSends && !touch) {
       e.preventDefault();
-      if (!this.busy) this.send();  // never stop a running answer by pressing Enter
+      // Enter stoppt nie eine laufende Antwort – es schickt die nächste Nachricht hinterher
+      if (!this.busy || this.canQueue) this.send();
     }
   }
 
@@ -396,7 +403,9 @@ export class Composer extends LitElement {
         <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${(this.modelInfo as any).external ? icon("euro", 14) : loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
         ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
             @click=${this.toggleRec} ?disabled=${this.transcribing}>${icon("mic")}</button>`
-          : !this.rec ? html`<button class="send ${busy ? "stop" : ""}" title=${busy ? t("Stopp") : t("Senden")} @click=${this.send}>${icon(busy ? "stop" : "send")}</button>` : nothing}
+          : !this.rec ? (busy && !this.canQueue
+            ? html`<button class="send stop" title=${t("Stopp")} @click=${this.stopRun}>${icon("stop")}</button>`
+            : html`<button class="send" title=${busy ? t("Senden – kommt nach der laufenden Antwort dran") : t("Senden")} @click=${this.send}>${icon("send")}</button>`) : nothing}
       </div></div>`;
   }
 

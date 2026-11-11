@@ -296,6 +296,19 @@ async def ws_chat_send(hass, conn, msg, m, user, st):
     return {"run_id": run_id}
 
 
+@command(_t("chat/resume") | {vol.Required("chat_id"): str})
+async def ws_chat_resume(hass, conn, msg, m, user, st):
+    """Eine wartende Nachricht von Hand starten (nach Stopp oder Fehler)."""
+    await m.resume_queued(user, msg["chat_id"])
+    return {"ok": True}
+
+
+@command(_t("chat/unqueue") | {vol.Required("chat_id"): str, vol.Required("message_id"): str})
+async def ws_chat_unqueue(hass, conn, msg, m, user, st):
+    """Eine Nachricht zurücknehmen, die noch auf das Ende des laufenden Laufs wartet."""
+    return {"queued": await m.unqueue(user.id, msg["chat_id"], msg["message_id"])}
+
+
 @command(_t("chat/retry") | {vol.Required("chat_id"): str})
 async def ws_chat_retry(hass, conn, msg, m, user, st):
     chat = await st.async_get_chat(msg["chat_id"])

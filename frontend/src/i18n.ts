@@ -27,6 +27,9 @@ const EN: Record<string, string> = {
   "Chat gelöscht": "Chat deleted", "{n} Chats gelöscht": "{n} chats deleted",
   "Alle prüfen": "Check all", "Prüfe …": "Checking …", "Jetzt prüfen": "Check now",
   "Funktionieren die Zugangsdaten?": "Do the credentials work?", "Zugang funktioniert": "Credential works",
+  "Zurücknehmen": "Take back", "Kommt als Nächstes dran": "Up next", "Wartet · {n}.": "Waiting · {n}.",
+  "Jetzt senden": "Send now",
+  "Senden – kommt nach der laufenden Antwort dran": "Send – goes out after the current answer",
 };
 
 let lang = "de";

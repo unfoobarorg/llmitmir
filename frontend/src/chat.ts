@@ -138,6 +138,13 @@ export class ChatView extends LitElement {
     .thread > * { min-width: 0; }
     .user { justify-self: end; max-width: min(85%, 640px); background: var(--lm-user); border-radius: 18px 18px 6px 18px;
       padding: 10px 15px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.55; font-size: 15.5px; animation: fadeIn .25s; }
+    /* Nachrichten, die waehrend eines Laufs geschrieben wurden: sichtbar, aber noch nicht dran */
+    .queued { display: grid; gap: 10px; }
+    .qrow { display: grid; gap: 4px; justify-items: end; }
+    .qrow .user, .qrow .bubble { opacity: .62; }
+    .qmeta { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--lm-faint); padding-right: 4px; }
+    .qmeta .iconbtn { padding: 2px; }
+    .qmeta .btn.tiny { padding: 2px 9px; font-size: 12px; border-radius: 8px; }
     .att { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; }
     .att button { border: 1px solid var(--lm-line); background: var(--lm-raise); border-radius: 10px; padding: 4px 9px; font-size: 12.5px;
       cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
@@ -391,6 +398,28 @@ export class ChatView extends LitElement {
       i++;
     }
     return out;
+  }
+
+  /** Nachrichten, die während des Laufs geschrieben wurden: sichtbar, aber noch nicht dran. */
+  private queuedBubbles(chat: any) {
+    const items = chat.queued || [];
+    if (!items.length) return nothing;
+    const simple = isSimple();
+    return html`<div class="queued">${items.map((q: any, i: number) => html`<div class="qrow">
+      ${simple ? html`<div class="bubble me">${q.content && q.content !== "(siehe Anhang)" ? html`<div class="btxt">${q.content}</div>` : nothing}</div>`
+        : html`<div class="user">${q.content}</div>`}
+      <div class="qmeta">${icon("clock", 14)}<span>${i === 0 ? t("Kommt als Nächstes dran") : t("Wartet · {n}.", { n: i + 1 })}</span>
+        ${i === 0 && !store.runs[chat.id] ? html`<button class="btn tiny" @click=${() => this.resume()}><span>${t("Jetzt senden")}</span></button>` : nothing}
+        <button class="iconbtn" title=${t("Zurücknehmen")} @click=${() => this.unqueue(q.id)}>${icon("close", 15)}</button></div>
+    </div>`)}</div>`;
+  }
+
+  private resume() {
+    store.api.ws("chat/resume", { chat_id: this.chatId }).catch(e => store.notify(String(e.message || e)));
+  }
+
+  private unqueue(messageId: string) {
+    store.api.ws("chat/unqueue", { chat_id: this.chatId, message_id: messageId }).catch(e => store.notify(String(e.message || e)));
   }
 
   private runIndicator(run: any, chat: any) {
@@ -647,6 +676,7 @@ export class ChatView extends LitElement {
           ${simple ? "Sie läuft von selbst nach Zeitplan." : "Open-Weight-Modelle können verzögert starten und länger laufen."}</span></div>` : nothing}
         ${chat.messages.length === 0 && !run ? html`<div class="empty">${simple ? "Schreib einfach los – die Antwort erscheint hier." : isWork ? "Beschreibe die Aufgabe – LLMitMir plant und arbeitet sie selbstständig ab." : "Schreib einfach los."}</div>` : nothing}
         ${simple ? this.simpleThread(chat, run) : this.renderMessages(chat, run)}
+        ${this.queuedBubbles(chat)}
         ${simple ? this.simplePerms() : this.permCards()}
         ${simple ? this.typing(run, chat) : this.runIndicator(run, chat)}
       </div></div>

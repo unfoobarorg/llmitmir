@@ -757,8 +757,16 @@ class Manager:
         chat = await st.async_get_chat(chat_id)
         if not chat:
             raise ValueError("Chat nicht gefunden")
+        msg = {"id": new_id("m"), "role": "user", "content": text, "created": now(), "attachments": attachments or []}
         if self.active_run(chat_id):
-            raise ValueError("In diesem Chat läuft schon eine Antwort")
+            # Wie bei Claude: mitten im Lauf weiterschreiben ist erlaubt. Die Nachricht steht sichtbar
+            # als "wartet" im Verlauf und wird beantwortet, sobald der laufende Schritt fertig ist.
+            # Sie liegt in `queued`, nicht in `messages` – sonst sähe das Modell sie mitten im Lauf.
+            chat.setdefault("queued", []).append(msg)
+            await st.async_save_chat(chat)
+            self.emit(user.id, {"type": "queued", "chat_id": chat_id, "items": chat["queued"]})
+            self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+            return ""
         if model and model != chat.get("model") and not self.simple(user.id):
             self._check_chat_external(user.id, st, chat, model)
             chat["model"], chat["model_auto"] = model, False
@@ -766,14 +774,69 @@ class Manager:
             chat["tools"] = tools
             # a group granted earlier in this chat stays on only while it is still ticked in the tool menu
             chat["granted_groups"] = [g for g in chat.get("granted_groups") or [] if g in tools]
-        msg = {"id": new_id("m"), "role": "user", "content": text, "created": now(), "attachments": attachments or []}
-        chat["messages"].append(msg)
         if not chat.get("title"):
             chat["title"] = _title_from(text)
+        if chat.get("queued"):
+            # noch etwas aus einem früheren Lauf offen (z. B. nach einem Fehler): der Reihe nach,
+            # die neue Nachricht stellt sich hinten an
+            chat["queued"].append(msg)
+            await st.async_save_chat(chat)
+            self.emit(user.id, {"type": "queued", "chat_id": chat_id, "items": chat["queued"]})
+            self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+            await self._start_queued(user, st, chat)
+            return ""
+        chat["messages"].append(msg)
         await st.async_save_chat(chat)
         self.emit(user.id, {"type": "message", "chat_id": chat_id, "message": msg})
         self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
         return self.start_run(user, chat)
+
+    async def unqueue(self, user_id: str, chat_id: str, message_id: str) -> list[dict]:
+        """Eine Nachricht zurücknehmen, die noch auf das Ende des Laufs wartet."""
+        st = await self.user_store(user_id)
+        chat = await st.async_get_chat(chat_id)
+        if not chat:
+            raise ValueError("Chat nicht gefunden")
+        rest = [q for q in chat.get("queued") or [] if q.get("id") != message_id]
+        if rest:
+            chat["queued"] = rest
+        else:
+            chat.pop("queued", None)
+        await st.async_save_chat(chat, keep_updated=True)
+        self.emit(user_id, {"type": "queued", "chat_id": chat_id, "items": rest})
+        return rest
+
+    async def resume_queued(self, user, chat_id: str) -> str:
+        """Eine wartende Nachricht von Hand starten (nach Stopp oder Fehler)."""
+        st = await self.user_store(user.id)
+        chat = await st.async_get_chat(chat_id)
+        if not chat:
+            raise ValueError("Chat nicht gefunden")
+        if self.active_run(chat_id):
+            raise ValueError("In diesem Chat läuft schon eine Antwort")
+        if not chat.get("queued"):
+            raise ValueError("Nichts zu senden")
+        await self._start_queued(user, st, chat)
+        return ""
+
+    async def _start_queued(self, user, st: UserStore, chat: dict) -> None:
+        """Nach dem Ende eines Laufs: die nächste Nachricht, die währenddessen geschrieben wurde, kommt dran."""
+        if chat["id"] not in st.meta["chats"]:  # chat deleted while the run was going on
+            return
+        queued = chat.get("queued") or []
+        if not queued:
+            return
+        msg = queued.pop(0)
+        if queued:
+            chat["queued"] = queued
+        else:
+            chat.pop("queued", None)
+        chat["messages"].append(msg)
+        await st.async_save_chat(chat)
+        self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": msg})
+        self.emit(user.id, {"type": "queued", "chat_id": chat["id"], "items": queued})
+        self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+        self.start_run(user, chat)
 
     def start_run(self, user, chat: dict, task: dict | None = None) -> str:
         run = Run(id=new_id("r"), user_id=user.id, chat_id=chat["id"], kind=chat["kind"])
@@ -1106,6 +1169,10 @@ class Manager:
             self.runs.pop(run.id, None)
             if task is not None and self.scheduler:
                 await self.scheduler.run_finished(user, task, chat, final_status, error)
+            elif final_status == "done":
+                # jemand hat während des Laufs weitergeschrieben: jetzt ist die nächste Nachricht dran
+                # (nach Stopp oder Fehler bleibt sie liegen und lässt sich im Chat selbst starten)
+                await self._start_queued(user, st, chat)
 
     def _check_run_quota(self, user_id: str, chat: dict, separate: bool) -> None:
         """Main provider: the personal daily quota. External models: the monthly limit in euros."""
