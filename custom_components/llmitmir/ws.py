@@ -1,6 +1,7 @@
 """Websocket API for the LLMitMir panel. Every command is scoped to the calling HA user."""
 from __future__ import annotations
 
+import asyncio
 import functools
 import secrets
 import time
@@ -395,14 +396,28 @@ async def ws_skill_delete(hass, conn, msg, m, user, st):
 
 
 # ---------------------------------------------------------------- credentials
+async def _check_one(m, st, user_id: str, cid: str) -> dict | None:
+    """Einen Zugang pruefen, Ergebnis am Zugang merken und an die Oberflaeche melden."""
+    c = st.meta["credentials"].get(cid)
+    if not c:
+        return None
+    res = await CK.check_credential(m.session, c)
+    c = st.meta["credentials"].get(cid)  # waehrend der Pruefung geloescht oder ersetzt?
+    if not c:
+        return None
+    c["check"] = res
+    st.schedule_save(1.0)
+    m.emit(user_id, {"type": "cred_check", "id": cid, "check": res})
+    return res
+
+
 @command(_t("credential/save") | {vol.Required("credential"): dict})
 async def ws_cred_save(hass, conn, msg, m, user, st):
     cred = await M.save_credential(m, user.id, st, msg["credential"])
-    # Nach dem Speichern gleich einmal pruefen: ein falsch eingetragenes Passwort faellt so sofort auf
+    # Nach dem Speichern im Hintergrund pruefen: ein falsch eingetragenes Passwort faellt so sofort auf,
+    # ohne dass das Speichern auf eine Zeitueberschreitung warten muss.
     if cred.get("type") != "other":
-        cred["check"] = await CK.check_credential(m.session, cred)
-        st.schedule_save(1.0)
-        m.emit(user.id, {"type": "cred_check", "id": cred["id"], "check": cred["check"]})
+        hass.async_create_task(_check_one(m, st, user.id, cred["id"]))
     return mask_credential(cred, C.secret_fields(cred))
 
 
@@ -423,27 +438,17 @@ async def ws_cred_delete(hass, conn, msg, m, user, st):
 @command(_t("credential/check") | {vol.Required("credential_id"): str})
 async def ws_cred_check(hass, conn, msg, m, user, st):
     """Prueft einen Zugang mit einer harmlosen Leseanfrage und merkt sich das Ergebnis (rot in der Liste)."""
-    c = st.meta["credentials"].get(msg["credential_id"])
-    if not c:
+    if msg["credential_id"] not in st.meta["credentials"]:
         raise ValueError("Zugang nicht gefunden")
-    res = await CK.check_credential(m.session, c)
-    c["check"] = res
-    st.schedule_save(1.0)
-    m.emit(user.id, {"type": "cred_check", "id": c["id"], "check": res})
-    return res
+    return await _check_one(m, st, user.id, msg["credential_id"])
 
 
 @command(_t("credential/check_all"))
 async def ws_cred_check_all(hass, conn, msg, m, user, st):
-    """Alle Zugaenge nacheinander pruefen (Knopf „Alle prüfen“ auf der Seite „Zugaenge“)."""
-    out = {}
-    for c in list(st.meta["credentials"].values()):
-        res = await CK.check_credential(m.session, c)
-        c["check"] = res
-        out[c["id"]] = res
-        m.emit(user.id, {"type": "cred_check", "id": c["id"], "check": res})
-    st.schedule_save(1.0)
-    return {"checks": out}
+    """Alle Zugaenge pruefen (Knopf „Alle prüfen“ auf der Seite „Zugänge“)."""
+    ids = list(st.meta["credentials"])
+    results = await asyncio.gather(*(_check_one(m, st, user.id, cid) for cid in ids))
+    return {"checks": {cid: res for cid, res in zip(ids, results) if res}}
 
 
 # ---------------------------------------------------------------- tasks
