@@ -9,7 +9,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 import aiohttp
@@ -75,6 +75,11 @@ class Run:
     switch_to: str | None = None
     switch_auto: bool = False  # chosen by LLMitMir itself (scheduled task), not by the person
     hint: dict | None = None   # "model is overloaded – switch to …", shown in the chat while waiting
+
+
+# Ohne diese Aktion weitermachen (dritte Möglichkeit bei einer Freigabe, und was nach einer Wartezeit passiert)
+SKIP_TEXT = ("Nicht ausgeführt: Die Person möchte diese Aktion nicht. Ohne sie weiterarbeiten, den Rest erledigen und im "
+             "Ergebnis nennen, was dadurch fehlt.")
 
 
 class Manager:
@@ -678,7 +683,9 @@ class Manager:
                  "mine_today": TK.task_part(today),
                  "key_today": self.task_key_usage(tk, 1)["today"] if tk else dict(TK.ZERO),
                  "key_limits": (self.provider.key_state(tk).snapshot() if ti["separate"] else limits) if tk else {}}
-        return {"today": today, "quota": self.quota(user_id), "key_limits": limits,
+        week = st.usage_period(date.today() - timedelta(days=date.today().weekday())) if st else dict(today)
+        month = st.usage_period(date.today().replace(day=1)) if st else dict(today)
+        return {"today": today, "week": week, "month": month, "quota": self.quota(user_id), "key_limits": limits,
                 "key_mode": cfg.get("key_mode"), "has_key": bool(key), "tasks": tasks,
                 "external": self.external_view(user_id)}
 
@@ -739,6 +746,9 @@ class Manager:
         chat = {"id": new_id("c"), "kind": kind, "title": title or "", "project_id": project_id, "task_id": task_id,
                 "model": fixed or default, "model_auto": not fixed and auto,
                 "created": now(), "updated": now(), "pinned": False, "status": "idle",
+                # Ein Lauf einer geplanten Aufgabe ist beim Anlegen noch ungelesen – der Punkt erscheint,
+                # sobald das Ergebnis da ist (updated > last_seen).
+                "last_seen": 0 if kind == KIND_TASK_RUN else now(),
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": tools}
         await st.async_save_chat(chat)
@@ -1287,10 +1297,21 @@ class Manager:
         self.permissions[pid] = (run.user_id, fut, info)
         await self._status(run, "waiting_permission", {"permission": info})
         self.emit(run.user_id, {"type": "permission", "permission": info})
+        # Ohne Antwort läuft die Frage nach einer Stunde aus. Wer in den Einstellungen eine kürzere
+        # Wartezeit wählt, bekommt statt einer Ablehnung ein "ohne diese Aktion weitermachen".
+        wait = 3600
+        st = self.users.get(run.user_id)
+        if st:
+            try:
+                mins = int(st.meta["settings"].get("permission_timeout_min") or 0)
+            except (TypeError, ValueError):
+                mins = 0
+            if mins > 0:
+                wait = max(60, mins * 60)
         try:
-            return await asyncio.wait_for(fut, timeout=3600)
+            return await asyncio.wait_for(fut, timeout=wait)
         except asyncio.TimeoutError:
-            return "deny"
+            return "skip" if wait != 3600 else "deny"
         finally:
             self.permissions.pop(pid, None)
             self.emit(run.user_id, {"type": "permission_done", "id": pid, "chat_id": run.chat_id})
@@ -1301,7 +1322,7 @@ class Manager:
             return False
         if decision == "lots" and item[2].get("tool") != "more_steps":
             decision = "once"  # "a lot more" only means something for the step limit
-        item[1].set_result(decision if decision in ("once", "always", "lots", "deny") else "deny")
+        item[1].set_result(decision if decision in ("once", "always", "lots", "deny", "skip") else "deny")
         return True
 
 
@@ -1689,7 +1710,7 @@ class ToolContext:
             decision = await self.manager.ask_permission(self.run, {
                 "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
                 "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
-            if decision == "deny":
+            if decision in ("deny", "skip"):
                 msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
                                    "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
                 return msg
@@ -1709,8 +1730,9 @@ class ToolContext:
             msg["change"] = change
             decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                                      "args": msg["args"], "change": change, "confirm": True})
-            if decision == "deny":
-                msg.update(content="Abgelehnt: Die Person hat diese Änderung nicht übernommen.", status="denied")
+            if decision in ("deny", "skip"):
+                msg.update(content=SKIP_TEXT if decision == "skip" else "Abgelehnt: Die Person hat diese Änderung nicht übernommen.",
+                           status="denied")
                 return msg
         elif tool.is_write(args) and not asked:
             perm = self.permission_for(name)
@@ -1726,8 +1748,9 @@ class ToolContext:
             if perm == PERM_ASK:
                 decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"],
                                                                          "icon": tool.icon, "args": msg["args"]})
-                if decision == "deny":
-                    msg.update(content="Abgelehnt: Die Person hat diese Aktion nicht erlaubt.", status="denied")
+                if decision in ("deny", "skip"):
+                    msg.update(content=SKIP_TEXT if decision == "skip" else "Abgelehnt: Die Person hat diese Aktion nicht erlaubt.",
+                               status="denied")
                     return msg
                 if decision == "always":
                     self._remember_allow(name)
@@ -1763,7 +1786,13 @@ class ToolContext:
             c = C.find(self.creds, name)
             if not c:
                 continue
-            c["check"] = {"ok": False, "message": f"Abgelehnt bei der letzten Nutzung: {text[:200]}",
+            exp = C.expiry(c)
+            hint = ""
+            if exp["expired"]:
+                hint = f" Der Zugang ist seit dem {exp['date']} abgelaufen – bitte erneuern."
+            elif exp["soon"]:
+                hint = f" Der Zugang läuft am {exp['date']} ab – bitte rechtzeitig erneuern."
+            c["check"] = {"ok": False, "message": f"Abgelehnt bei der letzten Nutzung: {text[:200]}{hint}",
                           "status": None, "at": now()}
             self.store.schedule_save(1.0)
             self.manager.emit(self.user_id, {"type": "cred_check", "id": c["id"], "check": c["check"]})

@@ -58,6 +58,8 @@ def build_credential(st, c: dict) -> dict:
         rotated = {"secret_changed": now(), "ext_uses_since": 0,
                    "ext_uses_before": int(old.get("ext_uses") or 0)}
     cred = dict(old, **rotated, id=cid, name=name[:80], type=typ, fields=fields, notes=str(c.get("notes") or "")[:2000],
+                # Ablaufdatum (optional, JJJJ-MM-TT): die Oberfläche warnt vorher, statt dass ein Lauf nachts scheitert
+                valid_until=str(c.get("valid_until") or old.get("valid_until") or "")[:10],
                 secret_fields=list(c.get("secret_fields") or old.get("secret_fields") or []),
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
                 # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.

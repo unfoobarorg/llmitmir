@@ -94,6 +94,8 @@ def credential_fields(c: dict | None, secret: set[str], old: dict | None = None)
         if k in secret:
             v = (SECRET + " (neu)" if old is not None and prev.get(k) != v else SECRET) if v else ""
         rows.append((k, str(v or ""), False))
+    if c.get("valid_until"):
+        rows.append(("Gültig bis", str(c["valid_until"]), False))
     rows.append(("Notiz", c.get("notes") or "", True))
     return rows
 

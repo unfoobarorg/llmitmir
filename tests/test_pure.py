@@ -765,3 +765,19 @@ def test_credential_check_missing_fields():
     assert ck._missing({"type": "bearer", "fields": {"url": "https://x", "token": ""}}) == "token"
     assert ck._missing({"type": "bearer", "fields": {"url": "https://x", "token": "abc"}}) == ""
     assert ck._missing({"type": "other", "fields": {}}) == ""
+
+def test_credential_expiry():
+    from datetime import date
+    today = date(2026, 11, 11)
+    assert creds.expiry({"valid_until": ""}, today) == {"date": "", "days": None, "expired": False, "soon": False}
+    assert creds.expiry({}, today)["date"] == ""
+    soon = creds.expiry({"valid_until": "2026-11-20"}, today)
+    assert (soon["days"], soon["expired"], soon["soon"]) == (9, False, True)
+    far = creds.expiry({"valid_until": "2027-11-05"}, today)
+    assert (far["days"], far["expired"], far["soon"]) == (359, False, False)
+    gone = creds.expiry({"valid_until": "2026-11-01"}, today)
+    assert (gone["days"], gone["expired"], gone["soon"]) == (-10, True, False)
+    # heute ist noch nicht abgelaufen, aber gewarnt
+    assert creds.expiry({"valid_until": "2026-11-11"}, today)["soon"] is True
+    # Unsinn im Feld darf nichts kaputt machen
+    assert creds.expiry({"valid_until": "bald"}, today)["days"] is None

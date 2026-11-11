@@ -395,6 +395,16 @@ function extUseChip(c: any) {
   return html`<span class="chip warn" title=${`Zuletzt ${fmtTime(c.ext_last)}`}>${since}× extern genutzt</span>`;
 }
 
+/** Ablaufdatum: rot, wenn vorbei, gelb, wenn es in den nächsten 14 Tagen so weit ist. */
+function expiryChip(c: any) {
+  const e = c.expiry;
+  if (!e?.date) return nothing;
+  const day = e.date.split("-").reverse().join(".");
+  if (e.expired) return html`<span class="chip err" title=${`Abgelaufen am ${day} – bitte erneuern`}>${icon("alert", 13)} abgelaufen</span>`;
+  if (e.soon) return html`<span class="chip warn" title=${`Läuft am ${day} ab`}>${icon("clock", 13)} läuft am ${day} ab</span>`;
+  return html`<span class="chip" title=${`Gültig bis ${day}`}>${icon("clock", 13)} bis ${day}</span>`;
+}
+
 /** Letzte Prüfung der Zugangsdaten: grün, wenn sie durchging, rot, wenn nicht. */
 function checkChip(c: any) {
   const k = c.check;
@@ -467,6 +477,7 @@ export class Credentials extends StoreElement {
           : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
         ${useChip(c)}
         ${extUseChip(c)}
+        ${expiryChip(c)}
         ${refs(c.id).length ? html`<span class="chip" title=${`Wird verwendet von: ${refs(c.id).join(", ")}`}>${refs(c.id).length}× verknüpft</span>` : nothing}</div></div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
   }
 }
@@ -534,7 +545,10 @@ export class CredentialPage extends StoreElement {
           <button class="btn" @click=${() => { if (this.newField.trim()) { this.setField(this.newField.trim().replace(/\W+/g, "_"), ""); this.newField = ""; } }}>${icon("plus", 16)} Feld</button>
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
-        <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, Ablaufdatum, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
+        <label class="f"><span>${t("Gültig bis")} <span class="hint">(optional)</span></span>
+          <input type="date" .value=${c.valid_until || ""} @input=${(e: any) => this.set("valid_until", e.target.value)}>
+          <span class="hint">Viele Tokens laufen ab. LLMitMir warnt zwei Wochen vorher in der Liste und nennt den Grund, wenn ein Werkzeug deshalb scheitert.</span></label>
+        <label class="f"><span>${t("Notiz")}</span><textarea rows="3" placeholder="Wofür, wo erneuern …" .value=${c.notes || ""} @input=${(e: any) => this.set("notes", e.target.value)}></textarea></label>
         ${c.id ? html`<div class="card"><b>${icon("shield", 16)} ${t("Funktionieren die Zugangsdaten?")}</b>
           <div class="checkbox ${c.check ? (c.check.ok ? "ok" : "err") : ""}" style="margin-top:8px">
             ${icon(c.check && !c.check.ok ? "alert" : c.check ? "check" : "info", 18)}<div>${checkText(c)}</div></div>

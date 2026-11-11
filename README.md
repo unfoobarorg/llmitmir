@@ -17,13 +17,17 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
+- **Entwurf je Chat**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel in einen anderen
+  Chat erhalten und steht beim Zurückkommen wieder da (im Browser, nicht über ein Neuladen der Seite hinweg).
+- **Ungelesen-Punkt**: Hat ein Chat ein neues Ergebnis bekommen, seit er zuletzt offen war, steht in der Seitenleiste ein
+  Punkt neben dem Titel – auch bei Läufen geplanter Aufgaben. Öffnen nimmt ihn weg.
 - **Weiterschreiben während einer Antwort** (wie bei Claude): Läuft schon eine Antwort, lässt sich die nächste Nachricht
   trotzdem abschicken – mit Enter oder dem Senden-Knopf. Sie erscheint blass unter der laufenden Antwort („Kommt als
   Nächstes dran“) und wird beantwortet, sobald der laufende Schritt fertig ist; das Modell sieht sie nicht mitten im Lauf.
   Mehrere Nachrichten stellen sich der Reihe nach an, ein ✕ nimmt eine wieder zurück. Der Knopf ist nur noch dann
   *Stopp*, wenn das Eingabefeld leer ist.
 - **Coworks**: Das Modell arbeitet eine Aufgabe selbstständig mit Werkzeugen ab, zeigt Plan, Schritte und Ergebnisdateien.
-  Schreibende Aktionen fragen nach („Einmal erlauben“, „Immer erlauben“, „Ablehnen“). Braucht das Modell ein Werkzeug,
+  Schreibende Aktionen fragen nach („Einmal erlauben“, „Immer erlauben“, „Ablehnen“, „Ohne sie weitermachen“). Braucht das Modell ein Werkzeug,
   das im Chat oder Projekt nicht eingeschaltet ist, fragt es ebenfalls („Einmal erlauben“, „Für diesen Chat einschalten“),
   statt die Aufgabe abzulehnen.
 - **Kennt sich selbst**: Wie LLMitMir funktioniert und wie man Home Assistant gezielt abfragt, steht fest im Systemprompt
@@ -56,8 +60,13 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   WebDAV, GET bei HTTP-APIs, `getMe` bei Telegram, LOGIN bei IMAP). Schlägt das fehl, steht der Zugang in der Liste rot
   mit der Meldung, ein Warnbanner nennt die betroffenen Namen, und das Modell bekommt den Fehler genannt, statt es
   weiter zu versuchen (`credcheck.py`).
-- **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, persönliche Kontingente und die
-  Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als Füllanzeige.
+- **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, **diese Woche (ab Montag) und diesen
+  Monat (ab dem Ersten)**, persönliche Kontingente und die Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als
+  Füllanzeige.
+- **Ablaufdatum bei Zugängen** (optional): LLMitMir warnt zwei Wochen vorher in der Liste und nennt den Grund, wenn ein
+  Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
+- **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60
+  Minuten *ohne diese Aktion weitermacht* – sie auslässt, den Rest erledigt und im Ergebnis nennt, was fehlt.
 - **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
   Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
   noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*

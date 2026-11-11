@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from typing import Any
+
+# So viele Tage vor dem Ablaufdatum warnt die Oberfläche (und ein fehlgeschlagener Aufruf nennt den Grund)
+EXPIRY_WARN_DAYS = 14
 
 # type -> (fields in order, secret fields)
 TYPES: dict[str, dict[str, Any]] = {
@@ -30,6 +34,22 @@ def secret_fields(cred: dict) -> set[str]:
     t = TYPES.get(cred.get("type") or "other", TYPES["other"])
     extra = set(cred.get("secret_fields") or [])
     return set(t["secret"]) | extra
+
+
+def expiry(cred: dict, today: "date | None" = None) -> dict:
+    """Ablauf eines Zugangs: {"date": "JJJJ-MM-TT", "days": n, "expired": bool, "soon": bool}.
+
+    ``days`` ist negativ, wenn das Datum vorbei ist. Ohne Ablaufdatum ist alles None/False.
+    """
+    raw = str(cred.get("valid_until") or "").strip()
+    if not raw:
+        return {"date": "", "days": None, "expired": False, "soon": False}
+    try:
+        until = date.fromisoformat(raw[:10])
+    except ValueError:
+        return {"date": raw, "days": None, "expired": False, "soon": False}
+    days = (until - (today or date.today())).days
+    return {"date": until.isoformat(), "days": days, "expired": days < 0, "soon": 0 <= days <= EXPIRY_WARN_DAYS}
 
 
 def find(creds: dict[str, dict], name_or_id: str) -> dict | None:

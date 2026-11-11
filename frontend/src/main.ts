@@ -50,6 +50,8 @@ export class LLMitMirPanel extends LitElement {
     .recents { flex: 1; overflow-y: auto; padding: 6px 8px; min-height: 0; }
     .rh { font-size: 11.5px; color: var(--lm-faint); padding: 12px 10px 4px; font-weight: 550; }
     .rc { display: flex; align-items: center; gap: 6px; padding: 6px 4px 6px 10px; border-radius: 9px; cursor: pointer; font-size: 13.5px; color: var(--lm-text); }
+    .rc .unread { font-weight: 600; }
+    .rc .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lm-accent); flex: none; margin-right: 2px; }
     .rc:hover { background: var(--lm-hover); }
     .rc.on { background: color-mix(in srgb, var(--lm-text) 9%, transparent); }
     .rc .more { opacity: 0; } .rc:hover .more, .rc.on .more { opacity: 1; }
@@ -232,10 +234,18 @@ export class LLMitMirPanel extends LitElement {
       })}`;
   }
 
+  /** Neues Ergebnis, seit der Chat zuletzt offen war? (Punkt in der Liste) */
+  private unread(c: any): boolean {
+    if (!c?.updated || c.id === (this.path[0] === "chat" ? this.path[1] : "")) return false;
+    return (c.updated || 0) > (c.last_seen || 0) + 1;
+  }
+
   private chatRow(c: any, cur: string) {
+    const unread = this.unread(c);
     return html`<div class="rc ${c.id === cur ? "on" : ""}" @click=${() => navigate(`/chat/${c.id}`)}>
       ${store.runs[c.id] ? html`<lm-spark size="14"></lm-spark>` : c.kind === "cowork" ? html`<span class="muted">${icon("cowork", 15)}</span>` : nothing}
-      <span class="grow ellipsis">${c.title || t("Neuer Chat")}</span>
+      <span class="grow ellipsis ${unread ? "unread" : ""}">${c.title || t("Neuer Chat")}</span>
+      ${unread ? html`<span class="dot" title=${t("Neu seit deinem letzten Blick")}></span>` : nothing}
       <lm-menu class="more" direction="down" align="right" @click=${(e: Event) => e.stopPropagation()}><button slot="trigger" class="iconbtn">${icon("dots", 16)}</button>
         <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: c.id, pinned: !c.pinned })}>${icon(c.pinned ? "pinOff" : "pin", 18)} ${c.pinned ? t("Lösen") : t("Anheften")}</button>
         <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog(`„${c.title}“ löschen?`)) { await store.api.ws("chat/delete", { chat_id: c.id }); if (c.id === cur) navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>

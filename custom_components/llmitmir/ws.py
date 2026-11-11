@@ -258,6 +258,18 @@ async def ws_chat_update(hass, conn, msg, m, user, st):
     return st.chat_summary(chat)
 
 
+@command(_t("chat/seen") | {vol.Required("chat_id"): str})
+async def ws_chat_seen(hass, conn, msg, m, user, st):
+    """Chat geoeffnet: alles bis jetzt gilt als gelesen (Punkt in der Seitenleiste verschwindet)."""
+    chat = await st.async_get_chat(msg["chat_id"])
+    if not chat:
+        raise ValueError("Chat nicht gefunden")
+    chat["last_seen"] = now()
+    await st.async_save_chat(chat, keep_updated=True)  # ansehen macht einen Chat nicht "neu"
+    m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+    return {"ok": True, "last_seen": chat["last_seen"]}
+
+
 async def _delete_chat(m, user, st, chat_id: str) -> None:
     """Stop a running chat, drop its sandbox and its files, then forget it."""
     m.stop(user.id, chat_id)
@@ -571,6 +583,13 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
+    if "permission_timeout_min" in s:
+        # 0 = ohne Antwort eine Stunde warten und dann ablehnen; sonst nach so vielen Minuten ohne die Aktion weitermachen
+        try:
+            mins = int(s["permission_timeout_min"] or 0)
+        except (TypeError, ValueError):
+            raise ValueError("Wartezeit muss eine Zahl in Minuten sein") from None
+        cur["permission_timeout_min"] = max(0, min(mins, 1440))
     if "notify_device" in s:
         # Only a device that belongs to this person – the link is set in Home Assistant (or by an admin)
         key = str(s["notify_device"] or "")

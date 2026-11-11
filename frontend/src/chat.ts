@@ -292,6 +292,8 @@ export class ChatView extends LitElement {
     if (ch.has("chatId") && this.chatId) {
       this.stick = true;
       store.loadChat(this.chatId, true).then(() => this.updateComplete.then(() => this.autoscroll(true))).catch(e => store.notify(String(e.message || e)));
+      // geöffnet heißt gelesen: der Punkt in der Seitenleiste verschwindet
+      store.api.ws("chat/seen", { chat_id: this.chatId }).catch(() => undefined);
     }
   }
 
@@ -481,6 +483,7 @@ export class ChatView extends LitElement {
       <div class="row">
         <button class="btn primary ${p.change.aktion === "loeschen" ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} ${p.change.aktion === "loeschen" ? t("Löschen") : t("Übernehmen")}</button>
         <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
+        <button class="btn ghost" title=${t("Ohne diese Änderung weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
     : p.group ? html`<div class="perm">
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte „${p.group_label}“ nutzen: ${p.label}</b></div>
@@ -490,6 +493,7 @@ export class ChatView extends LitElement {
         <button class="btn primary" @click=${() => answer(p, "once")}>${t("Einmal erlauben")}</button>
         <button class="btn" @click=${() => answer(p, "always")}>${t("Für diesen Chat einschalten")}</button>
         <button class="btn ghost danger" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
+        <button class="btn ghost" title=${t("Ohne dieses Werkzeug weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne es weitermachen")}</button>
       </div><div class="hint">„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.</div></div>`
     : html`<div class="perm">
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte: ${p.label}</b></div>
@@ -498,6 +502,7 @@ export class ChatView extends LitElement {
         <button class="btn primary" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "once" })}>${t("Einmal erlauben")}</button>
         <button class="btn" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "always" })}>${t("Immer erlauben")}</button>
         <button class="btn ghost danger" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "deny" })}>${t("Ablehnen")}</button>
+        <button class="btn ghost" title=${t("Ohne diese Aktion weiterarbeiten")} @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "skip" })}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.</div></div>`);
   }
 
@@ -683,6 +688,7 @@ export class ChatView extends LitElement {
       <div class="foot">
         ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} Nach unten</button></div>`}
         <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
+          .draftKey=${chat.id}
           .tools=${chat.tools ?? null} .projectId=${chat.project_id}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
           @send=${this.send} @stop=${this.stop}></lm-composer>

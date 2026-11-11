@@ -13,6 +13,10 @@ const TX_VERBS = ["Hört genau hin", "Sortiert Silben", "Fügt Wörter zusammen"
 
 export interface SendDetail { text: string; files: File[]; model: string; mode: "chat" | "cowork"; tools: string[] | null; project_id: string | null; }
 
+/** Entwürfe je Chat: halb getippter Text und Anhänge bleiben beim Wechseln erhalten.
+ *  Nur im Browser – nach einem Neuladen der Seite fängt der Chat leer an. */
+const DRAFTS = new Map<string, { text: string; files: File[] }>();
+
 @safeElement("lm-composer")
 export class Composer extends LitElement {
   @property() placeholder = "";
@@ -29,6 +33,8 @@ export class Composer extends LitElement {
   @property({ type: Boolean }) simple = false;
   /** The chat already has messages (moving it to an external model sends the history along). */
   @property({ type: Boolean }) history = false;
+  /** Chat id this composer writes to – the draft is kept per chat (empty = new chat, nothing kept). */
+  @property() draftKey = "";
   @state() private text = "";
   @state() private files: File[] = [];
   @state() private rec: VoiceRecorder | null = null;
@@ -148,6 +154,7 @@ export class Composer extends LitElement {
     const d: SendDetail = { text, files: this.files, model: this.model, mode: this.mode, tools: this.tools, project_id: this.projectId };
     this.dispatchEvent(new CustomEvent<SendDetail>("send", { detail: d }));
     this.text = ""; this.files = [];
+    if (this.draftKey) DRAFTS.delete(this.draftKey);
     this.updateComplete.then(() => this.autosize());
   }
 
@@ -159,6 +166,26 @@ export class Composer extends LitElement {
       // Enter stoppt nie eine laufende Antwort – es schickt die nächste Nachricht hinterher
       if (!this.busy || this.canQueue) this.send();
     }
+  }
+
+  /** Keep what is typed so far under the current chat, so switching chats does not lose it. */
+  private saveDraft() {
+    if (!this.draftKey) return;
+    if (this.text || this.files.length) DRAFTS.set(this.draftKey, { text: this.text, files: this.files });
+    else DRAFTS.delete(this.draftKey);
+  }
+
+  protected willUpdate(ch: Map<string, any>) {
+    if (!ch.has("draftKey")) return;
+    const old = ch.get("draftKey");
+    if (old !== undefined && old !== this.draftKey) {
+      if (this.text || this.files.length) DRAFTS.set(old, { text: this.text, files: this.files });
+      else DRAFTS.delete(old);
+    }
+    const d = this.draftKey ? DRAFTS.get(this.draftKey) : undefined;
+    this.text = d?.text || "";
+    this.files = d?.files ? [...d.files] : [];
+    this.updateComplete.then(() => this.autosize());
   }
 
   private addFiles(list: FileList | File[] | null) {
@@ -217,6 +244,7 @@ export class Composer extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this.saveDraft();  // halb Getipptes bleibt beim Wechsel des Chats erhalten
     clearInterval(this._txTimer); cancelAnimationFrame(this._raf);
   }
 
@@ -267,6 +295,9 @@ export class Composer extends LitElement {
         ${q.requests_day ? html`<div class="k muted"><span>Kontingent Anfragen</span><span>${today.requests || 0} / ${q.requests_day}</span></div>${bar(fr(today.requests, q.requests_day))}` : nothing}
         ${q.tokens_day ? html`<div class="k muted"><span>Kontingent Tokens</span><span>${fmtNum(tok)} / ${fmtNum(q.tokens_day)}</span></div>${bar(fr(tok, q.tokens_day))}` : nothing}
         ${!q.requests_day && !q.tokens_day ? html`<div class="hint">Kein persönliches Tageskontingent.</div>` : nothing}</div>
+      ${u.week || u.month ? html`<div><div class="k"><b>${t("Diese Woche")}</b><span>${(u.week?.requests || 0)} Anfragen · ${fmtNum((u.week?.prompt || 0) + (u.week?.completion || 0))} Tokens</span></div>
+        <div class="k"><b>${t("Diesen Monat")}</b><span>${(u.month?.requests || 0)} Anfragen · ${fmtNum((u.month?.prompt || 0) + (u.month?.completion || 0))} Tokens</span></div>
+        <div class="hint">Woche ab Montag, Monat ab dem Ersten – gezählt wird, was auf dem eigenen Schlüssel läuft.</div></div>` : nothing}
       ${lim.limit_requests_day ? html`<div><div class="k"><b>${t("Schlüssel")}</b><span>${u.key_mode === "shared" ? "gemeinsam" : "persönlich"}</span></div>
         <div class="k muted"><span>Heute übrig</span><span>${lim.remaining_requests_day} / ${lim.limit_requests_day}</span></div>${bar(keyDay)}
         <div class="k muted"><span>Diese Stunde übrig</span><span>${lim.remaining_requests_hour} / ${lim.limit_requests_hour}</span></div>${bar(keyHour)}

@@ -188,7 +188,7 @@ class UserStore:
 
     def chat_summary(self, chat: dict) -> dict:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",
-                                        "updated", "pinned", "status", "usage", "tools")} | {
+                                        "updated", "pinned", "status", "usage", "tools", "last_seen")} | {
             "messages": len(chat.get("messages") or []), "queued": len(chat.get("queued") or [])}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:
@@ -302,9 +302,22 @@ class UserStore:
     def usage_today(self) -> dict:
         return self.meta["usage"].get(date.today().isoformat(), {"requests": 0, "prompt": 0, "completion": 0})
 
+    def usage_period(self, start: date) -> dict:
+        """Sum of all days from ``start`` (inclusive) to today – for "diese Woche" and "dieser Monat"."""
+        out = {"requests": 0, "prompt": 0, "completion": 0}
+        first = start.isoformat()
+        for day, u in self.meta["usage"].items():
+            if day >= first:
+                for k in out:
+                    out[k] += int(u.get(k) or 0)
+        return out
+
 
 def mask_credential(cred: dict, secret_fields: set[str]) -> dict:
     """Credential for the UI list: secret values replaced by a marker."""
+    from . import credentials as C  # local import: credentials does not import storage
+
     out = {k: v for k, v in cred.items() if k != "fields"}
     out["fields"] = {k: ("•••" if k in secret_fields and v else v) for k, v in (cred.get("fields") or {}).items()}
+    out["expiry"] = C.expiry(cred)  # Ablaufdatum für die Warnung in der Liste
     return out

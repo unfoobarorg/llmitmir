@@ -219,7 +219,14 @@ export class SettingsPage extends StoreElement {
         <div class="hint">Fließt in jeden Chat, jedes Cowork und jede Aufgabe ein.</div></section>
       <section><h2>${icon("chat", 18)} ${simple ? "Bedienung" : "Darstellung & Bedienung"}</h2><div class="form">
         ${simple ? nothing : html`<label class="row"><input type="checkbox" style="width:auto" .checked=${s.show_reasoning !== false} @change=${(e: any) => this.set("show_reasoning", e.target.checked)}> Gedanken der Modelle anzeigen</label>`}
-        <label class="row"><input type="checkbox" style="width:auto" .checked=${s.send_on_enter !== false} @change=${(e: any) => this.set("send_on_enter", e.target.checked)}> Mit Enter senden (Umschalt+Enter = neue Zeile; auf Touch-Geräten immer Zeilenumbruch)</label></div></section>
+        <label class="row"><input type="checkbox" style="width:auto" .checked=${s.send_on_enter !== false} @change=${(e: any) => this.set("send_on_enter", e.target.checked)}> Mit Enter senden (Umschalt+Enter = neue Zeile; auf Touch-Geräten immer Zeilenumbruch)</label>
+        <label class="f"><span>Bei einer Freigabe ohne Antwort nach …</span>
+          <select @change=${(e: any) => this.set("permission_timeout_min", Number(e.target.value))}>
+            ${[[0, "einer Stunde warten und dann ablehnen"], [5, "5 Minuten – dann ohne die Aktion weitermachen"],
+               [15, "15 Minuten – dann ohne die Aktion weitermachen"], [60, "einer Stunde – dann ohne die Aktion weitermachen"]]
+              .map(([v, l]) => html`<option value=${v} ?selected=${Number(s.permission_timeout_min || 0) === v}>${l}</option>`)}
+          </select>
+          <span class="hint">Gilt für Chat und Cowork. „Ohne die Aktion weitermachen“ heißt: LLMitMir lässt sie aus, erledigt den Rest und nennt im Ergebnis, was fehlt. In geplanten Aufgaben entscheiden die Freigaben der Aufgabe.</span></label></div></section>
       ${perms.length ? html`<section><h2>${icon("lock", 18)} Dauerhafte Freigaben (ohne Projekt)</h2>
         ${perms.map(([n, v]) => html`<div class="row" style="padding:4px 0"><span class="grow">${d.tools[n]?.label || n}: ${v === "allow" ? "erlaubt" : v === "deny" ? "verboten" : "fragen"}</span>
           <button class="btn ghost" @click=${() => { const p = { ...s.permissions }; delete p[n]; this.set("permissions", p); }}>Zurücksetzen</button></div>`)}</section>` : nothing}
@@ -230,6 +237,8 @@ export class SettingsPage extends StoreElement {
         <div class="card"><div class="row"><span class="grow">Heute: <b>${d.usage.today.requests}</b> Anfragen · <b>${fmtNum(d.usage.today.prompt + d.usage.today.completion)}</b> Tokens</span>
           ${d.usage.quota.requests_day ? html`<span class="chip">Kontingent ${d.usage.quota.requests_day} Anfragen/Tag</span>` : nothing}
           ${d.usage.quota.tokens_day ? html`<span class="chip">${fmtNum(d.usage.quota.tokens_day)} Tokens/Tag</span>` : nothing}</div>
+        ${d.usage.week ? html`<div class="hint">Diese Woche: ${d.usage.week.requests} Anfragen · ${fmtNum(d.usage.week.prompt + d.usage.week.completion)} Tokens ·
+          diesen Monat: ${d.usage.month.requests} Anfragen · ${fmtNum(d.usage.month.prompt + d.usage.month.completion)} Tokens</div>` : nothing}
           ${d.usage.today.task_requests ? html`<div class="hint">davon geplante Aufgaben: ${d.usage.today.task_requests} Anfragen · ${fmtNum((d.usage.today.task_prompt || 0) + (d.usage.today.task_completion || 0))} Tokens</div>` : nothing}
           ${days.length ? html`<div class="bars">${days.map(([day, v]: any) => html`<div title="${day}: ${v.requests} Anfragen, ${fmtNum(v.prompt + v.completion)} Tokens"
             style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">Tokens je Tag, letzte ${days.length} Tage</div>` : nothing}</div>
