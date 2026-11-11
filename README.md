@@ -46,6 +46,11 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt.
+- **Zugänge werden geprüft**: Nach dem Speichern, auf Knopfdruck (einzeln oder „Alle prüfen“) und automatisch, wenn ein
+  Werkzeug mit abgelehnter Anmeldung scheitert, meldet sich LLMitMir mit einer harmlosen Leseanfrage an (PROPFIND bei
+  WebDAV, GET bei HTTP-APIs, `getMe` bei Telegram, LOGIN bei IMAP). Schlägt das fehl, steht der Zugang in der Liste rot
+  mit der Meldung, ein Warnbanner nennt die betroffenen Namen, und das Modell bekommt den Fehler genannt, statt es
+  weiter zu versuchen (`credcheck.py`).
 - **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, persönliche Kontingente und die
   Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als Füllanzeige.
 - **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
