@@ -10,6 +10,7 @@ from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.util import dt as dt_util
 
+from . import sharing as SH
 from . import tasknotify as TN
 from .const import KIND_TASK_RUN
 from .storage import new_id, now
@@ -179,20 +180,24 @@ class Scheduler:
             from . import notifydevices as ND
 
             devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
-            device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
             title = ("✓ " if status == "done" else "⚠ ") + str(task.get("name") or "Aufgabe")
             if chat.get("external_used") and chat.get("model_fallback"):
                 title += " (Notfall: externes Modell)"
             text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
-            try:
-                if device:
+            # The owner gets the message according to the task's setting; everybody the task is shared with and
+            # who is marked for notifications gets it on their own device as well.
+            for uid in [user.id, *SH.recipients(task.get("share"))]:
+                try:
+                    other = st if uid == user.id else await self.m.user_store(uid)
+                    device = ND.resolve(ND.for_user(devices, uid), uid, other.meta["settings"])
+                    if not device:
+                        _LOGGER.debug("Task %s: no push device for user %s", task.get("id"), uid)
+                        continue
                     await ND.async_send(self.hass, device, title[:100], text[:900],
                                         url=f"/llmitmir/chat/{chat['id']}", tag=f"llmitmir-task-{task['id']}",
-                                        context=Context(user_id=user.id))
-                else:
-                    _LOGGER.debug("Task %s: no push device for user %s", task.get("id"), user.id)
-            except Exception:  # noqa: BLE001
-                _LOGGER.warning("Notification for task %s failed", task.get("id"), exc_info=True)
+                                        context=Context(user_id=uid))
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning("Notification for task %s to %s failed", task.get("id"), uid, exc_info=True)
         done = self._done.get((user.id, task["id"]))
         if done:
             done.set()

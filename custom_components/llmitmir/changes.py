@@ -9,6 +9,7 @@ import difflib
 
 try:
     from .cron import describe
+    from .sharing import summary as share_summary
 except ImportError:  # loaded standalone in tests
     from importlib import util as _u
     from pathlib import Path as _P
@@ -17,6 +18,10 @@ except ImportError:  # loaded standalone in tests
     _m = _u.module_from_spec(_s)
     _s.loader.exec_module(_m)
     describe = _m.describe
+    _s = _u.spec_from_file_location("lm_changes_sharing", _P(__file__).with_name("sharing.py"))
+    _m = _u.module_from_spec(_s)
+    _s.loader.exec_module(_m)
+    share_summary = _m.summary
 
 NOTIFY = {"always": "nach jedem Lauf", "on_change": "nur bei neuem Ergebnis, Rückfrage oder Fehler",
           "error": "nur bei Fehlern", "never": "nie"}
@@ -75,7 +80,8 @@ def task_fields(t: dict | None, meta: dict) -> list[tuple[str, str, bool]]:
             ("Modell", t.get("model") or "Standard", False), ("Aktiv", _yes(t.get("enabled", True)), False),
             ("Freigaben", ", ".join(t.get("allow_write") or []) or "keine", False),
             ("Benachrichtigen", NOTIFY.get(t.get("notify") or "always", str(t.get("notify"))), False),
-            ("Braucht die Werkbank", _yes("werkbank" in (t.get("requires") or [])), False)]
+            ("Braucht die Werkbank", _yes("werkbank" in (t.get("requires") or [])), False),
+            ("Geteilt mit", share_summary(t.get("share"), meta.get("user_names")), False)]
 
 
 def credential_fields(c: dict | None, secret: set[str], old: dict | None = None) -> list[tuple[str, str, bool]]:

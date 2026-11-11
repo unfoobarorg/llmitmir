@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from . import credentials as C
+from . import sharing as SH
 from .cron import schedule_to_cron
 from .storage import new_id, now
 
@@ -84,29 +85,35 @@ async def delete_credential(m, user_id: str, st, cid: str) -> None:
     m.emit(user_id, {"type": "meta", "section": "all"})
 
 
-def build_task(st, t: dict) -> dict:
+def build_task(st, t: dict, owner_id: str | None = None) -> dict:
     tid = t.get("id") or new_id("t")
     old = st.meta["tasks"].get(tid, {"created": now(), "runs": []})
     sched = t.get("schedule") or old.get("schedule") or {"type": "daily", "time": "08:00"}
     schedule_to_cron(sched)  # validates
+    # Sharing: the owner decides who else sees the task, who may change it and who gets a notification of their own
+    share = dict(old.get("share") or {"users": {}})
+    if t.get("share") is not None:
+        share["users"] = SH.clean((t["share"] or {}).get("users") if isinstance(t["share"], dict) else t["share"])
+    share["users"].pop(owner_id or "", None)  # the owner is never part of the share map
     task = dict(old, id=tid, name=str(t.get("name") or "Aufgabe")[:100], prompt=str(t.get("prompt") or ""),
                 project_id=t.get("project_id") or None, model=t.get("model") or None, schedule=sched,
                 enabled=bool(t.get("enabled", True)), allow_write=list(t.get("allow_write") or []),
                 tool_groups=t.get("tool_groups") or None, notify=t.get("notify") or "always",
                 requires=[r for r in (t.get("requires", old.get("requires")) or []) if r in ("werkbank",)],
                 requires_note=str(t.get("requires_note", old.get("requires_note")) or "")[:1500],
-                external_fallback=bool(t.get("external_fallback", old.get("external_fallback"))), updated=now())
+                external_fallback=bool(t.get("external_fallback", old.get("external_fallback"))),
+                share=share, updated=now())
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
     return task
 
 
 async def save_task(m, user_id: str, st, t: dict) -> dict:
-    task = build_task(st, t)
+    task = build_task(st, t, owner_id=user_id)
     st.meta["tasks"][task["id"]] = task
     m.scheduler.plan(user_id, task)
     await st.async_save_meta()
-    m.emit(user_id, {"type": "meta", "section": "tasks"})
+    m.emit_task(user_id, task)
     return task
 
 
@@ -116,4 +123,4 @@ async def delete_task(m, user_id: str, st, tid: str) -> None:
         t["enabled"] = False
         m.scheduler.plan(user_id, t)
     await st.async_save_meta()
-    m.emit(user_id, {"type": "meta", "section": "tasks"})
+    m.emit_task(user_id, t or {"id": tid, "share": {}})

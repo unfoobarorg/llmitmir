@@ -16,9 +16,10 @@ from . import models as MS
 from . import notifydevices as ND
 from . import pricing as PR
 from . import providers as PV
+from . import sharing as SH
 from . import views as V
-from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KNOWN_CONTEXT, PRESETS, TASK_KEY_CHOICES,
-                    TASK_KEY_MODES, VERSION)
+from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, PRESETS,
+                    TASK_KEY_CHOICES, TASK_KEY_MODES, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
 from .storage import mask_credential, new_id, now
 from .claude_client import available as claude_available
@@ -74,15 +75,62 @@ def _models_for_users(m, user_id: str) -> list[dict]:
     return m.models_for_user(user_id)
 
 
-def _task_view(m, user_id: str, t: dict) -> dict:
+async def _run_chats(owner_st, task: dict) -> list[dict]:
+    """The last runs of a task as short chat records – also for people the task is shared with."""
+    out = []
+    for cid in (task.get("runs") or [])[-10:]:
+        c = await owner_st.async_get_chat(cid)
+        if c:
+            out.append({"id": c["id"], "title": c.get("title"), "status": c.get("status"),
+                        "updated": c.get("updated"), "usage": c.get("usage") or {}})
+    return out
+
+
+def _task_view(m, user_id: str, t: dict, owner_id: str | None = None, names: dict | None = None,
+               run_chats: list[dict] | None = None) -> dict:
     out = {k: v for k, v in t.items() if not k.startswith("_")}
     out["schedule_text"] = describe(t.get("schedule") or {})
     out["werkbank_missing"] = "werkbank" in (t.get("requires") or []) and m.werkbank is None
+    owner_id = owner_id or user_id
+    rights = m.task_rights(owner_id, t, user_id)
+    out["owner_id"] = owner_id
+    out["owner_name"] = (names or {}).get(owner_id) or ""
+    out["shared"] = owner_id != user_id
+    out["can_edit"] = rights["edit"]
+    out["can_notify"] = rights["notify"]
+    out["share"] = {"users": [{"user_id": uid, "name": (names or {}).get(uid) or uid, "edit": bool(e.get("edit")),
+                               "notify": bool(e.get("notify"))}
+                              for uid, e in ((t.get("share") or {}).get("users") or {}).items()]}
+    out["share_text"] = SH.summary(t.get("share"), names)
+    if run_chats is not None:
+        out["run_chats"] = run_chats
+    return out
+
+
+async def _names(m, user_ids) -> dict:
+    """User id -> name, for everybody involved in a task (owner and people it is shared with)."""
+    out = {}
+    for uid in dict.fromkeys([u for u in user_ids if u]):
+        out[uid] = await m.user_name(uid)
     return out
 
 
 def _project_view(p: dict) -> dict:
     return dict(p)
+
+
+async def _tasks_view(m, user) -> list[dict]:
+    """Own tasks plus the ones other people shared with this person (marked with the owner's name)."""
+    st = await m.user_store(user.id)
+    shared = await m.shared_tasks(user.id)
+    ids = [user.id] + [uid for uid, _ in shared]
+    for t in st.meta["tasks"].values():
+        ids += SH.users(t.get("share"))
+    names = await _names(m, ids)
+    out = [_task_view(m, user.id, t, user.id, names, await _run_chats(st, t)) for t in st.meta["tasks"].values()]
+    for uid, t in shared:
+        out.append(_task_view(m, user.id, t, uid, names, await _run_chats(await m.user_store(uid), t)))
+    return out
 
 
 async def _bootstrap(hass, m, user, st) -> dict:
@@ -113,7 +161,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "credentials": [mask_credential(c, C.secret_fields(c)) for c in st.meta["credentials"].values()],
         "credential_types": {k: {"label": v["label"], "fields": v["fields"], "secret": sorted(v["secret"]), "hint": v.get("hint", "")}
                              for k, v in C.TYPES.items()},
-        "tasks": [_task_view(m, user.id, t) for t in st.meta["tasks"].values()],
+        "tasks": await _tasks_view(m, user),
         "chats": sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True),
         "models": _models_for_users(m, user.id),
         "defaults": m.defaults_view(user.id),
@@ -160,12 +208,28 @@ async def ws_subscribe(hass, conn, msg, m, user, st):
 
 
 # ---------------------------------------------------------------- chats
+async def _chat_for(m, user, chat_id: str) -> tuple[Any, dict]:
+    """(store, chat) – own chat first, then a run of a task somebody shared with this person."""
+    st = await m.user_store(user.id)
+    chat = await st.async_get_chat(chat_id)
+    if chat:
+        return st, chat
+    for uid, other in (await m.all_stores()).items():
+        if uid == user.id or chat_id not in other.meta["chats"]:
+            continue
+        chat = await other.async_get_chat(chat_id)
+        if not chat or chat.get("kind") != KIND_TASK_RUN or not chat.get("task_id"):
+            continue
+        found = await m.task_owner(user.id, chat["task_id"])
+        if found and found[0] == uid:
+            return other, chat
+    raise ValueError("Chat nicht gefunden")
+
+
 @command(_t("chat/get") | {vol.Required("chat_id"): str})
 async def ws_chat_get(hass, conn, msg, m, user, st):
-    chat = await st.async_get_chat(msg["chat_id"])
-    if not chat:
-        raise ValueError("Chat nicht gefunden")
-    files = await st.async_list_files("chat", chat["id"])
+    cst, chat = await _chat_for(m, user, msg["chat_id"])
+    files = await cst.async_list_files("chat", chat["id"])
     return {"chat": chat, "files": files}
 
 
@@ -351,29 +415,85 @@ async def ws_cred_delete(hass, conn, msg, m, user, st):
 
 
 # ---------------------------------------------------------------- tasks
+async def _task_for(m, user, task_id: str, need_edit: bool = False) -> tuple[str, Any, dict]:
+    """(owner id, owner store, task) of a task this person may see – and change, if need_edit."""
+    found = await m.task_owner(user.id, task_id)
+    if not found:
+        raise ValueError("Aufgabe nicht gefunden")
+    owner_id, owner_st, task = found
+    rights = m.task_rights(owner_id, task, user.id)
+    if need_edit and not rights["edit"]:
+        raise PermissionError("Diese Aufgabe gehört jemand anderem – du darfst sie nur ansehen.")
+    return owner_id, owner_st, task
+
+
 @command(_t("task/save") | {vol.Required("task"): dict})
 async def ws_task_save(hass, conn, msg, m, user, st):
     t = msg["task"]
+    owner_id, owner_st, old = user.id, st, None
+    if t.get("id"):
+        owner_id, owner_st, old = await _task_for(m, user, t["id"], need_edit=True)
     ext = m.external_view(user.id)
     if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
         raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
     if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
         raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
-    return _task_view(m, user.id, await M.save_task(m, user.id, st, t))
+    if old is not None and owner_id != user.id:
+        # Somebody the task is shared with: only what concerns the task itself, never the sharing
+        t = {k: v for k, v in t.items() if k != "share"}
+    task = await M.save_task(m, owner_id, owner_st, t)
+    names = await _names(m, [owner_id, *SH.users(task.get("share"))])
+    return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
 
 
 @command(_t("task/delete") | {vol.Required("task_id"): str})
 async def ws_task_delete(hass, conn, msg, m, user, st):
-    await M.delete_task(m, user.id, st, msg["task_id"])
+    owner_id, owner_st, _task = await _task_for(m, user, msg["task_id"], need_edit=True)
+    if owner_id != user.id:
+        raise PermissionError("Nur wer die Aufgabe angelegt hat, kann sie löschen.")
+    await M.delete_task(m, owner_id, owner_st, msg["task_id"])
     return {"ok": True}
 
 
 @command(_t("task/run_now") | {vol.Required("task_id"): str})
 async def ws_task_run(hass, conn, msg, m, user, st):
-    if msg["task_id"] not in st.meta["tasks"]:
-        raise ValueError("Aufgabe nicht gefunden")
-    pos = m.scheduler.enqueue(user.id, msg["task_id"], "manuell")
+    owner_id, _owner_st, _task = await _task_for(m, user, msg["task_id"], need_edit=True)
+    pos = m.scheduler.enqueue(owner_id, msg["task_id"], "manuell")
+    if owner_id != user.id:
+        # The run belongs to the owner, but the person who started it should see it in their queue
+        m.emit(user.id, {"type": "tasks_queue", "queue": m.scheduler.queue_info(user.id)})
     return {"position": pos}
+
+
+@command(_t("task/share") | {vol.Required("task_id"): str, vol.Required("users"): [dict]})
+async def ws_task_share(hass, conn, msg, m, user, st):
+    """Who else sees the task, who may change it and who gets a notification of their own (owner only)."""
+    owner_id, owner_st, task = await _task_for(m, user, msg["task_id"])
+    if owner_id != user.id:
+        raise PermissionError("Wer mit wem teilt, entscheidet nur, wem die Aufgabe gehört.")
+    allowed = {u.id for u in await _users(hass) if m.allowed(u)}
+    users = SH.clean(msg["users"])
+    unknown = [uid for uid in users if uid not in allowed]
+    if unknown:
+        raise ValueError("Diese Person darf LLMitMir nicht nutzen: " + ", ".join(unknown))
+    task["share"] = {"users": users}
+    task["updated"] = now()
+    owner_st.meta["tasks"][task["id"]] = task
+    await owner_st.async_save_meta()
+    m.emit_task(owner_id, task)
+    names = await _names(m, [owner_id, *users])
+    return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
+
+
+@command(_t("task/people"))
+async def ws_task_people(hass, conn, msg, m, user, st):
+    """Everybody who may use LLMitMir – the people a task can be shared with (never the own person)."""
+    out = []
+    for u in await _users(hass):
+        if u.id == user.id or not m.allowed(u):
+            continue
+        out.append({"id": u.id, "name": u.name})
+    return {"people": sorted(out, key=lambda x: x["name"].casefold())}
 
 
 @command(_t("task/preview") | {vol.Required("schedule"): dict})

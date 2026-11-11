@@ -91,12 +91,33 @@ export class TaskPage extends StoreElement {
   @state() private d: any = null;
   @state() private preview: any = null;
   @state() private dirty = false;
-  static styles = [base, pageCss];
+  @state() private people: any[] | null = null;
+  static styles = [base, pageCss, css`.share { display: grid; gap: 8px; }
+    .share .who { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; }
+    .share .who .nm { overflow-wrap: anywhere; }
+    .share .who label { display: flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--lm-muted); white-space: nowrap; }
+    .share .who input[type=checkbox] { width: auto; }`];
   updated(ch: Map<string, any>) { if (ch.has("taskId")) this.reload(); }
+  connectedCallback() { super.connectedCallback(); this.loadPeople(); }
+  private async loadPeople() {
+    try { this.people = (await store.api.ws("task/people")).people || []; } catch { this.people = []; }
+  }
   private reload() {
     const x = (store.data?.tasks || []).find((y: any) => y.id === this.taskId);
-    this.d = x ? JSON.parse(JSON.stringify(x)) : { name: "", prompt: "", schedule: { type: "daily", time: "08:00" }, enabled: true, notify: "always", allow_write: ["notify"] };
+    this.d = x ? JSON.parse(JSON.stringify(x)) : { name: "", prompt: "", schedule: { type: "daily", time: "08:00" }, enabled: true, notify: "always", allow_write: ["notify"], share: { users: [] } };
+    if (!this.d.share) this.d.share = { users: [] };
     this.dirty = this.taskId === "new"; this.loadPreview();
+  }
+  /** Sharing is the owner's business: who else sees the task, who may change it, who gets a notification. */
+  private shareUsers(): any[] { return this.d?.share?.users || []; }
+  private setShare(users: any[]) { this.d = { ...this.d, share: { users } }; this.dirty = true; }
+  private toggleShare(uid: string, on: boolean) {
+    const users = this.shareUsers().filter((u: any) => u.user_id !== uid);
+    if (on) users.push({ user_id: uid, edit: false, notify: false });
+    this.setShare(users);
+  }
+  private setShareFlag(uid: string, key: "edit" | "notify", on: boolean) {
+    this.setShare(this.shareUsers().map((u: any) => (u.user_id === uid ? { ...u, [key]: on } : u)));
   }
   private set(k: string, v: any) { this.d = { ...this.d, [k]: v }; this.dirty = true; }
   private sched(k: string, v: any) { this.d = { ...this.d, schedule: { ...this.d.schedule, [k]: v } }; this.dirty = true; this.loadPreview(); }
@@ -124,8 +145,52 @@ export class TaskPage extends StoreElement {
         und die Ergebnisse der Werkzeuge dorthin – nie Passwörter, und nur Zugänge, die für externe Modelle freigegeben sind. Kosten zählen zu deinem
         Monatslimit (${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)} verbraucht). Bitte nur ankreuzen, wenn der Auftrag keine sensiblen Informationen enthält.</div></div>`;
   }
+  /** Owner only: who else sees the task, who may change it, who gets a notification of their own. */
+  private shareCard(x: any) {
+    const simple = isSimple();
+    const chosen = this.shareUsers();
+    const people = this.people || [];
+    const known = new Set(chosen.map((u: any) => u.user_id));
+    const missing = chosen.filter((u: any) => !people.some((p: any) => p.id === u.user_id));
+    return html`<div class="card"><b>${simple ? "Mit anderen teilen" : "Teilen"}</b>
+      <div class="hint" style="margin:4px 0 10px">${simple
+        ? "Andere Personen in diesem Home Assistant sehen die Aufgabe dann unter „Geplant“. Du entscheidest, wer sie auch ändern darf und wer bei jedem Lauf eine Nachricht aufs eigene Handy bekommt."
+        : "Die Aufgabe erscheint bei den gewählten Personen unter „Geplant“. „Bearbeiten“ erlaubt Änderungen und „Jetzt ausführen“, „Benachrichtigen“ schickt jedem Lauf eine Nachricht auf das Gerät der Person. Löschen und das Teilen selbst bleiben bei dir."}</div>
+      ${people.length ? html`<div class="share">${people.map((p: any) => {
+        const u = chosen.find((c: any) => c.user_id === p.id);
+        return html`<div class="who"><span class="nm">${p.name}</span>
+          <label><input type="checkbox" .checked=${!!u} @change=${(e: any) => this.toggleShare(p.id, e.target.checked)}> sehen</label>
+          <label><input type="checkbox" ?disabled=${!u} .checked=${!!u?.edit} @change=${(e: any) => this.setShareFlag(p.id, "edit", e.target.checked)}> bearbeiten</label>
+          <label><input type="checkbox" ?disabled=${!u} .checked=${!!u?.notify} @change=${(e: any) => this.setShareFlag(p.id, "notify", e.target.checked)}> Benachrichtigung</label></div>`;
+      })}</div>` : html`<div class="hint">Es gibt keine weiteren Personen, die LLMitMir nutzen dürfen. Admins legen das unter Admin → Personen fest.</div>`}
+      ${missing.length ? html`<div class="hint">Nicht mehr verfügbar: ${missing.map((u: any) => u.name || u.user_id).join(", ")}</div>` : nothing}
+      ${!x.id ? html`<div class="hint" style="margin-top:8px">Teilen lässt sich erst nach dem ersten Speichern einstellen.</div>` : nothing}</div>`;
+  }
+
+  /** A task somebody else shared without the right to change it: everything visible, nothing editable. */
+  private readOnly(x: any) {
+    const live = (store.data?.tasks || []).find((y: any) => y.id === x.id) || x;
+    const runs = (live.runs || []).map((id: string) => (store.data?.chats || []).find((c: any) => c.id === id)).filter(Boolean);
+    return html`<div class="page">
+      <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.name || "Aufgabe"}</h1></div>
+      <div class="banner">${icon("info")}<div>Diese Aufgabe gehört <b>${x.owner_name || "jemand anderem"}</b>. Du kannst sie ansehen, aber nicht ändern.</div></div>
+      <div class="form">
+        <div class="card"><b>${t("Zeitplan")}</b><div class="hint" style="margin-top:6px">${x.schedule_text || ""}</div></div>
+        <div class="card"><b>${t("Auftrag")}</b><div class="md" style="margin-top:6px">${md(x.prompt || "")}</div></div>
+        <div class="card"><b>${isSimple() ? "Nachricht aufs Handy" : t("Benachrichtigen")}</b>
+          <div class="hint" style="margin-top:6px">${x.can_notify ? "Du bekommst bei jedem Lauf eine Nachricht auf dein Gerät." : "Du bekommst keine eigene Nachricht zu dieser Aufgabe."}</div></div>
+      </div>
+      <h2>${isSimple() ? "Bisherige Ergebnisse" : t("Läufe")}</h2><div class="list">
+        ${runs.length ? runs.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
+          ${store.runs[c.id] || c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : icon(c.status === "error" ? "alert" : "check", 18)}
+          <span class="grow ellipsis">${c.title}</span><span class="hint">${fmtTime(c.updated)}</span></div>`) : html`<div class="hint">Noch keine Läufe.</div>`}</div>
+      ${live.last_run?.summary ? html`<h2>Letztes Ergebnis</h2><div class="card md">${md(live.last_run.summary)}</div>` : nothing}
+    </div>`;
+  }
+
   render() {
     const x = this.d; if (!x) return nothing;
+    if (x.shared && !x.can_edit) return this.readOnly(x);
     const d = store.data; const s = x.schedule || {};
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
     // Runs and the last result come from the live task in the store, not from the edit copy in this.d,
@@ -146,7 +211,8 @@ export class TaskPage extends StoreElement {
       : "Läufe sind unbeaufsichtigt und können nicht nachfragen. Nur hier angehakte Aktionen sind erlaubt, alles andere wird abgelehnt.";
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.id ? x.name || "Aufgabe" : t("Neue Aufgabe")}</h1>
-        ${x.id ? html`<button class="btn" @click=${async () => { const r = await store.api.ws("task/run_now", { task_id: x.id }); store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits"); }}>${icon("play", 16)} ${t("Jetzt ausführen")}</button>` : nothing}</div>
+        ${x.id && x.can_edit !== false ? html`<button class="btn" @click=${async () => { const r = await store.api.ws("task/run_now", { task_id: x.id }); store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits"); }}>${icon("play", 16)} ${t("Jetzt ausführen")}</button>` : nothing}</div>
+      ${x.shared ? html`<div class="banner">${icon("info")}<div>Diese Aufgabe gehört <b>${x.owner_name || "jemand anderem"}</b> und ist mit dir geteilt. Du darfst sie ändern und starten – löschen und weitergeben kann sie nur ${x.owner_name || "die Person, der sie gehört"}.</div></div>` : nothing}
       ${x.imported && !x.enabled ? html`<div class="banner">${icon("info")}<div>Aus Claude importiert und deshalb pausiert. Prüfe Auftrag, Zugänge und Freigaben – Verweise auf Claude-Werkzeuge
         (z. B. Gmail-Connector, list_triggers) gibt es hier nicht.${x.imported_note ? html`<br><i>${x.imported_note}</i>` : nothing}</div></div>` : nothing}
       ${x.werkbank_missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("mdi:console")}<div>
@@ -194,6 +260,7 @@ export class TaskPage extends StoreElement {
             ${!d.settings.notify_device ? html`<span class="hint">Wähle zuerst in den Einstellungen dein Gerät für Benachrichtigungen.</span>` : nothing}</label>
           <label class="f"><span>${t("Aktiv")}</span><div class="row" style="min-height:40px">${switchEl(!!x.enabled, v => this.set("enabled", v))}<span class="muted">${x.enabled ? t("Aktiv") : t("Pausiert")}</span></div></label>
         </div>
+        ${!x.shared ? this.shareCard(x) : nothing}
         ${(simple ? (c: unknown) => more(c, "Mehr Optionen: Projekt, Freigaben, Werkbank") : (c: unknown) => c)(html`${simple ? projectSel : nothing}
         <div class="card"><b>${apprTitle}</b><div class="hint" style="margin:4px 0 10px">${apprHint}</div>
           <div class="checks">${writeTools.map(([n, v]: any) => {
@@ -213,8 +280,8 @@ export class TaskPage extends StoreElement {
         ${store.runs[c.id] || c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : icon(c.status === "error" ? "alert" : "check", 18)}<span class="grow ellipsis">${c.title}</span>
         <span class="hint">${simple ? fmtTime(c.updated) : `${c.usage?.requests || 0} Anfragen`}</span></div>`) : waiting ? nothing : html`<div class="hint">Noch keine Läufe.</div>`}</div>
         ${live.last_run?.summary ? html`<h2>Letztes Ergebnis</h2><div class="card md">${md(live.last_run.summary)}</div>` : nothing}
-        <div style="margin-top:24px"><button class="btn danger" @click=${async () => { if (await confirmDialog(`Aufgabe „${x.name}“ löschen? Die bisherigen Läufe bleiben als Chats erhalten.`)) {
-          await store.api.ws("task/delete", { task_id: x.id }); navigate("/tasks"); } }}>${icon("trash", 16)} Aufgabe löschen</button></div>` : nothing}
+        ${!x.shared ? html`<div style="margin-top:24px"><button class="btn danger" @click=${async () => { if (await confirmDialog(`Aufgabe „${x.name}“ löschen? Die bisherigen Läufe bleiben als Chats erhalten.`)) {
+          await store.api.ws("task/delete", { task_id: x.id }); navigate("/tasks"); } }}>${icon("trash", 16)} Aufgabe löschen</button></div>` : nothing}` : nothing}
       ${this.dirty ? html`<div class="savebar fade-in">${x.id ? html`<button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>` : nothing}
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}
     </div>`;

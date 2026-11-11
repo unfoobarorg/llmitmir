@@ -702,3 +702,32 @@ def test_credential_use_counter():
     c.update(ext_uses_since=0)
     creds.note_use(c, model="claude-sonnet-4-5", external=True, ts=300.0)
     assert (c["uses"], c["ext_uses"], c["ext_uses_since"]) == (3, 2, 1)
+
+
+sharing = load("sharing")
+
+
+def test_share_clean_and_rights():
+    """Sharing keeps one entry per person, drops the owner and never invents rights."""
+    users = sharing.clean([{"user_id": "u1", "edit": True, "notify": False},
+                           {"user_id": "u1", "edit": False, "notify": True},
+                           {"id": "u2", "notify": True},
+                           {"user_id": ""}, "quatsch"])
+    assert users == {"u1": {"edit": True, "notify": False}, "u2": {"edit": False, "notify": True}}
+    assert sharing.clean(None) == {}
+    assert sharing.users({"users": users}) == ["u1", "u2"]
+    assert sharing.recipients({"users": users}) == ["u2"]
+    assert sharing.rights({"users": users}, "u1") == {"owner": False, "edit": True, "notify": False}
+    assert sharing.rights({"users": users}, "u2") == {"owner": False, "edit": False, "notify": True}
+    assert sharing.rights({"users": users}, "fremd") == {"owner": False, "edit": False, "notify": False}
+    assert sharing.rights(None, "u1") == {"owner": False, "edit": False, "notify": False}
+
+
+def test_share_summary():
+    """The one-line summary names every person and what they may do."""
+    share = {"users": {"u1": {"edit": True, "notify": True}, "u2": {"edit": False, "notify": False},
+                       "u3": {"edit": True, "notify": False}}}
+    names = {"u1": "Doro", "u2": "Hannes", "u3": "Niko"}
+    assert sharing.summary(share, names) == "Doro (bearbeiten und Benachrichtigung), Hannes (nur ansehen), Niko (bearbeiten)"
+    assert sharing.summary(None) == "niemand"
+    assert sharing.summary({"users": {"u9": {"edit": False, "notify": True}}}) == "u9 (Benachrichtigung)"

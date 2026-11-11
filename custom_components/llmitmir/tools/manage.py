@@ -8,6 +8,7 @@ from __future__ import annotations
 from .. import changes as CH
 from .. import credentials as C
 from .. import manage as M
+from .. import sharing as SH
 from . import REGISTRY, Tool, obj, register
 
 
@@ -99,6 +100,24 @@ async def skill_delete(ctx, a: dict):
 
 
 # ------------------------------------------------------------------ scheduled tasks
+async def _share_users(ctx, a: dict) -> list[dict] | None:
+    """Resolve the people a task is shared with (by name) to user ids; None = leave the sharing as it is."""
+    if a.get("teilen") is None:
+        return None
+    allowed = {u.id: u.name for u in await ctx.manager.hass.auth.async_get_users()
+               if not u.system_generated and u.id != ctx.user_id and ctx.manager.allowed(u)}
+    out = []
+    for entry in a["teilen"] or []:
+        if isinstance(entry, str):
+            entry = {"person": entry}
+        want = str((entry or {}).get("person") or "").strip()
+        uid = next((i for i, n in allowed.items() if n.casefold() == want.casefold() or i == want), None)
+        if not uid:
+            raise ValueError(f"Person „{want}“ nicht gefunden. Möglich: " + (", ".join(sorted(allowed.values())) or "niemand"))
+        out.append({"user_id": uid, "edit": bool(entry.get("bearbeiten")), "notify": bool(entry.get("benachrichtigen"))})
+    return out
+
+
 def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     name = _req_name(a)
     old = _find(ctx.store.meta["tasks"], name)
@@ -138,6 +157,8 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
            "enabled": bool(a["aktiv"]) if a.get("aktiv") is not None else cur.get("enabled", True),
            "allow_write": perms, "tool_groups": cur.get("tool_groups"), "notify": notify, "requires": requires,
            "requires_note": cur.get("requires_note") or ""}
+    if a.get("_share_users") is not None:
+        raw["share"] = {"users": a["_share_users"]}
     try:
         new = M.build_task(ctx.store, raw)
     except (ValueError, TypeError) as e:
@@ -146,8 +167,12 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
 
 
 async def task_save_preview(ctx, a: dict) -> dict:
+    a = dict(a, _share_users=await _share_users(ctx, a))
+    names = {u["user_id"]: u["name"] for u in (a["_share_users"] or [])}
     old, new = _task_plan(ctx, a)
-    ch = CH.build("aufgabe", new["name"], CH.task_fields(old, ctx.store.meta), CH.task_fields(new, ctx.store.meta))
+    names.update({uid: await ctx.manager.user_name(uid) for uid in SH.users((old or {}).get("share"))})
+    meta = {"user_names": names}
+    ch = CH.build("aufgabe", new["name"], CH.task_fields(old, meta), CH.task_fields(new, meta))
     if not ch["felder"]:
         raise ValueError("Keine Änderung – die Aufgabe ist schon so.")
     return ch
@@ -155,7 +180,7 @@ async def task_save_preview(ctx, a: dict) -> dict:
 
 async def task_save(ctx, a: dict):
     ch = await task_save_preview(ctx, a)
-    _, new = _task_plan(ctx, a)
+    _, new = _task_plan(ctx, dict(a, _share_users=await _share_users(ctx, a)))
     await M.save_task(ctx.manager, ctx.user_id, ctx.store, new)
     return CH.summary(ch)
 
@@ -262,7 +287,8 @@ register(Tool("skill_delete", "llmitmir", "Löscht einen Skill mit seinen Dateie
               icon="mdi:trash-can-outline", preview=skill_delete_preview))
 register(Tool("task_save", "llmitmir",
               "Legt eine geplante Aufgabe an oder ändert sie (gefunden über name). Nicht angegebene Felder bleiben. "
-              "Der Auftrag muss ohne Rückfragen ausführbar sein." + _ASK,
+              "Der Auftrag muss ohne Rückfragen ausführbar sein. Mit teilen lässt sich die Aufgabe an andere Personen "
+              "dieser Home-Assistant-Instanz weitergeben (ansehen, bearbeiten, Benachrichtigung)." + _ASK,
               obj({"name": {"type": "string"}, "neuer_name": {"type": "string"},
                    "auftrag": {"type": "string", "description": "Vollständiger Prompt"}, "auftrag_ersetzen": _EDITS,
                    "zeitplan": _SCHEDULE, "projekt": {"type": "string", "description": "Projektname, leer = ohne Projekt"},
@@ -270,7 +296,14 @@ register(Tool("task_save", "llmitmir",
                    "freigaben": {"type": "array", "items": {"type": "string"},
                                  "description": "Schreibende Werkzeuge, die die Aufgabe ohne Rückfrage nutzen darf, z. B. notify, file_write"},
                    "benachrichtigen": {"type": "string", "enum": list(CH.NOTIFY)},
-                   "braucht_werkbank": {"type": "boolean"}}, ["name"]),
+                   "braucht_werkbank": {"type": "boolean"},
+                   "teilen": {"type": "array", "items": {"type": "object", "properties": {
+                       "person": {"type": "string", "description": "Name der Person in Home Assistant"},
+                       "bearbeiten": {"type": "boolean", "description": "Darf die Aufgabe ändern und starten"},
+                       "benachrichtigen": {"type": "boolean", "description": "Bekommt Läufe aufs eigene Gerät"}},
+                       "required": ["person"]},
+                       "description": "Mit diesen Personen teilen (ersetzt die bisherige Auswahl, [] = mit niemandem). "
+                                      "Nur möglich, wenn die Aufgabe der Person gehört."}}, ["name"]),
               task_save, write=True, label="Aufgabe speichern", icon="mdi:calendar-clock-outline", preview=task_save_preview))
 register(Tool("task_delete", "llmitmir", "Löscht eine geplante Aufgabe." + _ASK, obj({"name": {"type": "string"}}, ["name"]),
               task_delete, write=True, label="Aufgabe löschen", icon="mdi:trash-can-outline", preview=task_delete_preview))

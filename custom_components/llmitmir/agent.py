@@ -23,6 +23,7 @@ from . import models as MS
 from . import pricing as PR
 from . import providers as PV
 from . import selfdoc as SD
+from . import sharing as SH
 from . import taskkeys as TK
 from . import views as V
 from .claude_client import ClaudeClient
@@ -500,6 +501,58 @@ class Manager:
             await st.async_load()
             self.users[user_id] = st
         return st
+
+    async def all_stores(self) -> dict[str, UserStore]:
+        """Every person's store that exists on disk (needed to find tasks shared with somebody)."""
+        import os
+
+        base = self.hass.config.path(".storage", "llmitmir")
+        names = await self.hass.async_add_executor_job(lambda: os.listdir(base) if os.path.isdir(base) else [])
+        for uid in names:
+            if re.match(r"^[A-Za-z0-9_-]{1,64}$", uid) and uid not in self.users:
+                await self.user_store(uid)
+        return self.users
+
+    async def task_owner(self, user_id: str, task_id: str) -> tuple[str, UserStore, dict] | None:
+        """(owner id, owner store, task) – the person's own task first, then one shared with them."""
+        st = await self.user_store(user_id)
+        if task_id in st.meta["tasks"]:
+            return user_id, st, st.meta["tasks"][task_id]
+        for uid, other in (await self.all_stores()).items():
+            if uid == user_id:
+                continue
+            t = other.meta["tasks"].get(task_id)
+            if t and user_id in SH.users(t.get("share")):
+                return uid, other, t
+        return None
+
+    def task_rights(self, owner_id: str, task: dict, user_id: str) -> dict:
+        """What this person may do with the task: owner, edit (change and run) and notify (own push)."""
+        if owner_id == user_id:
+            return {"owner": True, "edit": True, "notify": True}
+        return SH.rights(task.get("share"), user_id)
+
+    async def shared_tasks(self, user_id: str) -> list[tuple[str, dict]]:
+        """Tasks other people shared with this person: [(owner id, task), …]."""
+        out = []
+        for uid, st in (await self.all_stores()).items():
+            if uid == user_id:
+                continue
+            for t in st.meta["tasks"].values():
+                if user_id in SH.users(t.get("share")):
+                    out.append((uid, t))
+        return out
+
+    async def user_name(self, user_id: str) -> str:
+        user = await self.hass.auth.async_get_user(user_id)
+        return user.name if user else user_id
+
+    @callback
+    def emit_task(self, owner_id: str, task: dict) -> None:
+        """Tell the owner and everybody the task is shared with that it changed."""
+        self.emit(owner_id, {"type": "meta", "section": "tasks"})
+        for uid in SH.users(task.get("share")):
+            self.emit(uid, {"type": "meta", "section": "tasks"})
 
     def allowed(self, user) -> bool:
         allowed = self.config.data.get("allowed_users") or []

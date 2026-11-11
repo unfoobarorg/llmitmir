@@ -29,7 +29,9 @@ Bereiche, die die Person in der Seitenleiste verwaltet:
 eigene Modelle, Werkzeuge und Freigaben.
 - **Geplant**: geplante Aufgaben = ein Auftrag (Prompt), der zu einem Zeitplan als unbeaufsichtigter Cowork läuft \
 (täglich, werktags, wöchentlich, monatlich, stündlich, alle n Stunden, einmalig oder Cron), optional in einem \
-Projekt, mit festgelegten Freigaben für schreibende Werkzeuge und Push-Benachrichtigung.
+Projekt, mit festgelegten Freigaben für schreibende Werkzeuge und Push-Benachrichtigung. Eine Aufgabe gehört der \
+Person, die sie anlegt; sie lässt sich mit anderen Personen dieser Home-Assistant-Instanz teilen (ansehen, \
+bearbeiten, eigene Benachrichtigung je Lauf).
 - **Skills**: Name, Beschreibung (wann der Skill gilt), Anleitung in Markdown (wie eine SKILL.md), optionale Dateien \
 und zugeordnete Zugänge. Skills sind keine Dateien im Arbeitsbereich: lesen mit `skill_load` und `skill_file`.
 - **Zugänge**: Zugangsdaten, getrennt von Skills; im Text nur als `{{cred:Name:feld}}`, Geheimnisse siehst du nie.
@@ -91,6 +93,10 @@ Zeitpläne: täglich HH:MM, werktags HH:MM, wöchentlich an Wochentagen, monatli
 einmalig zu einem Zeitpunkt, Cron mit 5 Feldern (Minute Stunde Tag Monat Wochentag, 0 = Sonntag) in Ortszeit.
 Ein Lauf ist ein unbeaufsichtigter Cowork: nicht freigegebene schreibende Werkzeuge werden abgelehnt, Rückfragen gehen in den \
 Bericht. Läufe stehen in einer gemeinsamen Warteschlange; verpasste Läufe werden nachgeholt; „Jetzt ausführen“ startet sofort.
+Teilen: Die Person, der die Aufgabe gehört, legt je Person fest, ob sie die Aufgabe sieht, ob sie sie bearbeiten und starten \
+darf und ob sie bei jedem Lauf eine Nachricht aufs eigene Gerät bekommt. Geteilte Aufgaben erscheinen bei den anderen unter \
+„Geplant“ mit dem Namen der Besitzerperson; löschen und weitergeben kann sie nur die Besitzerperson. Läufe gehören immer der \
+Besitzerperson (deren Schlüssel, Kontingent und Freigaben gelten), auch wenn jemand anderes sie startet.
 
 ## Skills (Seite „Skills“)
 Felder: Name, Beschreibung (höchstens 1024 Zeichen; entscheidet, wann du den Skill lädst – also konkret sagen, für welche \
@@ -139,6 +145,15 @@ def _ts(v) -> str:
         return ""
 
 
+def _share_text(share: dict | None) -> str:
+    """Who else sees a task and what they may do (names are not known here, so the ids stand in)."""
+    entries = (share or {}).get("users") or {}
+    if not entries:
+        return "niemand"
+    return ", ".join(f"{uid} ({'bearbeiten' if e.get('edit') else 'ansehen'}"
+                     f"{', Benachrichtigung' if e.get('notify') else ''})" for uid, e in entries.items())
+
+
 def _project_name(projects: dict, pid) -> str:
     return (projects.get(pid or "") or {}).get("name") or ""
 
@@ -166,6 +181,8 @@ def overview(meta: dict, allowed_skills: set | None = None, allowed_creds: set |
         if t.get("next_run"):
             bits.append(f"nächster Lauf {_ts(t['next_run'])}")
         last = t.get("last_run") or {}
+        if (t.get("share") or {}).get("users"):
+            bits.append("geteilt")
         if last.get("status"):
             bits.append(f"letzter Lauf {_ts(last.get('started'))} {last['status']}".replace("  ", " "))
         out.append(f"- {t.get('name')} ({'; '.join(b for b in bits if b)}): {str(t.get('prompt') or '')[:200]}")

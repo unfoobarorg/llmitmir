@@ -68,6 +68,7 @@ export {
   mdiRefresh,
   mdiRobotOutline,
   mdiSchoolOutline,
+  mdiShareVariantOutline,
   mdiShieldAccountOutline,
   mdiShieldAlertOutline,
   mdiStop,

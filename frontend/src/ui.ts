@@ -31,6 +31,7 @@ const MAP: Record<string, string> = {
   import: mdi.mdiDatabaseImportOutline, panel: mdi.mdiDockRight, sparkle: mdi.mdiCreationOutline, hourglass: mdi.mdiTimerSandComplete,
   cloud: mdi.mdiCloudOutline, wait: mdi.mdiProgressClock, external: mdi.mdiOpenInNew,
   up: mdi.mdiArrowUp, arrowDown: mdi.mdiArrowDown, euro: mdi.mdiCurrencyEur, shield: mdi.mdiShieldAlertOutline,
+  share: mdi.mdiShareVariantOutline,
 };
 
 export function mdiPath(name: string): string {

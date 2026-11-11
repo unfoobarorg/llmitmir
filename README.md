@@ -29,6 +29,11 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Geplante Aufgaben** mit Zeitplan (täglich, werktags, Wochentage, monatlich, Intervall, einmalig, Cron), gemeinsamer
   Warteschlange, langen Wiederholungsfristen und Push-Benachrichtigung über die HA-App. Ausdrücklich für Open-Weight-Modelle
   gebaut: Läufe dürfen verzögert starten und lange dauern.
+- **Aufgaben teilen**: Eine Aufgabe gehört der Person, die sie anlegt. Sie lässt sich mit anderen Personen der
+  HA-Instanz teilen – je Person einstellbar, ob sie die Aufgabe nur sieht, sie auch ändern und starten darf und ob sie
+  bei jedem Lauf eine Nachricht aufs eigene Gerät bekommt. Geteilte Aufgaben stehen bei allen unter *Geplant* mit dem
+  Namen der Besitzerperson; löschen und weitergeben kann sie nur die Besitzerperson, Läufe laufen immer auf deren
+  Schlüssel, Kontingent und Freigaben.
 - **Passendes Modell, auch unter Last**: LLMitMir lädt die Modellliste alle drei Minuten neu – bei SAIA mit Auslastung
   (`demand`) und Veröffentlichungsdatum, der Abruf zählt nicht zum Limit. „Standard“ wählt für Chat, Cowork/Aufgaben und
   Bildlesen das am besten geeignete Modell, das gerade nicht überlastet ist; neu erscheinende Modelle werden automatisch
@@ -133,7 +138,8 @@ Das Frontend ist TypeScript mit [Lit](https://lit.dev), gebündelt mit esbuild; 
 LLMitMir adds a Claude-Desktop-style panel to Home Assistant. By default people get a simple view (messenger-style chat
 with request and answer only, automatic model choice, plain-language answers, explained features); the full expert view
 can be switched on in the settings, and admins can fix the view per person. The expert view offers chats with streaming, reasoning and voice input; coworks
-(autonomous tool use with approvals); scheduled tasks designed for slow, rate-limited open-weight models; projects; skills;
+(autonomous tool use with approvals); scheduled tasks designed for slow, rate-limited open-weight models, which can be
+shared with other Home Assistant users (view, edit, own push notification per person); projects; skills;
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).
 Admins choose who may use it and whether keys are shared, assigned per user by the admin, or entered by each user.
 Scheduled tasks can run on a separate key (central or per user), with daily request/token usage of all tasks on that key.
