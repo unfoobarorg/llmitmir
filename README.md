@@ -76,7 +76,9 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Werkzeug mit abgelehnter Anmeldung scheitert, meldet sich LLMitMir mit einer harmlosen Leseanfrage an (PROPFIND bei
   WebDAV, GET bei HTTP-APIs, `getMe` bei Telegram, LOGIN bei IMAP). Schlägt das fehl, steht der Zugang in der Liste rot
   mit der Meldung, ein Warnbanner nennt die betroffenen Namen, und das Modell bekommt den Fehler genannt, statt es
-  weiter zu versuchen (`credcheck.py`).
+  weiter zu versuchen (`credcheck.py`). Beim Postfach nennt die Meldung die Stufe, an der es hängt (DNS, Port, TLS oder
+  Anmeldung), statt nur „TimeoutError“; ist Port 993 gesperrt, versucht LLMitMir 143 mit STARTTLS – beim Prüfen wie
+  beim Abrufen der Mails.
 - **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, **diese Woche (ab Montag) und diesen
   Monat (ab dem Ersten)**, persönliche Kontingente und die Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als
   Füllanzeige.

@@ -8,6 +8,7 @@ Die Einordnung einer Antwort steckt in ``verdict`` und ist ohne Home Assistant t
 from __future__ import annotations
 
 import asyncio
+import socket
 import ssl
 import time
 from typing import Any
@@ -166,19 +167,76 @@ async def _check_telegram(session: aiohttp.ClientSession, cred: dict) -> dict:
     return _result(ok, msg, status)
 
 
+async def _dns(host: str, port: int):
+    """Namensaufloesung – eigene Funktion, damit die Pruefung ohne Netz testbar bleibt."""
+    return await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+
+
+async def _imap_connect(host: str, port: int) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, str, bytes | None]:
+    """Verbindung zum Postfach, Stufe fuer Stufe: DNS, TCP, dann TLS (Port 993) bzw. STARTTLS (Port 143).
+
+    Die Stufen sind absichtlich getrennt: „TimeoutError“ allein sagt nicht, ob der Name nicht aufloest, der Port
+    gesperrt ist oder nur der TLS-Handshake haengt – und genau das ist bei einer Firewall auf dem Weg die Frage.
+    Klappt 993 nicht, wird 143 mit STARTTLS versucht (Exchange kann beides); die Rueckgabe nennt den Weg.
+    """
+    try:
+        infos = await _dns(host, port)
+    except socket.gaierror as e:
+        raise _ImapFehler(f"DNS: {host} laesst sich nicht aufloesen ({e.strerror or e})") from e
+    if not infos:
+        raise _ImapFehler(f"DNS: {host} laesst sich nicht aufloesen")
+    ctx = ssl.create_default_context()
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port, ssl=ctx, server_hostname=host), CHECK_TIMEOUT)
+        return reader, writer, f"TLS auf Port {port}", None
+    except asyncio.TimeoutError as e:
+        fehler = (f"TCP/TLS: Port {port} antwortet nicht innerhalb von {CHECK_TIMEOUT} s "
+                  f"(Port gesperrt oder Firewall auf dem Weg?)")
+    except (ssl.SSLError, OSError) as e:
+        fehler = f"TLS auf Port {port}: {type(e).__name__}: {e}"
+    if port != 993:
+        raise _ImapFehler(fehler)
+    # 993 geht nicht: Exchange spricht auch 143 mit STARTTLS – lieber so als gar kein Postfach
+    try:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, 143), CHECK_TIMEOUT)
+    except (asyncio.TimeoutError, OSError) as e:
+        raise _ImapFehler(f"{fehler}; auch Port 143 nicht erreichbar ({type(e).__name__})") from e
+    try:
+        greet = await asyncio.wait_for(reader.readline(), CHECK_TIMEOUT)
+        if not greet.startswith(b"* OK"):
+            raise _ImapFehler(f"{fehler}; Port 143 spricht kein IMAP")
+        writer.write(b"s1 STARTTLS\r\n")
+        await writer.drain()
+        antwort = await asyncio.wait_for(reader.readline(), CHECK_TIMEOUT)
+        if not antwort.startswith(b"s1 OK"):
+            raise _ImapFehler(f"{fehler}; Port 143 lehnt STARTTLS ab")
+        await writer.start_tls(ctx, server_hostname=host)
+        # Die Begruessung kam schon vor STARTTLS – nach dem Handshake schickt IMAP keine neue
+        return reader, writer, "STARTTLS auf Port 143", greet
+    except asyncio.TimeoutError as e:
+        raise _ImapFehler(f"{fehler}; STARTTLS auf Port 143 antwortet nicht") from e
+    except (ssl.SSLError, OSError) as e:
+        raise _ImapFehler(f"{fehler}; STARTTLS auf Port 143: {type(e).__name__}: {e}") from e
+
+
+class _ImapFehler(Exception):
+    """Verbindungsaufbau zum Postfach gescheitert – die Meldung nennt die Stufe."""
+
+
 async def _check_imap(cred: dict) -> dict:
     f = cred.get("fields") or {}
     host, port = _hostport(f.get("imap_host") or "", 993)
     user, pw = str(f.get("username") or ""), str(f.get("password") or "")
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port, ssl=ssl.create_default_context()), CHECK_TIMEOUT)
-    except (OSError, asyncio.TimeoutError) as e:
-        return _result(False, f"Keine Verbindung zu {host}:{port} ({type(e).__name__})")
+        reader, writer, weg, greet = await _imap_connect(host, port)
+    except _ImapFehler as e:
+        return _result(False, f"Keine Verbindung zu {host}:{port} – {e}")
     try:
-        greet = await asyncio.wait_for(reader.readline(), CHECK_TIMEOUT)
+        if greet is None:
+            greet = await asyncio.wait_for(reader.readline(), CHECK_TIMEOUT)
         if not greet.startswith(b"* OK"):
-            return _result(False, f"Kein IMAP-Server auf {host}:{port}")
+            return _result(False, f"Kein IMAP-Server auf {host}:{port} ({weg})")
         writer.write(b"a1 LOGIN " + _imap_quote(user) + b" " + _imap_quote(pw) + b"\r\n")
         await writer.drain()
         while True:
@@ -187,10 +245,10 @@ async def _check_imap(cred: dict) -> dict:
                 return _result(False, "Der Server hat die Verbindung ohne Antwort beendet")
             if line.startswith(b"a1 "):
                 if b" OK" in line:
-                    return _result(True, f"Anmeldung an {host} erfolgreich")
+                    return _result(True, f"Anmeldung an {host} erfolgreich ({weg})")
                 return _result(False, f"Anmeldung abgelehnt: {line.decode('utf-8', 'ignore').strip()[:160]}")
     except asyncio.TimeoutError:
-        return _result(False, f"Zeitueberschreitung bei der Anmeldung an {host}")
+        return _result(False, f"Zeitueberschreitung bei der Anmeldung an {host} ({weg})")
     except OSError as e:
         return _result(False, f"Verbindung zu {host} abgebrochen ({type(e).__name__})")
     finally:

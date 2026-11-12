@@ -249,14 +249,37 @@ def build_message(sender: str, an: str, betreff: str, text: str, cc: str = "", b
 
 
 # ------------------------------------------------------------------ Verbindung
+def _imap_oeffnen(host: str, port: int):
+    """IMAP-Verbindung: Port 993 mit TLS, sonst (und wenn 993 nicht erreichbar ist) STARTTLS.
+
+    Manche Netze sperren ausgehend Port 993, waehrend 143 offen ist – dann lieber STARTTLS als gar kein Postfach.
+    """
+    ctx = ssl.create_default_context()
+    if port != 143:
+        try:
+            return imaplib.IMAP4_SSL(host, port, ssl_context=ctx, timeout=TIMEOUT)
+        except (OSError, ssl.SSLError):
+            if port != 993:
+                raise
+    M = imaplib.IMAP4(host, 143, timeout=TIMEOUT)
+    try:
+        M.starttls(ssl_context=ctx)
+    except Exception:
+        try:
+            M.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+    return M
+
+
 class Mailbox:
     """Eine IMAP-Sitzung. Ohne ``writable`` geht nichts, was das Postfach verändert."""
 
     def __init__(self, host: str, user: str, password: str, writable: bool, connect=None):
         self.writable = bool(writable)
         h, p = hostport(host, 993)
-        self.M = connect(h, p) if connect else imaplib.IMAP4_SSL(h, p, ssl_context=ssl.create_default_context(),
-                                                                 timeout=TIMEOUT)
+        self.M = connect(h, p) if connect else _imap_oeffnen(h, p)
         try:
             self.M.login(user, password)
         except Exception:

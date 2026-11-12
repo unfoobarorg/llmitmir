@@ -971,7 +971,7 @@ def test_gwdg_caldav_events_uses_get_like_calmerge():
     assert calls == []
 
 
-def test_gwdg_check_each_service():
+def test_gwdg_check_each_service(monkeypatch):
     import asyncio
 
     K = _pkg("credcheck")
@@ -985,7 +985,9 @@ def test_gwdg_check_each_service():
         seen.append(("IMAP", cred["fields"]["imap_host"]))
         return K._result(False, "Anmeldung abgelehnt: NO LOGIN failed")
 
-    K._http, K._check_imap = fake_http, fake_imap
+    # ueber monkeypatch, damit die echten Funktionen danach wieder gelten
+    monkeypatch.setattr(K, "_http", fake_http)
+    monkeypatch.setattr(K, "_check_imap", fake_imap)
     cred = {"type": "gwdg", "services": ["mail", "calendar", "contacts"],
             "fields": {"username": "a@gwdg.de", "password": "pw", "imap_host": "email.gwdg.de:993"}}
     r = asyncio.run(K.check_credential(None, cred))
@@ -1231,3 +1233,81 @@ def test_gwdg_no_free_http_request():
     out = asyncio.run(H.http_request(ctx, {"methode": "DELETE", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/x.ics",
                                            "zugang": "Uni"}))
     assert out.startswith("Fehler: Das Passwort eines GWDG-Exchange-Zugangs")
+
+
+def test_imap_check_names_the_stage(monkeypatch):
+    """Die Pruefung sagt, WO es haengt: DNS, Port oder Anmeldung – nicht nur „TimeoutError“."""
+    import asyncio
+    import socket
+
+    K = _pkg("credcheck")
+    cred = {"type": "imap", "fields": {"imap_host": "email.gwdg.de:993", "username": "a@gwdg.de", "password": "pw"}}
+
+    # DNS scheitert
+    async def kein_dns(host, port):
+        raise socket.gaierror(-2, "Name or service not known")
+
+    monkeypatch.setattr(K, "_dns", kein_dns)
+    r = asyncio.run(K._check_imap(cred))
+    assert not r["ok"] and "DNS" in r["message"] and "nicht aufloesen" in r["message"]
+
+    # DNS geht, Port antwortet nicht
+    async def dns_ok(host, port):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    async def kein_tcp(*a, **kw):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(K, "_dns", dns_ok)
+    monkeypatch.setattr(K.asyncio, "open_connection", kein_tcp)
+    r = asyncio.run(K._check_imap(cred))
+    assert not r["ok"] and "Port 993 antwortet nicht" in r["message"] and "Firewall" in r["message"]
+
+
+def test_imap_falls_back_to_starttls(monkeypatch):
+    """Ist 993 gesperrt, wird 143 mit STARTTLS versucht – und die Meldung nennt den Weg."""
+    import asyncio
+    import socket
+
+    K = _pkg("credcheck")
+    cred = {"type": "imap", "fields": {"imap_host": "email.gwdg.de:993", "username": "a@gwdg.de", "password": "pw"}}
+    gesehen = []
+
+    async def dns_ok(host, port):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+    class Leser:
+        def __init__(self):
+            self.zeilen = [b"* OK Exchange IMAP4 ready\r\n", b"s1 OK Begin TLS\r\n", b"a1 OK LOGIN completed\r\n"]
+
+        async def readline(self):
+            return self.zeilen.pop(0)
+
+    class Schreiber:
+        def write(self, data):
+            gesehen.append(data)
+
+        async def drain(self):
+            pass
+
+        async def start_tls(self, ctx, server_hostname=None):
+            gesehen.append(b"<tls>")
+
+        def close(self):
+            pass
+
+        async def wait_closed(self):
+            pass
+
+    async def verbinden(host, port, ssl=None, server_hostname=None):
+        gesehen.append((port, bool(ssl)))
+        if ssl:  # 993 ist gesperrt
+            raise asyncio.TimeoutError
+        return Leser(), Schreiber()
+
+    monkeypatch.setattr(K, "_dns", dns_ok)
+    monkeypatch.setattr(K.asyncio, "open_connection", verbinden)
+    r = asyncio.run(K._check_imap(cred))
+    assert r["ok"], r["message"]
+    assert "STARTTLS auf Port 143" in r["message"]
+    assert (993, True) in gesehen and (143, False) in gesehen and b"<tls>" in gesehen
