@@ -84,7 +84,15 @@ arbeite den laufenden Schritt zu Ende, die nächste Nachricht kommt gleich danac
 
 ## Projekte
 Felder: Name, Beschreibung, Anweisungen (gelten in jedem Chat des Projekts), Dateien, Skills und Zugänge (optional „nur diese“), \
-Modell für Chats und für Coworks/Aufgaben, erlaubte Werkzeuggruppen, Freigaben für schreibende Werkzeuge.
+Modell für Chats und für Coworks/Aufgaben, erlaubte Werkzeuggruppen, Freigaben für schreibende Werkzeuge, Lebensdauer der \
+Chats und Coworks (Standard 7 Tage).
+
+## Lebensdauer von Chats und Coworks
+Chats und Coworks verschwinden nach einer Frist von selbst – samt Anhängen, Arbeitsbereich und Sandbox. Die Frist gilt je \
+Projekt (Feld „Lebensdauer“ im Projekt) und für alles außerhalb eines Projekts in den Einstellungen der Person; ohne eigene \
+Angabe sind es 7 Tage, 0 heißt unbegrenzt. Gezählt wird ab der letzten Benutzung, geprüft wird stündlich und beim Start von \
+Home Assistant. Angeheftete Chats und die Läufe geplanter Aufgaben bleiben. Die Fristen setzt nur die Person in der \
+Oberfläche – du kannst sie weder ändern noch umgehen; löschen kannst du einzelne Chats auch nicht.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \
@@ -161,6 +169,15 @@ def _share_text(share: dict | None) -> str:
                      f"{', Benachrichtigung' if e.get('notify') else ''})" for uid, e in entries.items())
 
 
+def _days(v) -> str:
+    """Lebensdauer als Text; ohne Angabe gelten die 7 Tage aus retention.DEFAULT_DAYS."""
+    try:
+        days = 7 if v is None or v == "" else int(v)
+    except (TypeError, ValueError):
+        days = 7
+    return "unbegrenzt" if days <= 0 else f"{days} Tag" + ("" if days == 1 else "e")
+
+
 def _project_name(projects: dict, pid) -> str:
     return (projects.get(pid or "") or {}).get("name") or ""
 
@@ -174,7 +191,8 @@ def overview(meta: dict, allowed_skills: set | None = None, allowed_creds: set |
     cred_names = {c.get("id"): c.get("name") for c in (meta.get("credentials") or {}).values()}
     out = ["# Bestand"]
     out.append(f"## Projekte ({len(projects)})")
-    out += [f"- {p.get('name')}" + (f": {str(p.get('description'))[:200]}" if p.get("description") else "")
+    out += [f"- {p.get('name')} (Chats und Coworks: {_days(p.get('retention_days'))})"
+            + (f": {str(p.get('description'))[:200]}" if p.get("description") else "")
             for p in projects.values()] or ["- keine"]
     out.append(f"## Skills ({len(skills)})")
     out += [f"- {s.get('name')}" + ("" if s.get("enabled", True) else " (deaktiviert)")
@@ -240,6 +258,7 @@ def detail(meta: dict, section: str, hit: dict, files: list[str] | None = None) 
                    + (f" ({last['error']})" if last.get("error") else "") + "\n" if last.get("status") else "")
                 + f"## Auftrag\n{hit.get('prompt') or ''}")
     return (f"# Projekt: {hit.get('name')}\n{hit.get('description') or ''}\n## Anweisungen\n{hit.get('instructions') or ''}\n"
+            f"## Lebensdauer der Chats und Coworks\n{_days(hit.get('retention_days'))}\n"
             f"## Skills\n{', '.join(str((meta.get('skills') or {}).get(s, {}).get('name') or s) for s in hit.get('skills') or []) or 'keine'}"
             f"{' (nur diese)' if hit.get('skills_only') else ''}\n## Zugänge\n{creds}{' (nur diese)' if hit.get('credentials_only') else ''}\n"
             f"## Dateien\n{', '.join(files or []) or 'keine'}")

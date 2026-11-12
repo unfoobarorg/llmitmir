@@ -1,7 +1,7 @@
 // Home (new chat/cowork), chat list, projects and project detail.
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
-import { StoreElement, base, icon, fmtTime, confirmDialog, safeElement } from "./ui";
+import { StoreElement, base, icon, fmtTime, daysText, confirmDialog, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
@@ -145,7 +145,8 @@ export class Projects extends StoreElement {
       <div class="grid">${ps.map((p: any) => html`<div class="item pc" @click=${() => navigate(`/project/${p.id}`)}>
         <div class="row">${icon("project")}<b class="grow ellipsis">${p.name}</b></div>
         <div class="hint" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.description || (p.instructions || "").slice(0, 160) || "Noch keine Anweisungen."}</div>
-        <div class="row" style="margin-top:auto"><span class="chip">${count(p.id)} Chats</span>${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
+        <div class="row" style="margin-top:auto"><span class="chip">${count(p.id)} Chats</span>
+          <span class="chip" title="Chats und Coworks dieses Projekts werden danach gelöscht">${icon("hourglass", 13)} ${daysText(p.retention_days)}</span>${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
           ${(p.skills || []).length ? html`<span class="chip">${icon("skill", 13)} ${(p.skills || []).length}</span>` : nothing}</div></div>`)}
         <div class="item pc new" @click=${this.create}>${icon("plus")} ${t("Neues Projekt")}</div></div></div>`;
   }
@@ -177,7 +178,8 @@ export class ProjectPage extends StoreElement {
   }
   private async reload() {
     if (this.projectId === "new") {
-      this.draft = { name: "", description: "", instructions: "", credentials: [], skills: [] }; this.dirty = false; this.files = [];
+      this.draft = { name: "", description: "", instructions: "", credentials: [], skills: [],
+        retention_days: store.data?.retention?.default ?? 7 }; this.dirty = false; this.files = [];
       this.updateComplete.then(() => (this.renderRoot.querySelector("input.title") as HTMLInputElement | null)?.focus());
       return;
     }
@@ -242,6 +244,13 @@ export class ProjectPage extends StoreElement {
             <button class="iconbtn" @click=${async () => { this.files = await store.api.ws("file/delete", { scope: "project", owner: p.id, name: f.name }); }}>${icon("trash", 16)}</button></div>`)}
           <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${this.upload}></label>
           <div class="hint" style="margin-top:6px">${simple ? "LLMitMir schaut in diese Dateien, wenn sie für eine Frage wichtig sind." : "Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt)."}</div></div>
+        <div class="card"><h3>${icon("hourglass", 18)} Lebensdauer</h3>
+          <label class="f"><span>Chats und Coworks dieses Projekts nach … Tagen löschen</span>
+            <input type="number" min="0" max=${d.retention?.max || 3650} .value=${String(p.retention_days ?? d.retention?.default ?? 7)}
+              @change=${(e: any) => this.set("retention_days", Number(e.target.value))}></label>
+          <div class="hint" style="margin-top:6px">Gezählt ab der letzten Benutzung; danach wird der Chat samt Anhängen,
+            Arbeitsbereich und Sandbox restlos gelöscht. <b>0</b> heißt unbegrenzt. Angeheftete Chats und die Läufe
+            geplanter Aufgaben bleiben.</div></div>
         ${adv(html`<div class="card"><h3>${icon("key", 18)} ${t("Zugänge")}</h3><div class="chips">
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
           ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>

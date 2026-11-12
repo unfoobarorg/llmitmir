@@ -52,6 +52,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   weiter. Geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. „Stopp“ greift auch,
   während ein Modell hängt.
 - **Projekte**: Anweisungen, Dateien, Zugänge, Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
+- **Lebensdauer**: Chats und Coworks löschen sich nach einer Frist selbst – je Projekt eine eigene Frist, für alles
+  außerhalb eines Projekts eine Frist in den Einstellungen der Person (Standard 7 Tage, 0 = unbegrenzt). Gezählt ab der
+  letzten Benutzung, geprüft stündlich und beim Start; gelöscht werden Chat, Anhänge, Arbeitsbereich und Sandbox.
+  Angeheftete Chats und die Läufe geplanter Aufgaben bleiben.
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt.

@@ -22,6 +22,7 @@ from . import credcheck as CK
 from . import credentials as C
 from . import models as MS
 from . import pricing as PR
+from . import retention as RT
 from . import providers as PV
 from . import selfdoc as SD
 from . import sharing as SH
@@ -754,6 +755,38 @@ class Manager:
         await st.async_save_chat(chat)
         self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
         return chat
+
+    async def delete_chat(self, user_id: str, chat_id: str) -> None:
+        """Chat samt Sandbox und Dateien löschen – von Hand und für die Aufräumfrist derselbe Weg."""
+        st = await self.user_store(user_id)
+        self.stop(user_id, chat_id)
+        if self.werkbank is not None:
+            try:
+                await self.werkbank.delete(chat_id)
+            except Exception:  # noqa: BLE001 - sandbox may not exist
+                pass
+        await st.async_delete_chat(chat_id)
+        self.emit(user_id, {"type": "chat_deleted", "chat_id": chat_id})
+
+    async def purge_expired(self, user_id: str | None = None) -> int:
+        """Chats und Coworks löschen, deren Frist abgelaufen ist (Projektfrist, sonst die der Person).
+
+        Läuft stündlich und beim Start; ohne ``user_id`` für alle Personen. Angeheftete Chats und die Läufe
+        geplanter Aufgaben bleiben – die gehören zu ihrer Aufgabe.
+        """
+        stores = [await self.user_store(user_id)] if user_id else list((await self.all_stores()).values())
+        total = 0
+        for st in stores:
+            ids = RT.expired(st.meta["chats"], st.meta["projects"], st.meta["settings"], now())
+            for cid in ids:
+                try:
+                    await self.delete_chat(st.user_id, cid)
+                    total += 1
+                except Exception:  # noqa: BLE001 - ein Chat darf den Lauf nicht aufhalten
+                    _LOGGER.warning("Abgelaufener Chat %s ließ sich nicht löschen", cid, exc_info=True)
+            if ids:
+                _LOGGER.info("%s: %s abgelaufene Chats und Coworks gelöscht", st.user_id, len(ids))
+        return total
 
     def active_run(self, chat_id: str) -> Run | None:
         for r in self.runs.values():

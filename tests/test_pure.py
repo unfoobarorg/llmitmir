@@ -22,6 +22,7 @@ creds = load("credentials")
 ck = load("credcheck")
 tk = load("taskkeys")
 views = load("views")
+retention = load("retention")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -781,3 +782,36 @@ def test_credential_expiry():
     assert creds.expiry({"valid_until": "2026-11-11"}, today)["soon"] is True
     # Unsinn im Feld darf nichts kaputt machen
     assert creds.expiry({"valid_until": "bald"}, today)["days"] is None
+
+
+def test_retention_days():
+    assert retention.clean_days(None) == 7 and retention.clean_days("") == 7
+    assert retention.clean_days(0) == 0 and retention.clean_days("30") == 30
+    with pytest.raises(ValueError):
+        retention.clean_days(-1)
+    with pytest.raises(ValueError):
+        retention.clean_days(retention.MAX_DAYS + 1)
+    with pytest.raises(ValueError):
+        retention.clean_days("sieben")
+    assert retention.describe(7) == "7 Tage" and retention.describe(1) == "1 Tag"
+    assert retention.describe(0) == "unbegrenzt"
+
+
+def test_retention_expiry():
+    day = 86400
+    chats = {"a": {"kind": "chat", "updated": 1000},
+             "b": {"kind": "cowork", "updated": 1000, "project_id": "p1"},
+             "c": {"kind": "task_run", "updated": 1000},          # Lauf einer Aufgabe: bleibt
+             "d": {"kind": "chat", "updated": 1000, "pinned": True},  # angeheftet: bleibt
+             "e": {"kind": "chat", "updated": 1000, "project_id": "weg"}}  # Projekt gelöscht: Frist der Person
+    projects = {"p1": {"retention_days": 30}}
+    # Standard 7 Tage für alles ohne eigene Frist
+    assert retention.expired(chats, projects, {}, 1000 + 8 * day) == ["a", "e"]
+    # Projektfrist greift, sobald sie abgelaufen ist
+    assert retention.expired(chats, projects, {}, 1000 + 31 * day) == ["a", "b", "e"]
+    # 0 = unbegrenzt, auch im Projekt
+    assert retention.expired(chats, {"p1": {"retention_days": 0}}, {"retention_days": 0}, 1000 + 999 * day) == []
+    # eigene Frist der Person für alles außerhalb von Projekten
+    assert retention.expired(chats, projects, {"retention_days": 2}, 1000 + 3 * day) == ["a", "e"]
+    # gerade eben benutzt: nichts abgelaufen
+    assert retention.expired({"x": {"kind": "chat", "updated": 1000}}, {}, {}, 1000 + 6 * day) == []

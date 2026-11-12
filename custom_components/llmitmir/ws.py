@@ -17,6 +17,7 @@ from . import manage as M
 from . import models as MS
 from . import notifydevices as ND
 from . import pricing as PR
+from . import retention as RT
 from . import providers as PV
 from . import sharing as SH
 from . import views as V
@@ -138,6 +139,8 @@ async def _tasks_view(m, user) -> list[dict]:
 async def _bootstrap(hass, m, user, st) -> dict:
     s = dict(st.meta["settings"])
     s["has_own_key"] = bool(s.pop("own_key", ""))
+    # Lebensdauer der Chats und Coworks außerhalb von Projekten (ohne Angabe der Standard)
+    s["retention_days"] = RT.user_days(st.meta["settings"])
     s["has_own_task_key"] = bool(s.pop("own_task_key", ""))
     # The device this person actually uses (own choice, else their only device) – the panel shows its name
     devices = ND.apply_links(await ND.async_devices(hass), m.config.data.get("notify_devices"))
@@ -158,7 +161,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "key_mode": m.config.data.get("key_mode"),
         "settings": s,
         "memory": st.meta.get("memory", ""),
-        "projects": list(st.meta["projects"].values()),
+        "projects": [dict(p, retention_days=RT.project_days(p)) for p in st.meta["projects"].values()],
         "skills": list(st.meta["skills"].values()),
         "credentials": [mask_credential(c, C.secret_fields(c)) for c in st.meta["credentials"].values()],
         "credential_types": {k: {"label": v["label"], "fields": v["fields"], "secret": sorted(v["secret"]), "hint": v.get("hint", "")}
@@ -176,6 +179,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "runs": runs,
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
+        # Lebensdauer: Standard und Obergrenze für die Felder in Projekt und Einstellungen
+        "retention": {"default": RT.DEFAULT_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
     }
 
@@ -272,14 +277,7 @@ async def ws_chat_seen(hass, conn, msg, m, user, st):
 
 async def _delete_chat(m, user, st, chat_id: str) -> None:
     """Stop a running chat, drop its sandbox and its files, then forget it."""
-    m.stop(user.id, chat_id)
-    if m.werkbank is not None:
-        try:
-            await m.werkbank.delete(chat_id)
-        except Exception:  # noqa: BLE001 - sandbox may not exist
-            pass
-    await st.async_delete_chat(chat_id)
-    m.emit(user.id, {"type": "chat_deleted", "chat_id": chat_id})
+    await m.delete_chat(user.id, chat_id)
 
 
 @command(_t("chat/delete") | {vol.Required("chat_id"): str})
@@ -376,13 +374,15 @@ async def ws_project_save(hass, conn, msg, m, user, st):
     pid = p.get("id") or new_id("p")
     old = st.meta["projects"].get(pid, {"created": now()})
     keep = ("name", "description", "instructions", "icon", "color", "credentials", "skills", "credentials_only",
-            "skills_only", "model_chat", "model_agent", "tool_groups", "permissions", "no_external")
+            "skills_only", "model_chat", "model_agent", "tool_groups", "permissions", "no_external", "retention_days")
     for k in ("model_chat", "model_agent"):
         if PV.is_external(p.get(k) or ""):
             raise ValueError("Externe Modelle lassen sich nicht als Standard eines Projekts festlegen – nur im Chat auswählen.")
     proj = dict(old, **{k: p[k] for k in keep if k in p}, id=pid, updated=now())
     if not str(proj.get("name") or "").strip():
         raise ValueError("Name fehlt")
+    # Lebensdauer der Chats und Coworks dieses Projekts (0 = unbegrenzt, ohne Angabe 7 Tage)
+    proj["retention_days"] = RT.clean_days(proj.get("retention_days"))
     st.meta["projects"][pid] = proj
     await st.async_save_meta()
     m.emit(user.id, {"type": "meta", "section": "projects"})
@@ -583,6 +583,9 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
+    if "retention_days" in s:
+        # Lebensdauer der Chats und Coworks außerhalb von Projekten (0 = unbegrenzt)
+        cur["retention_days"] = RT.clean_days(s["retention_days"])
     if "permission_timeout_min" in s:
         # 0 = ohne Antwort eine Stunde warten und dann ablehnen; sonst nach so vielen Minuten ohne die Aktion weitermachen
         try:

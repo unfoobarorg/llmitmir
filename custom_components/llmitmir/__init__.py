@@ -88,6 +88,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.async_create_background_task(manager.refresh_all_ext(max_age=0), "llmitmir external models")
         entry.async_on_unload(async_track_time_interval(hass, _ext, timedelta(seconds=EXT_MODELS_REFRESH)))
 
+        # Chats und Coworks nach ihrer Frist löschen (Projektfrist, sonst die der Person): beim Start und stündlich
+        async def _purge(_now=None) -> None:
+            try:
+                await manager.purge_expired()
+            except Exception:  # noqa: BLE001 - die Aufräumfrist darf nichts anderes aufhalten
+                _LOGGER.exception("Aufräumen abgelaufener Chats fehlgeschlagen")
+
+        hass.async_create_background_task(_purge(), "llmitmir retention")
+        entry.async_on_unload(async_track_time_interval(hass, _purge, timedelta(hours=1)))
+
     if hass.state is CoreState.running:
         await _start()
     else:

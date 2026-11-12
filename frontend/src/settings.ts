@@ -1,7 +1,7 @@
 // Personal settings (incl. Claude import and usage) and the admin page.
 import { LitElement, css, html, nothing } from "lit";
 import { state } from "lit/decorators.js";
-import { StoreElement, base, icon, md, fmtNum, fmtTime, copyText, safeElement } from "./ui";
+import { StoreElement, base, icon, md, fmtNum, fmtTime, daysText, copyText, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
@@ -213,6 +213,14 @@ export class SettingsPage extends StoreElement {
           : html`<div class="hint">Deinem Benutzer ist in Home Assistant noch kein Gerät zugeordnet – deshalb gibt es hier nichts auszuwählen.
             ${d.user.is_admin ? html`Unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Benachrichtigungsgeräte</a> kannst du Geräte zuordnen.`
               : "Ein Admin von Home Assistant kann dein Handy mit deinem Benutzer verknüpfen."}</div>`}</section>
+      <section><h2>${icon("hourglass", 18)} Lebensdauer von Chats und Coworks</h2><div class="form">
+        <label class="f"><span>Chats und Coworks außerhalb von Projekten nach … Tagen löschen</span>
+          <input type="number" min="0" max=${d.retention?.max || 3650} .value=${String(s.retention_days ?? d.retention?.default ?? 7)}
+            @change=${(e: any) => this.set("retention_days", Number(e.target.value))}></label>
+        <div class="hint">Derzeit: ${daysText(s.retention_days ?? d.retention?.default ?? 7)}.</div>
+        <div class="hint">Gezählt ab der letzten Benutzung. Nach Ablauf wird der Chat samt Anhängen, Arbeitsbereich und
+          Sandbox restlos gelöscht – geprüft wird stündlich. <b>0</b> heißt unbegrenzt aufbewahren. Angeheftete Chats und
+          die Läufe geplanter Aufgaben bleiben. Für Chats in einem Projekt gilt die Frist des Projekts.</div></div></section>
       <section><h2>${icon("user", 18)} ${t("Persönliche Hinweise")}</h2>
         <textarea rows="7" placeholder="Was soll LLMitMir immer über dich wissen? Vorlieben, Schreibstil, Zusammenhänge …" .value=${this.memory}
           @input=${(e: any) => { this.memory = e.target.value; this.dirty = true; }}></textarea>

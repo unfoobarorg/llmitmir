@@ -54,6 +54,12 @@ export const fmtNum = (n: number) => {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(".", ",") + "k";
   return String(Math.round(n));
 };
+/** Lebensdauer in Tagen als Text: „7 Tage“, „1 Tag“, „unbegrenzt“ (ohne Angabe gelten 7 Tage). */
+export const daysText = (days?: number | null) => {
+  const n = days === null || days === undefined || days === ("" as any) ? 7 : Number(days);
+  if (!Number.isFinite(n) || n <= 0) return "unbegrenzt";
+  return `${n} Tag${n === 1 ? "" : "e"}`;
+};
 export const fmtTime = (ts?: number | string | null) => {
   if (!ts) return "–";
   const d = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
