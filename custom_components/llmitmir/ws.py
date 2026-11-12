@@ -179,8 +179,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "runs": runs,
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
-        # Lebensdauer: Standard und Obergrenze für die Felder in Projekt und Einstellungen
-        "retention": {"default": RT.DEFAULT_DAYS, "max": RT.MAX_DAYS},
+        # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
+        "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
     }
 

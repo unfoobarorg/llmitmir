@@ -1,20 +1,22 @@
 """Lebensdauer von Chats und Coworks (pure, unit-tested).
 
-Chats und Coworks verschwinden nach einer Frist von selbst: je Projekt eine eigene Frist, für alles außerhalb
-eines Projekts die Frist aus den Einstellungen der Person. Gezählt wird ab der letzten Benutzung, damit ein
-Chat, in dem noch gearbeitet wird, nicht unter der Hand verschwindet. Angeheftete Chats und die Läufe
-geplanter Aufgaben bleiben (die gehören zu ihrer Aufgabe, nicht zum Verlauf).
+Chats und Coworks können nach einer Frist von selbst verschwinden: je Projekt eine eigene Frist, für alles
+außerhalb eines Projekts die Frist aus den Einstellungen der Person. Standardmäßig ist das Löschen aus – erst
+wenn die Person es einschaltet, gilt eine Frist (vorgeschlagen werden 30 Tage). Gezählt wird ab der letzten
+Benutzung, damit ein Chat, in dem noch gearbeitet wird, nicht unter der Hand verschwindet. Angeheftete Chats
+und die Läufe geplanter Aufgaben bleiben (die gehören zu ihrer Aufgabe, nicht zum Verlauf).
 """
 from __future__ import annotations
 
-DEFAULT_DAYS = 7      # Standard: nach einer Woche ist Schluss
+DEFAULT_DAYS = 0      # Standard: automatisches Löschen ist aus
+SUGGEST_DAYS = 30     # Vorschlag, sobald die Person das Löschen einschaltet
 MAX_DAYS = 3650       # zehn Jahre – „beliebig“ heißt nicht „unendlich viele Ziffern“
-KEEP = 0              # 0 Tage = unbegrenzt aufbewahren
+KEEP = 0              # 0 Tage = aus, also unbegrenzt aufbewahren
 KINDS = ("chat", "cowork")   # task_run gehört zur Aufgabe und bleibt
 
 
 def clean_days(value, default: int = DEFAULT_DAYS) -> int:
-    """Frist in Tagen prüfen: 0 = unbegrenzt, sonst 1 … MAX_DAYS. Leer = Standard."""
+    """Frist in Tagen prüfen: 0 = aus (unbegrenzt), sonst 1 … MAX_DAYS. Leer = Standard (aus)."""
     if value is None or value == "":
         return default
     try:
@@ -27,12 +29,12 @@ def clean_days(value, default: int = DEFAULT_DAYS) -> int:
 
 
 def project_days(project: dict | None) -> int:
-    """Frist eines Projekts (ohne Angabe der Standard)."""
+    """Frist eines Projekts (ohne Angabe: aus)."""
     return clean_days((project or {}).get("retention_days"), DEFAULT_DAYS)
 
 
 def user_days(settings: dict | None) -> int:
-    """Frist für alles außerhalb eines Projekts (ohne Angabe der Standard)."""
+    """Frist für alles außerhalb eines Projekts (ohne Angabe: aus)."""
     return clean_days((settings or {}).get("retention_days"), DEFAULT_DAYS)
 
 
@@ -61,5 +63,5 @@ def expired(chats: dict | None, projects: dict | None, settings: dict | None, no
 
 
 def describe(days: int) -> str:
-    """„7 Tage“, „1 Tag“ oder „unbegrenzt“ – für Hinweise in der Oberfläche und im Modelltext."""
-    return "unbegrenzt" if days <= KEEP else f"{days} Tag" + ("" if days == 1 else "e")
+    """„30 Tage“, „1 Tag“ oder „aus“ – für Hinweise in der Oberfläche und im Modelltext."""
+    return "aus" if days <= KEEP else f"{days} Tag" + ("" if days == 1 else "e")

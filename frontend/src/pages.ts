@@ -146,7 +146,7 @@ export class Projects extends StoreElement {
         <div class="row">${icon("project")}<b class="grow ellipsis">${p.name}</b></div>
         <div class="hint" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.description || (p.instructions || "").slice(0, 160) || "Noch keine Anweisungen."}</div>
         <div class="row" style="margin-top:auto"><span class="chip">${count(p.id)} Chats</span>
-          <span class="chip" title="Chats und Coworks dieses Projekts werden danach gelöscht">${icon("hourglass", 13)} ${daysText(p.retention_days)}</span>${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
+          ${Number(p.retention_days) > 0 ? html`<span class="chip" title="Chats und Coworks dieses Projekts werden danach gelöscht">${icon("hourglass", 13)} ${daysText(p.retention_days)}</span>` : nothing}${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
           ${(p.skills || []).length ? html`<span class="chip">${icon("skill", 13)} ${(p.skills || []).length}</span>` : nothing}</div></div>`)}
         <div class="item pc new" @click=${this.create}>${icon("plus")} ${t("Neues Projekt")}</div></div></div>`;
   }
@@ -179,7 +179,7 @@ export class ProjectPage extends StoreElement {
   private async reload() {
     if (this.projectId === "new") {
       this.draft = { name: "", description: "", instructions: "", credentials: [], skills: [],
-        retention_days: store.data?.retention?.default ?? 7 }; this.dirty = false; this.files = [];
+        retention_days: store.data?.retention?.default ?? 0 }; this.dirty = false; this.files = [];
       this.updateComplete.then(() => (this.renderRoot.querySelector("input.title") as HTMLInputElement | null)?.focus());
       return;
     }
@@ -212,6 +212,7 @@ export class ProjectPage extends StoreElement {
     const groups = d.tool_groups || {};
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
     const simple = isSimple();
+    const pdays = Number(p.retention_days ?? d.retention?.default ?? 0) || 0;
     const instrLabel = simple ? "Was soll LLMitMir in diesem Projekt immer wissen?" : t("Anweisungen");
     const instrPh = simple ? "Zum Beispiel: Worum es geht, wer beteiligt ist, was wichtig ist und wie Antworten aussehen sollen."
       : "Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)";
@@ -245,12 +246,16 @@ export class ProjectPage extends StoreElement {
           <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${this.upload}></label>
           <div class="hint" style="margin-top:6px">${simple ? "LLMitMir schaut in diese Dateien, wenn sie für eine Frage wichtig sind." : "Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt)."}</div></div>
         <div class="card"><h3>${icon("hourglass", 18)} Lebensdauer</h3>
-          <label class="f"><span>Chats und Coworks dieses Projekts nach … Tagen löschen</span>
-            <input type="number" min="0" max=${d.retention?.max || 3650} .value=${String(p.retention_days ?? d.retention?.default ?? 7)}
-              @change=${(e: any) => this.set("retention_days", Number(e.target.value))}></label>
-          <div class="hint" style="margin-top:6px">Gezählt ab der letzten Benutzung; danach wird der Chat samt Anhängen,
-            Arbeitsbereich und Sandbox restlos gelöscht. <b>0</b> heißt unbegrenzt. Angeheftete Chats und die Läufe
-            geplanter Aufgaben bleiben.</div></div>
+          <label class="row hint" style="align-items:center"><input type="checkbox" style="width:auto" .checked=${pdays > 0}
+            @change=${(e: any) => this.set("retention_days", e.target.checked ? (d.retention?.suggest || 30) : 0)}>
+            Chats und Coworks dieses Projekts automatisch löschen</label>
+          ${pdays > 0 ? html`<label class="f" style="margin-top:8px"><span>… nach so vielen Tagen</span>
+            <input type="number" min="1" max=${d.retention?.max || 3650} .value=${String(pdays)}
+              @change=${(e: any) => this.set("retention_days", Math.max(1, Number(e.target.value) || 1))}></label>` : nothing}
+          <div class="hint" style="margin-top:6px">${pdays > 0
+            ? `Derzeit: ${daysText(pdays)} ab der letzten Benutzung; danach wird der Chat samt Anhängen, Arbeitsbereich und Sandbox restlos gelöscht.`
+            : "Aus – die Chats und Coworks dieses Projekts bleiben, bis du sie selbst löschst."}
+            Angeheftete Chats und die Läufe geplanter Aufgaben bleiben.</div></div>
         ${adv(html`<div class="card"><h3>${icon("key", 18)} ${t("Zugänge")}</h3><div class="chips">
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
           ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>

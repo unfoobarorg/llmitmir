@@ -85,14 +85,15 @@ arbeite den laufenden Schritt zu Ende, die nächste Nachricht kommt gleich danac
 ## Projekte
 Felder: Name, Beschreibung, Anweisungen (gelten in jedem Chat des Projekts), Dateien, Skills und Zugänge (optional „nur diese“), \
 Modell für Chats und für Coworks/Aufgaben, erlaubte Werkzeuggruppen, Freigaben für schreibende Werkzeuge, Lebensdauer der \
-Chats und Coworks (Standard 7 Tage).
+Chats und Coworks (standardmäßig aus).
 
 ## Lebensdauer von Chats und Coworks
-Chats und Coworks verschwinden nach einer Frist von selbst – samt Anhängen, Arbeitsbereich und Sandbox. Die Frist gilt je \
-Projekt (Feld „Lebensdauer“ im Projekt) und für alles außerhalb eines Projekts in den Einstellungen der Person; ohne eigene \
-Angabe sind es 7 Tage, 0 heißt unbegrenzt. Gezählt wird ab der letzten Benutzung, geprüft wird stündlich und beim Start von \
-Home Assistant. Angeheftete Chats und die Läufe geplanter Aufgaben bleiben. Die Fristen setzt nur die Person in der \
-Oberfläche – du kannst sie weder ändern noch umgehen; löschen kannst du einzelne Chats auch nicht.
+Chats und Coworks können sich nach einer Frist selbst löschen – samt Anhängen, Arbeitsbereich und Sandbox. Standardmäßig \
+ist das aus; schaltet die Person es ein, gilt die Frist je Projekt (Feld „Lebensdauer“ im Projekt) und für alles außerhalb \
+eines Projekts die Frist in ihren Einstellungen (vorgeschlagen 30 Tage, 0 heißt aus). Gezählt wird ab der letzten \
+Benutzung, geprüft wird stündlich und beim Start von Home Assistant. Angeheftete Chats und die Läufe geplanter Aufgaben \
+bleiben. Die Fristen setzt nur die Person in der Oberfläche – du kannst sie weder ändern noch umgehen; löschen kannst du \
+einzelne Chats auch nicht.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \
@@ -170,12 +171,12 @@ def _share_text(share: dict | None) -> str:
 
 
 def _days(v) -> str:
-    """Lebensdauer als Text; ohne Angabe gelten die 7 Tage aus retention.DEFAULT_DAYS."""
+    """Lebensdauer als Text; ohne Angabe ist das automatische Löschen aus (retention.DEFAULT_DAYS)."""
     try:
-        days = 7 if v is None or v == "" else int(v)
+        days = 0 if v is None or v == "" else int(v)
     except (TypeError, ValueError):
-        days = 7
-    return "unbegrenzt" if days <= 0 else f"{days} Tag" + ("" if days == 1 else "e")
+        days = 0
+    return "aus" if days <= 0 else f"{days} Tag" + ("" if days == 1 else "e")
 
 
 def _project_name(projects: dict, pid) -> str:

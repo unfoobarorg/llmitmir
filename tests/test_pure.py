@@ -785,7 +785,9 @@ def test_credential_expiry():
 
 
 def test_retention_days():
-    assert retention.clean_days(None) == 7 and retention.clean_days("") == 7
+    # Standard ist aus (0), beim Einschalten schlägt die Oberfläche 30 Tage vor
+    assert retention.clean_days(None) == 0 and retention.clean_days("") == 0
+    assert retention.DEFAULT_DAYS == 0 and retention.SUGGEST_DAYS == 30
     assert retention.clean_days(0) == 0 and retention.clean_days("30") == 30
     with pytest.raises(ValueError):
         retention.clean_days(-1)
@@ -793,8 +795,8 @@ def test_retention_days():
         retention.clean_days(retention.MAX_DAYS + 1)
     with pytest.raises(ValueError):
         retention.clean_days("sieben")
-    assert retention.describe(7) == "7 Tage" and retention.describe(1) == "1 Tag"
-    assert retention.describe(0) == "unbegrenzt"
+    assert retention.describe(30) == "30 Tage" and retention.describe(1) == "1 Tag"
+    assert retention.describe(0) == "aus"
 
 
 def test_retention_expiry():
@@ -805,10 +807,13 @@ def test_retention_expiry():
              "d": {"kind": "chat", "updated": 1000, "pinned": True},  # angeheftet: bleibt
              "e": {"kind": "chat", "updated": 1000, "project_id": "weg"}}  # Projekt gelöscht: Frist der Person
     projects = {"p1": {"retention_days": 30}}
-    # Standard 7 Tage für alles ohne eigene Frist
-    assert retention.expired(chats, projects, {}, 1000 + 8 * day) == ["a", "e"]
-    # Projektfrist greift, sobald sie abgelaufen ist
-    assert retention.expired(chats, projects, {}, 1000 + 31 * day) == ["a", "b", "e"]
+    # ohne eigene Frist ist das Löschen aus: nichts verschwindet
+    assert retention.expired(chats, {}, {}, 1000 + 8 * day) == []
+    # Frist der Person für alles außerhalb von Projekten
+    assert retention.expired(chats, projects, {"retention_days": 7}, 1000 + 8 * day) == ["a", "e"]
+    # Projektfrist greift, sobald sie abgelaufen ist – ohne Frist der Person bleibt der Rest
+    assert retention.expired(chats, projects, {}, 1000 + 31 * day) == ["b"]
+    assert retention.expired(chats, projects, {"retention_days": 7}, 1000 + 31 * day) == ["a", "b", "e"]
     # 0 = unbegrenzt, auch im Projekt
     assert retention.expired(chats, {"p1": {"retention_days": 0}}, {"retention_days": 0}, 1000 + 999 * day) == []
     # eigene Frist der Person für alles außerhalb von Projekten
