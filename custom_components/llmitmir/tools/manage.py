@@ -210,6 +210,7 @@ def _cred_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     raw = {"id": (old or {}).get("id"), "name": str(a.get("neuer_name") or "").strip() or (old or {}).get("name") or name,
            "type": a.get("typ") or (old or {}).get("type"), "fields": fields,
            "remove_fields": list(a.get("felder_entfernen") or []),
+           "services": list(a["dienste"]) if a.get("dienste") is not None else None,
            "valid_until": a["gueltig_bis"] if a.get("gueltig_bis") is not None else (old or {}).get("valid_until") or "",
            "notes": a["notiz"] if a.get("notiz") is not None else (old or {}).get("notes") or ""}
     new = M.build_credential(ctx.store, raw)
@@ -310,11 +311,15 @@ register(Tool("task_delete", "llmitmir", "Löscht eine geplante Aufgabe." + _ASK
               task_delete, write=True, label="Aufgabe löschen", icon="mdi:trash-can-outline", preview=task_delete_preview))
 register(Tool("credential_save", "llmitmir",
               "Legt einen Zugang an oder ändert ihn (gefunden über name). felder nach Typ (z. B. url, username, password); "
-              "nicht genannte Felder bleiben. Geheimnisse nur eintragen, wenn die Person sie dir ausdrücklich gegeben hat." + _ASK,
+              "nicht genannte Felder bleiben. GWDG-Exchange (typ gwdg): nur username (GWDG-E-Mail) und password, dazu dienste – "
+              "die Server-Adressen ergänzt LLMitMir. Geheimnisse nur eintragen, wenn die Person sie dir ausdrücklich gegeben hat." + _ASK,
               obj({"name": {"type": "string"}, "neuer_name": {"type": "string"},
                    "typ": {"type": "string", "enum": list(C.TYPES)}, "felder": {"type": "object"},
                    "felder_entfernen": {"type": "array", "items": {"type": "string"}}, "notiz": {"type": "string"},
-                   "gueltig_bis": {"type": "string", "description": "Ablaufdatum JJJJ-MM-TT, leer = kein Ablaufdatum"}}, ["name"]),
+                   "gueltig_bis": {"type": "string", "description": "Ablaufdatum JJJJ-MM-TT, leer = kein Ablaufdatum"},
+                   "dienste": {"type": "array", "items": {"type": "string", "enum": list(C.TYPES["gwdg"]["services"])},
+                               "description": "nur typ gwdg: wofür der Zugang gilt (mail = E-Mail-Postfach, calendar, contacts)"}},
+                  ["name"]),
               credential_save, write=True, label="Zugang speichern", icon="mdi:key-outline", preview=credential_save_preview,
               redact=redact_credential_args))
 register(Tool("credential_delete", "llmitmir", "Löscht einen Zugang (auch aus Skills und Projekten)." + _ASK,

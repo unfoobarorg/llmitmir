@@ -119,7 +119,11 @@ Gute Anleitungen nennen die LLMitMir-Werkzeuge, mit denen etwas geht (z. B. `dav
 `http_request` mit `{{cred:Name:feld}}`, ha_*-Werkzeuge für diese Home-Assistant-Instanz), statt curl-Befehle oder Tokens.
 
 ## Zugänge (Seite „Zugänge“)
-Typen: webdav, basic, bearer, header, telegram, imap, other. Felder je nach Typ (url, username, password, token …) plus Notiz. \
+Typen: webdav, basic, bearer, header, telegram, imap, other, gwdg. Felder je nach Typ (url, username, password, token …) plus Notiz. \
+GWDG-Exchange (gwdg): nur GWDG-E-Mail-Adresse und Passwort, dazu die Dienste, für die der Zugang gilt (E-Mail-Postfach, \
+Kalender, Kontakte); die Adressen (DavMail-Kalender und -Kontakte, IMAP/SMTP email.gwdg.de) ergänzt LLMitMir selbst. \
+Kalender mit `caldav_events` (ohne `kalender`), Kontakte mit `dav_request` auf contacts/, das Postfach wie einen \
+IMAP/SMTP-Zugang in der Werkbank. Was nicht angehakt ist, lehnen die Werkzeuge ab. \
 Geheime Felder siehst du nie; verwende den Namen als `zugang` in dav_*/http_request oder Platzhalter `{{cred:Name:feld}}`. \
 LLMitMir prüft jeden Zugang mit einer harmlosen Leseanfrage (nach dem Speichern, auf Knopfdruck und wenn ein Werkzeug \
 abgelehnt wird) und markiert ihn auf der Seite „Zugänge“ rot, wenn er nicht funktioniert – dann der Person sagen, \

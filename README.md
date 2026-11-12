@@ -60,6 +60,13 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt.
+- **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste), gebaut wie in calmerge: GWDG-E-Mail-Adresse und
+  Passwort eintragen (ohne @ wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender
+  und/oder Kontakte**. Die Adressen ergänzt LLMitMir selbst: DavMail `https://davmail.gwdg.de:1080/users/<E-Mail>/calendar/`
+  bzw. `…/contacts/`, IMAP `email.gwdg.de:993`, SMTP `email.gwdg.de:587`. `caldav_events` holt den Kalender wie calmerge
+  per GET und filtert den Zeitraum selbst; `dav_request` arbeitet relativ zum DavMail-Konto und nur in den angehakten
+  Ordnern; das Postfach nutzt das Modell wie einen IMAP/SMTP-Zugang. Geprüft wird jeder angehakte Dienst einzeln.
+  Ältere WebDAV-Zugänge mit DavMail-URL behandelt LLMitMir als GWDG-Kalender.
 - **Zugänge werden geprüft**: Nach dem Speichern, auf Knopfdruck (einzeln oder „Alle prüfen“) und automatisch, wenn ein
   Werkzeug mit abgelehnter Anmeldung scheitert, meldet sich LLMitMir mit einer harmlosen Leseanfrage an (PROPFIND bei
   WebDAV, GET bei HTTP-APIs, `getMe` bei Telegram, LOGIN bei IMAP). Schlägt das fehl, steht der Zugang in der Liste rot

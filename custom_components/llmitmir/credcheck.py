@@ -2,7 +2,7 @@
 
 Ein abgelaufenes Passwort oder ein zurueckgezogener Token faellt sonst erst auf, wenn ein Werkzeug ihn
 braucht – und dann mitten in einer Aufgabe. Deshalb prueft LLMitMir die Zugangsdaten mit einer harmlosen
-Leseanfrage (PROPFIND, GET, getMe, IMAP-LOGIN) und merkt sich das Ergebnis am Zugang (``check``).
+Leseanfrage (PROPFIND, GET, getMe, IMAP-LOGIN; GWDG-Exchange je gewähltem Dienst) und merkt sich das Ergebnis am Zugang (``check``).
 Die Einordnung einer Antwort steckt in ``verdict`` und ist ohne Home Assistant testbar.
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "header": ("url", "key"),
     "telegram": ("token",),
     "imap": ("imap_host", "username", "password"),
+    "gwdg": ("username", "password"),
 }
 # Antworten, die ein Werkzeug als abgelehnte Anmeldung zurueckgibt (dann gilt der Zugang als kaputt)
 AUTH_MARKERS = ("HTTP 401", "HTTP 407", "401 Unauthorized", "Unauthorized", "Anmeldung abgelehnt",
@@ -98,6 +99,41 @@ async def _check_webdav(session: aiohttp.ClientSession, cred: dict) -> dict:
     if status == 404:
         msg = "HTTP 404: Ordner nicht gefunden – stimmt die URL bzw. der Freigabe-Link?"
     return _result(ok, msg, status)
+
+
+DAV_PING = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:displayname/></d:prop></d:propfind>'
+
+
+async def _check_gwdg(session: aiohttp.ClientSession, cred: dict) -> dict:
+    """GWDG-Exchange: jeden angehakten Dienst einzeln pruefen (DavMail-Ordner per PROPFIND, Postfach per IMAP-LOGIN)."""
+    from . import credentials as C
+    from .tools import dav as D
+
+    names = C.TYPES["gwdg"]["services"]
+    picked = C.services(cred)
+    if not picked:
+        return _result(False, "Kein Dienst gewählt (E-Mail-Postfach, Kalender oder Kontakte)")
+    parts, ok_all, status = [], True, None
+    for svc in picked:
+        if svc == "mail":
+            r = await _check_imap(cred)
+        else:
+            try:
+                st = await _http(session, "PROPFIND", D.dav_root(cred) + "/" + D.GWDG_FOLDERS[svc], data=DAV_PING,
+                                 auth=D._auth(cred), headers={"Depth": "0", "Content-Type": "application/xml"})
+            except asyncio.TimeoutError:
+                r = _result(False, "Zeitüberschreitung – DavMail der GWDG antwortet nicht")
+            except aiohttp.ClientError as e:
+                r = _result(False, f"Keine Verbindung zu DavMail der GWDG ({type(e).__name__})")
+            else:
+                ok, msg = verdict(st)
+                if st in (401, 403):
+                    msg = f"HTTP {st}: GWDG hat E-Mail-Adresse oder Passwort abgelehnt"
+                r = _result(ok, msg, st)
+                status = status or st
+        ok_all = ok_all and r["ok"]
+        parts.append(f"{names[svc]}: {r['message'] if not r['ok'] else 'ok'}")
+    return _result(ok_all, " · ".join(parts), status)
 
 
 async def _check_http(session: aiohttp.ClientSession, cred: dict) -> dict:
@@ -179,7 +215,13 @@ async def check_credential(session: aiohttp.ClientSession, cred: dict) -> dict:
     if missing:
         return _result(False, f"Feld „{missing}“ fehlt")
     try:
+        if typ == "gwdg":
+            return await _check_gwdg(session, cred)
         if typ == "webdav":
+            from . import credentials as C
+
+            if C.is_gwdg(cred):  # ältere Zugänge mit DavMail-URL: wie GWDG-Exchange (Kalender) prüfen
+                return await _check_gwdg(session, cred)
             return await _check_webdav(session, cred)
         if typ == "telegram":
             return await _check_telegram(session, cred)

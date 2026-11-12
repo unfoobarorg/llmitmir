@@ -523,23 +523,40 @@ export class CredentialPage extends StoreElement {
     const types = store.data?.credential_types || {};
     const ty = types[c.type] || { fields: [], secret: [] };
     const secret = new Set([...(ty.secret || []), ...(c.secret_fields || [])]);
-    const keys = [...ty.fields, ...Object.keys(c.fields || {}).filter(k => !ty.fields.includes(k))];
+    // GWDG-Exchange: Dienste (Postfach, Kalender, Kontakte) wählen; deren Adressen erzeugt der Server beim Speichern
+    const svcDefs: Record<string, string> = ty.services || {};
+    const svc: string[] = c.services ?? ty.default_services ?? [];
+    const svcFields: Record<string, string[]> = ty.service_fields || {};
+    const auto = new Set(Object.values(svcFields).flat());
+    const own = [...ty.fields, ...Object.entries(svcFields).filter(([k]) => svc.includes(k)).flatMap(([, v]) => v)];
+    const keys = [...own, ...Object.keys(c.fields || {}).filter(k => !own.includes(k) && !auto.has(k))];
+    const readonly = new Set<string>(ty.readonly || []);
     const labels: Record<string, string> = { url: "URL", username: "Benutzername", password: "Passwort", token: "Token", share_token: "Freigabe-Token",
-      header: "Header-Name", key: "Schlüssel", chat_ids: "Chat-IDs", imap_host: "IMAP-Server", smtp_host: "SMTP-Server" };
+      header: "Header-Name", key: "Schlüssel", chat_ids: "Chat-IDs", imap_host: "IMAP-Server", smtp_host: "SMTP-Server", ...(ty.labels || {}) };
+    const placeholders: Record<string, string> = ty.placeholders || {};
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/credentials")}>${icon("left")}</button><h1 class="grow">${c.id ? c.name : t("Neuer Zugang")}</h1></div>
       <div class="form">
         <div class="two"><label class="f"><span>${t("Name")}</span><input .value=${c.name} placeholder="z. B. Hof Nextcloud" @input=${(e: any) => this.set("name", e.target.value)}></label>
-          <label class="f"><span>${t("Typ")}</span><select @change=${(e: any) => this.set("type", e.target.value)}>
+          <label class="f"><span>${t("Typ")}</span><select @change=${(e: any) => {
+            const nt = types[e.target.value] || {};
+            this.d = { ...this.d, type: e.target.value, services: nt.services ? (this.d.services ?? nt.default_services ?? []) : undefined,
+              name: this.d.name || (e.target.value === "gwdg" ? "GWDG-Exchange" : "") }; this.dirty = true; }}>
             ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${c.type === k}>${v.label}</option>`)}</select></label></div>
         ${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}
+        ${Object.keys(svcDefs).length ? html`<div class="f"><span>${t("Verwenden für")}</span>
+          <div class="row" style="flex-wrap:wrap;gap:16px">${Object.entries(svcDefs).map(([k, l]) => html`<label class="row" style="gap:6px;white-space:nowrap">
+            <input type="checkbox" style="width:auto" .checked=${svc.includes(k)} @change=${(e: any) => this.set("services",
+              Object.keys(svcDefs).filter(x => x === k ? e.target.checked : svc.includes(x)))}> ${l}</label>`)}</div>
+          ${svc.length ? nothing : html`<span class="hint" style="color:var(--lm-err)">Wähl mindestens einen Dienst aus.</span>`}</div>` : nothing}
         ${keys.map(k => html`<label class="f"><span>${labels[k] || k}${secret.has(k) ? html` <span class="chip">${icon("lock", 12)} geheim</span>` : nothing}</span>
           <div class="fieldrow"><input type=${secret.has(k) && !this.shown.has(k) ? "password" : "text"} autocomplete="off" .value=${c.fields?.[k] ?? ""}
+            placeholder=${placeholders[k] || (readonly.has(k) ? "Wird beim Speichern automatisch ergänzt" : "")} ?readonly=${readonly.has(k)}
             @focus=${(e: any) => { if (e.target.value === "•••") { e.target.value = ""; } }} @input=${(e: any) => this.setField(k, e.target.value)}>
             ${secret.has(k) ? html`<button class="iconbtn" title=${this.shown.has(k) ? t("Verbergen") : t("Anzeigen")} @click=${() => this.reveal(k)}>${icon(this.shown.has(k) ? "eyeOff" : "eye", 18)}</button>` : nothing}
             ${c.id && c.fields?.[k] ? html`<button class="iconbtn" title=${t("Kopieren")} @click=${async () => {
               const v = secret.has(k) ? (this.revealed || await store.api.ws("credential/reveal", { credential_id: c.id })).fields[k] : c.fields[k]; copyText(v); }}>${icon("copy", 18)}</button>` : nothing}
-            ${!ty.fields.includes(k) ? html`<button class="iconbtn" title="Feld entfernen" @click=${() => { const f = { ...c.fields }; delete f[k];
+            ${!own.includes(k) ? html`<button class="iconbtn" title="Feld entfernen" @click=${() => { const f = { ...c.fields }; delete f[k];
               this.d = { ...c, fields: f, remove_fields: [...(c.remove_fields || []), k] }; this.dirty = true; }}>${icon("trash", 18)}</button>` : nothing}</div></label>`)}
         ${(isSimple() ? (x: unknown) => more(x, "Weiteres Feld hinzufügen") : (x: unknown) => x)(html`<div class="row"><input placeholder="Weiteres Feld (Name)" .value=${this.newField} @input=${(e: any) => (this.newField = e.target.value)}>
           <button class="btn" @click=${() => { if (this.newField.trim()) { this.setField(this.newField.trim().replace(/\W+/g, "_"), ""); this.newField = ""; } }}>${icon("plus", 16)} Feld</button>

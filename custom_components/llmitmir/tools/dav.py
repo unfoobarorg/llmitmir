@@ -28,7 +28,13 @@ def _q(path: str) -> str:
     return "/".join(urllib.parse.quote(p) for p in path.split("/"))
 
 
+GWDG_NO_FILES = ("Ein GWDG-Exchange-Zugang hat keine Dateiablage – Termine mit caldav_events lesen, sonst dav_request "
+                 "relativ zum DavMail-Stamm (z. B. PROPFIND calendar/).")
+
+
 def files_base(cred: dict) -> str:
+    if C.is_gwdg(cred):
+        raise ValueError(GWDG_NO_FILES)
     f = cred.get("fields") or {}
     url = (f.get("url") or "").rstrip("/")
     if "/remote.php/dav/files/" in url or "/public.php/dav/files/" in url or url.endswith("/webdav"):
@@ -42,12 +48,19 @@ def files_base(cred: dict) -> str:
 
 
 def dav_root(cred: dict) -> str:
+    if C.is_gwdg(cred):  # https://davmail.gwdg.de:1080/users/<E-Mail> – darunter calendar/, contacts/ …
+        root = C.gwdg_account(cred)[1]
+        if not root:
+            raise ValueError("Im GWDG-Zugang fehlt die GWDG-E-Mail-Adresse.")
+        return root.rstrip("/")
     url = (cred.get("fields") or {}).get("url", "").rstrip("/")
     return re.sub(r"/(remote|public)\.php/.*$", "", re.sub(r"/s/[A-Za-z0-9]+.*$", "", url)) + "/remote.php/dav"
 
 
 def _auth(cred: dict) -> aiohttp.BasicAuth:
     f = cred.get("fields") or {}
+    if C.is_gwdg(cred):
+        return aiohttp.BasicAuth(C.gwdg_account(cred)[0], f.get("password") or "")
     m = re.search(r"/s/([A-Za-z0-9]+)", f.get("url") or "")
     user = f.get("share_token") or (m.group(1) if m and not f.get("username") else "") or f.get("username") or ""
     return aiohttp.BasicAuth(user, f.get("password") or "")
@@ -125,6 +138,28 @@ async def dav_write(ctx, a: dict):
     return {"ok": True, "pfad": pfad, "bytes": len(data)}
 
 
+GWDG_FOLDERS = {"calendar": "calendar/", "contacts": "contacts/"}
+
+
+def gwdg_allowed(cred: dict, url: str) -> str:
+    """Leer, wenn ein GWDG-Zugang diese Adresse nutzen darf – sonst der Grund. Erlaubt sind nur die Ordner der
+    Dienste, die die Person beim Zugang angehakt hat (Kalender → calendar/, Kontakte → contacts/)."""
+    root = dav_root(cred) + "/"
+    svc = C.services(cred)
+    if not url.startswith(root):
+        return "Fehler: nur Adressen im DavMail-Konto dieses GWDG-Zugangs erlaubt"
+    rel = url[len(root):].split("?", 1)[0]
+    if any(seg in (".", "..") for seg in urllib.parse.unquote(rel).split("/")):
+        return "Fehler: Pfade mit . oder .. sind bei GWDG-Exchange nicht erlaubt"
+    for name, folder in GWDG_FOLDERS.items():
+        if (rel + "/").startswith(folder):
+            return "" if name in svc else (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für "
+                                           f"{C.TYPES['gwdg']['services'][name]} freigegeben (Seite „Zugänge“).")
+    allowed = [f for n, f in GWDG_FOLDERS.items() if n in svc]
+    return ("Fehler: Bei GWDG-Exchange nur " + (" oder ".join(allowed) if allowed else "keine DAV-Ordner")
+            + " (relativ zum Konto)")
+
+
 async def dav_request(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
     methode = str(a.get("methode") or "PROPFIND").upper()
@@ -133,15 +168,20 @@ async def dav_request(ctx, a: dict):
     root_host = urllib.parse.urlparse(dav_root(cred)).netloc
     if urllib.parse.urlparse(url).netloc != root_host:
         return "Fehler: nur Adressen auf dem Server des Zugangs erlaubt"
+    if C.is_gwdg(cred) and (why := gwdg_allowed(cred, url)):
+        return why
     headers = {str(k): str(v) for k, v in (a.get("header") or {}).items()}
     body = a.get("inhalt")
     body = C.resolve_placeholders(body, ctx.creds, ctx.allowed_creds) if isinstance(body, str) else body
-    async with ctx.session.request(methode, url, data=(body or None), auth=_auth(cred), headers=headers,
-                                   timeout=aiohttp.ClientTimeout(total=90)) as r:
-        raw, _ = await read_body(r, 2_000_000)
-        text = raw.decode("utf-8", "ignore")
-        etag = r.headers.get("ETag")
-        return {"status": r.status, "etag": etag, "antwort": text[:60_000]}
+    try:
+        async with ctx.session.request(methode, url, data=(body or None), auth=_auth(cred), headers=headers,
+                                       timeout=aiohttp.ClientTimeout(total=90)) as r:
+            raw, _ = await read_body(r, 2_000_000)
+            text = raw.decode("utf-8", "ignore")
+            etag = r.headers.get("ETag")
+            return {"status": r.status, "etag": etag, "antwort": text[:60_000]}
+    except aiohttp.ClientError as e:
+        return f"Fehler: Keine Verbindung zu {root_host} ({type(e).__name__}: {e})"
 
 
 def _ics_events(text: str) -> list[dict]:
@@ -159,12 +199,60 @@ def _ics_events(text: str) -> list[dict]:
     return events
 
 
+def _day(value: str) -> str:
+    """JJJJMMTT aus einem ICS- oder ISO-Datum (für den Vergleich reicht der Tag)."""
+    return re.sub(r"\D", "", str(value or ""))[:8]
+
+
+def in_range(ev: dict, von: str, bis: str) -> bool:
+    """Liegt ein Termin (ganz oder teilweise) zwischen von und bis (JJJJ-MM-TT, bis exklusiv)?
+
+    Wiederkehrende Termine zählen, solange sie vor ``bis`` beginnen und ihr UNTIL nicht vor ``von`` liegt – ihre
+    einzelnen Wiederholungen rechnet das Modell aus der RRULE selbst aus.
+    """
+    start, lo, hi = _day(ev.get("dtstart")), _day(von), _day(bis)
+    if not start or start >= hi:
+        return False
+    if ev.get("rrule"):
+        until = re.search(r"UNTIL=(\d{8})", ev["rrule"])
+        return not until or until.group(1) >= lo
+    end = _day(ev.get("dtend")) or start
+    return end >= lo if end == start else end > lo
+
+
+async def _gwdg_events(ctx, cred: dict, kal: str, von: str, bis: str):
+    """GWDG-Exchange über DavMail: den ganzen Kalender per GET holen und den Zeitraum hier filtern – genau so,
+    wie calmerge ihn abruft. Eigene Kalender-REPORTs an DavMail sind dafür nicht nötig."""
+    url = f"{dav_root(cred)}/{_q(kal)}/"
+    try:
+        async with ctx.session.get(url, auth=_auth(cred), timeout=aiohttp.ClientTimeout(total=120),
+                                   headers={"Accept": "text/calendar, text/plain, */*"}) as r:
+            if r.status in (401, 403):
+                return f"Fehler: HTTP {r.status} – GWDG hat E-Mail-Adresse oder Passwort abgelehnt"
+            if r.status >= 400:
+                return f"Fehler: HTTP {r.status} – Kalender „{kal}“ im GWDG-Exchange nicht gefunden"
+            raw, _ = await read_body(r, 30_000_000)
+    except aiohttp.ClientError as e:
+        return f"Fehler: Keine Verbindung zum DavMail-Server der GWDG ({type(e).__name__}: {e})"
+    text = raw.decode("utf-8", "ignore")
+    if "BEGIN:VCALENDAR" not in text:
+        return "Fehler: DavMail hat keinen Kalender geliefert (stimmt die GWDG-E-Mail-Adresse?)"
+    out = [ev for ev in _ics_events(text) if in_range(ev, von, bis)]
+    return {"kalender": kal, "von": von, "bis": bis, "termine": sorted(out, key=lambda e: e.get("dtstart", ""))}
+
+
 async def caldav_events(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
     user = (cred.get("fields") or {}).get("username") or ""
-    kal = str(a.get("kalender") or "personal").strip("/")
+    gwdg = C.is_gwdg(cred)
+    kal = str(a.get("kalender") or ("calendar" if gwdg else "personal")).strip("/")
     von = a.get("von") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     bis = a.get("bis") or (datetime.now(timezone.utc) + timedelta(days=14)).strftime("%Y-%m-%d")
+    if gwdg:
+        if "calendar" not in C.services(cred):
+            return (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für den Kalender freigegeben "
+                    "(auf der Seite „Zugänge“ „Kalender“ anhaken).")
+        return await _gwdg_events(ctx, cred, kal, von, bis)
     f = lambda d: re.sub(r"[-:]", "", d)[:8] + "T000000Z"  # noqa: E731
     body = (f'<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
             f'<d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR">'
@@ -200,12 +288,12 @@ register(Tool("dav_write", "dav", "Lädt eine Datei nach Nextcloud/WebDAV hoch (
               obj({"zugang": Z, "pfad": {"type": "string"}, "inhalt": {"type": "string"},
                    "aus_arbeitsbereich": {"type": "string"}, "ueberschreiben": {"type": "boolean"}}, ["zugang", "pfad"]),
               dav_write, write=True, label="Datei in Cloud schreiben", icon="mdi:cloud-upload-outline"))
-register(Tool("dav_request", "dav", "Freie WebDAV/CalDAV/CardDAV-Anfrage relativ zu /remote.php/dav/ (z. B. PROPFIND calendars/<user>/, REPORT, PUT .ics mit If-Match, DELETE). Platzhalter {{cred:Name:feld}} im Inhalt erlaubt.",
+register(Tool("dav_request", "dav", "Freie WebDAV/CalDAV/CardDAV-Anfrage relativ zu /remote.php/dav/ (z. B. PROPFIND calendars/<user>/, REPORT, PUT .ics mit If-Match, DELETE); bei GWDG-Exchange-Zugängen relativ zum DavMail-Stamm des Kontos (calendar/, contacts/ …). Platzhalter {{cred:Name:feld}} im Inhalt erlaubt.",
               obj({"zugang": Z, "methode": {"type": "string"}, "pfad": {"type": "string"},
                    "header": {"type": "object"}, "inhalt": {"type": "string"}}, ["zugang", "methode", "pfad"]),
               dav_request, write=lambda a: str(a.get("methode") or "").upper() not in READ_METHODS,
               label="DAV-Anfrage", icon="mdi:calendar-sync-outline"))
-register(Tool("caldav_events", "dav", "Liest Termine eines Nextcloud-Kalenders in einem Zeitraum.",
-              obj({"zugang": Z, "kalender": {"type": "string", "description": "Kalender-ID, z. B. personal"},
+register(Tool("caldav_events", "dav", "Liest Termine eines Nextcloud- oder GWDG-Exchange-Kalenders in einem Zeitraum.",
+              obj({"zugang": Z, "kalender": {"type": "string", "description": "Kalender-ID, z. B. personal (Nextcloud); bei GWDG-Exchange weglassen"},
                    "von": {"type": "string", "description": "JJJJ-MM-TT"}, "bis": {"type": "string"}}, ["zugang"]),
               caldav_events, label="Termine lesen", icon="mdi:calendar-month-outline"))

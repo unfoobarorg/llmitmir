@@ -164,7 +164,11 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "projects": [dict(p, retention_days=RT.project_days(p)) for p in st.meta["projects"].values()],
         "skills": list(st.meta["skills"].values()),
         "credentials": [mask_credential(c, C.secret_fields(c)) for c in st.meta["credentials"].values()],
-        "credential_types": {k: {"label": v["label"], "fields": v["fields"], "secret": sorted(v["secret"]), "hint": v.get("hint", "")}
+        "credential_types": {k: {"label": v["label"], "fields": v["fields"], "secret": sorted(v["secret"]), "hint": v.get("hint", ""),
+                                 "readonly": v.get("readonly", []), "labels": v.get("labels", {}),
+                                 "placeholders": v.get("placeholders", {}), "services": v.get("services", {}),
+                                 "service_fields": v.get("service_fields", {}),
+                                 "default_services": v.get("default_services", [])}
                              for k, v in C.TYPES.items()},
         "tasks": await _tasks_view(m, user),
         "chats": sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True),

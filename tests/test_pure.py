@@ -820,3 +820,176 @@ def test_retention_expiry():
     assert retention.expired(chats, projects, {"retention_days": 2}, 1000 + 3 * day) == ["a", "e"]
     # gerade eben benutzt: nichts abgelaufen
     assert retention.expired({"x": {"kind": "chat", "updated": 1000}}, {}, {}, 1000 + 6 * day) == []
+
+
+def _pkg(mod: str):
+    """Ein Modul des Pakets mit relativen Importen laden – ohne das Home-Assistant-__init__ auszuführen."""
+    import types
+
+    if "lmpkg" not in sys.modules:
+        pkg = types.ModuleType("lmpkg")
+        pkg.__path__ = [str(BASE)]
+        sys.modules["lmpkg"] = pkg
+    return importlib.import_module(f"lmpkg.{mod}")
+
+
+ICS = """BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:1\r
+SUMMARY:Teamrunde\r
+DTSTART;TZID=Europe/Berlin:20261116T100000\r
+DTEND;TZID=Europe/Berlin:20261116T110000\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:2\r
+SUMMARY:Alt\r
+DTSTART:20250101T100000Z\r
+DTEND:20250101T110000Z\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:3\r
+SUMMARY:Jour fixe\r
+DTSTART:20260105T080000Z\r
+RRULE:FREQ=WEEKLY;BYDAY=MO\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:4\r
+SUMMARY:Serie vorbei\r
+DTSTART:20260105T080000Z\r
+RRULE:FREQ=WEEKLY;UNTIL=20260301T000000Z\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:5\r
+SUMMARY:Urlaub\r
+DTSTART;VALUE=DATE:20261110\r
+DTEND;VALUE=DATE:20261114\r
+END:VEVENT\r
+END:VCALENDAR\r
+"""
+
+
+def test_gwdg_account_like_calmerge():
+    # wie calmerge: ohne @ wird @gwdg.de ergänzt, alles klein, die DavMail-Adresse daraus erzeugt
+    assert creds.gwdg_email(" Max.Muster ") == "max.muster@gwdg.de"
+    assert creds.gwdg_email("Max.Muster@Uni-Goettingen.de") == "max.muster@uni-goettingen.de"
+    assert creds.gwdg_email("") == ""
+    assert creds.gwdg_url("max.muster@gwdg.de") == "https://davmail.gwdg.de:1080/users/max.muster@gwdg.de/calendar/"
+    f = creds.normalize_fields("gwdg", {"username": "Max.Muster", "password": "pw", "share_token": ""}, ["calendar"])
+    assert f == {"username": "max.muster@gwdg.de", "password": "pw",
+                 "url": "https://davmail.gwdg.de:1080/users/max.muster@gwdg.de/calendar/"}
+    # alle Dienste: Kontakte und Postfach kommen dazu, abgewählte verschwinden wieder
+    f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail", "contacts"])
+    assert f["contacts_url"].endswith("/users/max.muster@gwdg.de/contacts/") and "url" not in f
+    assert (f["imap_host"], f["smtp_host"]) == ("email.gwdg.de:993", "email.gwdg.de:587")
+    assert creds.normalize_fields("webdav", {"url": "x"}) == {"url": "x"}
+    # gwdg steht unten in der Liste der Typen
+    assert list(creds.TYPES)[-1] == "gwdg"
+
+
+def test_gwdg_services_and_legacy():
+    new = {"type": "gwdg", "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    assert creds.services(new) == ["calendar"]  # Standard wie in calmerge: der Kalender
+    assert creds.services(dict(new, services=["contacts", "mail"])) == ["mail", "contacts"]
+    # ältere WebDAV-Zugänge mit DavMail-URL: GWDG-Kalender, E-Mail-Adresse aus der URL
+    legacy = {"type": "webdav", "fields": {"url": "https://davmail.gwdg.de:1080/users/Max@gwdg.de/calendar", "password": "pw"}}
+    assert creds.is_gwdg(legacy) and creds.services(legacy) == ["calendar"]
+    assert creds.gwdg_account(legacy) == ("max@gwdg.de", "https://davmail.gwdg.de:1080/users/max@gwdg.de/")
+    assert not creds.is_gwdg({"type": "webdav", "fields": {"url": "https://cloud.example.org"}})
+    d = creds.describe_for_model({"k": dict(new, id="k", name="Uni", services=["mail", "calendar"])})[0]
+    assert d["dienste"] == ["E-Mail-Postfach", "Kalender"] and "pw" not in str(d)
+
+
+def test_gwdg_secrets_scrubbed():
+    import base64
+    store = {"k": {"id": "k", "name": "Uni", "type": "gwdg", "fields": {"username": "a@gwdg.de", "password": "geheim-42"}}}
+    sec = creds.secret_values(store)
+    pair = base64.b64encode(b"a@gwdg.de:geheim-42").decode()
+    assert creds.scrub(f"Basic {pair} geheim-42", sec) == "Basic ••• •••"
+
+
+def test_gwdg_dav_paths_and_range():
+    D = _pkg("tools.dav")
+    cal = {"name": "Uni", "type": "gwdg", "services": ["calendar"],
+           "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    assert D.dav_root(cal) == "https://davmail.gwdg.de:1080/users/a@gwdg.de"
+    assert D._auth(cal).login == "a@gwdg.de"
+    with pytest.raises(ValueError):
+        D.files_base(cal)  # keine Dateiablage
+    root = D.dav_root(cal)
+    assert D.gwdg_allowed(cal, root + "/calendar/") == ""
+    assert "nicht für Kontakte freigegeben" in D.gwdg_allowed(cal, root + "/contacts/")
+    assert D.gwdg_allowed(cal, root + "/inbox/").startswith("Fehler")
+    assert D.gwdg_allowed(cal, root + "/calendar/../inbox/").startswith("Fehler")
+    assert D.gwdg_allowed(cal, root + "/calendar/%2E%2E/inbox/").startswith("Fehler")
+    assert D.gwdg_allowed(cal, "https://davmail.gwdg.de:1080/users/b@gwdg.de/calendar/").startswith("Fehler")
+    evs = {e["uid"]: e for e in D._ics_events(ICS)}
+    keep = [u for u, e in evs.items() if D.in_range(e, "2026-11-12", "2026-11-26")]
+    assert keep == ["1", "3", "5"]  # Termin im Zeitraum, laufende Serie, mehrtägig über den Anfang hinweg
+    assert not D.in_range(evs["5"], "2026-11-14", "2026-11-20")  # DTEND bei ganztägig ist exklusiv
+
+
+def test_gwdg_caldav_events_uses_get_like_calmerge():
+    import asyncio
+
+    D = _pkg("tools.dav")
+    calls = []
+
+    class Resp:
+        status = 200
+        headers = {}
+
+        def __init__(self):
+            async def chunks(_n):
+                yield ICS.encode()
+            self.content = type("C", (), {"iter_chunked": staticmethod(chunks)})()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def get(self, url, **kw):
+            calls.append(("GET", url, kw["auth"].login))
+            return Resp()
+
+        def request(self, method, url, **kw):
+            calls.append((method, url))
+            return Resp()
+
+    cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["calendar"],
+            "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    ctx = type("Ctx", (), {"creds": {"k": cred}, "allowed_creds": None, "session": Session()})()
+    out = asyncio.run(D.caldav_events(ctx, {"zugang": "Uni", "von": "2026-11-12", "bis": "2026-11-26"}))
+    assert calls == [("GET", "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/", "a@gwdg.de")]
+    assert [e["summary"] for e in out["termine"]] == ["Jour fixe", "Urlaub", "Teamrunde"]
+    # ohne angehakten Kalender lehnt das Werkzeug ab, ohne den Server zu fragen
+    cred["services"] = ["mail"]
+    calls.clear()
+    assert "nicht für den Kalender freigegeben" in asyncio.run(D.caldav_events(ctx, {"zugang": "Uni"}))
+    assert calls == []
+
+
+def test_gwdg_check_each_service():
+    import asyncio
+
+    K = _pkg("credcheck")
+    seen = []
+
+    async def fake_http(session, method, url, **kw):
+        seen.append((method, url, kw["headers"]["Depth"]))
+        return 207
+
+    async def fake_imap(cred):
+        seen.append(("IMAP", cred["fields"]["imap_host"]))
+        return K._result(False, "Anmeldung abgelehnt: NO LOGIN failed")
+
+    K._http, K._check_imap = fake_http, fake_imap
+    cred = {"type": "gwdg", "services": ["mail", "calendar", "contacts"],
+            "fields": {"username": "a@gwdg.de", "password": "pw", "imap_host": "email.gwdg.de:993"}}
+    r = asyncio.run(K.check_credential(None, cred))
+    base = "https://davmail.gwdg.de:1080/users/a@gwdg.de/"
+    assert seen == [("IMAP", "email.gwdg.de:993"), ("PROPFIND", base + "calendar/", "0"), ("PROPFIND", base + "contacts/", "0")]
+    assert not r["ok"] and r["message"].startswith("E-Mail-Postfach: Anmeldung abgelehnt") and "Kalender: ok" in r["message"]
+    assert K._missing({"type": "gwdg", "fields": {"username": "a@gwdg.de"}}) == "password"

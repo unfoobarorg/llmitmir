@@ -217,10 +217,18 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
             continue
         cid = old["id"] if old else new_id("k")
         fields = {str(k): str(v) for k, v in (c.get("fields") or {}).items() if v not in (None, "")}
+        svc = None
+        if typ == "gwdg":  # GWDG-Exchange: gewählte Dienste übernehmen, Adressen wie beim Speichern erzeugen
+            known = C.TYPES["gwdg"]["services"]
+            svc = ([k for k in known if k in (c.get("services") or [])]
+                   or list(C.TYPES["gwdg"]["default_services"]))
+            fields = C.normalize_fields(typ, fields, svc)
         meta["credentials"][cid] = {"id": cid, "name": c["name"][:80], "type": typ, "fields": fields,
                                     "notes": str(c.get("notes") or "")[:2000],
                                     "secret_fields": list(c.get("secret_fields") or []),
                                     "created": (old or {}).get("created", now()), "updated": now(), "imported": True}
+        if svc is not None:
+            meta["credentials"][cid]["services"] = svc
         res["credentials"] += 1
 
     def cred_ids(names) -> list[str]:

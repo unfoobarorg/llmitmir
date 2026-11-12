@@ -45,7 +45,20 @@ def build_credential(st, c: dict) -> dict:
         fields[str(k)[:60]] = str(v)
     for k in c.get("remove_fields") or []:
         fields.pop(k, None)
-    name = str(c.get("name") or old.get("name") or "").strip()
+    svc = None
+    if typ == "gwdg":
+        known = C.TYPES["gwdg"]["services"]
+        raw = c["services"] if c.get("services") is not None else old.get("services")
+        svc = [k for k in known if k in (raw if raw is not None else C.TYPES["gwdg"]["default_services"])]
+        if not svc:
+            raise ValueError("Wähl aus, wofür der GWDG-Zugang gilt: E-Mail-Postfach, Kalender und/oder Kontakte.")
+    fields = C.normalize_fields(typ, fields, svc)
+    if typ == "gwdg":
+        if not fields.get("username"):
+            raise ValueError("Für den GWDG-Zugang brauchen wir die GWDG-E-Mail-Adresse.")
+        if not fields.get("password"):
+            raise ValueError("Für den GWDG-Zugang brauchen wir dein GWDG-Passwort.")
+    name = str(c.get("name") or old.get("name") or "").strip() or ("GWDG-Exchange" if typ == "gwdg" else "")
     if not name:
         raise ValueError("Name fehlt")
     for other in st.meta["credentials"].values():
@@ -65,7 +78,11 @@ def build_credential(st, c: dict) -> dict:
                 # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
                 external=bool(c["external"]) if "external" in c else bool(old.get("external")),
                 updated=now())
-    if rotated or (old.get("fields") or {}) != fields:
+    if svc is not None:
+        cred["services"] = svc  # GWDG: wofür der Zugang gilt (Postfach, Kalender, Kontakte)
+    else:
+        cred.pop("services", None)
+    if rotated or (old.get("fields") or {}) != fields or old.get("services") != cred.get("services"):
         # andere Adresse, anderer Benutzer oder neues Geheimnis: die alte Pruefung sagt nichts mehr aus
         cred.pop("check", None)
     return cred
