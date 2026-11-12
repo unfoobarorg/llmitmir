@@ -29,6 +29,7 @@ TYPE_LABELS = {"webdav": "Nextcloud / WebDAV / CalDAV", "basic": "HTTP Basic Aut
                "header": "API-Key im Header", "telegram": "Telegram-Bot", "imap": "E-Mail (IMAP/SMTP)",
                "other": "Sonstiges", "gwdg": "GWDG-Exchange"}
 SERVICE_LABELS = {"mail": "E-Mail-Postfach", "calendar": "Kalender", "contacts": "Kontakte"}
+ACCESS_LABELS = {"read": "nur lesen", "write": "lesen und schreiben"}
 SECRET = "•••"
 CONTEXT = 2  # unchanged lines shown around a change
 
@@ -92,7 +93,9 @@ def credential_fields(c: dict | None, secret: set[str], old: dict | None = None)
     prev = (old or {}).get("fields") or {}
     rows = [("Name", c.get("name") or "", False), ("Typ", TYPE_LABELS.get(c.get("type"), str(c.get("type"))), False)]
     if c.get("services") is not None:  # GWDG-Exchange: wofür der Zugang gilt
-        rows.append(("Dienste", ", ".join(SERVICE_LABELS.get(x, x) for x in c["services"]), False))
+        acc = c.get("access") or {}
+        rows.append(("Dienste", ", ".join(f"{SERVICE_LABELS.get(x, x)} ({ACCESS_LABELS[acc.get(x) or 'read']})"
+                                          for x in c["services"]), False))
     for k, v in (c.get("fields") or {}).items():
         if k in secret:
             v = (SECRET + " (neu)" if old is not None and prev.get(k) != v else SECRET) if v else ""

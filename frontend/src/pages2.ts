@@ -491,7 +491,7 @@ export class CredentialPage extends StoreElement {
   @state() private dirty = false;
   @state() private checking = false;
   @state() private newField = "";
-  static styles = [base, pageCss, css`.fieldrow { display: flex; gap: 6px; align-items: center; } .fieldrow input { flex: 1; font-family: var(--lm-mono); font-size: 13.5px; }`];
+  static styles = [base, pageCss, css`.fieldrow { display: flex; gap: 6px; align-items: center; } .fieldrow input { flex: 1; font-family: var(--lm-mono); font-size: 13.5px; } .svcgrid { display: grid; grid-template-columns: max-content minmax(0, 220px); gap: 8px 16px; align-items: center; }`];
   updated(ch: Map<string, any>) { if (ch.has("credId")) this.reload(); }
   private reload() {
     const c = (store.data?.credentials || []).find((x: any) => x.id === this.credId);
@@ -545,9 +545,15 @@ export class CredentialPage extends StoreElement {
             ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${c.type === k}>${v.label}</option>`)}</select></label></div>
         ${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}
         ${Object.keys(svcDefs).length ? html`<div class="f"><span>${t("Verwenden für")}</span>
-          <div class="row" style="flex-wrap:wrap;gap:16px">${Object.entries(svcDefs).map(([k, l]) => html`<label class="row" style="gap:6px;white-space:nowrap">
+          <div class="svcgrid">${Object.entries(svcDefs).map(([k, l]) => html`<label class="row" style="gap:6px;white-space:nowrap">
             <input type="checkbox" style="width:auto" .checked=${svc.includes(k)} @change=${(e: any) => this.set("services",
-              Object.keys(svcDefs).filter(x => x === k ? e.target.checked : svc.includes(x)))}> ${l}</label>`)}</div>
+              Object.keys(svcDefs).filter(x => x === k ? e.target.checked : svc.includes(x)))}> ${l}</label>
+            <select ?disabled=${!svc.includes(k)} title="Was LLMitMir mit diesem Dienst darf"
+              @change=${(e: any) => this.set("access", { ...(c.access || {}), [k]: e.target.value })}>
+              <option value="read" ?selected=${(c.access?.[k] || "read") === "read"}>nur lesen</option>
+              <option value="write" ?selected=${c.access?.[k] === "write"}>lesen und schreiben</option></select>`)}</div>
+          <span class="hint">„Nur lesen“ gilt wirklich: Die KI bekommt das Passwort nie und kann dann weder Mails senden,
+            verschieben oder löschen noch Termine oder Kontakte anlegen, ändern oder löschen.</span>
           ${svc.length ? nothing : html`<span class="hint" style="color:var(--lm-err)">Wähl mindestens einen Dienst aus.</span>`}</div>` : nothing}
         ${keys.map(k => html`<label class="f"><span>${labels[k] || k}${secret.has(k) ? html` <span class="chip">${icon("lock", 12)} geheim</span>` : nothing}</span>
           <div class="fieldrow"><input type=${secret.has(k) && !this.shown.has(k) ? "password" : "text"} autocomplete="off" .value=${c.fields?.[k] ?? ""}

@@ -50,7 +50,7 @@ CHAT_GROUPS = {"web", "files", "skills", "ha"}
 # be answerable (also right after installation, with no settings touched). Writes still need approval.
 # "llmitmir" (self-knowledge, read-only) is not in GROUPS, so it never shows up as a choice in the UI.
 ALWAYS_GROUPS = {"ha", "llmitmir"}
-COWORK_GROUPS = {"web", "ha", "dav", "http", "files", "notify", "skills", "progress", "werkbank"}
+COWORK_GROUPS = {"web", "ha", "dav", "mail", "http", "files", "notify", "skills", "progress", "werkbank"}
 
 
 class AccessDenied(Exception):
@@ -1414,6 +1414,8 @@ class ToolContext:
         g = set(COWORK_GROUPS) | ALWAYS_GROUPS
         if not self.creds:
             g -= {"dav"}
+        if not any(C.access(c, "mail") for c in self.creds.values()):
+            g.discard("mail")  # E-Mail nur mit einem Zugang, der ins Postfach darf
         if self.manager.werkbank is None:
             g.discard("werkbank")
         if self.chat["kind"] == KIND_CHAT:

@@ -211,6 +211,7 @@ def _cred_plan(ctx, a: dict) -> tuple[dict | None, dict]:
            "type": a.get("typ") or (old or {}).get("type"), "fields": fields,
            "remove_fields": list(a.get("felder_entfernen") or []),
            "services": list(a["dienste"]) if a.get("dienste") is not None else None,
+           "access": dict(a["rechte"]) if isinstance(a.get("rechte"), dict) else None,
            "valid_until": a["gueltig_bis"] if a.get("gueltig_bis") is not None else (old or {}).get("valid_until") or "",
            "notes": a["notiz"] if a.get("notiz") is not None else (old or {}).get("notes") or ""}
     new = M.build_credential(ctx.store, raw)
@@ -318,7 +319,10 @@ register(Tool("credential_save", "llmitmir",
                    "felder_entfernen": {"type": "array", "items": {"type": "string"}}, "notiz": {"type": "string"},
                    "gueltig_bis": {"type": "string", "description": "Ablaufdatum JJJJ-MM-TT, leer = kein Ablaufdatum"},
                    "dienste": {"type": "array", "items": {"type": "string", "enum": list(C.TYPES["gwdg"]["services"])},
-                               "description": "nur typ gwdg: wofür der Zugang gilt (mail = E-Mail-Postfach, calendar, contacts)"}},
+                               "description": "nur typ gwdg: wofür der Zugang gilt (mail = E-Mail-Postfach, calendar, contacts)"},
+                   "rechte": {"type": "object", "description": "nur typ gwdg: je Dienst read (nur lesen, Standard) oder write, "
+                                                               "z. B. {\"mail\": \"read\", \"calendar\": \"write\"}",
+                              "additionalProperties": {"type": "string", "enum": ["read", "write"]}}},
                   ["name"]),
               credential_save, write=True, label="Zugang speichern", icon="mdi:key-outline", preview=credential_save_preview,
               redact=redact_credential_args))

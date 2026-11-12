@@ -80,8 +80,12 @@ def build_credential(st, c: dict) -> dict:
                 updated=now())
     if svc is not None:
         cred["services"] = svc  # GWDG: wofür der Zugang gilt (Postfach, Kalender, Kontakte)
+        # … und je Dienst nur lesen (Standard) oder auch schreiben – die Werkzeuge halten sich daran
+        raw_acc = c["access"] if isinstance(c.get("access"), dict) else (old.get("access") or {})
+        cred["access"] = {k: ("write" if raw_acc.get(k) == "write" else "read") for k in svc}
     else:
         cred.pop("services", None)
+        cred.pop("access", None)
     if rotated or (old.get("fields") or {}) != fields or old.get("services") != cred.get("services"):
         # andere Adresse, anderer Benutzer oder neues Geheimnis: die alte Pruefung sagt nichts mehr aus
         cred.pop("check", None)

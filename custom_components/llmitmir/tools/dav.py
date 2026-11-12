@@ -141,9 +141,10 @@ async def dav_write(ctx, a: dict):
 GWDG_FOLDERS = {"calendar": "calendar/", "contacts": "contacts/"}
 
 
-def gwdg_allowed(cred: dict, url: str) -> str:
+def gwdg_allowed(cred: dict, url: str, write: bool = False) -> str:
     """Leer, wenn ein GWDG-Zugang diese Adresse nutzen darf – sonst der Grund. Erlaubt sind nur die Ordner der
-    Dienste, die die Person beim Zugang angehakt hat (Kalender → calendar/, Kontakte → contacts/)."""
+    Dienste, die die Person beim Zugang angehakt hat (Kalender → calendar/, Kontakte → contacts/), und schreibend
+    nur dort, wo sie „lesen und schreiben“ gewählt hat."""
     root = dav_root(cred) + "/"
     svc = C.services(cred)
     if not url.startswith(root):
@@ -153,8 +154,14 @@ def gwdg_allowed(cred: dict, url: str) -> str:
         return "Fehler: Pfade mit . oder .. sind bei GWDG-Exchange nicht erlaubt"
     for name, folder in GWDG_FOLDERS.items():
         if (rel + "/").startswith(folder):
-            return "" if name in svc else (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für "
-                                           f"{C.TYPES['gwdg']['services'][name]} freigegeben (Seite „Zugänge“).")
+            label = C.TYPES["gwdg"]["services"][name]
+            acc = C.access(cred, name)
+            if not acc:
+                return f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für {label} freigegeben (Seite „Zugänge“)."
+            if write and acc != "write":
+                return (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ darf {label} nur lesen – schreiben, ändern und "
+                        "löschen sind gesperrt. Die Person kann das auf der Seite „Zugänge“ ändern.")
+            return ""
     allowed = [f for n, f in GWDG_FOLDERS.items() if n in svc]
     return ("Fehler: Bei GWDG-Exchange nur " + (" oder ".join(allowed) if allowed else "keine DAV-Ordner")
             + " (relativ zum Konto)")
@@ -168,9 +175,18 @@ async def dav_request(ctx, a: dict):
     root_host = urllib.parse.urlparse(dav_root(cred)).netloc
     if urllib.parse.urlparse(url).netloc != root_host:
         return "Fehler: nur Adressen auf dem Server des Zugangs erlaubt"
-    if C.is_gwdg(cred) and (why := gwdg_allowed(cred, url)):
-        return why
     headers = {str(k): str(v) for k, v in (a.get("header") or {}).items()}
+    if C.is_gwdg(cred):
+        if (why := gwdg_allowed(cred, url, write=methode not in READ_METHODS)):
+            return why
+        # MOVE/COPY: auch das Ziel muss im Konto liegen und beschreibbar sein
+        dest = next((v for k, v in headers.items() if k.lower() == "destination"), "")
+        if dest:
+            r = urllib.parse.urlparse(dav_root(cred))
+            dest_url = (dest if dest.startswith("http") else f"{r.scheme}://{r.netloc}{dest}" if dest.startswith("/")
+                        else f"{dav_root(cred)}/{dest}")
+            if (why := gwdg_allowed(cred, dest_url, write=True)):
+                return why
     body = a.get("inhalt")
     body = C.resolve_placeholders(body, ctx.creds, ctx.allowed_creds) if isinstance(body, str) else body
     try:
@@ -249,7 +265,7 @@ async def caldav_events(ctx, a: dict):
     von = a.get("von") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     bis = a.get("bis") or (datetime.now(timezone.utc) + timedelta(days=14)).strftime("%Y-%m-%d")
     if gwdg:
-        if "calendar" not in C.services(cred):
+        if not C.access(cred, "calendar"):
             return (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für den Kalender freigegeben "
                     "(auf der Seite „Zugänge“ „Kalender“ anhaken).")
         return await _gwdg_events(ctx, cred, kal, von, bis)

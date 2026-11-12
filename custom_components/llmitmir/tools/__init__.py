@@ -40,6 +40,7 @@ GROUPS = {
     "web": {"label": "Websuche & Abrufen", "icon": "mdi:web"},
     "ha": {"label": "Home Assistant", "icon": "mdi:home-assistant"},
     "dav": {"label": "Nextcloud / WebDAV / CalDAV", "icon": "mdi:cloud-outline"},
+    "mail": {"label": "E-Mail", "icon": "mdi:email-outline"},
     "http": {"label": "HTTP-Anfragen", "icon": "mdi:api"},
     "files": {"label": "Dateien", "icon": "mdi:file-document-outline"},
     "notify": {"label": "Benachrichtigungen", "icon": "mdi:bell-outline"},
@@ -104,4 +105,4 @@ async def read_body(resp, limit: int) -> tuple[bytes, bool]:
 
 def load_all() -> None:
     # import modules for their side effect of registering tools
-    from . import dav, files, ha, http, manage, misc, web, werkbank  # noqa: F401
+    from . import dav, files, ha, http, mail, manage, misc, web, werkbank  # noqa: F401

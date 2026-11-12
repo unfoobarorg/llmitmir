@@ -228,7 +228,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
                                     "secret_fields": list(c.get("secret_fields") or []),
                                     "created": (old or {}).get("created", now()), "updated": now(), "imported": True}
         if svc is not None:
+            acc = c.get("access") if isinstance(c.get("access"), dict) else {}
             meta["credentials"][cid]["services"] = svc
+            meta["credentials"][cid]["access"] = {k: ("write" if acc.get(k) == "write" else "read") for k in svc}
         res["credentials"] += 1
 
     def cred_ids(names) -> list[str]:

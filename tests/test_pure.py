@@ -896,7 +896,7 @@ def test_gwdg_services_and_legacy():
     assert creds.gwdg_account(legacy) == ("max@gwdg.de", "https://davmail.gwdg.de:1080/users/max@gwdg.de/")
     assert not creds.is_gwdg({"type": "webdav", "fields": {"url": "https://cloud.example.org"}})
     d = creds.describe_for_model({"k": dict(new, id="k", name="Uni", services=["mail", "calendar"])})[0]
-    assert d["dienste"] == ["E-Mail-Postfach", "Kalender"] and "pw" not in str(d)
+    assert d["dienste"] == {"E-Mail-Postfach": "nur lesen", "Kalender": "nur lesen"} and "pw" not in str(d)
 
 
 def test_gwdg_secrets_scrubbed():
@@ -993,3 +993,241 @@ def test_gwdg_check_each_service():
     assert seen == [("IMAP", "email.gwdg.de:993"), ("PROPFIND", base + "calendar/", "0"), ("PROPFIND", base + "contacts/", "0")]
     assert not r["ok"] and r["message"].startswith("E-Mail-Postfach: Anmeldung abgelehnt") and "Kalender: ok" in r["message"]
     assert K._missing({"type": "gwdg", "fields": {"username": "a@gwdg.de"}}) == "password"
+
+
+class FakeIMAP:
+    """Nimmt IMAP-Befehle entgegen wie imaplib und merkt sich, was geschickt wurde."""
+
+    def __init__(self, caps=("IMAP4REV1", "UIDPLUS")):
+        self.calls, self.capabilities, self.literal = [], caps, None
+        self.msg = (b"From: Anna <anna@example.org>\r\nTo: a@gwdg.de\r\nSubject: =?utf-8?q?Gr=C3=BC=C3=9Fe?=\r\n"
+                    b"Date: Thu, 12 Nov 2026 09:00:00 +0100\r\nMessage-ID: <m1@example.org>\r\n\r\nHallo!\r\n")
+
+    def login(self, u, p):
+        self.calls.append(("LOGIN", u))
+        return "OK", [b"ok"]
+
+    def logout(self):
+        self.calls.append(("LOGOUT",))
+
+    def select(self, mb, readonly=False):
+        self.calls.append(("EXAMINE" if readonly else "SELECT", mb))
+        return "OK", [b"3"]
+
+    def list(self):
+        return "OK", [b'(\\HasNoChildren) "/" INBOX', b'(\\HasNoChildren \\Sent) "/" "Gesendete Elemente"',
+                      b'(\\HasNoChildren \\Trash) "/" "Gel&APY-schte Elemente"']
+
+    def uid(self, cmd, *args):
+        self.calls.append(("UID", cmd, *args) + ((("LITERAL", self.literal),) if self.literal else ()))
+        self.literal = None
+        if cmd == "SEARCH":
+            return "OK", [b"7 9"]
+        if cmd == "FETCH":
+            return "OK", [(f"1 (UID {args[0].split(',')[0]} FLAGS (\\Seen) RFC822.SIZE 120 BODY[] {{{len(self.msg)}}}".encode(), self.msg), b")"]
+        return "OK", [b"done"]
+
+    def append(self, mb, flags, when, raw):
+        self.calls.append(("APPEND", mb))
+        return "OK", [b"ok"]
+
+
+def test_mailbox_names_and_search():
+    MB = load("mailbox")
+    assert MB.mutf7_encode("Gelöschte Elemente") == "Gel&APY-schte Elemente"
+    assert MB.mutf7_decode("Gel&APY-schte Elemente") == "Gelöschte Elemente"
+    assert MB.mutf7_decode(MB.mutf7_encode("A&B – Ü")) == "A&B – Ü"
+    folders = MB.parse_list(FakeIMAP().list()[1])
+    assert [f["name"] for f in folders] == ["INBOX", "Gesendete Elemente", "Gelöschte Elemente"]
+    assert MB.find_special(folders, "\\Trash", MB.TRASH_NAMES) == "Gelöschte Elemente"
+    assert MB.search_criteria() == (["ALL"], None)
+    crit, lit = MB.search_criteria(suche="Rechnung", von="2026-11-01", ungelesen=True)
+    assert crit == ["UNSEEN", "SINCE", "01-Nov-2026", "TEXT", '"Rechnung"'] and lit is None
+    crit, lit = MB.search_criteria(suche="Grüße", absender="anna")
+    assert crit == ["CHARSET", "UTF-8", "FROM", '"anna"', "TEXT"] and lit == "Grüße".encode()
+    with pytest.raises(ValueError):
+        MB.search_criteria(suche="Grüße", absender="Jürgen")
+
+
+def test_mailbox_message_parsing():
+    MB = load("mailbox")
+    msg = MB.build_message("a@gwdg.de", "b@example.org", "Bericht", "Hallo", reply_to={"message_id": "<m1@x>"},
+                           files=[("bericht.pdf", b"%PDF-1.4")])
+    raw = bytes(msg)
+    out = MB.parse_message(raw)
+    assert out["betreff"] == "Bericht" and out["text"].strip() == "Hallo"
+    assert out["anhaenge"] == [{"name": "bericht.pdf", "typ": "application/pdf", "groesse": 8}]
+    assert msg["In-Reply-To"] == "<m1@x>"
+    html_only = b"Subject: x\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>Hallo&nbsp;<b>Welt</b></p><script>x()</script>"
+    assert MB.parse_message(html_only)["text"] == "Hallo Welt"
+    assert MB.header_summary(FakeIMAP().msg)["betreff"] == "Grüße"
+
+
+def test_mailbox_read_only_never_changes_anything():
+    MB = load("mailbox")
+    imap = FakeIMAP()
+    box = MB.Mailbox("email.gwdg.de:993", "a@gwdg.de", "pw", writable=False, connect=lambda h, p: imap)
+    total, rows = box.search("Gelöschte Elemente", *MB.search_criteria(suche="Grüße"), 20)
+    assert total == 2 and rows[0]["betreff"] == "Grüße" and rows[0]["gelesen"]
+    assert box.fetch("INBOX", "9").startswith(b"From:")
+    for call in (lambda: box.store("INBOX", ["9"], "+FLAGS", "\\Seen"), lambda: box.move("INBOX", ["9"], "Archiv"),
+                 lambda: box.append("INBOX", b"x"), lambda: box.open("INBOX", write=True)):
+        with pytest.raises(MB.ReadOnly):
+            call()
+    cmds = [c for c in imap.calls if c[0] in ("EXAMINE", "SELECT", "UID", "APPEND")]
+    assert {c[0] for c in cmds} == {"EXAMINE", "UID"}  # nur EXAMINE, nie SELECT oder APPEND
+    assert cmds[0] == ("EXAMINE", '"Gel&APY-schte Elemente"')
+    assert all(c[1] in ("SEARCH", "FETCH") for c in cmds if c[0] == "UID")
+    assert all("PEEK" in c[3] for c in cmds if c[:2] == ("UID", "FETCH"))
+    assert ("LITERAL", "Grüße".encode()) in cmds[1]
+    # mit Schreibrecht: SELECT, und ohne MOVE wird kopiert, markiert und per UID EXPUNGE entfernt
+    imap = FakeIMAP()
+    box = MB.Mailbox("email.gwdg.de", "a@gwdg.de", "pw", writable=True, connect=lambda h, p: imap)
+    assert box.move("INBOX", ["9"], "Archiv") == "verschoben"
+    assert [c[:2] for c in imap.calls[1:]] == [("SELECT", '"INBOX"'), ("UID", "COPY"), ("UID", "STORE"), ("UID", "EXPUNGE")]
+
+
+def _mail_ctx(access):
+    import types
+
+    cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["mail", "calendar"], "access": access,
+            "fields": {"username": "a@gwdg.de", "password": "pw", "imap_host": "email.gwdg.de:993",
+                       "smtp_host": "email.gwdg.de:587"}}
+    saved = {}
+
+    async def write_file(scope, owner, name, data):
+        saved[name] = data
+        return {"name": name}
+
+    async def emit():
+        return None
+
+    store = types.SimpleNamespace(async_write_file=write_file)
+    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit), saved
+
+
+def test_mail_tools_follow_access():
+    import asyncio
+
+    M = _pkg("tools.mail")
+    imaps, smtps = [], []
+
+    def imap(h, p):
+        imaps.append(FakeIMAP())
+        return imaps[-1]
+
+    class FakeSMTP:
+        def __init__(self):
+            self.sent = []
+
+        def login(self, u, p):
+            pass
+
+        def send_message(self, msg):
+            self.sent.append(msg)
+            return {}
+
+        def quit(self):
+            pass
+
+    def smtp(h, p):
+        smtps.append(FakeSMTP())
+        return smtps[-1]
+
+    M._CONNECT.update(imap=imap, smtp=smtp)
+    try:
+        ctx, _ = _mail_ctx({"mail": "read", "calendar": "read"})
+        reg = _pkg("tools").REGISTRY
+        run = lambda name, a: asyncio.run(reg[name].handler(ctx, a))  # noqa: E731
+        out = run("mail_list", {"zugang": "Uni"})
+        assert out["treffer"] == 2 and out["recht"] == "nur lesen"
+        assert run("mail_read", {"zugang": "Uni", "uid": "9"})["betreff"] == "Grüße"
+        n = len(imaps)
+        assert "nur lesen" in run("mail_send", {"zugang": "Uni", "an": "x@y.de", "betreff": "b", "text": "t"})
+        assert "nur lesen" in run("mail_change", {"zugang": "Uni", "uids": ["9"], "aktion": "loeschen"})
+        assert len(imaps) == n and smtps == []  # gar nicht erst verbunden
+        assert all(c[0] != "SELECT" for i in imaps for c in i.calls)
+        # Postfach nicht angehakt
+        ctx.creds["k"]["services"] = ["calendar"]
+        assert "nicht für das E-Mail-Postfach freigegeben" in run("mail_list", {"zugang": "Uni"})
+        # lesen und schreiben: senden (mit Kopie in Gesendet) und löschen = in den Papierkorb
+        ctx.creds["k"].update(services=["mail"], access={"mail": "write"})
+        out = run("mail_send", {"zugang": "Uni", "an": "x@y.de", "betreff": "b", "text": "t"})
+        assert out["ok"] and smtps[-1].sent[0]["From"] == "a@gwdg.de" and "Gesendete Elemente" in out["kopie"]
+        out = run("mail_change", {"zugang": "Uni", "uids": ["9"], "aktion": "loeschen"})
+        assert "Gelöschte Elemente" in out["aktion"]
+        assert ("UID", "COPY", "9", '"Gel&APY-schte Elemente"') in imaps[-1].calls
+    finally:
+        M._CONNECT.clear()
+
+
+def test_gwdg_access_and_secrets():
+    cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["mail", "calendar", "contacts"],
+            "access": {"calendar": "write"}, "fields": {"username": "a@gwdg.de", "password": "geheim-42"}}
+    assert [creds.access(cred, s) for s in ("mail", "calendar", "contacts")] == ["read", "write", "read"]
+    assert creds.access(dict(cred, services=["mail"]), "calendar") == ""
+    assert creds.access({"type": "imap", "fields": {}}, "mail") == "write"  # gewöhnlicher IMAP-Zugang wie bisher
+    legacy = {"type": "webdav", "fields": {"url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/"}}
+    assert creds.access(legacy, "calendar") == "read"
+    store = {"k": cred}
+    # das Passwort gibt es über keinen Platzhalter – sonst ließe sich „nur lesen“ in Werkbank oder HTTP umgehen
+    with pytest.raises(PermissionError):
+        creds.resolve_placeholders("curl -u a:{{cred:Uni:password}} https://davmail.gwdg.de:1080/", store)
+    assert creds.resolve_placeholders("{{cred:Uni:username}}", store) == "a@gwdg.de"
+
+
+def test_gwdg_dav_write_needs_write_access():
+    import asyncio
+    import types
+
+    D = _pkg("tools.dav")
+    sent = []
+
+    class Resp:
+        status, headers = 201, {}
+        content = types.SimpleNamespace(iter_chunked=lambda n: _agen())
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    async def _agen():
+        yield b""
+
+    class Session:
+        def request(self, method, url, **kw):
+            sent.append((method, url))
+            return Resp()
+
+    cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["calendar", "contacts"],
+            "access": {"calendar": "read", "contacts": "write"}, "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=Session())
+    run = lambda a: asyncio.run(D.dav_request(ctx, a))  # noqa: E731
+    assert run({"zugang": "Uni", "methode": "REPORT", "pfad": "calendar/"})["status"] == 201
+    for m in ("PUT", "DELETE", "PROPPATCH", "MOVE", "POST"):
+        assert "nur lesen" in run({"zugang": "Uni", "methode": m, "pfad": "calendar/x.ics"}), m
+    assert run({"zugang": "Uni", "methode": "PUT", "pfad": "contacts/x.vcf", "inhalt": "BEGIN:VCARD"})["status"] == 201
+    # MOVE aus den Kontakten (schreibbar) in den Kalender (nur lesen): das Ziel zählt mit
+    assert "nur lesen" in run({"zugang": "Uni", "methode": "MOVE", "pfad": "contacts/x.vcf",
+                                "header": {"Destination": "/users/a@gwdg.de/calendar/x.vcf"}})
+    assert "nur lesen" in run({"zugang": "Uni", "methode": "COPY", "pfad": "contacts/x.vcf",
+                                "header": {"Destination": "calendar/x.vcf"}})
+    assert [m for m, _ in sent] == ["REPORT", "PUT"]
+
+
+def test_gwdg_no_free_http_request():
+    import asyncio
+    import types
+
+    H = _pkg("tools.http")
+    cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["calendar"], "access": {"calendar": "write"},
+            "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=None, external=False)
+    import importlib
+    W = importlib.import_module("lmpkg.tools.web")
+    W.blocked_url = lambda ctx, url: None
+    out = asyncio.run(H.http_request(ctx, {"methode": "DELETE", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/x.ics",
+                                           "zugang": "Uni"}))
+    assert out.startswith("Fehler: Das Passwort eines GWDG-Exchange-Zugangs")

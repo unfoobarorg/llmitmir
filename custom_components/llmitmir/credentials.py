@@ -43,8 +43,13 @@ TYPES: dict[str, dict[str, Any]] = {
 GWDG_DAVMAIL = "https://davmail.gwdg.de:1080"
 GWDG_IMAP = "email.gwdg.de:993"  # Exchange-IMAP der GWDG (SSL)
 GWDG_SMTP = "email.gwdg.de:587"  # Versand mit STARTTLS
-GWDG_USAGE = ("Kalender: caldav_events (ohne kalender). Kontakte: dav_request REPORT/PROPFIND auf contacts/. "
-              "Postfach: IMAP/SMTP in der Werkbank mit {{cred:<Name>:username}} und {{cred:<Name>:password}}.")
+ACCESS_LABELS = {"read": "nur lesen", "write": "lesen und schreiben"}
+GWDG_USAGE = ("Postfach: mail_folders, mail_list, mail_read; mail_send und mail_change nur bei „lesen und schreiben“. "
+              "Kalender: caldav_events (ohne kalender), schreiben mit dav_request PUT/DELETE unter calendar/. "
+              "Kontakte: dav_request unter contacts/. Das Passwort gibt LLMitMir nicht heraus (kein {{cred:…:password}}, "
+              "kein http_request) – so gilt die Einstellung „nur lesen“ wirklich.")
+GWDG_NO_SECRET = ("Das Passwort eines GWDG-Exchange-Zugangs gibt LLMitMir nicht heraus – damit „nur lesen“ wirklich gilt. "
+                  "Nutze mail_*, caldav_events oder dav_request mit zugang.")
 
 
 def gwdg_email(value: str) -> str:
@@ -97,6 +102,28 @@ def services(cred: dict) -> list[str]:
     if picked is None:
         picked = TYPES["gwdg"]["default_services"]
     return [k for k in known if k in picked]
+
+
+def access(cred: dict, service: str) -> str:
+    """Recht eines Zugangs für einen Dienst: "" (nicht freigegeben), "read" oder "write".
+
+    GWDG-Exchange: je angehaktem Dienst, ohne Angabe nur lesen. Ältere WebDAV-Zugänge mit DavMail-URL: Kalender, nur
+    lesen. Ein gewöhnlicher IMAP/SMTP-Zugang darf im Postfach alles (dort gibt es keine Einstellung).
+    """
+    t = cred.get("type")
+    if t == "imap":
+        return "write" if service == "mail" else ""
+    if service not in services(cred):
+        return ""
+    if t != "gwdg":
+        return "read"
+    return "write" if (cred.get("access") or {}).get(service) == "write" else "read"
+
+
+def access_text(cred: dict) -> dict[str, str]:
+    """{"E-Mail-Postfach": "nur lesen", …} für Modell und Änderungsvorschau."""
+    names = TYPES["gwdg"]["services"]
+    return {names[s]: ACCESS_LABELS[access(cred, s)] for s in services(cred)}
 
 
 def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) -> dict:
@@ -169,8 +196,8 @@ def describe_for_model(creds: dict[str, dict], allowed: set[str] | None = None) 
                 "felder": {k: (v if k not in sec else "(geheim)") for k, v in (c.get("fields") or {}).items() if v},
                 "notiz": (c.get("notes") or "")[:300]}
         if is_gwdg(c):
-            # wofür die Person den GWDG-Zugang freigegeben hat – und womit das Modell ihn nutzt
-            item["dienste"] = [TYPES["gwdg"]["services"][k] for k in services(c)]
+            # wofür die Person den GWDG-Zugang freigegeben hat, mit welchem Recht – und womit das Modell ihn nutzt
+            item["dienste"] = access_text(c)
             item["nutzung"] = GWDG_USAGE
         out.append(item)
     return out
@@ -181,6 +208,9 @@ def resolve_placeholders(text: str, creds: dict[str, dict], allowed: set[str] | 
         c = find(creds, m.group(1))
         if not c or (allowed is not None and c["id"] not in allowed):
             raise PermissionError(f"Zugang „{m.group(1)}“ nicht verfügbar")
+        if is_gwdg(c) and m.group(2) in secret_fields(c):
+            # mit dem Passwort ließe sich jede Lese-/Schreib-Einstellung umgehen (IMAP, SMTP, DavMail direkt)
+            raise PermissionError(GWDG_NO_SECRET)
         val = (c.get("fields") or {}).get(m.group(2))
         if val is None:
             raise KeyError(f"Zugang „{m.group(1)}“ hat kein Feld „{m.group(2)}“")

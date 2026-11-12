@@ -65,7 +65,12 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   und/oder Kontakte**. Die Adressen ergänzt LLMitMir selbst: DavMail `https://davmail.gwdg.de:1080/users/<E-Mail>/calendar/`
   bzw. `…/contacts/`, IMAP `email.gwdg.de:993`, SMTP `email.gwdg.de:587`. `caldav_events` holt den Kalender wie calmerge
   per GET und filtert den Zeitraum selbst; `dav_request` arbeitet relativ zum DavMail-Konto und nur in den angehakten
-  Ordnern; das Postfach nutzt das Modell wie einen IMAP/SMTP-Zugang. Geprüft wird jeder angehakte Dienst einzeln.
+  Ordnern; das Postfach mit den `mail_*`-Werkzeugen. Geprüft wird jeder angehakte Dienst einzeln.
+  **Je Dienst „nur lesen“ (Standard) oder „lesen und schreiben“**, durchgesetzt auf dem Server: Bei „nur lesen“ öffnen
+  die Mail-Werkzeuge Ordner nur mit IMAP-EXAMINE und holen Nachrichten mit BODY.PEEK, `mail_send`/`mail_change` brechen
+  vor der Verbindung ab, und `dav_request` lehnt PUT, DELETE, MOVE, COPY, PROPPATCH usw. (auch das Ziel von MOVE/COPY)
+  ab. Damit sich das nicht umgehen lässt, gibt LLMitMir das Passwort eines GWDG-Zugangs nie heraus: kein Platzhalter
+  `{{cred:…:password}}` (Werkbank, HTTP, DAV) und kein `http_request` mit diesem Zugang.
   Ältere WebDAV-Zugänge mit DavMail-URL behandelt LLMitMir als GWDG-Kalender.
 - **Zugänge werden geprüft**: Nach dem Speichern, auf Knopfdruck (einzeln oder „Alle prüfen“) und automatisch, wenn ein
   Werkzeug mit abgelehnter Anmeldung scheitert, meldet sich LLMitMir mit einer harmlosen Leseanfrage an (PROPFIND bei
@@ -114,6 +119,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | Web | `web_search` (DuckDuckGo oder SearXNG), `web_fetch` (Seiten, PDFs, Bilder) |
 | Home Assistant | `ha_states`, `ha_history`, `ha_service`*, `ha_ws` (Websocket-Befehle, lesend frei, sonst*) – mit den Rechten der Person |
 | Nextcloud / WebDAV | `dav_list`, `dav_read`, `dav_write`*, `dav_request` (PROPFIND/REPORT frei, sonst*), `caldav_events` |
+| E-Mail (IMAP/SMTP, GWDG-Exchange) | `mail_folders`, `mail_list`, `mail_read` (öffnet mit EXAMINE, markiert nichts als gelesen), `mail_send`*, `mail_change`* (gelesen/markiert, verschieben, in den Papierkorb) |
 | HTTP | `http_request` (GET frei, sonst*) |
 | Dateien | `file_list`, `file_read` (Textebene oder Bildmodell), `file_write` |
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |

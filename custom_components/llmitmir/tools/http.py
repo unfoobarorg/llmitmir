@@ -25,6 +25,8 @@ async def http_request(ctx, a: dict):
         c = C.find(ctx.creds, a["zugang"])
         if not c or (ctx.allowed_creds is not None and c["id"] not in ctx.allowed_creds):
             return f"Fehler: Zugang „{a['zugang']}“ nicht verfügbar"
+        if C.is_gwdg(c):  # sonst ließe sich „nur lesen“ mit einer freien Anfrage umgehen
+            return "Fehler: " + C.GWDG_NO_SECRET
         h, auth = C.auth_for(c)
         headers.update(h)
     body = a.get("inhalt")
