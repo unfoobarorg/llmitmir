@@ -84,7 +84,8 @@ export class ExtInfo extends LitElement {
   @property({ type: Boolean, reflect: true }) dark = false;
   @state() private read = false;
   static styles = [tokens, base, externalCss, css`
-    .back { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; z-index: 9999; animation: fadeIn .15s; padding: 16px; }
+    .back { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; z-index: 9999; animation: fadeIn .15s; padding: 16px;
+      padding-top: calc(16px + var(--safe-area-inset-top, 0px)); padding-bottom: calc(16px + var(--safe-area-inset-bottom, 0px)); }
     .box { background: var(--lm-panel); color: var(--lm-text); border-radius: 18px; padding: 20px 22px; width: min(560px, 100%);
       max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
     h2 { margin: 0 0 12px; font-size: 18px; display: flex; gap: 8px; align-items: center; }

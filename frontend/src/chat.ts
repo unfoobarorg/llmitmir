@@ -231,7 +231,8 @@ export class ChatView extends LitElement {
     @keyframes rot { to { transform: rotate(360deg); } }
     .fl { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 9px; cursor: pointer; font-size: 13px; }
     .fl:hover { background: var(--lm-hover); }
-    .sheet { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.3); display: flex; justify-content: flex-end; animation: fadeIn .15s; }
+    .sheet { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.3); display: flex; justify-content: flex-end; animation: fadeIn .15s;
+      padding-top: var(--safe-area-inset-top, 0px); padding-bottom: var(--safe-area-inset-bottom, 0px); }
     .sheet aside { width: min(360px, 88vw); height: 100%; border: 0; box-shadow: -10px 0 40px rgba(0,0,0,.2); background: var(--lm-bg); }
     .empty { text-align: center; color: var(--lm-muted); padding: 60px 20px; }
     /* simple view: messenger-style bubbles */

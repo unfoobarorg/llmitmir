@@ -392,7 +392,8 @@ export function confirmDialog(text: string, okLabel = "Löschen"): Promise<boole
 export class Confirm extends LitElement {
   @property() text = ""; @property() ok = "OK"; @property({ type: Boolean, reflect: true }) dark = false;
   static styles = [tokens, base, css`
-    .back { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 9999; animation: fadeIn .15s; padding: 16px; }
+    .back { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 9999; animation: fadeIn .15s; padding: 16px;
+      padding-top: calc(16px + var(--safe-area-inset-top, 0px)); padding-bottom: calc(16px + var(--safe-area-inset-bottom, 0px)); }
     .box { background: var(--lm-panel); color: var(--lm-text); border-radius: 16px; padding: 20px; width: min(420px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.3); }
     .box p { margin: 0 0 18px; line-height: 1.5; }
   `];

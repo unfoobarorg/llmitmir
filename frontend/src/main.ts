@@ -32,7 +32,15 @@ export class LLMitMirPanel extends LitElement {
   private _onAdmin = async () => { if (!this.access?.allowed) { this.inited = false; this.access = null; await this.init(); } };
 
   static styles = [tokens, base, menuItemStyles, css`
-    :host { display: block; height: 100vh; height: 100dvh; background: var(--lm-bg); position: relative; overflow: hidden; }
+    /* Der Bildschirmrand (Statusleiste, Notch, Home-Indikator) gehört dem Panel: Home Assistant
+       polstert eigene Panels seit 2026.8 nicht mehr, wenn sie ihn selbst freihalten
+       (handle_safe_area). Sonst wäre die Seite höher als der Bildschirm und die oberste Zeile
+       würde beim Scrollen halb aus dem Bild rutschen. */
+    :host { display: block; box-sizing: border-box; height: 100vh; height: 100dvh; background: var(--lm-bg); position: relative; overflow: hidden;
+      padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+      padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+      padding-left: var(--safe-area-content-inset-left, var(--safe-area-inset-left, env(safe-area-inset-left, 0px)));
+      padding-right: var(--safe-area-content-inset-right, var(--safe-area-inset-right, env(safe-area-inset-right, 0px))); }
     .app { display: flex; height: 100%; }
     nav { width: 272px; flex: none; background: var(--lm-side); border-right: 1px solid var(--lm-line); display: flex; flex-direction: column;
       height: 100%; transition: width .22s ease, transform .25s ease; overflow: hidden; }

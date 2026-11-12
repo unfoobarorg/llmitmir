@@ -59,8 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), False)])
         data["registered"] = True
 
-    await panel_custom.async_register_panel(
-        hass,
+    panel_args = dict(
         webcomponent_name=PANEL_ELEMENT,
         frontend_url_path=PANEL_URL,
         module_url=f"{STATIC_URL}/llmitmir-panel.js?v={VERSION}",
@@ -70,6 +69,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config={},
         embed_iframe=False,
     )
+    try:
+        # Ab Home Assistant 2026.8 legt HA um eigene Panels selbst einen Rand in Höhe von
+        # Statusleiste und Home-Indikator. Zusammen mit einem Panel, das den Bildschirm füllt,
+        # wurde die Seite dadurch höher als der Bildschirm: die oberste Zeile scrollte weg.
+        # LLMitMir hält den Rand deshalb selbst frei (handle_safe_area).
+        await panel_custom.async_register_panel(hass, handle_safe_area=True, **panel_args)
+    except TypeError:  # ältere Home-Assistant-Versionen kennen den Schalter nicht
+        await panel_custom.async_register_panel(hass, **panel_args)
 
     async def _start(_event=None) -> None:
         await manager.scheduler.async_start()
