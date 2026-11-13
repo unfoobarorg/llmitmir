@@ -379,7 +379,9 @@ def update_message(item_id: str, change_key: str = "", gelesen: bool | None = No
     if markiert is not None:
         flag = ('<t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag>' if markiert
                 else '<t:Flag><t:FlagStatus>NotFlagged</t:FlagStatus></t:Flag>')
-        sets.append('<t:SetItemField><t:FieldURI FieldURI="message:Flag"/><t:Message>'
+        # Beim Schreiben ist es umgekehrt zum Lesen: IsRead nimmt der Server nur als message:IsRead,
+        # Flag dagegen nur als item:Flag (message:Flag -> HTTP 500). Einzeln gegen den Server geprüft.
+        sets.append('<t:SetItemField><t:FieldURI FieldURI="item:Flag"/><t:Message>'
                     f"{flag}</t:Message></t:SetItemField>")
     if not sets:
         raise ValueError("Nichts zu ändern (gelesen oder markiert angeben)")
