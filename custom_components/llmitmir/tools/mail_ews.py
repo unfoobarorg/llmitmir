@@ -100,6 +100,24 @@ async def send_message(ctx, cred: dict, a: dict, files: list[tuple[str, bytes]],
             "kopie": "in „Gesendete Elemente“ abgelegt"}
 
 
+async def _folder_id(ctx, cred: dict, ziel: str) -> str:
+    """Ordnername in eine FolderId auflösen.
+
+    Exchange kennt nur wenige Standardordner (Posteingang, Gesendet, Papierkorb …). Alle anderen – etwa
+    „Archiv“ – haben eine eigene FolderId; der Name allein führt zu „Id is malformed“. Deshalb wird der
+    Ordner über die Ordnerliste gesucht.
+    """
+    if ziel.casefold() in E.DISTINGUISHED:
+        return ziel
+    out = await call(ctx, cred, E.find_folders())
+    if not out.get("ok"):
+        return ziel
+    for folder in E.parse_folders(out.get("raw") or ""):
+        if str(folder.get("name") or "").casefold() == ziel.casefold():
+            return str(folder.get("id") or ziel)
+    raise MailEwsError(f"Ordner „{ziel}“ nicht gefunden – die Namen stehen in mail_folders")
+
+
 async def _change_key(ctx, cred: dict, uid: str) -> str:
     """ChangeKey einer Nachricht holen – nötig für UpdateItem, sonst antwortet Exchange mit einem Fehler."""
     out = await call(ctx, cred, E.get_item(uid, shape="IdOnly"))
@@ -124,7 +142,8 @@ async def change_messages(ctx, cred: dict, a: dict, uids: list[str]) -> dict:
         ziel = str(a.get("ziel") or "").strip()
         if not ziel:
             raise MailEwsError("ziel (Ordnername aus mail_folders) fehlt")
-        _check(await call(ctx, cred, E.move_items(uids, ziel)), "Verschieben")
+        folder_id = await _folder_id(ctx, cred, ziel)
+        _check(await call(ctx, cred, E.move_items(uids, folder_id)), "Verschieben")
         return {"ok": True, "aktion": "verschoben", "ziel": ziel, "uids": uids}
     if aktion == "loeschen":  # in den Papierkorb, nicht endgültig
         _check(await call(ctx, cred, E.delete_messages(uids)), "Löschen")
