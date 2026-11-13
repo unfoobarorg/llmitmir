@@ -149,6 +149,20 @@ async def ews_diagnose(session: aiohttp.ClientSession, cred: dict) -> dict:
                          "message": res.get("message"), "anzahl": len(res.get("items") or [])}
         except E.EwsError as e:
             out[name] = {"fehler": str(e)}
+
+    # Welches Zusatzfeld lehnt der Server ab? Jedes einzeln, damit die Ursache eindeutig ist.
+    out["felder"] = {}
+    for name, folder, fields in (("postfach", "inbox", E.MAIL_FIELDS), ("kontakte", "contacts", E.CONTACT_FIELDS)):
+        bad = []
+        for f in fields:
+            body = E.probe_field(folder, f)
+            try:
+                res = await E.call(session, endpoint, user, password, body, timeout=CHECK_TIMEOUT, domain=domain)
+                if not res.get("ok"):
+                    bad.append(f"{f}: {res.get('code') or res.get('message')}")
+            except E.EwsError as e:
+                bad.append(f"{f}: {e}")
+        out["felder"][name] = bad or "alle Felder einzeln angenommen"
     return out
 
 

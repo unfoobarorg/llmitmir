@@ -527,9 +527,9 @@ async def ws_cred_check(hass, conn, msg, m, user, st):
 @command(_t("credential/diagnose") | {vol.Required("credential_id"): str})
 async def ws_cred_diagnose(hass, conn, msg, m, user, st):
     """Zeigt, was der Exchange auf die einzelnen Anfragen antwortet – fuer die Fehlersuche."""
-    if msg["credential_id"] not in st.meta["credentials"]:
+    cred = st.meta["credentials"].get(msg["credential_id"])
+    if not cred:
         raise ValueError("Zugang nicht gefunden")
-    cred = await M.get_credential(m, user.id, st, msg["credential_id"])
     from . import credcheck as CC
 
     async with aiohttp.ClientSession() as session:

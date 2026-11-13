@@ -117,6 +117,17 @@ def find_contacts(max_entries: int = 100, folder: str = "contacts") -> str:
         "</m:FindItem>")
 
 
+def probe_field(folder: str, field: str) -> str:
+    """Eine FindItem-Anfrage mit genau einem Zusatzfeld – für die Fehlersuche, welches Feld der Server ablehnt."""
+    return envelope(
+        '<m:FindItem Traversal="Shallow">'
+        f"<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{_field(field)}"
+        "</t:AdditionalProperties></m:ItemShape>"
+        '<m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>'
+        f"<m:ParentFolderIds>{folder_ref(folder)}</m:ParentFolderIds>"
+        "</m:FindItem>")
+
+
 def get_item(item_id: str, change_key: str = "", shape: str = "AllProperties") -> str:
     """Einen Eintrag vollständig lesen (Body, Teilnehmer, Zeiten …)."""
     ck = f' ChangeKey="{_esc(change_key)}"' if change_key else ""
