@@ -2454,3 +2454,158 @@ def test_ews_move_resolves_folder_names():
     # ein eigener Ordner wird als FolderId behandelt
     assert E.folder_ref("AAMkADarchiv=") == '<t:FolderId Id="AAMkADarchiv="/>'
     assert "Archiv" not in E.DISTINGUISHED
+
+
+def test_mail_fields_default_and_chosen():
+    """Ohne Aushandlung gilt die Vorgabe; mit Aushandlung genau die gewaehlten Felder."""
+    E = _pkg("ews")
+    assert E.mail_fields(None) == E.MAIL_FIELDS
+    assert E.mail_fields({}) == E.MAIL_FIELDS
+    # eine andere Belegung: alles unter item:
+    chosen = {g: v[1] for g, v in E.MAIL_FIELD_GROUPS.items()}
+    fields = E.mail_fields(chosen)
+    assert "item:IsRead" in fields and "message:IsRead" not in fields
+    assert "item:From" in fields and "message:From" not in fields
+    # jede Gruppe kommt genau einmal vor
+    assert len(fields) == len(E.MAIL_FIELD_GROUPS)
+
+
+def test_contact_props_phone_variants():
+    """Telefonnummern: indiziertes Feld als Vorgabe, eigene Feldnamen als Alternative."""
+    E = _pkg("ews")
+    default = E.contact_props(None)
+    assert 'FieldURI="contacts:PhoneNumber" FieldIndex="BusinessPhone"' in default
+    assert 'FieldURI="contacts:PhoneNumber" FieldIndex="MobilePhone"' in default
+    # Alternative: eigene Feldnamen
+    alt = E.contact_props({"telefon": "contacts:BusinessPhoneNumber", "mobil": "contacts:MobilePhoneNumber",
+                           "privat": "contacts:HomePhoneNumber"})
+    assert "contacts:BusinessPhoneNumber" in alt
+    assert 'FieldIndex="BusinessPhone"' not in alt
+    # Anzeigename und E-Mail bleiben in beiden Faellen drin
+    for props in (default, alt):
+        assert "contacts:DisplayName" in props
+        assert 'FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress1"' in props
+
+
+def test_update_message_accepts_field_choice():
+    """UpdateItem nimmt die ausgehandelte Schreibweise an - Vorgabe bleibt message:IsRead / item:Flag."""
+    E = _pkg("ews")
+    default = E.update_message("AAA=", "CQ==", gelesen=True, markiert=True)
+    assert 'FieldURI="message:IsRead"' in default
+    assert 'FieldURI="item:Flag"' in default
+    # umgekehrte Belegung
+    other = E.update_message("AAA=", "CQ==", gelesen=True, markiert=True,
+                             fields={"read": "item:IsRead", "flag": "message:Flag"})
+    assert 'FieldURI="item:IsRead"' in other
+    assert 'FieldURI="message:Flag"' in other
+
+
+def test_negotiate_mail_fields_against_three_server_schemas():
+    """Die Aushandlung findet jedes Schema: GWDG-gemischt, alles item:, alles message:."""
+    import asyncio
+    import re
+
+    E = _pkg("ews")
+
+    def make_server(accept):
+        async def fake_call(session, endpoint, user, pw, body, timeout=30, domain=""):
+            fields = [f for f in re.findall(r'FieldURI="([^"]+)"', body) if f.split(":")[0] in ("item", "message")]
+            if [f for f in fields if not accept(f)]:
+                return {"ok": False, "code": "ErrorInvalidPropertyRequest", "message": "The request is invalid."}
+            return {"ok": True, "raw": "<x/>"}
+        return fake_call
+
+    def gwdg(f):
+        name = f.split(":", 1)[1]
+        return f.startswith("message:") if name in ("IsRead", "From", "ToRecipients", "CcRecipients") \
+            else f.startswith("item:")
+
+    schemas = {"gwdg": gwdg, "item": lambda f: f.startswith("item:"), "message": lambda f: f.startswith("message:")}
+    original = E.call
+    try:
+        for name, accept in schemas.items():
+            E.call = make_server(accept)
+            chosen = asyncio.run(E.negotiate_mail_fields(None, "https://x/EWS.asmx", "u", "p"))
+            fields = E.mail_fields(chosen)
+            assert all(accept(f) for f in fields), (name, fields)
+    finally:
+        E.call = original
+
+
+def test_probe_mail_field_has_exactly_one_extra_field():
+    """Die Einzelprobe enthaelt genau ein Zusatzfeld - sonst verfaelscht ein zweiter Fehler das Ergebnis."""
+    E = _pkg("ews")
+    body = E.probe_mail_field("message:IsRead")
+    assert body.count("<t:FieldURI") == 1
+    assert 'FieldURI="message:IsRead"' in body
+    assert "<t:BaseShape>Default</t:BaseShape>" in body
+
+
+def test_negotiate_contact_phones_against_two_schemas():
+    """Telefonnummern: indiziertes Feld und eigene Feldnamen werden beide erkannt."""
+    import asyncio
+    import re
+
+    E = _pkg("ews")
+
+    def make_server(accept):
+        async def fake_call(session, endpoint, user, pw, body, timeout=30, domain=""):
+            fields = re.findall(r'FieldURI="([^"]+)"', body)
+            if [f for f in fields if not accept(f)]:
+                return {"ok": False, "code": "ErrorInvalidPropertyRequest", "message": "invalid"}
+            return {"ok": True, "raw": "<x/>"}
+        return fake_call
+
+    named = {"contacts:BusinessPhoneNumber", "contacts:MobilePhoneNumber", "contacts:HomePhoneNumber"}
+    schemas = {"indiziert": lambda f: f not in named, "eigene Namen": lambda f: f != "contacts:PhoneNumber"}
+    original = E.call
+    try:
+        for name, accept in schemas.items():
+            E.call = make_server(accept)
+            chosen = asyncio.run(E.negotiate_contact_phones(None, "https://x/EWS.asmx", "u", "p"))
+            fields = re.findall(r'FieldURI="([^"]+)"', E.contact_props(chosen))
+            assert all(accept(f) for f in fields), (name, fields)
+    finally:
+        E.call = original
+
+
+def test_probe_contact_phone_has_exactly_one_extra_field():
+    """Die Einzelprobe fuer Telefonfelder enthaelt genau ein Zusatzfeld."""
+    E = _pkg("ews")
+    indexed = E.probe_contact_phone("contacts:PhoneNumber#BusinessPhone")
+    assert indexed.count("<t:IndexedFieldURI") == 1
+    assert 'FieldIndex="BusinessPhone"' in indexed
+    named = E.probe_contact_phone("contacts:BusinessPhoneNumber")
+    assert named.count("<t:FieldURI") == 1
+    assert "contacts:BusinessPhoneNumber" in named
+
+
+def test_negotiate_update_fields_against_two_schemas():
+    """Beim Aendern: IsRead/Flag werden in beiden Schreibweisen erkannt."""
+    import asyncio
+    import re
+
+    E = _pkg("ews")
+
+    def make_server(accept):
+        async def fake_call(session, endpoint, user, pw, body, timeout=30, domain=""):
+            fields = re.findall(r'FieldURI="([^"]+)"', body)
+            if [f for f in fields if not accept(f)]:
+                return {"ok": False, "code": "ErrorInvalidPropertyRequest", "message": "invalid"}
+            return {"ok": True, "raw": "<x/>"}
+        return fake_call
+
+    schemas = {
+        "gwdg": lambda f: f.startswith("message:") if f.endswith("IsRead") else f.startswith("item:"),
+        "umgekehrt": lambda f: f.startswith("item:") if f.endswith("IsRead") else f.startswith("message:"),
+    }
+    original = E.call
+    try:
+        for name, accept in schemas.items():
+            E.call = make_server(accept)
+            chosen = asyncio.run(E.negotiate_update_fields(None, "https://x/EWS.asmx", "u", "p", "AAA=", "CQ=="))
+            body = E.update_message("AAA=", "CQ==", gelesen=True, markiert=True, fields=chosen)
+            fields = re.findall(r'FieldURI="([^"]+)"', body)
+            assert all(accept(f) for f in fields), (name, fields)
+    finally:
+        E.call = original
