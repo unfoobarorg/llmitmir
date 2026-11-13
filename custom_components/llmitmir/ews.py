@@ -314,7 +314,7 @@ def _restriction(suche: str | None = None, von: str | None = None, bis: str | No
                      f'<t:FieldURIOrConstant><t:Constant Value="{iso(bis)}"/></t:FieldURIOrConstant>'
                      "</t:IsLessThan>")
     if ungelesen:
-        parts.append('<t:IsEqualTo><t:FieldURI FieldURI="item:IsRead"/>'
+        parts.append('<t:IsEqualTo><t:FieldURI FieldURI="message:IsRead"/>'
                      '<t:FieldURIOrConstant><t:Constant Value="false"/></t:FieldURIOrConstant></t:IsEqualTo>')
     if not parts:
         return ""
@@ -365,12 +365,12 @@ def update_message(item_id: str, change_key: str = "", gelesen: bool | None = No
     """Zustand einer Nachricht setzen: gelesen/ungelesen, markiert/nicht markiert."""
     sets = []
     if gelesen is not None:
-        sets.append('<t:SetItemField><t:FieldURI FieldURI="item:IsRead"/><t:Message>'
+        sets.append('<t:SetItemField><t:FieldURI FieldURI="message:IsRead"/><t:Message>'
                     f"<t:IsRead>{'true' if gelesen else 'false'}</t:IsRead></t:Message></t:SetItemField>")
     if markiert is not None:
         flag = ('<t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag>' if markiert
                 else '<t:Flag><t:FlagStatus>NotFlagged</t:FlagStatus></t:Flag>')
-        sets.append('<t:SetItemField><t:FieldURI FieldURI="item:Flag"/><t:Message>'
+        sets.append('<t:SetItemField><t:FieldURI FieldURI="message:Flag"/><t:Message>'
                     f"{flag}</t:Message></t:SetItemField>")
     if not sets:
         raise ValueError("Nichts zu ändern (gelesen oder markiert angeben)")
