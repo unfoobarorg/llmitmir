@@ -901,21 +901,21 @@ END:VCALENDAR\r
 
 
 def test_gwdg_account_like_calmerge():
-    # wie calmerge: ohne @ wird @gwdg.de ergänzt, alles klein, die DavMail-Adresse daraus erzeugt
+    # wie calmerge: ohne @ wird @gwdg.de ergänzt, alles klein; Kalender und Kontakte laufen über EWS
     assert creds.gwdg_email(" Max.Muster ") == "max.muster@gwdg.de"
     assert creds.gwdg_email("Max.Muster@Uni-Goettingen.de") == "max.muster@uni-goettingen.de"
     assert creds.gwdg_email("") == ""
-    assert creds.gwdg_url("max.muster@gwdg.de") == "https://davmail.gwdg.de:1080/users/max.muster@gwdg.de/calendar/"
     f = creds.normalize_fields("gwdg", {"username": "Max.Muster", "password": "pw", "share_token": ""}, ["calendar"])
-    assert f == {"username": "max.muster@gwdg.de", "password": "pw",
-                 "url": "https://davmail.gwdg.de:1080/users/max.muster@gwdg.de/calendar/"}
-    # alle Dienste: Kontakte und Postfach kommen dazu, abgewählte verschwinden wieder
+    assert f == {"username": "max.muster@gwdg.de", "password": "pw", "ews_url": creds.GWDG_EWS}
+    # alle Dienste: Postfach kommt dazu, abgewählte Adressen verschwinden wieder
     f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail", "contacts"])
-    assert f["contacts_url"].endswith("/users/max.muster@gwdg.de/contacts/") and "url" not in f
+    assert f["ews_url"] == creds.GWDG_EWS  # Kontakte brauchen denselben Endpunkt
     assert (f["imap_host"], f["smtp_host"]) == ("email.gwdg.de:993", "email.gwdg.de:587")
+    f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail"])
+    assert "ews_url" not in f and f["imap_host"] == creds.GWDG_IMAP
     assert creds.normalize_fields("webdav", {"url": "x"}) == {"url": "x"}
-    # gwdg steht unten in der Liste der Typen
-    assert list(creds.TYPES)[-1] == "gwdg"
+    # gwdg steht unten in der Liste der Typen, ews direkt davor
+    assert list(creds.TYPES)[-2:] == ["ews", "gwdg"]
 
 
 def test_gwdg_services_and_legacy():
@@ -941,9 +941,14 @@ def test_gwdg_secrets_scrubbed():
 
 def test_gwdg_dav_paths_and_range():
     D = _pkg("tools.dav")
-    cal = {"name": "Uni", "type": "gwdg", "services": ["calendar"],
-           "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    # älterer Zugang mit DavMail-Adresse: bleibt bei DavMail
+    cal = {"name": "Uni", "type": "webdav",
+           "fields": {"url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/", "password": "pw"}}
     assert D.dav_root(cal) == "https://davmail.gwdg.de:1080/users/a@gwdg.de"
+    # der neue GWDG-Zugang läuft über EWS – dav_request erklärt das, statt ins Leere zu greifen
+    with pytest.raises(ValueError, match="Exchange Web Services"):
+        D.dav_root({"name": "Uni", "type": "gwdg", "services": ["calendar"],
+                    "fields": {"username": "a@gwdg.de", "password": "pw"}})
     assert D._auth(cal).login == "a@gwdg.de"
     with pytest.raises(ValueError):
         D.files_base(cal)  # keine Dateiablage
@@ -975,6 +980,14 @@ def test_gwdg_caldav_events_uses_get_like_calmerge():
                 yield ICS.encode()
             self.content = type("C", (), {"iter_chunked": staticmethod(chunks)})()
 
+        async def read(self):  # EWS: leere, aber gültige Antwort ohne Termine
+            return (b'<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+                    b'xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body>'
+                    b'<m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">'
+                    b'<m:ResponseCode>NoError</m:ResponseCode><m:RootFolder TotalItemsInView="0">'
+                    b'<m:Items/></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages>'
+                    b'</m:FindItemResponse></s:Body></s:Envelope>')
+
         async def __aenter__(self):
             return self
 
@@ -990,16 +1003,27 @@ def test_gwdg_caldav_events_uses_get_like_calmerge():
             calls.append((method, url))
             return Resp()
 
-    cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["calendar"],
-            "fields": {"username": "a@gwdg.de", "password": "pw"}}
+        def post(self, url, **kw):  # EWS: SOAP per POST, hier eine leere, gültige Antwort
+            calls.append(("POST", url, kw["data"].decode()))
+            return Resp()
+
+    cred = {"id": "k", "name": "Uni", "type": "webdav",
+            "fields": {"url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/", "password": "pw"}}
     ctx = type("Ctx", (), {"creds": {"k": cred}, "allowed_creds": None, "session": Session()})()
     out = asyncio.run(D.caldav_events(ctx, {"zugang": "Uni", "von": "2026-11-12", "bis": "2026-11-26"}))
     assert calls == [("GET", "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/", "a@gwdg.de")]
     assert [e["summary"] for e in out["termine"]] == ["Jour fixe", "Urlaub", "Teamrunde"]
+    # der neue GWDG-Zugang geht denselben Weg über EWS (caldav_events bleibt für bestehende Skills gültig)
+    ews_cred = {"id": "e", "name": "GWDG", "type": "gwdg", "services": ["calendar"],
+                "fields": {"username": "a@gwdg.de", "password": "pw"}}
+    ctx2 = type("Ctx", (), {"creds": {"e": ews_cred}, "allowed_creds": None, "session": Session()})()
+    out = asyncio.run(D.caldav_events(ctx2, {"zugang": "GWDG", "von": "2026-11-12", "bis": "2026-11-26"}))
+    assert calls[-1][0] == "POST" and "FindItem" in calls[-1][2]
+    assert out["anzahl"] == 0  # die Fake-Antwort enthält keine Termine
     # ohne angehakten Kalender lehnt das Werkzeug ab, ohne den Server zu fragen
-    cred["services"] = ["mail"]
+    ews_cred["services"] = ["mail"]
     calls.clear()
-    assert "nicht für den Kalender freigegeben" in asyncio.run(D.caldav_events(ctx, {"zugang": "Uni"}))
+    assert "nicht für Kalender freigegeben" in asyncio.run(D.caldav_events(ctx2, {"zugang": "GWDG"}))
     assert calls == []
 
 
@@ -1017,16 +1041,36 @@ def test_gwdg_check_each_service(monkeypatch):
         seen.append(("IMAP", cred["fields"]["imap_host"]))
         return K._result(False, "Anmeldung abgelehnt: NO LOGIN failed")
 
+    async def fake_ews(session, cred, folder="calendar"):
+        seen.append(("EWS", folder))
+        return K._result(True, "EWS antwortet", 200)
+
     # ueber monkeypatch, damit die echten Funktionen danach wieder gelten
     monkeypatch.setattr(K, "_http", fake_http)
     monkeypatch.setattr(K, "_check_imap", fake_imap)
+    monkeypatch.setattr(K, "_check_ews", fake_ews)
     cred = {"type": "gwdg", "services": ["mail", "calendar", "contacts"],
             "fields": {"username": "a@gwdg.de", "password": "pw", "imap_host": "email.gwdg.de:993"}}
     r = asyncio.run(K.check_credential(None, cred))
-    base = "https://davmail.gwdg.de:1080/users/a@gwdg.de/"
-    assert seen == [("IMAP", "email.gwdg.de:993"), ("PROPFIND", base + "calendar/", "0"), ("PROPFIND", base + "contacts/", "0")]
+    # Kalender und Kontakte über EWS, das Postfach über IMAP – kein DavMail mehr
+    assert seen == [("IMAP", "email.gwdg.de:993"), ("EWS", "calendar"), ("EWS", "contacts")]
     assert not r["ok"] and r["message"].startswith("E-Mail-Postfach: Anmeldung abgelehnt") and "Kalender: ok" in r["message"]
     assert K._missing({"type": "gwdg", "fields": {"username": "a@gwdg.de"}}) == "password"
+    # älterer Zugang mit DavMail-Adresse: weiterhin PROPFIND auf die DavMail-Ordner
+    seen.clear()
+    legacy = {"type": "gwdg", "services": ["calendar", "contacts"],
+              "fields": {"username": "a@gwdg.de", "password": "pw",
+                         "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/"}}
+    r = asyncio.run(K.check_credential(None, legacy))
+    base = "https://davmail.gwdg.de:1080/users/a@gwdg.de/"
+    assert seen == [("PROPFIND", base + "calendar/", "0"), ("PROPFIND", base + "contacts/", "0")] and r["ok"]
+    # der neue Typ ews: Pflichtfelder und Prüfung über EWS
+    assert K._missing({"type": "ews", "fields": {"url": "https://x/EWS/Exchange.asmx", "username": "u"}}) == "password"
+    seen.clear()
+    r = asyncio.run(K.check_credential(None, {"type": "ews", "services": ["calendar"],
+                                              "fields": {"url": "https://x/EWS/Exchange.asmx", "username": "u",
+                                                         "password": "p"}}))
+    assert seen == [("EWS", "calendar")] and r["ok"]
 
 
 class FakeIMAP:
@@ -1236,7 +1280,9 @@ def test_gwdg_dav_write_needs_write_access():
             return Resp()
 
     cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["calendar", "contacts"],
-            "access": {"calendar": "read", "contacts": "write"}, "fields": {"username": "a@gwdg.de", "password": "pw"}}
+            "access": {"calendar": "read", "contacts": "write"},
+            "fields": {"username": "a@gwdg.de", "password": "pw",
+                       "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/"}}
     ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=Session())
     run = lambda a: asyncio.run(D.dav_request(ctx, a))  # noqa: E731
     assert run({"zugang": "Uni", "methode": "REPORT", "pfad": "calendar/"})["status"] == 201
@@ -1264,7 +1310,7 @@ def test_gwdg_no_free_http_request():
     W.blocked_url = lambda ctx, url: None
     out = asyncio.run(H.http_request(ctx, {"methode": "DELETE", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/x.ics",
                                            "zugang": "Uni"}))
-    assert out.startswith("Fehler: Das Passwort eines GWDG-Exchange-Zugangs")
+    assert out.startswith("Fehler: Das Passwort eines Exchange-Zugangs")
 
 
 def test_imap_check_names_the_stage(monkeypatch):
@@ -1417,3 +1463,440 @@ def test_ws_schemas_do_not_use_protocol_fields():
                     and isinstance(key.args[0], ast.Constant) and key.args[0].value in ("id", "type")):
                 offenders.append((key.args[0].value, node.lineno))
     assert not offenders, f"Protokollfelder im Schema: {offenders}"
+
+
+# ---------------------------------------------------------------- Exchange (EWS)
+ews = load("ews")
+
+
+def test_ews_window_and_times():
+    start, end = ews.window("2026-11-20", "2026-11-27")
+    assert start == "2026-11-20T00:00:00Z" and end == "2026-11-27T00:00:00Z"
+    # ohne bis: 14 Tage; ohne von: heute
+    s2, e2 = ews.window(None, None)
+    assert s2.endswith("Z") and e2 > s2
+    # Zeit mit Offset wird nach UTC gerechnet, Ortszeit ohne Offset bleibt Ortszeit
+    assert ews.iso("2026-11-20T14:00:00+01:00") == "2026-11-20T13:00:00Z"
+    assert ews.iso("2026-11-20T14:00:00") == "2026-11-20T13:00:00Z"  # Europe/Berlin im Winter = +01:00
+    # verdrehter Zeitraum wird zu einem Tag
+    s3, e3 = ews.window("2026-11-27", "2026-11-20")
+    assert e3 == "2026-11-28T00:00:00Z"
+
+
+def test_ews_find_calendar_escapes_and_limits():
+    body = ews.find_calendar("2026-11-20", "2026-11-21", max_entries=5000)
+    assert 'StartDate="2026-11-20T00:00:00Z"' in body and 'EndDate="2026-11-21T00:00:00Z"' in body
+    assert f'MaxEntriesReturned="{ews.MAX_ENTRIES}"' in body  # Obergrenze greift
+    assert 'DistinguishedFolderId Id="calendar"' in body
+    assert "calendar:RequiredAttendees" in body
+    assert '<t:DistinguishedFolderId Id="a&quot;b"/>' in ews.find_calendar(None, None, folder='a"b')
+
+
+def test_ews_create_and_update_appointment():
+    body = ews.create_appointment("Termin & Probe", "2026-11-20T14:00:00+0100", "2026-11-20T15:00:00+0100",
+                                  body="Text <b>", location="Raum 1", required=["a@example.org"],
+                                  optional=["b@example.org"], categories=["GWDG"])
+    assert "<t:Subject>Termin &amp; Probe</t:Subject>" in body
+    assert "<t:Body BodyType=\"Text\">Text &lt;b&gt;</t:Body>" in body
+    assert "<t:Location>Raum 1</t:Location>" in body
+    assert "<t:EmailAddress>a@example.org</t:EmailAddress>" in body
+    assert "<t:OptionalAttendees>" in body and "<t:String>GWDG</t:String>" in body
+    assert 'SendMeetingInvitations="SendToNone"' in body
+    upd = ews.update_appointment("AAMk=", "CK1", {"betreff": "Neu", "start": "2026-11-20T16:00:00+0100"})
+    assert 'ItemId Id="AAMk=" ChangeKey="CK1"' in upd
+    assert '<t:FieldURI FieldURI="item:Subject"/>' in upd and "<t:Subject>Neu</t:Subject>" in upd
+    assert upd.count("<t:SetItemField>") == 2
+    with pytest.raises(ValueError):
+        ews.update_appointment("AAMk=", "", {"unbekannt": "x"})
+
+
+def test_ews_delete_and_folder():
+    body = ews.delete_item("AAMk=", "CK1")
+    assert 'DeleteType="MoveToDeletedItems"' in body and 'ItemId Id="AAMk=" ChangeKey="CK1"' in body
+    assert 'DistinguishedFolderId Id="contacts"' in ews.get_folder("contacts")
+
+
+def test_ews_parse_calendar_items():
+    xml = """<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body>
+      <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
+      <m:ResponseCode>NoError</m:ResponseCode><m:RootFolder TotalItemsInView="1"><m:Items>
+      <t:CalendarItem><t:ItemId Id="AAMk=" ChangeKey="CK1"/><t:Subject>Jour fixe</t:Subject>
+      <t:Start>2026-11-20T13:00:00Z</t:Start><t:End>2026-11-20T14:00:00Z</t:End>
+      <t:Location>Videokonferenz</t:Location><t:IsAllDayEvent>false</t:IsAllDayEvent>
+      <t:Organizer><t:Mailbox><t:Name>Niko</t:Name><t:EmailAddress>niko@gwdg.de</t:EmailAddress></t:Mailbox></t:Organizer>
+      <t:RequiredAttendees><t:Attendee><t:Mailbox><t:EmailAddress>a@example.org</t:EmailAddress></t:Mailbox>
+      <t:ResponseType>Accept</t:ResponseType></t:Attendee></t:RequiredAttendees>
+      <t:Categories><t:String>GWDG</t:String></t:Categories>
+      </t:CalendarItem></m:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>
+      </s:Body></s:Envelope>"""
+    out = ews.parse(xml)
+    assert out["ok"] and out["total"] == 1
+    ev = out["items"][0]
+    assert ev["betreff"] == "Jour fixe" and ev["item_id"] == "AAMk=" and ev["change_key"] == "CK1"
+    assert ev["start"] == "2026-11-20T13:00:00Z" and ev["ort"] == "Videokonferenz"
+    assert ev["organisator"]["email"] == "niko@gwdg.de"
+    assert ev["teilnehmer"][0]["email"] == "a@example.org" and ev["teilnehmer"][0]["art"] == "Accept"
+    assert ev["kategorien"] == ["GWDG"]
+
+
+def test_ews_parse_errors_and_contacts():
+    denied = """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body><m:GetFolderResponse>
+      <m:ResponseMessages><m:GetFolderResponseMessage ResponseClass="Error">
+      <m:ResponseCode>ErrorAccessDenied</m:ResponseCode><m:MessageText>Access is denied.</m:MessageText>
+      </m:GetFolderResponseMessage></m:ResponseMessages></m:GetFolderResponse></s:Body></s:Envelope>"""
+    out = ews.parse(denied)
+    assert not out["ok"] and out["code"] == "ErrorAccessDenied"
+    assert "Access is denied" in ews.describe_error(out)
+    fault = ('<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><s:Fault>'
+             '<faultcode>s:Client</faultcode><faultstring>Wrong server version</faultstring></s:Fault></s:Body></s:Envelope>')
+    out = ews.parse(fault)
+    assert not out["ok"] and out["code"] == "s:Client" and "Wrong server version" in out["message"]
+    assert not ews.parse("kein xml")["ok"]
+    contact = """<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body><m:FindItemResponse>
+      <m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode>
+      <m:RootFolder><m:Items><t:Contact><t:ItemId Id="C1" ChangeKey="K"/><t:DisplayName>Doro Kopp</t:DisplayName>
+      <t:GivenName>Dorothea</t:GivenName><t:Surname>Kopp</t:Surname><t:CompanyName>Hof Betzendorf</t:CompanyName>
+      <t:EmailAddresses><t:Entry Key="EmailAddress1">doro@example.org</t:Entry></t:EmailAddresses>
+      </t:Contact></m:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>
+      </s:Body></s:Envelope>"""
+    c = ews.parse(contact)["items"][0]
+    assert c["name"] == "Doro Kopp" and c["firma"] == "Hof Betzendorf"
+    assert c["adressen"] == [{"art": "EmailAddress1", "adresse": "doro@example.org"}]
+
+
+def test_ews_item_ids_and_day():
+    xml = ('<m:CreateItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" '
+           'xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><m:ResponseMessages>'
+           '<m:CreateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode>'
+           '<m:Items><t:CalendarItem><t:ItemId Id="NEU=" ChangeKey="CK9"/></t:CalendarItem></m:Items>'
+           '</m:CreateItemResponseMessage></m:ResponseMessages></m:CreateItemResponse>')
+    assert ews.item_ids(xml) == [{"item_id": "NEU=", "change_key": "CK9"}]
+    assert ews.day("2026-11-20T13:00:00Z") == "2026-11-20"
+    assert ews.day("") == ""
+
+
+def test_ews_credentials_types():
+    """Neuer Typ ews und GWDG über EWS: Endpunkte, Rechte, Dienste."""
+    gwdg = {"type": "gwdg", "fields": {"username": "niko@gwdg.de", "password": "x"}, "services": ["calendar", "contacts"]}
+    assert creds.is_ews(gwdg)
+    assert creds.ews_endpoint(gwdg) == creds.GWDG_EWS
+    assert creds.ews_account(gwdg) == ("niko@gwdg.de", "x")
+    assert creds.access(gwdg, "calendar") == "read" and creds.access(gwdg, "mail") == ""
+    gwdg_write = dict(gwdg, access={"calendar": "write"})
+    assert creds.access(gwdg_write, "calendar") == "write"
+    # alter Zugang mit DavMail-Adresse bleibt bei DavMail
+    old = {"type": "gwdg", "fields": {"username": "a@gwdg.de", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/"}}
+    assert not creds.is_ews(old)
+    # eigener Exchange
+    ex = {"type": "ews", "fields": {"url": "https://mail.example.org/EWS/Exchange.asmx", "username": "u", "password": "p"}}
+    assert creds.is_ews(ex) and creds.ews_endpoint(ex).endswith("Exchange.asmx")
+    assert creds.services(ex) == ["calendar", "contacts"]
+    assert creds.access(ex, "contacts") == "read"
+    assert creds.access_text(ex) == {"Kalender": "nur lesen", "Kontakte": "nur lesen"}
+    # Felder: GWDG erzeugt den EWS-Endpunkt, der eigene Typ behält seine Adresse
+    norm = creds.normalize_fields("gwdg", {"username": "Niko", "password": "p"}, ["calendar"])
+    assert norm["username"] == "niko@gwdg.de" and norm["ews_url"] == creds.GWDG_EWS and "url" not in norm
+    norm = creds.normalize_fields("gwdg", {"username": "niko@gwdg.de", "password": "p"}, ["mail"])
+    assert norm["imap_host"] == creds.GWDG_IMAP and "ews_url" not in norm
+    norm = creds.normalize_fields("ews", {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p", "alt": ""})
+    assert norm == {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p"}
+
+
+# ---------------------------------------------------------------- dav_request: Status, speichern_als
+def _dav_ctx(status=200, body=b"", etag=None, calls=None):
+    import types
+
+    class Resp:
+        def __init__(self):
+            self.status = status
+            self.headers = {"ETag": etag} if etag else {}
+
+            async def chunks(_n):
+                yield body
+
+            self.content = type("C", (), {"iter_chunked": staticmethod(chunks)})()
+
+        async def read(self):
+            return body
+
+        async def text(self):
+            return body.decode()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def request(self, method, url, **kw):
+            if calls is not None:
+                calls.append((method, url, kw.get("headers") or {}))
+            return Resp()
+
+    cred = {"id": "k", "name": "Cloud", "type": "webdav",
+            "fields": {"url": "https://cloud.example.org", "username": "u", "password": "p"}}
+    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=Session())
+
+
+def test_dav_request_reports_http_status_instead_of_connection_error():
+    import asyncio
+
+    D = _pkg("tools.dav")
+    # 404 ist kein Verbindungsfehler: der Status kommt zurück, dazu ein Klartext-Hinweis
+    out = asyncio.run(D.dav_request(_dav_ctx(404, b"nicht da"), {"zugang": "Cloud", "methode": "GET", "pfad": "x.ics"}))
+    assert out["status"] == 404 and "404" in out["fehler"] and "Pfad nicht gefunden" in out["fehler"]
+    # 412 nennt das ETag als Grund
+    out = asyncio.run(D.dav_request(_dav_ctx(412, b""), {"zugang": "Cloud", "methode": "PUT", "pfad": "x.ics"}))
+    assert "ETag" in out["fehler"]
+    # 200 ohne Fehler, ETag wird durchgereicht
+    out = asyncio.run(D.dav_request(_dav_ctx(200, b"ok", etag='"abc"'), {"zugang": "Cloud", "methode": "GET", "pfad": "x"}))
+    assert out == {"status": 200, "etag": '"abc"', "antwort": "ok"}
+    assert D.http_hint(500) .startswith("HTTP 500: Serverfehler")
+    assert D.http_hint(418, "Tee") == "HTTP 418: Tee"
+
+
+def test_dav_request_speichern_als_writes_to_workspace():
+    import asyncio
+    import types
+
+    D = _pkg("tools.dav")
+    written = []
+
+    class Store:
+        async def async_write_file(self, kind, chat_id, name, data):
+            written.append((kind, chat_id, name, data))
+            return {"name": name, "bytes": len(data)}
+
+    ctx = _dav_ctx(207, b"<multistatus/>" * 100)
+    ctx.store = Store()
+    ctx.chat_id = "c1"
+    emitted = []
+
+    async def emit():
+        emitted.append(True)
+
+    ctx.emit_files = emit
+    out = asyncio.run(D.dav_request(ctx, {"zugang": "Cloud", "methode": "PROPFIND", "pfad": "calendars/u/",
+                                          "speichern_als": "propfind.xml"}))
+    assert written and written[0][2] == "propfind.xml" and written[0][3].startswith(b"<multistatus/>")
+    assert out["status"] == 207 and out["gespeichert"]["name"] == "propfind.xml" and emitted == [True]
+    assert "antwort" not in out  # nichts Großes in den Chat
+
+
+# ---------------------------------------------------------------- Einträge über die UID
+def test_caldav_entry_by_uid():
+    import asyncio
+    import types
+
+    D = _pkg("tools.dav")
+    calls = []
+    ics = ("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:abc-1\r\nSUMMARY:Jour fixe\r\n"
+           "DTSTART:20261120T130000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+    multistatus = ('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">'
+                   '<d:response><d:href>/remote.php/dav/calendars/u/personal/abc-1.ics</d:href>'
+                   '<d:propstat><d:prop><d:getetag>"e1"</d:getetag>'
+                   f'<cal:calendar-data>{ics}</cal:calendar-data></d:prop></d:propstat></d:response></d:multistatus>')
+
+    class Resp:
+        def __init__(self, status=207, body=b"", headers=None):
+            self.status, self._body, self.headers = status, body, headers or {}
+
+            async def chunks(_n):
+                yield body
+
+            self.content = type("C", (), {"iter_chunked": staticmethod(chunks)})()
+
+        async def read(self):
+            return self._body
+
+        async def text(self):
+            return self._body.decode()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def request(self, method, url, **kw):
+            calls.append((method, url, kw.get("headers") or {}, kw.get("data")))
+            if method == "REPORT":
+                return Resp(207, multistatus.encode())
+            if method == "PUT":
+                return Resp(204, b"", {"ETag": '"e2"'})
+            return Resp(204)
+
+        def put(self, url, **kw):
+            calls.append(("PUT", url, kw.get("headers") or {}, kw.get("data")))
+            return Resp(204, b"", {"ETag": '"e2"'})
+
+        def delete(self, url, **kw):
+            calls.append(("DELETE", url, kw.get("headers") or {}, None))
+            return Resp(204)
+
+        def get(self, url, **kw):  # Rückfall: ganzer Kalender, hier ohne den gesuchten Eintrag
+            calls.append(("GET", url, kw.get("headers") or {}, None))
+            return Resp(200, ics.encode())
+
+    cred = {"id": "k", "name": "Cloud", "type": "webdav",
+            "fields": {"url": "https://cloud.example.org", "username": "u", "password": "p"}}
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=Session())
+    run = lambda a: asyncio.run(D.caldav_entry(ctx, a))  # noqa: E731
+    out = run({"zugang": "Cloud", "uid": "abc-1"})
+    assert out["gefunden"] and out["href"].endswith("abc-1.ics") and out["etag"] == "e1"
+    assert out["termin"]["summary"] == "Jour fixe"
+    # ändern: If-Match auf das gefundene ETag, damit nichts Fremdes überschrieben wird
+    calls.clear()
+    out = run({"zugang": "Cloud", "uid": "abc-1", "aktion": "aendern", "inhalt": ics.replace("Jour fixe", "Neu")})
+    assert out["ok"] and out["etag"] == "e2"
+    put = [c for c in calls if c[0] == "PUT"][0]
+    assert put[2]["If-Match"] == '"e1"' and b"Neu" in put[3]
+    # Inhalt ohne die UID wird abgelehnt (sonst entstünde ein zweiter Eintrag)
+    assert "UID" in run({"zugang": "Cloud", "uid": "abc-1", "aktion": "aendern", "inhalt": "BEGIN:VCALENDAR"})
+    # löschen
+    calls.clear()
+    out = run({"zugang": "Cloud", "uid": "abc-1", "aktion": "loeschen"})
+    assert out["ok"] and [c for c in calls if c[0] == "DELETE"][0][2]["If-Match"] == '"e1"'
+    # unbekannte UID
+    assert "Kein Eintrag" in run({"zugang": "Cloud", "uid": "gibt-es-nicht"})
+
+
+def test_caldav_entry_falls_back_to_whole_calendar():
+    """Server ohne UID-Abfrage (DavMail): der Kalender wird einmal geholt und lokal durchsucht."""
+    import asyncio
+    import types
+
+    D = _pkg("tools.dav")
+    ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:abc-1\r\nSUMMARY:Jour fixe\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+    class Resp:
+        def __init__(self, status, body=b""):
+            self.status, self._body, self.headers = status, body, {}
+
+            async def chunks(_n):
+                yield body
+
+            self.content = type("C", (), {"iter_chunked": staticmethod(chunks)})()
+
+        async def read(self):
+            return self._body
+
+        async def text(self):
+            return self._body.decode()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def request(self, method, url, **kw):
+            return Resp(405)  # kann keine UID-Abfrage
+
+        def get(self, url, **kw):
+            return Resp(200, ics.encode())
+
+    cred = {"id": "k", "name": "Uni", "type": "webdav",
+            "fields": {"url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/", "password": "p"}}
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=Session())
+    out = asyncio.run(D.caldav_entry(ctx, {"zugang": "Uni", "uid": "abc-1"}))
+    assert out["gefunden"] and out["href"].endswith("abc-1.ics") and "UID-Abfrage" in out["hinweis"]
+
+
+def test_caldav_changes_sync_and_ctag():
+    import asyncio
+    import types
+
+    D = _pkg("tools.dav")
+    sync = ('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
+            '<d:response><d:href>/remote.php/dav/calendars/u/personal/a.ics</d:href>'
+            '<d:propstat><d:prop><d:getetag>"1"</d:getetag></d:prop></d:propstat></d:response>'
+            '<d:response><d:href>/remote.php/dav/calendars/u/personal/b.ics</d:href>'
+            '<d:status>HTTP/1.1 404 Not Found</d:status></d:response>'
+            '<d:sync-token>http://example.org/token/2</d:sync-token></d:multistatus>')
+    ctag = ('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">'
+            '<d:response><d:propstat><d:prop><cs:getctag>ctag-7</cs:getctag></d:prop></d:propstat></d:response>'
+            '</d:multistatus>')
+
+    class Resp:
+        def __init__(self, status, body=b""):
+            self.status, self._body, self.headers = status, body, {}
+
+            async def chunks(_n):
+                yield body
+
+            self.content = type("C", (), {"iter_chunked": staticmethod(chunks)})()
+
+        async def read(self):
+            return self._body
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Session:
+        def __init__(self, sync_status):
+            self.sync_status = sync_status
+
+        def request(self, method, url, **kw):
+            if method == "REPORT":
+                return Resp(self.sync_status, sync.encode() if self.sync_status < 400 else b"")
+            return Resp(207, ctag.encode())
+
+    cred = {"id": "k", "name": "Cloud", "type": "webdav",
+            "fields": {"url": "https://cloud.example.org", "username": "u", "password": "p"}}
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, session=Session(207))
+    out = asyncio.run(D.caldav_changes(ctx, {"zugang": "Cloud"}))
+    assert out["verfahren"] == "sync-collection" and out["sync_token"].endswith("/token/2")
+    assert [e["href"].rsplit("/", 1)[-1] for e in out["geaendert"]] == ["a.ics"]
+    assert [h.rsplit("/", 1)[-1] for h in out["geloescht"]] == ["b.ics"]
+    # Server ohne sync-collection: ctag als Rückfall
+    ctx.session = Session(405)
+    out = asyncio.run(D.caldav_changes(ctx, {"zugang": "Cloud"}))
+    assert out["verfahren"] == "ctag" and out["ctag"] == "ctag-7"
+
+
+# ---------------------------------------------------------------- skill_load
+def test_skill_load_is_never_truncated_and_can_pick_a_section():
+    import asyncio
+    import types
+
+    ST = _pkg("skilltext")
+    body = "# Anleitung\n\n" + ("Zeile mit Inhalt\n" * 4000) + "\n## Adressen\nServer: files.example.org\n\n## Anderes\nx\n"
+    # der Abschnitt wird gezielt ausgeschnitten …
+    part = ST.section(body, "Adressen")
+    assert part.startswith("## Adressen") and "files.example.org" in part and "## Anderes" not in part
+    assert ST.section(body, "## adressen") == part  # Schreibweise und Rauten egal
+    # … und wenn es ihn nicht gibt, kommt die vollständige Anleitung (lieber zu viel als nichts)
+    assert ST.section(body, "gibt es nicht") == body
+    assert ST.section(body, "") == body
+    # Unterabschnitte bleiben beim Abschnitt
+    deep = "# A\n## B\n### C\ntief\n## D\nnachbar\n"
+    assert ST.section(deep, "B") == "## B\n### C\ntief"
+    # das Werkzeug ist von der Kürzung ausgenommen (Anleitungen sind Arbeitsanweisungen, keine Vorschau) –
+    # misc.py selbst braucht Home Assistant, deshalb steht die Registrierung hier als Quelltext-Prüfung
+    src = (BASE / "tools" / "misc.py").read_text()
+    assert 'label="Skill laden", icon="mdi:school-outline", max_chars=0' in src
+    assert '"bereich": {"type": "string"' in src
+    # die neuen DAV-Werkzeuge sind da und als schreibend markiert, wo sie schreiben
+    import lmpkg.tools as T
+
+    assert T.REGISTRY["caldav_entry"].is_write({"aktion": "loeschen"})
+    assert not T.REGISTRY["caldav_entry"].is_write({"aktion": "suchen"})
+    assert not T.REGISTRY["caldav_changes"].is_write({})
+    assert T.REGISTRY["dav_request"].is_write({"methode": "PUT"})
+    assert not T.REGISTRY["dav_request"].is_write({"methode": "PROPFIND"})
+    # Exchange-Werkzeuge: lesen frei, schreiben nur mit Freigabe
+    assert not T.REGISTRY["ews_events"].is_write({}) and not T.REGISTRY["ews_contacts"].is_write({})
+    assert T.REGISTRY["ews_save"].is_write({"aktion": "anlegen"})
+    assert T.REGISTRY["ews_events"].group == "ews" and T.GROUPS["ews"]["label"] == "Exchange (EWS)"

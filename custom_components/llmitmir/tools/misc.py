@@ -1,12 +1,11 @@
 """Notifications, skills, progress list and credential overview."""
 from __future__ import annotations
 
-from homeassistant.core import Context
-
 from .. import credentials as C
 from .. import inbox as IB
 from .. import notifydevices as ND
 from .. import selfdoc
+from .. import skilltext as ST
 from .. import tasknotify as TN
 from ..storage import new_id, now
 from . import Tool, advance_progress, obj, register
@@ -37,6 +36,8 @@ async def notify(ctx, a: dict):
                     "hinweis": "Kein Push-Gerät – die Nachricht steht auf der Startseite."}
         return ("Fehler: In den Einstellungen ist kein Gerät für Benachrichtigungen gewählt "
                 "(oder deinem Benutzer ist in Home Assistant kein Gerät zugeordnet).")
+    from homeassistant.core import Context  # nur hier nötig – so bleibt das Modul ohne HA importierbar
+
     await ND.async_send(ctx.hass, device, str(a.get("titel") or "LLMitMir")[:120], str(a.get("text") or "")[:2000],
                         url=f"/llmitmir/chat/{ctx.chat_id}" if ctx.chat_id else "",
                         tag=f"llmitmir-{ctx.chat_id}" if ctx.chat_id else "",
@@ -60,7 +61,13 @@ async def skill_load(ctx, a: dict):
             x["name"] for x in ctx.store.meta["skills"].values() if ctx.allowed_skills is None or x["id"] in ctx.allowed_skills)
     files = await ctx.store.async_list_files("skill", s["id"])
     creds = [ctx.creds[c]["name"] for c in s.get("credentials") or [] if c in ctx.creds]
-    return (f"# Skill: {s['name']}\n{s.get('description', '')}\n\n{s.get('body', '')}\n\n"
+    body = str(s.get("body", ""))
+    teil = ST.section(body, a.get("bereich")) if a.get("bereich") else body
+    head = f"# Skill: {s['name']}\n{s.get('description', '')}\n\n"
+    if a.get("bereich") and teil != body:
+        head += (f"(Abschnitt „{a['bereich']}“ – die vollständige Anleitung holst du mit skill_load ohne bereich, "
+                 f"{len(body)} Zeichen.)\n\n")
+    return (head + teil + "\n\n"
             + (f"Zugänge für diesen Skill: {', '.join(creds)}\n" if creds else "")
             + (f"Dateien im Skill (mit skill_file lesen): {[f['name'] for f in files]}" if files else ""))
 
@@ -140,8 +147,10 @@ register(Tool("notify", "notify", "Schickt eine Push-Benachrichtigung an die Per
               "verschickt es nichts, sondern merkt den Text als Ergebnis des Laufs vor.",
               obj({"titel": {"type": "string"}, "text": {"type": "string"}}, ["text"]), notify,
               write=True, label="Benachrichtigen", icon="mdi:bell-ring-outline"))
-register(Tool("skill_load", "skills", "Lädt die vollständige Anleitung eines Skills. Vor der Arbeit an einem passenden Thema immer zuerst laden.",
-              obj({"name": {"type": "string"}}, ["name"]), skill_load, label="Skill laden", icon="mdi:school-outline"))
+register(Tool("skill_load", "skills", "Lädt die vollständige Anleitung eines Skills (nie gekürzt). Vor der Arbeit an einem passenden Thema immer zuerst laden. Bei sehr langen Anleitungen holt bereich gezielt einen Abschnitt.",
+              obj({"name": {"type": "string"},
+                   "bereich": {"type": "string", "description": "optional: nur diesen Abschnitt (Überschrift oder Teil davon)"}},
+                  ["name"]), skill_load, label="Skill laden", icon="mdi:school-outline", max_chars=0))
 register(Tool("skill_file", "skills", "Liest eine Datei, die zu einem Skill gehört.",
               obj({"name": {"type": "string"}, "datei": {"type": "string"}}, ["name", "datei"]), skill_file,
               label="Skill-Datei lesen", icon="mdi:file-document-outline"))

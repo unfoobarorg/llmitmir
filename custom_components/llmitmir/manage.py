@@ -46,19 +46,27 @@ def build_credential(st, c: dict) -> dict:
     for k in c.get("remove_fields") or []:
         fields.pop(k, None)
     svc = None
-    if typ == "gwdg":
-        known = C.TYPES["gwdg"]["services"]
+    if typ in ("gwdg", "ews"):
+        known = C.TYPES[typ]["services"]
         raw = c["services"] if c.get("services") is not None else old.get("services")
-        svc = [k for k in known if k in (raw if raw is not None else C.TYPES["gwdg"]["default_services"])]
+        svc = [k for k in known if k in (raw if raw is not None else C.TYPES[typ]["default_services"])]
         if not svc:
-            raise ValueError("Wähl aus, wofür der GWDG-Zugang gilt: E-Mail-Postfach, Kalender und/oder Kontakte.")
+            raise ValueError("Wähl aus, wofür der Zugang gilt: "
+                             + ("E-Mail-Postfach, Kalender und/oder Kontakte." if typ == "gwdg" else "Kalender und/oder Kontakte."))
     fields = C.normalize_fields(typ, fields, svc)
     if typ == "gwdg":
         if not fields.get("username"):
             raise ValueError("Für den GWDG-Zugang brauchen wir die GWDG-E-Mail-Adresse.")
         if not fields.get("password"):
             raise ValueError("Für den GWDG-Zugang brauchen wir dein GWDG-Passwort.")
-    name = str(c.get("name") or old.get("name") or "").strip() or ("GWDG-Exchange" if typ == "gwdg" else "")
+    if typ == "ews":
+        if not str(fields.get("url") or "").strip():
+            raise ValueError("Für einen Exchange-Zugang brauchen wir die EWS-Adresse (…/EWS/Exchange.asmx).")
+        if not str(fields.get("username") or "").strip():
+            raise ValueError("Für einen Exchange-Zugang brauchen wir den Benutzernamen.")
+        if not str(fields.get("password") or "").strip():
+            raise ValueError("Für einen Exchange-Zugang brauchen wir das Passwort.")
+    name = str(c.get("name") or old.get("name") or "").strip() or {"gwdg": "GWDG-Exchange", "ews": "Exchange"}.get(typ, "")
     if not name:
         raise ValueError("Name fehlt")
     for other in st.meta["credentials"].values():

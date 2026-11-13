@@ -66,18 +66,25 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt.
-- **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste), gebaut wie in calmerge: GWDG-E-Mail-Adresse und
-  Passwort eintragen (ohne @ wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender
-  und/oder Kontakte**. Die Adressen ergänzt LLMitMir selbst: DavMail `https://davmail.gwdg.de:1080/users/<E-Mail>/calendar/`
-  bzw. `…/contacts/`, IMAP `email.gwdg.de:993`, SMTP `email.gwdg.de:587`. `caldav_events` holt den Kalender wie calmerge
-  per GET und filtert den Zeitraum selbst; `dav_request` arbeitet relativ zum DavMail-Konto und nur in den angehakten
-  Ordnern; das Postfach mit den `mail_*`-Werkzeugen. Geprüft wird jeder angehakte Dienst einzeln.
+- **Exchange über EWS** (Typ „Exchange (EWS)“ und GWDG-Exchange): Kalender und Kontakte laufen über Exchange Web
+  Services statt über CalDAV. Der Server beantwortet die Zeitraumabfrage selbst (`FindItem` mit `CalendarView`), es
+  kommt also kein Archiv mit; jeder Eintrag hat eine stabile `item_id` samt `ChangeKey`, und Ändern wie Löschen
+  adressieren genau diesen Eintrag – unabhängig von Dateinamen oder href. Werkzeuge: `ews_events` (Zeitraum),
+  `ews_save` (anlegen, ändern, löschen, optional Einladungen an Teilnehmer), `ews_contacts` (Adressbuch). `caldav_events`
+  bleibt für Nextcloud und leitet bei einem Exchange-Zugang an `ews_events` weiter, damit bestehende Skills gültig
+  bleiben. Beim Typ „Exchange (EWS)“ trägt die Person EWS-Adresse (`…/EWS/Exchange.asmx`), Benutzername und Passwort
+  selbst ein; beim GWDG-Exchange genügen E-Mail-Adresse und Passwort, die Endpunkte setzt LLMitMir
+  (`https://email.gwdg.de/EWS/Exchange.asmx`, IMAP `email.gwdg.de:993`, SMTP `email.gwdg.de:587`).
+- **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste): GWDG-E-Mail-Adresse und Passwort eintragen (ohne @
+  wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender und/oder Kontakte**.
+  Kalender und Kontakte laufen über EWS, das Postfach mit den `mail_*`-Werkzeugen. Geprüft wird jeder angehakte Dienst
+  einzeln (EWS-`GetFolder` bzw. IMAP-LOGIN).
   **Je Dienst „nur lesen“ (Standard) oder „lesen und schreiben“**, durchgesetzt auf dem Server: Bei „nur lesen“ öffnen
   die Mail-Werkzeuge Ordner nur mit IMAP-EXAMINE und holen Nachrichten mit BODY.PEEK, `mail_send`/`mail_change` brechen
-  vor der Verbindung ab, und `dav_request` lehnt PUT, DELETE, MOVE, COPY, PROPPATCH usw. (auch das Ziel von MOVE/COPY)
-  ab. Damit sich das nicht umgehen lässt, gibt LLMitMir das Passwort eines GWDG-Zugangs nie heraus: kein Platzhalter
-  `{{cred:…:password}}` (Werkbank, HTTP, DAV) und kein `http_request` mit diesem Zugang.
-  Ältere WebDAV-Zugänge mit DavMail-URL behandelt LLMitMir als GWDG-Kalender.
+  vor der Verbindung ab, und `ews_save` lehnt Anlegen, Ändern und Löschen ab. Damit sich das nicht umgehen lässt, gibt
+  LLMitMir das Passwort eines Exchange-Zugangs nie heraus: kein Platzhalter {{cred:…:password}} (Werkbank, HTTP, DAV) und kein
+  `http_request` mit diesem Zugang.
+  Ältere WebDAV-Zugänge mit DavMail-URL behandelt LLMitMir weiter als GWDG-Kalender (DavMail, `dav_request`).
 - **Zugänge werden geprüft**: Nach dem Speichern, auf Knopfdruck (einzeln oder „Alle prüfen“) und automatisch, wenn ein
   Werkzeug mit abgelehnter Anmeldung scheitert, meldet sich LLMitMir mit einer harmlosen Leseanfrage an (PROPFIND bei
   WebDAV, GET bei HTTP-APIs, `getMe` bei Telegram, LOGIN bei IMAP). Schlägt das fehl, steht der Zugang in der Liste rot

@@ -51,7 +51,7 @@ CHAT_GROUPS = {"web", "files", "skills", "ha"}
 # be answerable (also right after installation, with no settings touched). Writes still need approval.
 # "llmitmir" (self-knowledge, read-only) is not in GROUPS, so it never shows up as a choice in the UI.
 ALWAYS_GROUPS = {"ha", "llmitmir"}
-COWORK_GROUPS = {"web", "ha", "dav", "mail", "http", "files", "notify", "skills", "progress", "werkbank"}
+COWORK_GROUPS = {"web", "ha", "dav", "ews", "mail", "http", "files", "notify", "skills", "progress", "werkbank"}
 
 
 class AccessDenied(Exception):
@@ -1831,8 +1831,9 @@ class ToolContext:
             _LOGGER.debug("tool %s failed", name, exc_info=True)
             text, status = f"Fehler: {type(e).__name__}: {e}", "error"
         text = C.scrub(text, self._secrets)
-        if len(text) > TOOL_RESULT_MAX_CHARS:
-            text = text[:TOOL_RESULT_MAX_CHARS] + f"\n… (gekürzt, {len(text)} Zeichen insgesamt)"
+        limit = TOOL_RESULT_MAX_CHARS if tool.max_chars is None else tool.max_chars
+        if limit and len(text) > limit:
+            text = text[:limit] + f"\n… (gekürzt, {len(text)} Zeichen insgesamt)"
         msg.update(content=text, status=status, ms=round((time.monotonic() - t0) * 1000))
         if status == "ok":  # only a call that really got through counts as a use of the Zugang
             self._count_credential_use(args)

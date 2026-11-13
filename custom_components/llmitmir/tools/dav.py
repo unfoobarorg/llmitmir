@@ -48,7 +48,10 @@ def files_base(cred: dict) -> str:
 
 
 def dav_root(cred: dict) -> str:
-    if C.is_gwdg(cred):  # https://davmail.gwdg.de:1080/users/<E-Mail> – darunter calendar/, contacts/ …
+    if C.is_ews(cred):  # Exchange über EWS: kein DAV-Stamm, dafür ews_events/ews_save/ews_contacts
+        raise ValueError("Dieser Zugang läuft über Exchange Web Services (EWS) – Termine mit ews_events, anlegen und "
+                         "ändern mit ews_save, Kontakte mit ews_contacts. dav_request gilt nur für WebDAV/CalDAV.")
+    if C.is_gwdg(cred):  # ältere Zugänge: https://davmail.gwdg.de:1080/users/<E-Mail> – darunter calendar/, contacts/ …
         root = C.gwdg_account(cred)[1]
         if not root:
             raise ValueError("Im GWDG-Zugang fehlt die GWDG-E-Mail-Adresse.")
@@ -167,6 +170,31 @@ def gwdg_allowed(cred: dict, url: str, write: bool = False) -> str:
             + " (relativ zum Konto)")
 
 
+# HTTP-Status, die eine DAV-Anfrage selbst erklärt – sie sind kein Verbindungsfehler und werden als solche gemeldet
+STATUS_HINTS = {
+    400: "HTTP 400: Anfrage abgelehnt – stimmt der Inhalt (XML/ICS) und die Methode?",
+    401: "HTTP 401: Anmeldung abgelehnt – Zugangsdaten prüfen",
+    403: "HTTP 403: Zugriff verweigert – Rechte oder Freigabe fehlen (bei GWDG: Dienst auf der Seite „Zugänge“ freigegeben?)",
+    404: "HTTP 404: Pfad nicht gefunden – stimmt der Pfad? Ein PROPFIND auf den Elternordner listet den Inhalt",
+    405: "HTTP 405: Methode hier nicht erlaubt – dieser Server kann das nicht (z. B. sync-collection)",
+    409: "HTTP 409: Konflikt – der Ordner oder Eintrag liegt anders als erwartet",
+    412: "HTTP 412: Vorbedingung fehlgeschlagen – ETag/If-Match passt nicht (der Eintrag wurde zwischenzeitlich geändert). "
+         "Neu lesen und mit dem aktuellen ETag wiederholen",
+    423: "HTTP 423: gesperrt – der Eintrag wird gerade bearbeitet",
+    507: "HTTP 507: kein Speicherplatz mehr",
+}
+
+
+def http_hint(status: int, text: str = "") -> str:
+    """Klartext zu einem HTTP-Status – 404/403/412 heißen so, nur Transportfehler heißen Verbindungsfehler."""
+    hint = STATUS_HINTS.get(status)
+    if hint:
+        return hint
+    if status >= 500:
+        return f"HTTP {status}: Serverfehler – der Dienst hat die Anfrage nicht verarbeitet"
+    return f"HTTP {status}: {(text or '').strip()[:300] or 'Anfrage abgelehnt'}"
+
+
 async def dav_request(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
     methode = str(a.get("methode") or "PROPFIND").upper()
@@ -192,12 +220,186 @@ async def dav_request(ctx, a: dict):
     try:
         async with ctx.session.request(methode, url, data=(body or None), auth=_auth(cred), headers=headers,
                                        timeout=aiohttp.ClientTimeout(total=90)) as r:
-            raw, _ = await read_body(r, 2_000_000)
+            raw, cut = await read_body(r, 5_000_000)
             text = raw.decode("utf-8", "ignore")
             etag = r.headers.get("ETag")
-            return {"status": r.status, "etag": etag, "antwort": text[:60_000]}
-    except aiohttp.ClientError as e:
+            status = r.status
+    except aiohttp.ClientError as e:  # nur echte Transportfehler heißen „keine Verbindung“
         return f"Fehler: Keine Verbindung zu {root_host} ({type(e).__name__}: {e})"
+    if a.get("speichern_als"):
+        # Große multistatus-Antworten gehören in den Arbeitsbereich, nicht in den Chat: dort mit jq/grep auswerten
+        info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], raw)
+        await ctx.emit_files()
+        return {"status": status, "etag": etag, "gespeichert": info, "bytes": len(raw),
+                **({"fehler": http_hint(status, text)} if status >= 400 else {}),
+                "hinweis": "Die Antwort liegt im Arbeitsbereich (Werkbank: /workspace) – dort mit grep, xmllint oder "
+                           "jq auswerten, statt sie im Chat zu lesen."}
+    out = {"status": status, "etag": etag}
+    if status >= 400:
+        out["fehler"] = http_hint(status, text)
+    out["antwort"] = text[:60_000] + (f"\n… (gekürzt, {len(text)} Zeichen – mit speichern_als vollständig holen)"
+                                      if len(text) > 60_000 else "")
+    if cut:
+        out["gekuerzt"] = "Antwort war größer als 5 MB und wurde abgeschnitten"
+    return out
+
+
+# ---------------------------------------------------------------- Einträge über die UID
+def uid_query(uid: str) -> str:
+    """REPORT, der einen Eintrag über seine UID sucht (unabhängig vom Dateinamen)."""
+    return ('<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+            '<d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR">'
+            '<c:comp-filter name="VEVENT"><c:prop-filter name="UID">'
+            f'<c:text-match collation="i;octet">{uid}</c:text-match>'
+            '</c:prop-filter></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>')
+
+
+def _uid_of(text: str) -> str:
+    m = re.search(r"^UID:(.+)$", text.replace("\r\n ", ""), re.M)
+    return m.group(1).strip() if m else ""
+
+
+async def _find_by_uid(ctx, cred: dict, kal: str, uid: str) -> dict:
+    """Eintrag zu einer UID finden: {"href", "etag", "ics"} oder {"fehler"}.
+
+    Erst fragt ein REPORT den Server (Nextcloud, teils auch DavMail). Kann der Server das nicht, wird der Kalender
+    einmal geholt und lokal nach der UID gesucht – der href ergibt sich dann aus Kalender + UID.
+    """
+    user = (cred.get("fields") or {}).get("username") or ""
+    base = f"{dav_root(cred)}/calendars/{_q(user)}/{_q(kal)}/" if not C.is_gwdg(cred) else f"{dav_root(cred)}/{_q(kal)}/"
+    try:
+        async with ctx.session.request("REPORT", base, data=uid_query(uid), auth=_auth(cred),
+                                       headers={"Depth": "1", "Content-Type": "application/xml"},
+                                       timeout=aiohttp.ClientTimeout(total=60)) as r:
+            if r.status < 400:
+                xml = await r.read()
+                for resp in ET.fromstring(xml).findall("d:response", NS):
+                    data = resp.findtext("d:propstat/d:prop/cal:calendar-data", "", NS)
+                    if _uid_of(data) == uid:
+                        return {"href": resp.findtext("d:href", "", NS),
+                                "etag": (resp.findtext("d:propstat/d:prop/d:getetag", "", NS) or "").strip('"'),
+                                "ics": data}
+            elif r.status not in (400, 405, 501):
+                return {"fehler": http_hint(r.status)}
+    except aiohttp.ClientError as e:
+        return {"fehler": f"Keine Verbindung ({type(e).__name__}: {e})"}
+    # Rückfall: ganzen Kalender holen und lokal suchen (DavMail kann keine UID-Abfrage)
+    try:
+        async with ctx.session.get(base, auth=_auth(cred), timeout=aiohttp.ClientTimeout(total=120),
+                                   headers={"Accept": "text/calendar, text/plain, */*"}) as r:
+            if r.status >= 400:
+                return {"fehler": http_hint(r.status)}
+            raw, _ = await read_body(r, 30_000_000)
+    except aiohttp.ClientError as e:
+        return {"fehler": f"Keine Verbindung ({type(e).__name__}: {e})"}
+    text = raw.decode("utf-8", "ignore")
+    for block in re.findall(r"BEGIN:VEVENT.*?END:VEVENT", text, re.S):
+        if _uid_of(block) == uid:
+            return {"href": f"{base}{urllib.parse.quote(uid)}.ics", "etag": "", "ics": block,
+                    "hinweis": "Der Server beantwortet keine UID-Abfrage; der Eintrag wurde im Kalender gefunden."}
+    return {"fehler": f"Kein Eintrag mit der UID „{uid}“ in „{kal}“ gefunden."}
+
+
+async def caldav_entry(ctx, a: dict):
+    """Termin über seine UID lesen, ändern oder löschen – unabhängig vom Dateinamen."""
+    cred = _cred(ctx, a.get("zugang", ""))
+    uid = str(a.get("uid") or "").strip()
+    if not uid:
+        return "Fehler: Ohne UID geht es nicht – die UID steht in der .ics (Zeile UID:) oder in caldav_events."
+    kal = str(a.get("kalender") or ("calendar" if C.is_gwdg(cred) else "personal")).strip("/")
+    aktion = str(a.get("aktion") or "suchen").strip().casefold()
+    if C.is_gwdg(cred):
+        if (why := gwdg_allowed(cred, f"{dav_root(cred)}/{_q(kal)}/", write=aktion != "suchen")):
+            return why
+    found = await _find_by_uid(ctx, cred, kal, uid)
+    if found.get("fehler"):
+        return f"Fehler: {found['fehler']}"
+    href, etag = found["href"], found["etag"]
+    if aktion == "suchen":
+        ev = (_ics_events(found["ics"]) or [{}])[0]
+        return {"gefunden": True, "uid": uid, "href": href, "etag": etag,
+                "termin": {k: ev.get(k) for k in ("summary", "dtstart", "dtend", "location", "status") if ev.get(k)},
+                **({"hinweis": found["hinweis"]} if found.get("hinweis") else {})}
+    if aktion == "aendern":
+        inhalt = a.get("inhalt")
+        if not inhalt:
+            return "Fehler: Zum Ändern den vollständigen neuen .ics-Inhalt angeben (VCALENDAR mit dieser UID)."
+        if uid not in str(inhalt):
+            return f"Fehler: Der neue Inhalt enthält die UID „{uid}“ nicht – sonst entsteht ein zweiter Eintrag."
+        headers = {"Content-Type": "text/calendar; charset=utf-8"}
+        if etag and a.get("mit_etag", True):
+            headers["If-Match"] = f'"{etag}"'
+        async with ctx.session.put(href, data=str(inhalt).encode("utf-8"), auth=_auth(cred), headers=headers,
+                                   timeout=aiohttp.ClientTimeout(total=60)) as r:
+            if r.status >= 400:
+                return f"Fehler: {http_hint(r.status, await r.text())}"
+            return {"ok": True, "aktion": "geaendert", "uid": uid, "href": href,
+                    "etag": (r.headers.get("ETag") or "").strip('"')}
+    if aktion == "loeschen":
+        headers = {"If-Match": f'"{etag}"'} if etag and a.get("mit_etag", True) else {}
+        async with ctx.session.delete(href, auth=_auth(cred), headers=headers,
+                                      timeout=aiohttp.ClientTimeout(total=60)) as r:
+            if r.status >= 400:
+                return f"Fehler: {http_hint(r.status, await r.text())}"
+            return {"ok": True, "aktion": "geloescht", "uid": uid, "href": href}
+    return f"Fehler: Unbekannte Aktion „{aktion}“ (suchen, aendern, loeschen)."
+
+
+# ---------------------------------------------------------------- nur Änderungen statt des Archivs
+async def caldav_changes(ctx, a: dict):
+    """Was hat sich im Kalender geändert? sync-collection (mit Token) oder getctag als Rückfall.
+
+    Der erste Aufruf ohne Token liefert alle Einträge samt Token; jeder weitere Aufruf mit diesem Token nur noch
+    die Änderungen und Löschungen. Kann der Server sync-collection nicht, kommt der ctag des Ordners – ändert er
+    sich nicht, hat sich nichts geändert.
+    """
+    cred = _cred(ctx, a.get("zugang", ""))
+    user = (cred.get("fields") or {}).get("username") or ""
+    kal = str(a.get("kalender") or ("calendar" if C.is_gwdg(cred) else "personal")).strip("/")
+    base = f"{dav_root(cred)}/calendars/{_q(user)}/{_q(kal)}/" if not C.is_gwdg(cred) else f"{dav_root(cred)}/{_q(kal)}/"
+    token = str(a.get("sync_token") or "").strip()
+    body = ('<?xml version="1.0"?><d:sync-collection xmlns:d="DAV:">'
+            f"<d:sync-token>{token}</d:sync-token><d:sync-level>1</d:sync-level>"
+            "<d:prop><d:getetag/></d:prop></d:sync-collection>")
+    try:
+        async with ctx.session.request("REPORT", base, data=body, auth=_auth(cred),
+                                       headers={"Depth": "1", "Content-Type": "application/xml"},
+                                       timeout=aiohttp.ClientTimeout(total=60)) as r:
+            if r.status < 400:
+                xml = await r.read()
+                root = ET.fromstring(xml)
+                neu, weg = [], []
+                for resp in root.findall("d:response", NS):
+                    href = resp.findtext("d:href", "", NS)
+                    if resp.find("d:status", NS) is not None:
+                        weg.append(href)  # 404 im sync-collection heißt: gelöscht
+                    else:
+                        neu.append({"href": href,
+                                    "etag": (resp.findtext("d:propstat/d:prop/d:getetag", "", NS) or "").strip('"')})
+                return {"verfahren": "sync-collection", "sync_token": root.findtext("d:sync-token", "", NS),
+                        "geaendert": neu, "geloescht": weg,
+                        "hinweis": "Den sync_token für den nächsten Aufruf merken (z. B. in einer Datei im Arbeitsbereich)."}
+            if r.status not in (400, 403, 405, 501):
+                return f"Fehler: {http_hint(r.status)}"
+    except aiohttp.ClientError as e:
+        return f"Fehler: Keine Verbindung ({type(e).__name__}: {e})"
+    # Rückfall: ctag des Ordners (ändert er sich nicht, hat sich nichts geändert)
+    propfind = ('<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/">'
+                "<d:prop><cs:getctag/><d:sync-token/></d:prop></d:propfind>")
+    try:
+        async with ctx.session.request("PROPFIND", base, data=propfind, auth=_auth(cred),
+                                       headers={"Depth": "0", "Content-Type": "application/xml"},
+                                       timeout=aiohttp.ClientTimeout(total=30)) as r:
+            if r.status >= 400:
+                return f"Fehler: {http_hint(r.status)}"
+            xml = await r.read()
+    except aiohttp.ClientError as e:
+        return f"Fehler: Keine Verbindung ({type(e).__name__}: {e})"
+    root = ET.fromstring(xml)
+    ctag = root.findtext(".//{http://calendarserver.org/ns/}getctag", "") or root.findtext(".//d:sync-token", "", NS)
+    return {"verfahren": "ctag", "ctag": ctag, "kalender": kal,
+            "hinweis": "Dieser Server kann sync-collection nicht. Ist der ctag unverändert, hat sich nichts geändert; "
+                       "sonst den Kalender mit caldav_events neu lesen."}
 
 
 def _ics_events(text: str) -> list[dict]:
@@ -259,6 +461,14 @@ async def _gwdg_events(ctx, cred: dict, kal: str, von: str, bis: str):
 
 async def caldav_events(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
+    if C.is_ews(cred):  # Exchange: derselbe Aufruf, nur über EWS (der Server filtert den Zeitraum)
+        from ..ews import EwsError
+        from .ews import ews_events
+
+        try:
+            return await ews_events(ctx, a)
+        except EwsError as e:  # Rechte und Adressen als lesbarer Fehler, nicht als Ausnahme
+            return f"Fehler: {e}"
     user = (cred.get("fields") or {}).get("username") or ""
     gwdg = C.is_gwdg(cred)
     kal = str(a.get("kalender") or ("calendar" if gwdg else "personal")).strip("/")
@@ -304,12 +514,27 @@ register(Tool("dav_write", "dav", "Lädt eine Datei nach Nextcloud/WebDAV hoch (
               obj({"zugang": Z, "pfad": {"type": "string"}, "inhalt": {"type": "string"},
                    "aus_arbeitsbereich": {"type": "string"}, "ueberschreiben": {"type": "boolean"}}, ["zugang", "pfad"]),
               dav_write, write=True, label="Datei in Cloud schreiben", icon="mdi:cloud-upload-outline"))
-register(Tool("dav_request", "dav", "Freie WebDAV/CalDAV/CardDAV-Anfrage relativ zu /remote.php/dav/ (z. B. PROPFIND calendars/<user>/, REPORT, PUT .ics mit If-Match, DELETE); bei GWDG-Exchange-Zugängen relativ zum DavMail-Stamm des Kontos (calendar/, contacts/ …). Platzhalter {{cred:Name:feld}} im Inhalt erlaubt.",
+register(Tool("dav_request", "dav", "Freie WebDAV/CalDAV/CardDAV-Anfrage relativ zu /remote.php/dav/ (z. B. PROPFIND calendars/<user>/, REPORT, PUT .ics mit If-Match, DELETE); bei älteren GWDG-Exchange-Zugängen mit DavMail-Adresse relativ zum DavMail-Stamm (calendar/, contacts/ …). Platzhalter {{cred:Name:feld}} im Inhalt erlaubt. Große Antworten mit speichern_als in den Arbeitsbereich schreiben (dort mit grep/xmllint auswerten); HTTP-Status wie 404, 403 und 412 kommen als solche zurück.",
               obj({"zugang": Z, "methode": {"type": "string"}, "pfad": {"type": "string"},
-                   "header": {"type": "object"}, "inhalt": {"type": "string"}}, ["zugang", "methode", "pfad"]),
+                   "header": {"type": "object"}, "inhalt": {"type": "string"},
+                   "speichern_als": {"type": "string", "description": "Antwort in den Arbeitsbereich schreiben statt in den Chat"}},
+                  ["zugang", "methode", "pfad"]),
               dav_request, write=lambda a: str(a.get("methode") or "").upper() not in READ_METHODS,
               label="DAV-Anfrage", icon="mdi:calendar-sync-outline"))
-register(Tool("caldav_events", "dav", "Liest Termine eines Nextcloud- oder GWDG-Exchange-Kalenders in einem Zeitraum.",
-              obj({"zugang": Z, "kalender": {"type": "string", "description": "Kalender-ID, z. B. personal (Nextcloud); bei GWDG-Exchange weglassen"},
+register(Tool("caldav_events", "dav", "Liest Termine eines Nextcloud-Kalenders in einem Zeitraum (Exchange-Kalender: ews_events).",
+              obj({"zugang": Z, "kalender": {"type": "string", "description": "Kalender-ID, z. B. personal"},
                    "von": {"type": "string", "description": "JJJJ-MM-TT"}, "bis": {"type": "string"}}, ["zugang"]),
               caldav_events, label="Termine lesen", icon="mdi:calendar-month-outline"))
+register(Tool("caldav_entry", "dav", "Liest, ändert oder löscht einen Kalendereintrag über seine UID – unabhängig vom Dateinamen. Beim Ändern den vollständigen neuen .ics-Inhalt angeben (mit derselben UID); mit If-Match auf das ETag, damit nichts überschrieben wird, was zwischenzeitlich geändert wurde.",
+              obj({"zugang": Z, "uid": {"type": "string", "description": "UID aus der .ics oder aus caldav_events"},
+                   "kalender": {"type": "string", "description": "Kalender-ID (Standard personal)"},
+                   "aktion": {"type": "string", "enum": ["suchen", "aendern", "loeschen"]},
+                   "inhalt": {"type": "string", "description": "nur bei aendern: vollständiger .ics-Inhalt"},
+                   "mit_etag": {"type": "boolean", "description": "If-Match auf das gefundene ETag (Standard an)"}},
+                  ["zugang", "uid"]),
+              caldav_entry, write=lambda a: str(a.get("aktion") or "suchen").strip().casefold() != "suchen",
+              label="Termin über UID", icon="mdi:calendar-edit"))
+register(Tool("caldav_changes", "dav", "Holt nur die Änderungen eines Kalenders: sync-collection mit sync_token, sonst der ctag des Ordners. Beim ersten Aufruf ohne Token kommt der Bestand samt Token, danach nur Neues und Gelöschtes.",
+              obj({"zugang": Z, "kalender": {"type": "string", "description": "Kalender-ID (Standard personal)"},
+                   "sync_token": {"type": "string", "description": "Token aus dem letzten Aufruf"}}, ["zugang"]),
+              caldav_changes, label="Kalender-Änderungen", icon="mdi:calendar-sync-outline"))

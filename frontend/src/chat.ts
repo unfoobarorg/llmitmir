@@ -22,12 +22,14 @@ const CHANGE_ART: Record<string, [string, string, string]> = {
 const CHANGE_VERB: Record<string, [string, string]> = { anlegen: ["neu", "add"], aendern: ["ändern", "upd"], loeschen: ["löschen", "del"] };
 // Simple view: what the assistant is doing, in plain words (by tool group).
 const DOING: Record<string, string> = {
-  web: "Sucht im Internet …", ha: "Schaut im Zuhause nach …", dav: "Schaut in deiner Nextcloud nach …", http: "Fragt einen Dienst ab …",
+  web: "Sucht im Internet …", ha: "Schaut im Zuhause nach …", dav: "Schaut in deiner Nextcloud nach …",
+  ews: "Schaut in deinen Exchange-Kalender …", http: "Fragt einen Dienst ab …",
   files: "Liest Dateien …", skills: "Liest eine Anleitung …", werkbank: "Rechnet und erstellt Dateien …", notify: "Schickt eine Nachricht …",
   progress: "Plant die nächsten Schritte …", llmitmir: "Schaut in LLMitMir nach …", model: "Schaut sich den Anhang an …",
 };
 const GROUP_PLAIN: Record<string, string> = {
-  web: "das Internet", dav: "deine Nextcloud", http: "Abfragen bei anderen Diensten", files: "Dateien", notify: "Benachrichtigungen",
+  web: "das Internet", dav: "deine Nextcloud", ews: "dein Exchange-Kalender", http: "Abfragen bei anderen Diensten",
+  files: "Dateien", notify: "Benachrichtigungen",
   skills: "deine Anleitungen (Skills)", werkbank: "die Werkbank (Programme ausführen)", ha: "Home Assistant",
 };
 const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };

@@ -577,7 +577,7 @@ export class CredentialPage extends StoreElement {
           <label class="f"><span>${t("Typ")}</span><select @change=${(e: any) => {
             const nt = types[e.target.value] || {};
             this.d = { ...this.d, type: e.target.value, services: nt.services ? (this.d.services ?? nt.default_services ?? []) : undefined,
-              name: this.d.name || (e.target.value === "gwdg" ? "GWDG-Exchange" : "") }; this.dirty = true; }}>
+              name: this.d.name || (e.target.value === "gwdg" ? "GWDG-Exchange" : e.target.value === "ews" ? "Exchange" : "") }; this.dirty = true; }}>
             ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${c.type === k}>${v.label}</option>`)}</select></label></div>
         ${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}
         ${Object.keys(svcDefs).length ? html`<div class="f"><span>${t("Verwenden für")}</span>

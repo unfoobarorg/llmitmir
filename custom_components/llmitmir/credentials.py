@@ -25,31 +25,44 @@ TYPES: dict[str, dict[str, Any]] = {
     "telegram": {"label": "Telegram-Bot", "fields": ["token", "chat_ids"], "secret": {"token"}},
     "imap": {"label": "E-Mail (IMAP/SMTP)", "fields": ["imap_host", "smtp_host", "username", "password"], "secret": {"password"}},
     "other": {"label": "Sonstiges (Schlüssel/Wert)", "fields": [], "secret": set()},
+    # Exchange Web Services als eigener Typ: beliebiger Exchange-Server mit eigenen Endpunkten (Kalender, Kontakte).
+    # Wer nur einen Exchange hat (nicht die GWDG), trägt Adresse, Benutzer und Passwort selbst ein.
+    "ews": {"label": "Exchange (EWS)", "fields": ["url", "username", "password"], "secret": {"password"},
+            "services": {"calendar": "Kalender", "contacts": "Kontakte"},
+            "service_fields": {},
+            "default_services": ["calendar", "contacts"],
+            "labels": {"url": "EWS-Adresse", "username": "Benutzername", "password": "Passwort"},
+            "placeholders": {"url": "https://server.example.org/EWS/Exchange.asmx",
+                             "username": "z. B. vorname.nachname@example.org oder DOMAIN\\benutzer"},
+            "hint": "Exchange Web Services: die Adresse der Exchange.asmx deines Servers, dazu Benutzername und Passwort. "
+                    "Kalender und Kontakte laufen über EWS (Termine mit Zeitraum, Ändern und Löschen über die ItemId)."},
     # GWDG-Exchange (Uni-Konto) – wie in calmerge gibt die Person nur E-Mail-Adresse und Passwort an und wählt, wofür der
-    # Zugang gilt (Postfach, Kalender, Kontakte). Die Adressen dazu (DavMail, IMAP/SMTP) ergänzt LLMitMir beim Speichern.
+    # Zugang gilt (Postfach, Kalender, Kontakte). Kalender und Kontakte laufen über EWS mit den Endpunkten der GWDG,
+    # das Postfach über IMAP/SMTP – alles setzt LLMitMir beim Speichern selbst.
     "gwdg": {"label": "GWDG-Exchange (Uni-Konto)", "fields": ["username", "password"], "secret": {"password"},
              "services": {"mail": "E-Mail-Postfach", "calendar": "Kalender", "contacts": "Kontakte"},
-             "service_fields": {"mail": ["imap_host", "smtp_host"], "calendar": ["url"], "contacts": ["contacts_url"]},
+             "service_fields": {"mail": ["imap_host", "smtp_host"], "calendar": ["ews_url"], "contacts": ["ews_url"]},
              "default_services": ["calendar"],
-             "readonly": ["url", "contacts_url", "imap_host", "smtp_host"],
-             "labels": {"username": "GWDG-E-Mail-Adresse", "password": "Passwort", "url": "Kalender-Adresse (DavMail)",
-                        "contacts_url": "Kontakte-Adresse (DavMail)", "imap_host": "IMAP-Server", "smtp_host": "SMTP-Server"},
-             "placeholders": {"username": "vorname.nachname@gwdg.de", "url": "Wird automatisch aus deiner E-Mail-Adresse erzeugt",
-                              "contacts_url": "Wird automatisch aus deiner E-Mail-Adresse erzeugt"},
+             "readonly": ["ews_url", "imap_host", "smtp_host"],
+             "labels": {"username": "GWDG-E-Mail-Adresse", "password": "Passwort", "ews_url": "EWS-Adresse",
+                        "imap_host": "IMAP-Server", "smtp_host": "SMTP-Server"},
+             "placeholders": {"username": "vorname.nachname@gwdg.de", "ews_url": "Wird automatisch gesetzt"},
              "hint": "Dein Konto im GWDG-Exchange. Trag nur deine GWDG-E-Mail-Adresse und dein Passwort ein und wähl, wofür "
-                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt, die Server-Adressen setzt LLMitMir selbst."},
+                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt. Kalender und Kontakte laufen über EWS, das Postfach "
+                     "über IMAP/SMTP; die Adressen setzt LLMitMir selbst."},
 }
 
 GWDG_DAVMAIL = "https://davmail.gwdg.de:1080"
+GWDG_EWS = "https://email.gwdg.de/EWS/Exchange.asmx"  # Exchange Web Services der GWDG
 GWDG_IMAP = "email.gwdg.de:993"  # Exchange-IMAP der GWDG (SSL)
 GWDG_SMTP = "email.gwdg.de:587"  # Versand mit STARTTLS
 ACCESS_LABELS = {"read": "nur lesen", "write": "lesen und schreiben"}
 GWDG_USAGE = ("Postfach: mail_folders, mail_list, mail_read; mail_send und mail_change nur bei „lesen und schreiben“. "
-              "Kalender: caldav_events (ohne kalender), schreiben mit dav_request PUT/DELETE unter calendar/. "
-              "Kontakte: dav_request unter contacts/. Das Passwort gibt LLMitMir nicht heraus (kein {{cred:…:password}}, "
+              "Kalender: ews_events (auch caldav_events), anlegen/ändern/löschen mit ews_save. "
+              "Kontakte: ews_contacts. Das Passwort gibt LLMitMir nicht heraus (kein {{cred:…:password}}, "
               "kein http_request) – so gilt die Einstellung „nur lesen“ wirklich.")
-GWDG_NO_SECRET = ("Das Passwort eines GWDG-Exchange-Zugangs gibt LLMitMir nicht heraus – damit „nur lesen“ wirklich gilt. "
-                  "Nutze mail_*, caldav_events oder dav_request mit zugang.")
+GWDG_NO_SECRET = ("Das Passwort eines Exchange-Zugangs gibt LLMitMir nicht heraus – damit „nur lesen“ wirklich gilt. "
+                  "Nutze mail_*, ews_events, ews_contacts und ews_save mit zugang.")
 
 
 def gwdg_email(value: str) -> str:
@@ -79,6 +92,36 @@ def is_gwdg(cred: dict) -> bool:
     return cred.get("type") == "gwdg" or "davmail.gwdg.de:1080" in str((cred.get("fields") or {}).get("url") or "")
 
 
+def is_ews(cred: dict) -> bool:
+    """Läuft dieser Zugang über Exchange Web Services?
+
+    Ja beim Typ ``ews`` (beliebiger Exchange) und beim GWDG-Exchange, solange dort keine alte DavMail-Adresse steht –
+    die GWDG nutzt EWS mit ihren eigenen Endpunkten, ältere Zugänge bleiben über DavMail erreichbar.
+    """
+    t = cred.get("type")
+    if t == "ews":
+        return True
+    if t != "gwdg":
+        return False
+    f = cred.get("fields") or {}
+    return not str(f.get("url") or "").startswith("http") or "davmail.gwdg.de" not in str(f.get("url") or "")
+
+
+def ews_endpoint(cred: dict) -> str:
+    """EWS-Adresse (…/EWS/Exchange.asmx): beim GWDG-Zugang fest gesetzt, beim Typ ``ews`` selbst eingetragen."""
+    f = cred.get("fields") or {}
+    if cred.get("type") == "gwdg":
+        return str(f.get("ews_url") or GWDG_EWS)
+    return str(f.get("ews_url") or f.get("url") or "").strip()
+
+
+def ews_account(cred: dict) -> tuple[str, str]:
+    """(Benutzername, Passwort) für die EWS-Anmeldung."""
+    f = cred.get("fields") or {}
+    user = gwdg_email(f.get("username") or "") if cred.get("type") == "gwdg" else str(f.get("username") or "").strip()
+    return user, str(f.get("password") or "")
+
+
 def gwdg_account(cred: dict) -> tuple[str, str]:
     """(E-Mail, DavMail-Stamm) eines GWDG-Zugangs. Bei älteren WebDAV-Zugängen mit DavMail-URL kommt die Adresse aus der
     URL, falls kein Benutzername eingetragen ist."""
@@ -94,9 +137,20 @@ def gwdg_account(cred: dict) -> tuple[str, str]:
 
 
 def services(cred: dict) -> list[str]:
-    """Wofür ein GWDG-Zugang gilt (Postfach, Kalender, Kontakte). Ältere WebDAV-Zugänge mit DavMail-URL: Kalender."""
+    """Wofür ein Zugang gilt (Postfach, Kalender, Kontakte).
+
+    GWDG-Exchange: die angehakten Dienste. Typ ``ews``: Kalender und/oder Kontakte. Ältere WebDAV-Zugänge mit
+    DavMail-URL: Kalender.
+    """
+    t = cred.get("type")
+    if t == "ews":
+        known = TYPES["ews"]["services"]
+        picked = cred.get("services")
+        if picked is None:
+            picked = TYPES["ews"]["default_services"]
+        return [k for k in known if k in picked]
     known = TYPES["gwdg"]["services"]
-    if cred.get("type") != "gwdg":
+    if t != "gwdg":
         return ["calendar"] if is_gwdg(cred) else []
     picked = cred.get("services")
     if picked is None:
@@ -115,20 +169,27 @@ def access(cred: dict, service: str) -> str:
         return "write" if service == "mail" else ""
     if service not in services(cred):
         return ""
-    if t != "gwdg":
+    if t not in ("gwdg", "ews"):
         return "read"
     return "write" if (cred.get("access") or {}).get(service) == "write" else "read"
 
 
 def access_text(cred: dict) -> dict[str, str]:
     """{"E-Mail-Postfach": "nur lesen", …} für Modell und Änderungsvorschau."""
-    names = TYPES["gwdg"]["services"]
-    return {names[s]: ACCESS_LABELS[access(cred, s)] for s in services(cred)}
+    names = TYPES["ews" if cred.get("type") == "ews" else "gwdg"]["services"]
+    return {names.get(s, s): ACCESS_LABELS[access(cred, s)] for s in services(cred)}
 
 
 def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) -> dict:
-    """Felder vor dem Speichern vereinheitlichen. GWDG: E-Mail-Adresse normalisieren, die Adressen der gewählten Dienste
-    daraus erzeugen und die der abgewählten entfernen."""
+    """Felder vor dem Speichern vereinheitlichen.
+
+    GWDG: E-Mail-Adresse normalisieren, die Adressen der gewählten Dienste daraus erzeugen und die der abgewählten
+    entfernen – Kalender und Kontakte über EWS (fester Endpunkt der GWDG), das Postfach über IMAP/SMTP.
+    Typ ``ews``: nur die Felder des Typs behalten, die EWS-Adresse bleibt wie eingetragen (eigener Server).
+    """
+    if typ == "ews":
+        t = TYPES["ews"]
+        return {k: v for k, v in fields.items() if k in t["fields"] or str(v or "").strip()}
     if typ != "gwdg":
         return fields
     t = TYPES["gwdg"]
@@ -139,10 +200,8 @@ def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) ->
     out["username"] = email
     picked = t["default_services"] if picked is None else picked
     if email:
-        if "calendar" in picked:
-            out["url"] = gwdg_url(email)
-        if "contacts" in picked:
-            out["contacts_url"] = gwdg_root(email) + "contacts/"
+        if "calendar" in picked or "contacts" in picked:
+            out["ews_url"] = GWDG_EWS
         if "mail" in picked:
             out["imap_host"], out["smtp_host"] = GWDG_IMAP, GWDG_SMTP
     return out

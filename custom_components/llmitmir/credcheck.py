@@ -25,6 +25,7 @@ REQUIRED: dict[str, tuple[str, ...]] = {
     "telegram": ("token",),
     "imap": ("imap_host", "username", "password"),
     "gwdg": ("username", "password"),
+    "ews": ("url", "username", "password"),
 }
 # Antworten, die ein Werkzeug als abgelehnte Anmeldung zurueckgibt (dann gilt der Zugang als kaputt)
 AUTH_MARKERS = ("HTTP 401", "HTTP 407", "401 Unauthorized", "Unauthorized", "Anmeldung abgelehnt",
@@ -105,8 +106,29 @@ async def _check_webdav(session: aiohttp.ClientSession, cred: dict) -> dict:
 DAV_PING = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:displayname/></d:prop></d:propfind>'
 
 
+async def _check_ews(session: aiohttp.ClientSession, cred: dict, folder: str = "calendar") -> dict:
+    """Exchange Web Services: ein GetFolder auf den Kalender- bzw. Kontaktordner – die billigste echte Anfrage."""
+    from . import credentials as C
+    from . import ews as E
+
+    user, password = C.ews_account(cred)
+    try:
+        out = await E.call(session, C.ews_endpoint(cred), user, password, E.get_folder(folder), timeout=CHECK_TIMEOUT)
+    except E.EwsError as e:
+        msg = str(e)
+        ok = not any(m in msg for m in ("401", "403", "abgelehnt", "verweigert"))
+        return _result(ok, msg, 401 if "401" in msg else None)
+    if not out["ok"]:
+        return _result(False, E.describe_error(out), out.get("status"))
+    return _result(True, "EWS antwortet", out.get("status"))
+
+
 async def _check_gwdg(session: aiohttp.ClientSession, cred: dict) -> dict:
-    """GWDG-Exchange: jeden angehakten Dienst einzeln pruefen (DavMail-Ordner per PROPFIND, Postfach per IMAP-LOGIN)."""
+    """GWDG-Exchange: jeden angehakten Dienst einzeln prüfen.
+
+    Kalender und Kontakte laufen über EWS (GetFolder), das Postfach über IMAP-LOGIN. Ältere Zugänge mit
+    DavMail-Adresse werden weiterhin per PROPFIND auf den DavMail-Ordner geprüft.
+    """
     from . import credentials as C
     from .tools import dav as D
 
@@ -114,10 +136,13 @@ async def _check_gwdg(session: aiohttp.ClientSession, cred: dict) -> dict:
     picked = C.services(cred)
     if not picked:
         return _result(False, "Kein Dienst gewählt (E-Mail-Postfach, Kalender oder Kontakte)")
+    ews = C.is_ews(cred)
     parts, ok_all, status = [], True, None
     for svc in picked:
         if svc == "mail":
             r = await _check_imap(cred)
+        elif ews:
+            r = await _check_ews(session, cred, "contacts" if svc == "contacts" else "calendar")
         else:
             try:
                 st = await _http(session, "PROPFIND", D.dav_root(cred) + "/" + D.GWDG_FOLDERS[svc], data=DAV_PING,
@@ -275,6 +300,8 @@ async def check_credential(session: aiohttp.ClientSession, cred: dict) -> dict:
     try:
         if typ == "gwdg":
             return await _check_gwdg(session, cred)
+        if typ == "ews":
+            return await _check_ews(session, cred)
         if typ == "webdav":
             from . import credentials as C
 

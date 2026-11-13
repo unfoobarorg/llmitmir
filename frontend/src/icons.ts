@@ -1,6 +1,7 @@
 // Icons bundled into the panel (keeps the bundle small).
 export {
   mdiAccountOutline,
+  mdiAccountBoxOutline,
   mdiAlertCircleOutline,
   mdiApi,
   mdiArrowDown,
@@ -9,6 +10,8 @@ export {
   mdiBellOutline,
   mdiBellRingOutline,
   mdiCalendarClockOutline,
+  mdiCalendarEdit,
+  mdiCalendarPlus,
   mdiCalendarMonthOutline,
   mdiCalendarSyncOutline,
   mdiChartLine,

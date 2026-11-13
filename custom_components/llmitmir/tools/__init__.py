@@ -25,6 +25,9 @@ class Tool:
     preview: Callable[["ToolContext", dict], Awaitable[dict]] | None = None
     # (ctx, args) -> args as stored in the chat and shown to the person (e.g. secrets masked)
     redact: Callable[["ToolContext", dict], dict] | None = None
+    # Obergrenze für das Ergebnis in Zeichen: None = Standard (TOOL_RESULT_MAX_CHARS), 0 = nie kürzen.
+    # Anleitungen (skill_load) sind Arbeitsanweisungen, keine Vorschau – die dürfen nicht abgeschnitten werden.
+    max_chars: int | None = None
 
     def is_write(self, args: dict) -> bool:
         return self.write(args) if callable(self.write) else bool(self.write)
@@ -40,6 +43,7 @@ GROUPS = {
     "web": {"label": "Websuche & Abrufen", "icon": "mdi:web"},
     "ha": {"label": "Home Assistant", "icon": "mdi:home-assistant"},
     "dav": {"label": "Nextcloud / WebDAV / CalDAV", "icon": "mdi:cloud-outline"},
+    "ews": {"label": "Exchange (EWS)", "icon": "mdi:calendar-sync-outline"},
     "mail": {"label": "E-Mail", "icon": "mdi:email-outline"},
     "http": {"label": "HTTP-Anfragen", "icon": "mdi:api"},
     "files": {"label": "Dateien", "icon": "mdi:file-document-outline"},
@@ -105,4 +109,4 @@ async def read_body(resp, limit: int) -> tuple[bytes, bool]:
 
 def load_all() -> None:
     # import modules for their side effect of registering tools
-    from . import dav, files, ha, http, mail, manage, misc, web, werkbank  # noqa: F401
+    from . import dav, ews, files, ha, http, mail, manage, misc, web, werkbank  # noqa: F401
