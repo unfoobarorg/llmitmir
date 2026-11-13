@@ -173,7 +173,7 @@ export class TaskPage extends StoreElement {
     const simple = isSimple();
     const hit = !!x.limit_hit && !x.heavy;
     return html`<div class="card" style=${hit ? "border-color:var(--lm-err);background:color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel))" : ""}>
-      ${hit ? html`<div class="checkbox err" style="margin:0 0 12px;padding:0;background:none">${icon("alert", 18)}
+      ${hit ? html`<div class="checkbox err" style="margin:0 0 14px">${icon("alert", 18)}
         <div><b>Diese Aufgabe hat die Höchstzahl von 60 Schritten erreicht.</b> Ein Lauf wurde deshalb abgebrochen, bevor er fertig war.
         Gib die Aufgabe hier für mehr Schritte frei – dann hat jeder Lauf bis zu 150 Schritte.</div></div>` : nothing}
       <label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!x.heavy}

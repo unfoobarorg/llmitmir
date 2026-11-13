@@ -1065,7 +1065,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
         (${(H.providers||[]).filter(L=>L.id!=="main").map(L=>L.operator).join(" oder ")||"Claude"}), statt auszufallen. Dabei gehen der Auftrag
         und die Ergebnisse der Werkzeuge dorthin – nie Passwörter, und nur Zugänge, die für externe Modelle freigegeben sind. Kosten zählen zu deinem
         Monatslimit (${G(H.month_eur||0)} von ${G(H.limit_eur||0)} verbraucht). Bitte nur ankreuzen, wenn der Auftrag keine sensiblen Informationen enthält.</div></div>`}stepsCard(C){let H=R(),e=!!C.limit_hit&&!C.heavy;return r`<div class="card" style=${e?"border-color:var(--lm-err);background:color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel))":""}>
-      ${e?r`<div class="checkbox err" style="margin:0 0 12px;padding:0;background:none">${d("alert",18)}
+      ${e?r`<div class="checkbox err" style="margin:0 0 14px">${d("alert",18)}
         <div><b>Diese Aufgabe hat die Höchstzahl von 60 Schritten erreicht.</b> Ein Lauf wurde deshalb abgebrochen, bevor er fertig war.
         Gib die Aufgabe hier für mehr Schritte frei – dann hat jeder Lauf bis zu 150 Schritte.</div></div>`:l}
       <label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!C.heavy}
