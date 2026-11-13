@@ -127,11 +127,14 @@ export class ChatView extends LitElement {
     .offer { display: grid; gap: 8px; font-size: 13.5px; margin-top: 4px; }
     .offer svg { vertical-align: -3px; color: var(--lm-warn); }
     .main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
-    header { display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 52px; overflow: hidden; }
+    /* Kein overflow: hidden in der Kopfzeile – sonst schneidet sie ihre eigenen
+       Menüs ab, und die drei Punkte öffnen ein leeres Feld. Stattdessen schrumpfen
+       Titel und Chips, damit nichts über die Fensterbreite hinausläuft. */
+    header { display: flex; align-items: center; gap: 6px; padding: 8px 12px; min-height: 52px; }
     header > .chip { flex: 0 1 auto; min-width: 0; overflow: hidden; }
-    header .title { font-weight: 560; font-size: 15px; padding: 6px 8px; border-radius: 8px; cursor: pointer; max-width: 60vw; }
+    header .title { flex: 0 1 auto; min-width: 0; font-weight: 560; font-size: 15px; padding: 6px 8px; border-radius: 8px; cursor: pointer; max-width: 60vw; }
     header .title:hover { background: var(--lm-hover); }
-    header input { max-width: 420px; padding: 6px 8px; }
+    header input { flex: 0 1 auto; min-width: 0; max-width: 420px; padding: 6px 8px; }
     /* Der Chat darf nie breiter als das Fenster werden: Raster mit minmax(0, 1fr) und
        min-width: 0 an den Kindern, damit breite Inhalte (Code, Tabellen) nur in ihrem
        eigenen Kasten scrollen und nicht den ganzen Verlauf auseinanderziehen. */

@@ -34,6 +34,9 @@ const EN: Record<string, string> = {
   "Alle {n} entfernen": "Remove all {n}", "Nur diese entfernen": "Remove just this one",
   "Benachrichtigungen dieses Chats ausschalten": "Turn off notifications for this chat",
   "Benachrichtigungen für diesen Chat aus": "Notifications for this chat are off",
+  "In Projekt verschieben": "Move to project", "Ohne Projekt": "No project", "Chat verschieben": "Move chat",
+  "Chat hierher ziehen": "Drag a chat here", "Nach „{p}“ verschoben": "Moved to “{p}”",
+  "Aus dem Projekt entfernt": "Removed from the project", "Noch keine Projekte angelegt.": "No projects yet.",
 };
 
 let lang = "de";

@@ -93,6 +93,19 @@ export class LLMitMirPanel extends LitElement {
       padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: fadeIn .2s; max-width: 90vw; }
     .deny { display: grid; place-items: center; height: 100%; text-align: center; padding: 24px; }
     .deny .card { max-width: 440px; }
+    /* Chats per Ziehen in ein Projekt verschieben */
+    .rc { touch-action: pan-y; }
+    .rc.drag { opacity: .45; }
+    .pj.drop, .rc.drop { background: var(--lm-accent-soft); outline: 1.5px dashed var(--lm-accent); outline-offset: -1.5px; }
+    .rc.dropzone { color: var(--lm-muted); border: 1px dashed var(--lm-line); margin: 2px 0 6px; }
+    .rc.dropzone.drop { color: var(--lm-accent); border-color: transparent; }
+    .sheet { position: absolute; inset: 0; z-index: 40; background: rgba(0,0,0,.35); display: flex; align-items: flex-end;
+      justify-content: center; animation: fadeIn .15s; }
+    .sheetcard { width: min(420px, 100%); max-height: 70%; overflow-y: auto; background: var(--lm-raise); border: 1px solid var(--lm-line);
+      border-radius: 16px 16px 0 0; padding: 12px; display: grid; gap: 2px; box-shadow: 0 -10px 40px rgba(0,0,0,.2); }
+    .dragghost { position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -150%); max-width: 240px;
+      display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 10px; font-size: 13px;
+      background: var(--lm-raise); color: var(--lm-text); border: 1px solid var(--lm-line); box-shadow: var(--lm-shadow); }
     .col .lbl, .col .recents, .col .selstart, .col .foot .name, .col .brand b, .col .badge { display: none; }
     .col .ni { justify-content: center; padding: 8px; }
     .col .foot { flex-direction: column; }
@@ -113,6 +126,7 @@ export class LLMitMirPanel extends LitElement {
     window.removeEventListener("llmitmir-admin-saved", this._onAdmin);
     this._mq.removeEventListener("change", this._onMq);
     this.unsub?.(); this.unsub = undefined; this.inited = false;
+    this.detachDrag(); this.drag = null; this.dragFrom = null;
   }
 
   updated(ch: Map<string, any>) {
@@ -161,6 +175,126 @@ export class LLMitMirPanel extends LitElement {
   private toggleProject(id: string) {
     const s = new Set(this.openProjects); s.has(id) ? s.delete(id) : s.add(id); this.openProjects = s;
     try { localStorage.setItem("llmitmir.openProjects", JSON.stringify([...s])); } catch { /* ignore */ }
+  }
+
+  // ---------------------------------------------------------------- Chats verschieben (Ziehen und langes Halten)
+  @state() private drag: { chatId: string; title: string; x: number; y: number; over: string | null } | null = null;
+  @state() private moveSheet: any = null;   // Handy: langes Halten öffnet die Projektauswahl
+  private dragFrom: { x: number; y: number; chat: any } | null = null;
+  private dragTimer: any = null;
+  private clickTimer: any = null;
+  private touchCancel: ((ev: PointerEvent) => void) | null = null;
+  private suppressClick = false;
+
+  /** Zeiger auf einer Chat-Zeile: mit der Maus ziehen, auf dem Handy lange halten. */
+  private dragStart(e: PointerEvent, c: any) {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("lm-menu, button")) return;
+    this.detachDrag();
+    if (e.pointerType === "touch") {
+      // Ziehen und Scrollen kommen sich auf dem Handy in die Quere: dort öffnet langes
+      // Halten dieselbe Auswahl, ein Tippen darin verschiebt den Chat.
+      const x = e.clientX, y = e.clientY;
+      this.dragTimer = setTimeout(() => {
+        this.skipClick();
+        this.moveSheet = c;
+      }, 420);
+      const cancel = (ev: PointerEvent) => {
+        if (ev.type === "pointermove" && Math.hypot(ev.clientX - x, ev.clientY - y) < 10) return;
+        this.detachDrag();
+      };
+      this.touchCancel = cancel;
+      window.addEventListener("pointermove", cancel);
+      window.addEventListener("pointerup", cancel);
+      window.addEventListener("pointercancel", cancel);
+      return;
+    }
+    this.dragFrom = { x: e.clientX, y: e.clientY, chat: c };
+    window.addEventListener("pointermove", this.onDragMove);
+    window.addEventListener("pointerup", this.onDragEnd);
+    window.addEventListener("pointercancel", this.onDragEnd);
+  }
+
+  /** Der Klick, der auf Loslassen oder langes Halten folgt, soll den Chat nicht öffnen. */
+  private skipClick() {
+    this.suppressClick = true;
+    clearTimeout(this.clickTimer);
+    this.clickTimer = setTimeout(() => (this.suppressClick = false), 800);
+  }
+
+  private detachDrag() {
+    clearTimeout(this.dragTimer);
+    window.removeEventListener("pointermove", this.onDragMove);
+    window.removeEventListener("pointerup", this.onDragEnd);
+    window.removeEventListener("pointercancel", this.onDragEnd);
+    if (this.touchCancel) {
+      window.removeEventListener("pointermove", this.touchCancel);
+      window.removeEventListener("pointerup", this.touchCancel);
+      window.removeEventListener("pointercancel", this.touchCancel);
+      this.touchCancel = null;
+    }
+  }
+
+  private beginDrag(chat: any, x: number, y: number) {
+    this.drag = { chatId: chat.id, title: chat.title || t("Neuer Chat"), x, y, over: null };
+  }
+
+  private onDragMove = (e: PointerEvent) => {
+    const f = this.dragFrom;
+    if (!f) return;
+    if (!this.drag) {
+      if (Math.hypot(e.clientX - f.x, e.clientY - f.y) < 8) return;   // noch ein Tippen, kein Ziehen
+      this.beginDrag(f.chat, e.clientX, e.clientY);
+    }
+    e.preventDefault();
+    this.drag = { ...this.drag!, x: e.clientX, y: e.clientY, over: this.dropTargetAt(e.clientX, e.clientY) };
+  };
+
+  /** Ziel unter dem Zeiger: Projekt-ID, "none" (ohne Projekt) oder null. */
+  private dropTargetAt(x: number, y: number): string | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const hit = el?.closest("[data-drop]") as HTMLElement | null;
+    return hit?.dataset.drop ?? null;
+  }
+
+  private onDragEnd = async () => {
+    this.detachDrag();
+    const d = this.drag;
+    this.dragFrom = null;
+    if (!d) return;
+    this.drag = null;
+    this.skipClick();
+    if (d.over) await this.moveChat(d.chatId, d.over === "none" ? null : d.over);
+  };
+
+  private openChat(id: string) {
+    if (this.suppressClick) { this.suppressClick = false; return; }
+    navigate(`/chat/${id}`);
+  }
+
+  private async moveChat(chatId: string, pid: string | null) {
+    const chat = (store.data?.chats || []).find((c: any) => c.id === chatId);
+    if (!chat || (chat.project_id || null) === pid) return;
+    try {
+      await store.api.ws("chat/update", { chat_id: chatId, project_id: pid });
+      const name = (store.data?.projects || []).find((p: any) => p.id === pid)?.name;
+      store.notify(pid ? t("Nach „{p}“ verschoben", { p: name || "" }) : t("Aus dem Projekt entfernt"));
+    } catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  /** Auswahl zum Verschieben (Handy und Menü der Chat-Zeile). */
+  private moveSheetView() {
+    const c = this.moveSheet;
+    const projects = store.data?.projects || [];
+    return html`<div class="sheet" @click=${(e: Event) => e.target === e.currentTarget && (this.moveSheet = null)}>
+      <div class="sheetcard">
+        <div class="row"><b class="grow ellipsis">${t("Chat verschieben")}</b>
+          <button class="iconbtn" @click=${() => (this.moveSheet = null)}>${icon("close", 18)}</button></div>
+        <div class="hint ellipsis" style="margin-bottom:6px">${c?.title || t("Neuer Chat")}</div>
+        <button class="mi" @click=${() => { this.moveSheet = null; this.moveChat(c.id, null); }}>${icon("chat", 18)} ${t("Ohne Projekt")}</button>
+        ${projects.map((p: any) => html`<button class="mi ${c?.project_id === p.id ? "sel" : ""}" @click=${() => { this.moveSheet = null; this.moveChat(c.id, p.id); }}>
+          ${icon("project", 18)} <span class="grow ellipsis">${p.name}</span>${c?.project_id === p.id ? icon("check", 16) : nothing}</button>`)}
+        ${!projects.length ? html`<div class="hint" style="padding:8px 10px">${t("Noch keine Projekte angelegt.")}</div>` : nothing}
+      </div></div>`;
   }
 
   // ---------------------------------------------------------------- multi-select (only offered for long lists)
@@ -232,7 +366,8 @@ export class LLMitMirPanel extends LitElement {
       ${sorted.map((p: any) => {
         const open = this.openProjects.has(p.id) || p.id === curProj;
         const list = chatsOf(p.id);
-        return html`<div class="pj ${p.id === curProj && this.path[0] === "project" ? "on" : ""}">
+        return html`<div class="pj ${p.id === curProj && this.path[0] === "project" ? "on" : ""} ${this.drag?.over === p.id ? "drop" : ""}"
+            data-drop=${p.id} title=${t("Chat hierher ziehen")}>
             <button class="iconbtn chev" @click=${(e: Event) => { e.stopPropagation(); this.toggleProject(p.id); }} title=${open ? "Zuklappen" : "Aufklappen"}>${icon(open ? "down" : "right", 16)}</button>
             <span class="grow ellipsis" @click=${() => navigate(`/project/${p.id}`)}>${icon("project", 16)} ${p.name}</span>
             ${list.some((c: any) => store.runs[c.id]) ? html`<lm-spark size="13"></lm-spark>` : nothing}</div>
@@ -250,12 +385,18 @@ export class LLMitMirPanel extends LitElement {
 
   private chatRow(c: any, cur: string) {
     const unread = this.unread(c);
-    return html`<div class="rc ${c.id === cur ? "on" : ""}" @click=${() => navigate(`/chat/${c.id}`)}>
+    const projects = store.data?.projects || [];
+    return html`<div class="rc ${c.id === cur ? "on" : ""} ${this.drag?.chatId === c.id ? "drag" : ""}"
+        @click=${() => this.openChat(c.id)} @pointerdown=${(e: PointerEvent) => this.dragStart(e, c)}>
       ${store.runs[c.id] ? html`<lm-spark size="14"></lm-spark>` : c.kind === "cowork" ? html`<span class="muted">${icon("cowork", 15)}</span>` : nothing}
       <span class="grow ellipsis ${unread ? "unread" : ""}">${c.title || t("Neuer Chat")}</span>
       ${unread ? html`<span class="dot" title=${t("Neu seit deinem letzten Blick")}></span>` : nothing}
       <lm-menu class="more" direction="down" align="right" @click=${(e: Event) => e.stopPropagation()}><button slot="trigger" class="iconbtn">${icon("dots", 16)}</button>
         <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: c.id, pinned: !c.pinned })}>${icon(c.pinned ? "pinOff" : "pin", 18)} ${c.pinned ? t("Lösen") : t("Anheften")}</button>
+        ${projects.length ? html`<div class="mh">${t("In Projekt verschieben")}</div>
+          <button class="mi" data-close @click=${() => this.moveChat(c.id, null)}>${icon("chat", 18)} ${t("Ohne Projekt")}</button>
+          ${projects.map((p: any) => html`<button class="mi ${c.project_id === p.id ? "sel" : ""}" data-close @click=${() => this.moveChat(c.id, p.id)}>${icon("project", 18)} ${p.name}</button>`)}` : nothing}
+        <div class="msep"></div>
         <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog(`„${c.title}“ löschen?`)) { await store.api.ws("chat/delete", { chat_id: c.id }); if (c.id === cur) navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
       </lm-menu></div>`;
   }
@@ -272,8 +413,10 @@ export class LLMitMirPanel extends LitElement {
     // chats of projects appear under their project above; "Zuletzt" shows the rest
     const rest = items.filter((c: any) => !c.pinned && !c.project_id).slice(0, 40);
     const row = (c: any) => this.chatRow(c, cur);
+    const zone = this.drag ? html`<div class="rc dropzone ${this.drag.over === "none" ? "drop" : ""}" data-drop="none">
+      ${icon("chat", 15)}<span class="grow ellipsis">${t("Ohne Projekt")}</span></div>` : nothing;
     return html`${pinned.length ? html`<div class="rh">${t("Angeheftet")}</div>${pinned.map(row)}` : nothing}
-      <div class="rh">${t("Zuletzt")}</div>${rest.length ? rest.map(row) : html`<div class="hint" style="padding:4px 10px">${t("Keine Chats")}</div>`}`;
+      <div class="rh">${t("Zuletzt")}</div>${zone}${rest.length ? rest.map(row) : html`<div class="hint" style="padding:4px 10px">${t("Keine Chats")}</div>`}`;
   }
 
   private sidebar() {
@@ -342,6 +485,9 @@ export class LLMitMirPanel extends LitElement {
       ${this.sidebar()}
       ${this.small && this.drawer ? html`<div class="backdrop" @click=${() => (this.drawer = false)}></div>` : nothing}
       <main>${this.view()}</main></div>
+      ${this.moveSheet ? this.moveSheetView() : nothing}
+      ${this.drag ? html`<div class="dragghost" style="left:${this.drag.x}px;top:${this.drag.y}px">${icon("chat", 15)}
+        <span class="ellipsis">${this.drag.title}</span></div>` : nothing}
       ${store.toast ? html`<div class="toast">${store.toast}</div>` : nothing}`;
   }
 }
