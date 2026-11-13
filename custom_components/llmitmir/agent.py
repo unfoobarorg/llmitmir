@@ -689,7 +689,7 @@ class Manager:
         tasks = {"mode": cfg.get("task_key_mode") or TASK_KEY_SAME, "choice": ti["choice"], "source": ti["source"],
                  "separate": ti["separate"], "fallback": ti["fallback"], "has_key": bool(tk),
                  "missing": bool(ti.get("missing")), "allowed": ti.get("allowed") or [],
-                 "has_own_task_key": bool(s.get("own_task_key")), "main_is_own": bool(ti.get("main_is_own")),
+                 "has_own_task_key": bool(st and st.meta["settings"].get("own_task_key")), "main_is_own": bool(ti.get("main_is_own")),
                  "has_central": bool(cfg.get("shared_task_key")),
                  "shared_by_all": ti["source"] == "shared" or (ti["source"] == "same" and cfg.get("key_mode") == KEY_SHARED),
                  "mine_today": TK.task_part(today),
