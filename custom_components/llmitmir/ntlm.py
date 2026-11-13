@@ -31,6 +31,9 @@ SUPPORTED = (NEGOTIATE_UNICODE | NEGOTIATE_NTLM | NEGOTIATE_ALWAYS_SIGN
 
 SIGNATURE = b"NTLMSSP\x00"
 
+# Windows 10 (10.0, Build 19041) – nur Anzeige, der Server prüft das Feld nicht
+VERSION_WIN10 = b"\x0a\x00\x63\x4a\x00\x00\x00\x0f"
+
 
 # ---------------------------------------------------------------- MD4 (RFC 1320)
 def _rol(value: int, bits: int) -> int:
@@ -108,14 +111,19 @@ def ntlmv2_hash(user: str, domain: str, password: str) -> bytes:
 
 
 def type1(domain: str = "", workstation: str = "") -> bytes:
-    """Erste Nachricht: welche Verfahren und Flags wir anbieten."""
-    flags = SUPPORTED | REQUEST_TARGET
+    """Erste Nachricht: welche Verfahren und Flags wir anbieten.
+
+    ``NEGOTIATE_VERSION`` gehört dazu, weil der GWDG-Exchange es im Type 2 setzt – und ein Feld, das der Client
+    anbietet, darf er in der dritten Nachricht auch füllen.
+    """
+    flags = SUPPORTED | REQUEST_TARGET | NEGOTIATE_VERSION
     dom = str(domain or "").upper().encode("ascii", "ignore")
     host = str(workstation or "").upper().encode("ascii", "ignore")
-    offset = 32
+    offset = 32 + len(VERSION_WIN10)
     return (SIGNATURE + struct.pack("<I", 1) + struct.pack("<I", flags)
             + struct.pack("<HHI", len(dom), len(dom), offset)
             + struct.pack("<HHI", len(host), len(host), offset + len(dom))
+            + VERSION_WIN10
             + dom + host)
 
 
@@ -132,10 +140,6 @@ def parse_type2(message: bytes) -> dict:
         if ti_len and ti_off + ti_len <= len(message):
             target = message[ti_off:ti_off + ti_len]
     return {"flags": flags, "challenge": challenge, "target_info": target}
-
-
-# Windows 10 (10.0, Build 19041) – nur Anzeige, der Server prüft das Feld nicht
-VERSION_WIN10 = b"\x0a\x00\x63\x4a\x00\x00\x00\x0f"
 
 
 def type3(user: str, password: str, domain: str, challenge: bytes, target_info: bytes = b"",
@@ -220,12 +224,12 @@ def target_domain(target_info: bytes) -> str:
     return ""
 
 
-def candidates(username: str, domain_hint: str = "", server_domain: str = "") -> list[tuple[str, str]]:
-    """Mögliche (Benutzer, Domäne)-Paare für die Anmeldung, das wahrscheinlichste zuerst.
+def candidates(username: str, domain_hint: str = "") -> list[tuple[str, str]]:
+    r"""Mögliche (Benutzer, Domäne)-Paare für die Anmeldung, das wahrscheinlichste zuerst.
 
-    Exchange-Konten lassen sich auf verschiedene Weise anmelden: mit der Kennung und der Domäne des Servers, mit der
-    vollen Adresse als Benutzername (UPN) oder ganz ohne Domäne. Statt eine Variante zu raten, probiert LLMitMir sie
-    der Reihe nach durch und merkt sich die erste, die der Server annimmt.
+    Die GWDG dokumentiert die Anmeldung als ``gwdg\userid`` – also die Kennung ohne ``@gwdg.de`` und die
+    Domäne ``gwdg``. Genau das steht vorn. Danach folgen die übrigen Schreibweisen (volle Adresse als
+    Benutzername, ohne Domäne), damit ein anders eingerichtetes Konto ebenfalls durchkommt.
     """
     raw = str(username or "").strip()
     local = raw.partition("@")[0] if "@" in raw else raw
@@ -234,8 +238,7 @@ def candidates(username: str, domain_hint: str = "", server_domain: str = "") ->
         local, raw = rest.strip(), rest.strip()
         domain_hint = dom.strip() or domain_hint
     out: list[tuple[str, str]] = []
-    for user, dom in ((local, server_domain), (raw, server_domain), (local, domain_hint),
-                      (raw, ""), (local, "")):
+    for user, dom in ((local, domain_hint), (raw, domain_hint), (local, ""), (raw, "")):
         if user and (user, dom) not in out:
             out.append((user, dom))
     return out

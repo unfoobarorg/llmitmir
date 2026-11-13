@@ -906,7 +906,12 @@ def test_gwdg_account_like_calmerge():
     assert creds.gwdg_email("Max.Muster@Uni-Goettingen.de") == "max.muster@uni-goettingen.de"
     assert creds.gwdg_email("") == ""
     f = creds.normalize_fields("gwdg", {"username": "Max.Muster", "password": "pw", "share_token": ""}, ["calendar"])
-    assert f == {"username": "max.muster@gwdg.de", "password": "pw", "ews_url": creds.GWDG_EWS}
+    assert f == {"username": "max.muster@gwdg.de", "login": "max.muster", "password": "pw",
+                 "ews_url": creds.GWDG_EWS}
+    # eine abweichende Kennung bleibt erhalten
+    f2 = creds.normalize_fields("gwdg", {"username": "nikolaj.kopp@gwdg.de", "login": "nkopp1", "password": "pw"},
+                                ["calendar"])
+    assert f2["login"] == "nkopp1" and f2["username"] == "nikolaj.kopp@gwdg.de"
     # alle Dienste: Postfach kommt dazu, abgewählte Adressen verschwinden wieder
     f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail", "contacts"])
     assert f["ews_url"] == creds.GWDG_EWS  # Postfach, Kalender und Kontakte: derselbe Endpunkt
@@ -925,13 +930,13 @@ def test_gwdg_form_shows_only_what_the_person_fills_in():
     assert auto == {"ews_url"}  # eine Adresse für Postfach, Kalender und Kontakte
     assert set(t["hidden"]) == auto  # nicht als Feld anzeigen
     assert set(t["readonly"]) == auto  # und nicht von Hand ändern
-    assert t["fields"] == ["username", "password"]
+    assert t["fields"] == ["username", "login", "password"]
     # DavMail-Adressen und IMAP/SMTP früherer Versionen verschwinden beim Speichern
     assert set(t["obsolete"]) == {"url", "contacts_url", "imap_host", "smtp_host"}
     old = {"username": "a@gwdg.de", "password": "pw", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/",
            "contacts_url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/contacts/"}
     f = creds.normalize_fields("gwdg", old, ["calendar"])
-    assert f == {"username": "a@gwdg.de", "password": "pw", "ews_url": creds.GWDG_EWS}
+    assert f == {"username": "a@gwdg.de", "login": "a", "password": "pw", "ews_url": creds.GWDG_EWS}
     # der eigene Exchange-Typ hat keine automatischen Felder
     assert not creds.TYPES["ews"].get("hidden") and not creds.TYPES["ews"].get("obsolete")
 
@@ -1605,7 +1610,12 @@ def test_ews_credentials_types():
     gwdg = {"type": "gwdg", "fields": {"username": "niko@gwdg.de", "password": "x"}, "services": ["calendar", "contacts"]}
     assert creds.is_ews(gwdg)
     assert creds.ews_endpoint(gwdg) == creds.GWDG_EWS
-    assert creds.ews_account(gwdg) == ("niko@gwdg.de", "x")
+    # angemeldet wird mit der Kennung (gwdg\kennung), nicht mit der Adresse
+    assert creds.ews_account(gwdg) == ("niko", "x")
+    assert creds.ews_account({"type": "gwdg", "fields": {"username": "niko@gwdg.de", "login": "nkopp1",
+                                                         "password": "x"}}) == ("nkopp1", "x")
+    # der Absender bleibt die Adresse
+    assert creds.ews_sender({"type": "gwdg", "fields": {"username": "niko@gwdg.de", "login": "nkopp1"}}) == "niko@gwdg.de"
     assert creds.access(gwdg, "calendar") == "read" and creds.access(gwdg, "mail") == ""
     gwdg_write = dict(gwdg, access={"calendar": "write"})
     assert creds.access(gwdg_write, "calendar") == "write"
@@ -2194,16 +2204,16 @@ def test_ews_call_falls_back_to_ntlm(monkeypatch):
 
 
 def test_ntlm_tries_username_variants(monkeypatch):
-    """Lehnt der Server die erste Schreibweise ab, werden die weiteren probiert – bis eine angenommen wird."""
+    """Jeder Versuch bekommt einen frischen Handschlag; die dokumentierte Form gwdg\\userid steht vorn."""
     import asyncio
     import base64
     import struct
 
     E = _pkg("ews")
-    N = _pkg("ntlm")
     seen = []
+    handshakes = []
 
-    # Challenge mit NbDomain = UM (wie der GWDG-Exchange)
+    # Challenge mit NbDomain = UM – die Domäne des Servers ist NICHT die, die in den Hash gehört
     ti = bytes.fromhex("0200040055004d0000000000")
     t2 = (b"NTLMSSP\x00" + struct.pack("<I", 2) + struct.pack("<HHI", 0, 0, 48)
           + struct.pack("<I", 0xA2898205) + bytes.fromhex("12471ad84001cd19") + b"\x00" * 8
@@ -2218,50 +2228,42 @@ def test_ntlm_tries_username_variants(monkeypatch):
             return [v for k, v in self._pairs if k.lower() == key.lower()] or (default or [])
 
     def who(auth):
-        """Benutzer und Domäne aus einem Type-3 lesen."""
         msg = base64.b64decode(auth[5:])
         dom_len, _, dom_off = struct.unpack("<HHI", msg[28:36])
         usr_len, _, usr_off = struct.unpack("<HHI", msg[36:44])
         return (msg[usr_off:usr_off + usr_len].decode("utf-16-le"),
                 msg[dom_off:dom_off + dom_len].decode("utf-16-le"))
 
-    async def fake_post(session, endpoint, payload, headers, auth, timeout):
-        if "Authorization" not in headers:  # Basic
-            return 401, b"", Headers([("WWW-Authenticate", "Negotiate"), ("WWW-Authenticate", "NTLM")])
-        msg = base64.b64decode(headers["Authorization"][5:])
-        kind = struct.unpack("<I", msg[8:12])[0]
-        if kind == 1:
-            return 401, b"", Headers([("WWW-Authenticate", "NTLM " + base64.b64encode(t2).decode())])
-        seen.append(who(headers["Authorization"]))
-        # nur die Anmeldung mit der Kennung und der Domäne des Servers wird angenommen
-        if seen[-1] == ("nikolaj.kopp", "UM"):
-            return 200, b'<ok><ResponseCode>NoError</ResponseCode></ok>', Headers([])
-        return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
+    def make_post(accept):
+        async def fake_post(session, endpoint, payload, headers, auth, timeout):
+            if "Authorization" not in headers:  # Basic
+                return 401, b"", Headers([("WWW-Authenticate", "Negotiate"), ("WWW-Authenticate", "NTLM")])
+            msg = base64.b64decode(headers["Authorization"][5:])
+            kind = struct.unpack("<I", msg[8:12])[0]
+            if kind == 1:
+                handshakes.append(1)
+                return 401, b"", Headers([("WWW-Authenticate", "NTLM " + base64.b64encode(t2).decode())])
+            seen.append(who(headers["Authorization"]))
+            if seen[-1] == accept:
+                return 200, b'<ok><ResponseCode>NoError</ResponseCode></ok>', Headers([])
+            return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
+        return fake_post
 
-    monkeypatch.setattr(E, "_post", fake_post)
+    # 1) die dokumentierte Form wird angenommen: gwdg\nikolaj.kopp, also Kennung + Domäne gwdg
+    monkeypatch.setattr(E, "_post", make_post(("nikolaj.kopp", "gwdg")))
     out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
                              "<x/>", domain="gwdg"))
     assert out["ok"] is True
-    assert seen[0] == ("nikolaj.kopp", "UM")  # Domäne aus der Challenge, Kennung ohne @gwdg.de
-    assert len(seen) == 1  # beim ersten Versuch angenommen
+    assert seen == [("nikolaj.kopp", "gwdg")]  # erster Versuch, ohne @gwdg.de, mit Domäne gwdg
+    assert len(handshakes) == 1
 
-    # wird die erste Variante abgelehnt, kommen die weiteren dran
+    # 2) lehnt der Server die erste Form ab, kommt ein NEUER Handschlag – nicht derselbe verbrauchte
     seen.clear()
-
-    async def strict(session, endpoint, payload, headers, auth, timeout):
-        if "Authorization" not in headers:
-            return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
-        msg = base64.b64decode(headers["Authorization"][5:])
-        if struct.unpack("<I", msg[8:12])[0] == 1:
-            return 401, b"", Headers([("WWW-Authenticate", "NTLM " + base64.b64encode(t2).decode())])
-        seen.append(who(headers["Authorization"]))
-        if seen[-1] == ("nikolaj.kopp@gwdg.de", ""):  # nur die volle Adresse ohne Domäne
-            return 200, b'<ok><ResponseCode>NoError</ResponseCode></ok>', Headers([])
-        return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
-
-    monkeypatch.setattr(E, "_post", strict)
+    handshakes.clear()
+    monkeypatch.setattr(E, "_post", make_post(("nikolaj.kopp@gwdg.de", "")))
     out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
                              "<x/>", domain="gwdg"))
     assert out["ok"] is True
     assert seen[-1] == ("nikolaj.kopp@gwdg.de", "")
-    assert len(seen) > 1  # mehrere Schreibweisen probiert
+    assert len(seen) > 1
+    assert len(handshakes) == len(seen)  # je Versuch ein eigener Type 1

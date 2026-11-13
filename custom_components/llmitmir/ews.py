@@ -665,34 +665,38 @@ async def call(session: aiohttp.ClientSession, endpoint: str, username: str, pas
 
 async def _ntlm_post(session: aiohttp.ClientSession, endpoint: str, payload: bytes, headers: dict,
                      username: str, password: str, domain: str, timeout: int) -> tuple[int, bytes, dict]:
-    """Anmeldung mit NTLMv2: Type 1 → Type 2 (Challenge) → Type 3 (Beweis), dann die eigentliche Anfrage.
+    r"""Anmeldung mit NTLMv2: Type 1 → Type 2 (Challenge) → Type 3 (Beweis), dann die eigentliche Anfrage.
 
-    Die Domäne kommt aus der Challenge des Servers, nicht aus einer Annahme: Der GWDG-Exchange meldet dort ``UM``
-    (Domäne ``um.gwdg.de``), nicht ``gwdg`` – mit der falschen Domäne im Hash lehnt er ab, obwohl das Kennwort stimmt.
-    Bleibt es beim 401, werden weitere Schreibweisen des Benutzers probiert (mit Domäne, als volle Adresse, ohne
-    Domäne); die erste, die der Server annimmt, gilt.
+    Die GWDG dokumentiert die Zugangsdaten als ``gwdg\userid`` – Kennung ohne ``@gwdg.de``, Domäne ``gwdg``.
+    Genau damit beginnt ``ntlm.candidates``; weitere Schreibweisen folgen nur, falls der Server die erste ablehnt.
+
+    Wichtig: Jeder Versuch braucht einen **eigenen** Handschlag. Eine Challenge ist nach einem 401 verbraucht –
+    ein zweiter Type 3 auf dieselbe Challenge scheitert zwangsläufig, auch mit richtigen Zugangsdaten.
     """
     import base64
 
     from . import ntlm as N
 
-    h = dict(headers)
-    h["Authorization"] = "NTLM " + base64.b64encode(N.type1(domain)).decode()
-    status, raw, reply = await _post(session, endpoint, payload, h, None, timeout)
-    challenge = _ntlm_challenge(reply)
-    if status != 401 or not challenge:
-        return status, raw, reply
-    info = N.parse_type2(challenge)
-    server_domain = N.target_domain(info["target_info"])
-    last = (status, raw, reply)
-    for user, dom in N.candidates(username, domain, server_domain):
+    tried: list[str] = []
+    for user, dom in N.candidates(username, domain):
+        tried.append(f"{dom}\\{user}" if dom else user)
+        h = dict(headers)
+        h["Authorization"] = "NTLM " + base64.b64encode(N.type1(dom)).decode()
+        status, raw, reply = await _post(session, endpoint, payload, h, None, timeout)
+        challenge = _ntlm_challenge(reply)
+        if status != 401 or not challenge:
+            return status, raw, reply  # angenommen (oder ein anderer Fehler als die Anmeldung)
+        info = N.parse_type2(challenge)
         h["Authorization"] = "NTLM " + base64.b64encode(N.type3(
             user, password, dom, info["challenge"], info["target_info"], info["flags"])).decode()
         status, raw, reply = await _post(session, endpoint, payload, h, None, timeout)
         if status != 401:
             return status, raw, reply
-        last = (status, raw, reply)
-    return last
+    # Alle Schreibweisen abgelehnt: das ist ein Hinweis auf die Zugangsdaten, nicht auf die Verbindung
+    raise EwsError(
+        "HTTP 401: Exchange hat die Anmeldung abgelehnt (NTLM-Handschlag lief, Kennwort oder Benutzername "
+        f"stimmen nicht). Probiert: {', '.join(tried)}"
+    )
 
 
 def describe_error(out: dict) -> str:

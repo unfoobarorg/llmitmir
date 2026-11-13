@@ -82,8 +82,9 @@ async def read_message(ctx, cred: dict, a: dict) -> dict:
 
 async def send_message(ctx, cred: dict, a: dict, files: list[tuple[str, bytes]], reply: dict | None) -> dict:
     """Nachricht bauen und über Exchange senden; die Kopie legt der Server in „Gesendete Elemente“ ab."""
-    user, _ = C.ews_account(cred)
-    sender = str((cred.get("fields") or {}).get("from") or (cred.get("fields") or {}).get("absender") or user)
+    # Absender ist die E-Mail-Adresse, nicht die Benutzerkennung (angemeldet wird als gwdg\kennung)
+    sender = str((cred.get("fields") or {}).get("from") or (cred.get("fields") or {}).get("absender")
+                 or C.ews_sender(cred))
     ref = None
     if reply and reply.get("uid"):
         out = _check(await call(ctx, cred, E.get_mime(str(reply["uid"]))), "Ursprungsnachricht lesen")

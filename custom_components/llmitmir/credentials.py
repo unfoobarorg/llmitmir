@@ -39,7 +39,8 @@ TYPES: dict[str, dict[str, Any]] = {
     # GWDG-Exchange (Uni-Konto) – wie in calmerge gibt die Person nur E-Mail-Adresse und Passwort an und wählt, wofür der
     # Zugang gilt (Postfach, Kalender, Kontakte). Kalender und Kontakte laufen über EWS mit den Endpunkten der GWDG,
     # das Postfach über IMAP/SMTP – alles setzt LLMitMir beim Speichern selbst.
-    "gwdg": {"label": "GWDG-Exchange (Uni-Konto)", "fields": ["username", "password"], "secret": {"password"},
+    "gwdg": {"label": "GWDG-Exchange (Uni-Konto)", "fields": ["username", "login", "password"],
+             "secret": {"password"},
              "services": {"mail": "E-Mail-Postfach", "calendar": "Kalender", "contacts": "Kontakte"},
              "service_fields": {"mail": ["ews_url"], "calendar": ["ews_url"], "contacts": ["ews_url"]},
              "default_services": ["calendar"],
@@ -48,10 +49,14 @@ TYPES: dict[str, dict[str, Any]] = {
              "hidden": ["ews_url"],
              # Felder früherer Versionen (DavMail-Kalender und -Kontakte, IMAP/SMTP): nicht anzeigen, beim Speichern weg
              "obsolete": ["url", "contacts_url", "imap_host", "smtp_host"],
-             "labels": {"username": "GWDG-E-Mail-Adresse", "password": "Passwort", "ews_url": "EWS-Adresse"},
-             "placeholders": {"username": "vorname.nachname@gwdg.de", "ews_url": "Wird automatisch gesetzt"},
-             "hint": "Dein Konto im GWDG-Exchange. Trag nur deine GWDG-E-Mail-Adresse und dein Passwort ein und wähl, wofür "
-                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt. Alles läuft über Exchange Web Services "
+             "labels": {"username": "GWDG-E-Mail-Adresse", "login": "Benutzerkennung", "password": "Passwort",
+                        "ews_url": "EWS-Adresse"},
+             "placeholders": {"username": "vorname.nachname@gwdg.de", "login": "z. B. nkopp1",
+                              "ews_url": "Wird automatisch gesetzt"},
+             "hint": "Dein Konto im GWDG-Exchange. Trag deine GWDG-E-Mail-Adresse, deine Benutzerkennung und dein "
+                     "Passwort ein und wähl, wofür der Zugang gilt – ohne @ wird bei der Adresse @gwdg.de ergänzt. "
+                     "Die Benutzerkennung ist der Teil vor dem @, wenn sie bei dir anders lautet (z. B. nkopp1), trag "
+                     "sie hier ein: Angemeldet wird als gwdg\\kennung. Alles läuft über Exchange Web Services "
                      "(email.gwdg.de/EWS/Exchange.asmx): Postfach, Kalender und Kontakte – so wie die GWDG es für "
                      "Exchange-Konten beschreibt. Weitere Adressen brauchst du nicht."},
 }
@@ -121,10 +126,26 @@ def ews_endpoint(cred: dict) -> str:
 
 
 def ews_account(cred: dict) -> tuple[str, str]:
-    """(Benutzername, Passwort) für die EWS-Anmeldung."""
+    r"""(Benutzername, Passwort) für die EWS-Anmeldung.
+
+    Beim GWDG-Zugang ist der Benutzername die **Kennung** (``nkopp1``), nicht die E-Mail-Adresse: Angemeldet wird als
+    ``gwdg\kennung``. Steht keine Kennung im Zugang, gilt der Teil der Adresse vor dem @.
+    """
     f = cred.get("fields") or {}
-    user = gwdg_email(f.get("username") or "") if cred.get("type") == "gwdg" else str(f.get("username") or "").strip()
-    return user, str(f.get("password") or "")
+    if cred.get("type") == "gwdg":
+        login = str(f.get("login") or "").strip()
+        if login:
+            return login, str(f.get("password") or "")
+        return gwdg_email(f.get("username") or "").partition("@")[0], str(f.get("password") or "")
+    return str(f.get("username") or "").strip(), str(f.get("password") or "")
+
+
+def ews_sender(cred: dict) -> str:
+    """Absenderadresse für gesendete Nachrichten – beim GWDG-Zugang die E-Mail-Adresse, nicht die Kennung."""
+    f = cred.get("fields") or {}
+    if cred.get("type") == "gwdg":
+        return gwdg_email(f.get("username") or "")
+    return str(f.get("username") or "").strip()
 
 
 def ews_domain(cred: dict) -> str:
@@ -220,6 +241,9 @@ def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) ->
     out = {k: v for k, v in fields.items() if k in t["fields"] or (k not in auto and str(v or "").strip())}
     email = gwdg_email(out.get("username") or "")
     out["username"] = email
+    # Benutzerkennung: ohne Angabe die aus der Adresse – gespeichert wird sie immer, damit die Anmeldung eindeutig ist
+    login = str(out.get("login") or "").strip()
+    out["login"] = login or email.partition("@")[0]
     picked = t["default_services"] if picked is None else picked
     if email and picked:
         out["ews_url"] = GWDG_EWS

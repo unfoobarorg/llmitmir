@@ -78,11 +78,16 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **NTLM-Anmeldung:** Der GWDG-Exchange bietet kein Basic Auth an – auf eine einfache Anmeldung antwortet er mit
   `401` und nur `WWW-Authenticate: Negotiate, NTLM`. LLMitMir meldet sich deshalb mit NTLMv2 an (`ntlm.py`, ohne
   Fremdbibliothek, MD4 nach RFC 1320 selbst mitgebracht): erst Basic, und wenn der Server nur NTLM anbietet, derselbe
-  Aufruf mit NTLMv2. Die Domäne kommt aus der Challenge des Servers (`MsvAvNbDomainName`) – der GWDG-Exchange meldet
-  dort `UM` (Domäne `um.gwdg.de`), nicht `gwdg`; mit der falschen Domäne im Hash lehnt er ab, obwohl das Kennwort
-  stimmt. Bleibt es beim 401, probiert LLMitMir weitere Schreibweisen des Benutzers (Kennung, volle Adresse, mit und
-  ohne Domäne) und nimmt die erste, die der Server annimmt. Bietet der Server `NEGOTIATE_VERSION` an, enthält die
-  dritte Nachricht wie bei Windows ein Versionsfeld.
+  Aufruf mit NTLMv2. Die Zugangsdaten sind die, die die GWDG dokumentiert: **Benutzername `gwdg\userid`** – also die
+  Benutzerkennung (bei Niko `nkopp1`, nicht die Adresse `nikolaj.kopp@gwdg.de`) mit der Domäne `gwdg` – und das
+  Passwort. Die Kennung steht im GWDG-Zugang im eigenen Feld „Benutzerkennung“; fehlt sie, gilt der Teil der Adresse
+  vor dem @. Gesendete Nachrichten tragen weiter die E-Mail-Adresse als Absender. Genau diese Form probiert LLMitMir
+  zuerst; weitere
+  Schreibweisen (volle Adresse, ohne Domäne) folgen nur, wenn der Server die erste ablehnt. Jeder Versuch bekommt
+  einen **eigenen** Handschlag – eine Challenge ist nach einem 401 verbraucht, ein zweiter Type 3 darauf scheitert
+  zwangsläufig. Bietet der Server `NEGOTIATE_VERSION` an, enthält die dritte Nachricht wie bei Windows ein
+  Versionsfeld. Bleibt es beim 401, nennt die Fehlermeldung alle probierten Schreibweisen – dann stimmen Kennwort
+  oder Benutzername nicht.
 - **Postfach über EWS:** Bei einem Exchange-Zugang laufen auch die `mail_*`-Werkzeuge über EWS – so beschreibt die
   GWDG den Zugang für Exchange-Konten (Apple Mail, „manuell konfigurieren“); IMAP nennt sie nur als eingeschränkte
   Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der
