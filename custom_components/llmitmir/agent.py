@@ -593,8 +593,16 @@ class Manager:
         cfg = self.config.data
         st = store or self.users.get(user_id)
         s = st.meta["settings"] if st else {}
-        return TK.resolve(cfg.get("task_key_mode") or TASK_KEY_SAME, s.get("task_key_choice"),
-                          cfg.get("shared_task_key") or "", s.get("own_task_key") or "", self.key_for(user_id, st))
+        mode = cfg.get("task_key_mode") or TASK_KEY_SAME
+        main = self.key_for(user_id, st)
+        # Ein eigener Schluessel (auch vom Admin eingetragen) darf fuer alles gelten; ein gemeinsamer nie fuer Aufgaben,
+        # wenn der Admin eigene Schluessel verlangt.
+        main_is_own = (cfg.get("key_mode") or KEY_SHARED) in (KEY_PER_USER_ADMIN, KEY_PER_USER_OWN)
+        info = TK.resolve(mode, s.get("task_key_choice"), cfg.get("shared_task_key") or "", s.get("own_task_key") or "",
+                          main, main_is_own)
+        info["allowed"] = TK.choices(mode, cfg.get("shared_task_key") or "", main, main_is_own)
+        info["main_is_own"] = main_is_own
+        return info
 
     def run_key(self, user_id: str, store: UserStore | None, task: bool) -> tuple[str, bool]:
         """(key, separate) for a run; separate = scheduled task on a key other than the normal one."""
@@ -680,6 +688,8 @@ class Manager:
         tk = ti["key"]
         tasks = {"mode": cfg.get("task_key_mode") or TASK_KEY_SAME, "choice": ti["choice"], "source": ti["source"],
                  "separate": ti["separate"], "fallback": ti["fallback"], "has_key": bool(tk),
+                 "missing": bool(ti.get("missing")), "allowed": ti.get("allowed") or [],
+                 "has_own_task_key": bool(s.get("own_task_key")), "main_is_own": bool(ti.get("main_is_own")),
                  "has_central": bool(cfg.get("shared_task_key")),
                  "shared_by_all": ti["source"] == "shared" or (ti["source"] == "same" and cfg.get("key_mode") == KEY_SHARED),
                  "mine_today": TK.task_part(today),
@@ -971,6 +981,9 @@ class Manager:
                     self._enter_fallback(run, chat, fb)
                     await self._apply_switch(run, chat, st, None)
             if not key and not PV.is_external(chat["model"]):
+                if task is not None and self.task_key_info(user.id, st).get("missing"):
+                    raise QuotaError("Für geplante Aufgaben fehlt dein eigener API-Schlüssel. Der Admin hat festgelegt, "
+                                     "dass Aufgaben nur mit eigenen Schlüsseln laufen – bitte in den Einstellungen eintragen.")
                 raise QuotaError("Kein API-Schlüssel hinterlegt. " + (
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))

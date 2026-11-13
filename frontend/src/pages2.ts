@@ -86,6 +86,9 @@ export class Tasks extends StoreElement {
       <div class="banner">${icon("hourglass")}<div><b>Geplante Aufgaben laufen mit Open-Weight-Modellen.</b> Sie starten in einer gemeinsamen Warteschlange und
         können sich verzögern, wenn die Modelle ausgelastet sind oder ein Limit erreicht ist – dann wartet LLMitMir und versucht es weiter (bis zu 6 Stunden).
         Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>`}
+      ${store.data?.usage?.tasks?.missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("key")}
+        <div><b>Für geplante Aufgaben fehlt dein eigener API-Schlüssel.</b> Der Admin hat festgelegt, dass Aufgaben nur mit eigenen Schlüsseln laufen –
+        ohne ihn startet kein Lauf. <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings"); }}>In den Einstellungen eintragen</a>.</div></div>` : nothing}
       ${tasks.length && !isSimple() ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
       ${limitHit(tasks).length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
         <div><b>${limitHit(tasks).length === 1 ? "Eine Aufgabe hat die Höchstzahl an Schritten erreicht" : `${limitHit(tasks).length} Aufgaben haben die Höchstzahl an Schritten erreicht`}:</b>

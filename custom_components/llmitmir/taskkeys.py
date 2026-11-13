@@ -15,23 +15,47 @@ def fingerprint(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16] if key else ""
 
 
-def resolve(mode: str, choice: str | None, central: str, own: str, main: str) -> dict:
+def choices(mode: str, central: str, main: str, main_is_own: bool) -> list[str]:
+    """Which task keys this person may pick, given the admin's mode.
+
+    "same" = the normal key (chats and coworks), "own" = an own task key, "shared" = the central task key.
+    """
+    if mode == "user":
+        return ["same", "own"] + (["shared"] if central else [])
+    if mode == "own":
+        # Der Admin verlangt einen eigenen Schluessel je Person: kein zentraler, kein gemeinsamer.
+        # Wer selbst einen eigenen Schluessel fuer Chats und Coworks hat, darf denselben fuer alles nutzen.
+        return (["same"] if main_is_own and main else []) + ["own"]
+    return []
+
+
+def resolve(mode: str, choice: str | None, central: str, own: str, main: str, main_is_own: bool = False) -> dict:
     """Key for scheduled tasks.
 
-    mode:   admin setting – "same", "shared" (central task key for all) or "user" (each person chooses)
-    choice: the person's choice in "user" mode – "same", "own" or "shared"
-    Falls back to the normal key if the chosen task key is not filled in.
+    mode:       admin setting – "same", "shared" (central task key for all), "user" (each person chooses)
+                or "own" (everybody must use an own task key)
+    choice:     the person's choice in "user" and "own" mode – "same", "own" or "shared"
+    main_is_own: the normal key belongs to this person (not a shared one)
+    Falls back to the normal key if the chosen task key is not filled in – except in "own" mode, where a
+    shared key must never be used for tasks: then no key is returned and the run reports what is missing.
     """
     if mode == "shared":
         choice = "shared"
+    elif mode == "own":
+        allowed = choices(mode, central, main, main_is_own)
+        choice = choice if choice in allowed else allowed[-1]
     elif mode == "user":
         choice = choice if choice in ("same", "own", "shared") else "same"
     else:
         choice = "same"
     key = central if choice == "shared" else own if choice == "own" else ""
     if not key:
-        return {"choice": choice, "source": "same", "key": main, "separate": False, "fallback": choice != "same"}
-    return {"choice": choice, "source": choice, "key": key, "separate": key != main, "fallback": False}
+        if mode == "own" and choice != "same":
+            # Ohne eigenen Schluessel laeuft keine Aufgabe – der gemeinsame Schluessel gilt hier nie.
+            return {"choice": choice, "source": choice, "key": "", "separate": False, "fallback": False, "missing": True}
+        return {"choice": choice, "source": "same", "key": main, "separate": False, "fallback": choice != "same",
+                "missing": False}
+    return {"choice": choice, "source": choice, "key": key, "separate": key != main, "fallback": False, "missing": False}
 
 
 def add_day(usage: dict, fp: str, prompt: int, completion: int, requests: int = 1,

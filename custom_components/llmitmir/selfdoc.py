@@ -36,7 +36,8 @@ bearbeiten, eigene Benachrichtigung je Lauf).
 und zugeordnete Zugänge. Skills sind keine Dateien im Arbeitsbereich: lesen mit `skill_load` und `skill_file`.
 - **Zugänge**: Zugangsdaten, getrennt von Skills; im Text nur als `{{cred:Name:feld}}`, Geheimnisse siehst du nie.
 - **Einstellungen**: persönliche Hinweise (fließen unten als „Über die Person“ ein), Modelle, Benachrichtigungsgerät, \
-Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel, Kontingente und die Werkbank (Sandbox für Befehle).
+Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel (auch die Regel für geplante Aufgaben), Kontingente und \
+die Werkbank (Sandbox für Befehle).
 - **Benachrichtigungen auf der Startseite**: Ergebnisse geplanter Aufgaben erscheinen als Karten auf der Startseite \
 (wie Benachrichtigungen eines Smartphones) – für Umgebungen ohne Push. Die Person stellt ein, ob und wie lange sie \
 angezeigt werden (0 = bis sie sie entfernt), tippt kurz für den Quellchat, drückt lange, um den Chat stumm zu schalten.
@@ -116,6 +117,12 @@ Teilen: Die Person, der die Aufgabe gehört, legt je Person fest, ob sie die Auf
 darf und ob sie bei jedem Lauf eine Nachricht aufs eigene Gerät bekommt. Geteilte Aufgaben erscheinen bei den anderen unter \
 „Geplant“ mit dem Namen der Besitzerperson; löschen und weitergeben kann sie nur die Besitzerperson. Läufe gehören immer der \
 Besitzerperson (deren Schlüssel, Kontingent und Freigaben gelten), auch wenn jemand anderes sie startet.
+Welchen API-Schlüssel ein Lauf nutzt, legt der Admin fest: derselbe wie für Chats und Coworks, ein zentraler Aufgaben-Schlüssel \
+für alle, „jede Person entscheidet selbst“ (ein Schlüssel für alles, ein eigener Aufgaben-Schlüssel oder der zentrale) oder \
+„eigene Schlüssel verpflichtend“ – dann gibt es keinen zentralen Aufgaben-Schlüssel, und wer Aufgaben anlegt, trägt in den \
+Einstellungen einen eigenen ein (wer schon einen eigenen Schlüssel für Chats und Coworks hat, darf denselben für alles nutzen). \
+Fehlt der Schlüssel, startet kein Lauf; das Ergebnis nennt den Grund. Läufe auf einem eigenen oder zentralen Aufgaben-Schlüssel \
+zählen nicht zum persönlichen Tageskontingent.
 
 ## Skills (Seite „Skills“)
 Felder: Name, Beschreibung (höchstens 1024 Zeichen; entscheidet, wann du den Skill lädst – also konkret sagen, für welche \

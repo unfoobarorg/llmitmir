@@ -120,6 +120,27 @@ def test_task_key_resolve():
     assert tk.resolve("user", "own", "", "MAIN", "MAIN")["separate"] is False
 
 
+def test_task_key_own_mode():
+    # Admin verlangt eigene Schluessel: kein zentraler, kein gemeinsamer
+    assert tk.choices("own", "CENTRAL", "MAIN", False) == ["own"]
+    assert tk.choices("own", "CENTRAL", "MAIN", True) == ["same", "own"]
+    # ohne eigenen Schluessel laeuft nichts – auch nicht ueber den gemeinsamen
+    r = tk.resolve("own", None, "CENTRAL", "", "MAIN")
+    assert (r["key"], r["missing"], r["fallback"]) == ("", True, False)
+    # ein eigener Schluessel fuer alles ist erlaubt
+    r = tk.resolve("own", "same", "CENTRAL", "", "MAIN", main_is_own=True)
+    assert (r["key"], r["source"], r["separate"], r["missing"]) == ("MAIN", "same", False, False)
+    # eigener Aufgaben-Schluessel
+    r = tk.resolve("own", "own", "CENTRAL", "OWN", "MAIN")
+    assert (r["key"], r["source"], r["separate"]) == ("OWN", "own", True)
+    # ein gespeicherter zentraler Schluessel gilt im Modus "own" nicht mehr
+    r = tk.resolve("own", "shared", "CENTRAL", "OWN", "MAIN")
+    assert (r["key"], r["source"]) == ("OWN", "own")
+    # Modus "user" bietet den zentralen Schluessel nur an, wenn es einen gibt
+    assert tk.choices("user", "", "MAIN", True) == ["same", "own"]
+    assert tk.choices("user", "CENTRAL", "MAIN", True) == ["same", "own", "shared"]
+
+
 def test_task_key_usage_per_day():
     from datetime import date
     usage = {}

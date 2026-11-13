@@ -104,10 +104,14 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   sie von Hand entfernt werden).
 - **Mehrere Personen**: Alles ist pro HA-Nutzer*in getrennt. Admins legen fest, wer LLMitMir nutzen darf, und wählen,
   ob es **einen gemeinsamen Schlüssel**, **einen Schlüssel je Person (vom Admin eingetragen)** oder **eigene Schlüssel** gibt.
-- **Eigener Schlüssel für geplante Aufgaben** (optional), damit Aufgaben nicht das Kontingent für spontane Chats aufbrauchen:
-  zentral vom Admin für alle oder von jeder Person selbst gewählt (ein Schlüssel für alles, eigener Aufgaben-Schlüssel oder
-  zentraler Aufgaben-Schlüssel). Unter *Geplant* steht, wie viele Anfragen und Tokens alle Aufgaben auf diesem Schlüssel je Tag
-  verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum persönlichen Tageskontingent.
+- **Eigener Schlüssel für geplante Aufgaben** (optional), damit Aufgaben nicht das Kontingent für spontane Chats aufbrauchen.
+  Der Admin wählt: derselbe Schlüssel wie für alles andere, ein **zentraler Aufgaben-Schlüssel für alle**, **jede Person
+  entscheidet selbst** (ein Schlüssel für alles, eigener Aufgaben-Schlüssel oder zentraler Aufgaben-Schlüssel) oder
+  **eigene Schlüssel verpflichtend** – dann gibt es keinen zentralen Aufgaben-Schlüssel, und wer Aufgaben anlegt, trägt in den
+  Einstellungen einen eigenen ein; wer bereits einen eigenen Schlüssel für Chats und Coworks hat, darf denselben für alles
+  nutzen. Fehlt der Schlüssel, startet kein Lauf, und das Ergebnis nennt den Grund. Unter *Geplant* steht, wie viele Anfragen
+  und Tokens alle Aufgaben auf diesem Schlüssel je Tag verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum
+  persönlichen Tageskontingent.
 - **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
   einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte
   Claude-Modell und eigene Deployment-Namen per kostenloser Token-Zählung). Der Admin bringt die Anbieter in eine **Reihenfolge**

@@ -50,13 +50,16 @@ export function usageBlock(o: { title: string; label?: string; accent?: boolean;
 /** The person's own view (tasks page, settings), from usage.tasks of the bootstrap/usage events. */
 export function taskUsageCard(tk: any, days: any[] | null) {
   if (!tk) return nothing;
-  if (!tk.has_key) return html`<div class="card hint">Für geplante Aufgaben ist noch kein API-Schlüssel hinterlegt.</div>`;
+  if (!tk.has_key) return html`<div class="card hint">${tk.missing
+    ? "Für geplante Aufgaben fehlt dein eigener API-Schlüssel – der Admin lässt Aufgaben nur mit eigenen Schlüsseln laufen. Trag ihn in den Einstellungen ein."
+    : "Für geplante Aufgaben ist noch kein API-Schlüssel hinterlegt."}</div>`;
   return usageBlock({
     title: "Verbrauch der geplanten Aufgaben", label: taskKeyLabel(tk.source), accent: tk.separate,
     todayLabel: tk.shared_by_all ? "Alle geplanten Aufgaben auf diesem Schlüssel heute" : "Deine geplanten Aufgaben heute",
     today: tk.key_today, mine: tk.shared_by_all ? tk.mine_today : undefined, limits: tk.key_limits, days,
     notes: [
       tk.fallback ? html`<span class="warnline">${icon("alert", 13)} Der gewählte Aufgaben-Schlüssel ist nicht eingetragen – Aufgaben nutzen so lange den normalen Schlüssel.</span>` : null,
+      tk.missing ? html`<span class="warnline">${icon("alert", 13)} Ohne eigenen Aufgaben-Schlüssel starten keine Läufe – der Admin lässt Aufgaben nur mit eigenen Schlüsseln laufen.</span>` : null,
       !tk.separate && !tk.fallback ? "Aufgaben teilen sich die Limits mit Chats und Coworks." : null,
       tk.separate ? "Läufe auf diesem Schlüssel zählen nicht zum persönlichen Tageskontingent." : null,
     ],

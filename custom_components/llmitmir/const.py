@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.14.0"
+VERSION = "0.15.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -24,8 +24,9 @@ KEY_MODES = (KEY_SHARED, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN)
 TASK_KEY_SAME = "same"      # tasks use the normal key
 TASK_KEY_SHARED = "shared"  # one central task key for all tasks of everybody
 TASK_KEY_USER = "user"      # every user chooses (same / own task key / central task key)
-TASK_KEY_MODES = (TASK_KEY_SAME, TASK_KEY_SHARED, TASK_KEY_USER)
-TASK_KEY_CHOICES = ("same", "own", "shared")  # per-user choice in TASK_KEY_USER mode
+TASK_KEY_OWN = "own"        # every user must use an own task key – no central key, no shared one
+TASK_KEY_MODES = (TASK_KEY_SAME, TASK_KEY_SHARED, TASK_KEY_USER, TASK_KEY_OWN)
+TASK_KEY_CHOICES = ("same", "own", "shared")  # per-user choice in TASK_KEY_USER and TASK_KEY_OWN mode
 TASK_USAGE_DAYS = 60
 
 # Presets for OpenAI-compatible providers

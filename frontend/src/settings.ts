@@ -93,7 +93,7 @@ export class SettingsPage extends StoreElement {
     const payload: any = { ...this.s, memory: this.memory }; delete payload.has_own_key; delete payload.has_own_task_key;
     if (!payload.own_key) delete payload.own_key;
     if (!payload.own_task_key) delete payload.own_task_key;
-    if (store.data?.usage?.tasks?.mode !== "user") delete payload.task_key_choice;
+    if (!["user", "own"].includes(store.data?.usage?.tasks?.mode || "")) delete payload.task_key_choice;
     if (store.data?.view?.locked) delete payload.view;
     delete payload.notify_service;  // replaced by the device choice
     payload.notify_device = this.deviceSel;
@@ -167,13 +167,16 @@ export class SettingsPage extends StoreElement {
     if (tk.mode === "shared") return html`<section><h2>${icon("task", 18)} Schlüssel für geplante Aufgaben</h2>
       <div class="hint">${tk.has_central ? "Deine geplanten Aufgaben laufen über den zentralen Aufgaben-Schlüssel, den der Admin eingetragen hat. Chats und Coworks behalten so ihr volles Kontingent."
         : "Der Admin hat einen zentralen Aufgaben-Schlüssel vorgesehen, aber noch nicht eingetragen – bis dahin laufen Aufgaben über den normalen Schlüssel."}</div></section>`;
-    const choice = s.task_key_choice || "same";
+    const allowed: string[] = tk.allowed || ["same", "own"];
+    const choice = allowed.includes(s.task_key_choice) ? s.task_key_choice : (allowed.includes("same") ? "same" : "own");
     const opts: [string, string, string, boolean][] = [
-      ["same", "Ein Schlüssel für alles", "Aufgaben, Chats und Coworks nutzen denselben Schlüssel und teilen sich dessen Limits.", true],
-      ["own", "Eigener Schlüssel für Aufgaben", "Aufgaben verbrauchen nichts vom Kontingent für spontane Chats und Coworks.", true],
+      ["same", "Ein Schlüssel für alles", "Aufgaben, Chats und Coworks nutzen denselben Schlüssel und teilen sich dessen Limits.", allowed.includes("same")],
+      ["own", "Eigener Schlüssel für Aufgaben", "Aufgaben verbrauchen nichts vom Kontingent für spontane Chats und Coworks.", allowed.includes("own")],
       ["shared", "Zentraler Aufgaben-Schlüssel", tk.has_central ? "Vom Admin eingetragen; alle, die ihn wählen, teilen sich seine Limits."
-        : "Nicht verfügbar – der Admin hat keinen zentralen Aufgaben-Schlüssel eingetragen.", !!tk.has_central || choice === "shared"]];
+        : "Nicht verfügbar – der Admin hat keinen zentralen Aufgaben-Schlüssel eingetragen.", allowed.includes("shared")]];
     return html`<section><h2>${icon("task", 18)} Schlüssel für geplante Aufgaben</h2><div class="form">
+      ${tk.mode === "own" ? html`<div class="hint">${icon("lock", 14)} Der Admin hat festgelegt, dass geplante Aufgaben nur mit eigenen
+        Schlüsseln laufen – ein zentraler oder gemeinsamer Schlüssel ist dafür nicht zugelassen.</div>` : nothing}
       ${opts.map(([k, l, h, ok]) => html`<label class="opt ${choice === k ? "on" : ""}" style=${ok ? "" : "opacity:.5;cursor:default"}>
         <input type="radio" name="tkc" ?disabled=${!ok} .checked=${choice === k} @change=${() => this.set("task_key_choice", k)}>
         <div><b>${l}</b><div class="hint">${h}</div></div></label>`)}
@@ -517,14 +520,23 @@ export class AdminPage extends StoreElement {
     const a = this.a; const tm = a.task_key_mode || "same"; const tu = a.task_usage || {};
     const modes = [["same", "Gleicher Schlüssel wie für alles andere", "Geplante Aufgaben teilen sich die Limits mit Chats und Coworks (bisheriges Verhalten)."],
       ["shared", "Zentraler Aufgaben-Schlüssel für alle", "Alle geplanten Aufgaben aller Personen laufen über einen eigenen Schlüssel – spontane Chats und Coworks behalten ihr volles Kontingent."],
-      ["user", "Jede Person entscheidet selbst", "In den Einstellungen: ein Schlüssel für alles, ein eigener Aufgaben-Schlüssel oder der zentrale Aufgaben-Schlüssel (wenn du hier einen einträgst)."]];
+      ["user", "Jede Person entscheidet selbst", "In den Einstellungen: ein Schlüssel für alles, ein eigener Aufgaben-Schlüssel oder der zentrale Aufgaben-Schlüssel (wenn du hier einen einträgst)."],
+      ["own", "Jede Person muss einen eigenen Schlüssel verwenden", "Kein zentraler Schlüssel für Aufgaben: Wer geplante Aufgaben anlegt, trägt in den Einstellungen einen eigenen Aufgaben-Schlüssel ein. "
+        + "Wer bereits einen eigenen Schlüssel für Chats und Coworks hat, darf denselben für alles nutzen – ein gemeinsamer Schlüssel gilt nie für Aufgaben."]];
     return html`<section><h2>${icon("task", 18)} Schlüssel für geplante Aufgaben</h2><div class="form">
       ${modes.map(([k, l, h]) => html`<label class="opt ${tm === k ? "on" : ""}"><input type="radio" name="tkm" .checked=${tm === k} @change=${() => this.set("task_key_mode", k)}>
         <div><b>${l}</b><div class="hint">${h}</div></div></label>`)}
-      ${tm !== "same" ? html`<label class="f"><span>Zentraler Aufgaben-Schlüssel${tm === "user" ? " (optional)" : ""}</span>
+      ${tm === "shared" || tm === "user" ? html`<label class="f"><span>Zentraler Aufgaben-Schlüssel${tm === "user" ? " (optional)" : ""}</span>
         <input type="password" autocomplete="off" placeholder="nicht gesetzt" .value=${a.shared_task_key || ""}
           @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => this.set("shared_task_key", e.target.value)}></label>
         ${tm === "shared" && !a.shared_task_key ? html`<div class="hint">Solange kein Schlüssel eingetragen ist, nutzen Aufgaben den normalen Schlüssel.</div>` : nothing}` : nothing}
+      ${tm === "own" ? html`<div class="hint">${icon("lock", 14)} Beim Speichern wird ein bisher eingetragener zentraler Aufgaben-Schlüssel entfernt.
+        Aufgaben, die noch auf ihm laufen, nutzen danach den eigenen Schlüssel der Person – fehlt der, meldet der Lauf das im Ergebnis.</div>
+        <div class="tw"><table><tr><th>Person</th><th>Eigener Aufgaben-Schlüssel</th></tr>
+          ${a.users.filter((u: any) => u.is_active).map((u: any) => html`<tr><td>${u.name}</td>
+            <td>${u.has_own_task_key ? html`<span class="chip ok">${icon("check", 13)} eingetragen</span>`
+              : u.has_own_key ? html`<span class="chip">nutzt den eigenen Schlüssel für alles</span>`
+              : html`<span class="chip warn">${icon("alert", 13)} fehlt – keine Läufe</span>`}</td></tr>`)}</table></div>` : nothing}
       ${tu.central ? usageBlock({ title: "Geplante Aufgaben auf dem zentralen Aufgaben-Schlüssel", label: taskKeyLabel("shared"), accent: true,
           todayLabel: "Alle Aufgaben aller Personen heute", today: tu.central.today, limits: tu.central.limits, days: tu.central.days }) : nothing}
       ${tu.shared && (tm !== "shared" || !tu.central) ? usageBlock({ title: "Geplante Aufgaben auf dem gemeinsamen Schlüssel", label: "gemeinsamer Schlüssel",

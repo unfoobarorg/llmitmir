@@ -23,7 +23,7 @@ from . import providers as PV
 from . import sharing as SH
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, PRESETS,
-                    TASK_KEY_CHOICES, TASK_KEY_MODES, VERSION)
+                    TASK_KEY_CHOICES, TASK_KEY_MODES, TASK_KEY_OWN, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
 from .storage import mask_credential, new_id, now
 from .claude_client import available as claude_available
@@ -671,7 +671,13 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
         choice = s["task_key_choice"] or "same"
         if choice not in TASK_KEY_CHOICES:
             raise ValueError("Ungültige Auswahl für den Aufgaben-Schlüssel")
-        if choice == "own" and not cur.get("own_task_key"):
+        allowed = m.task_key_info(user.id, st)["allowed"]
+        if choice not in allowed:
+            raise ValueError("Diese Auswahl ist nicht möglich – der Admin legt fest, welche Schlüssel geplante Aufgaben "
+                             "nutzen dürfen")
+        if choice == "own" and not cur.get("own_task_key") and choice != m.task_key_info(user.id, st)["choice"]:
+            # Nur beim Wechsel auf "eigener Schluessel" verlangen. Wer im Modus "eigene Schluessel
+            # verpflichtend" noch keinen hat, kann trotzdem speichern – die Oberflaeche warnt dann.
             raise ValueError("Bitte einen Schlüssel für geplante Aufgaben eintragen")
         if choice == "shared" and choice != cur.get("task_key_choice") and not m.config.data.get("shared_task_key"):
             raise ValueError("Es gibt keinen zentralen Aufgaben-Schlüssel – bitte den Admin fragen")
@@ -762,7 +768,9 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "search": cfg.get("search"),
         "werkbank": {"url": (cfg.get("werkbank") or {}).get("url", ""), "token": MASK if (cfg.get("werkbank") or {}).get("token") else ""},
         "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
-                   "view": (m.users[u.id].meta["settings"].get("view") if u.id in m.users else None)} for u in users],
+                   "view": (m.users[u.id].meta["settings"].get("view") if u.id in m.users else None),
+                   "has_own_task_key": bool(u.id in m.users and m.users[u.id].meta["settings"].get("own_task_key")),
+                   "has_own_key": bool(u.id in m.users and m.users[u.id].meta["settings"].get("own_key"))} for u in users],
         "views": V.clean(cfg.get("views")),
         "notify_devices": [{"key": d["key"], "name": d["name"], "service": d["service"], "entity_id": d["entity_id"],
                             "user_id": d["user_id"], "source": d["source"], "available": d["available"],
@@ -830,6 +838,9 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         cfg["task_key_mode"] = c["task_key_mode"]
     if "shared_task_key" in c and c["shared_task_key"] != MASK:
         cfg["shared_task_key"] = str(c["shared_task_key"]).strip()
+    if cfg.get("task_key_mode") == TASK_KEY_OWN:
+        # Eigene Schluessel verlangen heisst: kein zentraler Schluessel fuer Aufgaben mehr
+        cfg["shared_task_key"] = ""
     if "user_keys" in c:
         keys = dict(cfg.get("user_keys") or {})
         for uid, k in c["user_keys"].items():
