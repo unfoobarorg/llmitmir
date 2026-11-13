@@ -161,9 +161,28 @@ async def ews_events(ctx, a: dict):
             "anzahl": len(termine), "termine": sorted(termine, key=lambda e: e.get("start") or "")}
 
 
+async def _contact_phones(ctx, cred: dict) -> dict[str, str]:
+    """Wie dieser Server Telefonnummern liefert – gemerkt oder jetzt ausgehandelt."""
+    store = getattr(ctx.manager, "ews", None)
+    user, _ = C.ews_account(cred)
+    key = f"{C.ews_endpoint(cred)}|{user}|contacts"
+    known = store.fields(key) if store else {}
+    _, password = C.ews_account(cred)
+    try:
+        chosen = await E.negotiate_contact_phones(ctx.session, C.ews_endpoint(cred), user, password,
+                                                  domain=C.ews_domain(cred), known=known)
+    except E.EwsError:
+        return known
+    if store and chosen != known:
+        store.remember(key, chosen)
+        await store.async_save()
+    return chosen
+
+
 async def ews_contacts(ctx, a: dict):
     cred = _account(ctx, a.get("zugang", ""), "contacts")
-    out = await _call(ctx, cred, E.find_contacts(int(a.get("anzahl") or 200)))
+    phones = await _contact_phones(ctx, cred)
+    out = await _call(ctx, cred, E.find_contacts(int(a.get("anzahl") or 200), phones=phones))
     if not out["ok"]:
         return f"Fehler: {E.describe_error(out)}"
     needle = str(a.get("suche") or "").strip().casefold()

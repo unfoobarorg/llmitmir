@@ -34,6 +34,34 @@ async def call(ctx, cred: dict, body: str) -> dict:
         raise MailEwsError(str(e)) from e
 
 
+def _server_key(cred: dict) -> str:
+    """Schlüssel für das Gelernte über einen Server: EWS-Adresse plus Benutzername."""
+    user, _ = C.ews_account(cred)
+    return f"{C.ews_endpoint(cred)}|{user}"
+
+
+async def _mail_fields(ctx, cred: dict) -> dict[str, str]:
+    """Die Feld-Schreibweise dieses Servers – gemerkt oder jetzt ausgehandelt.
+
+    Exchange-Server unterscheiden sich darin, ob sie Nachrichtenfelder unter ``item:`` oder ``message:``
+    erwarten (der GWDG-Exchange nimmt eine Mischung). Statt eine Schreibweise zu raten, wird sie einmal
+    ausgehandelt und je Server festgehalten.
+    """
+    store = getattr(ctx.manager, "ews", None)
+    key = _server_key(cred)
+    known = store.fields(key) if store else {}
+    user, password = C.ews_account(cred)
+    try:
+        chosen = await E.negotiate_mail_fields(ctx.session, C.ews_endpoint(cred), user, password,
+                                               domain=C.ews_domain(cred), known=known)
+    except E.EwsError:
+        return known
+    if store and chosen != known:
+        store.remember(key, chosen)
+        await store.async_save()
+    return chosen
+
+
 def _check(out: dict, what: str) -> dict:
     """Antwort prüfen: Exchange meldet Fehler im SOAP-Body, nicht nur über den HTTP-Status."""
     if not out.get("ok"):
@@ -51,9 +79,10 @@ async def list_messages(ctx, cred: dict, a: dict) -> dict:
     ordner = str(a.get("ordner") or "inbox")
     anzahl = max(1, min(int(a.get("anzahl") or 20), 100))
     folder_id = await _folder_id(ctx, cred, ordner)
+    fields = await _mail_fields(ctx, cred)
     out = _check(await call(ctx, cred, E.find_messages(
-        folder_id, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl)),
-        "Nachrichten lesen")
+        folder_id, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl,
+        fields=fields)), "Nachrichten lesen")
     rows = E.parse_messages(out.get("raw") or "")
     # Absender filtert der Client: EWS kann „From“ nicht zuverlässig serverseitig durchsuchen
     who = str(a.get("absender") or "").strip().casefold()
@@ -102,6 +131,23 @@ async def send_message(ctx, cred: dict, a: dict, files: list[tuple[str, bytes]],
             "kopie": "in „Gesendete Elemente“ abgelegt"}
 
 
+async def _update_fields(ctx, cred: dict, uid: str, change_key: str) -> dict[str, str]:
+    """Wie dieser Server IsRead und Flag beim Ändern erwartet – gemerkt oder jetzt ausgehandelt."""
+    store = getattr(ctx.manager, "ews", None)
+    key = f"{_server_key(cred)}|update"
+    known = store.fields(key) if store else {}
+    user, password = C.ews_account(cred)
+    try:
+        chosen = await E.negotiate_update_fields(ctx.session, C.ews_endpoint(cred), user, password, uid,
+                                                 change_key, domain=C.ews_domain(cred), known=known)
+    except E.EwsError:
+        return known
+    if store and chosen != known:
+        store.remember(key, chosen)
+        await store.async_save()
+    return chosen
+
+
 async def _folder_id(ctx, cred: dict, ziel: str) -> str:
     """Ordnername in eine FolderId auflösen.
 
@@ -138,7 +184,9 @@ async def change_messages(ctx, cred: dict, a: dict, uids: list[str]) -> dict:
             # Exchange verlangt beim Aendern einen ChangeKey (ErrorChangeKeyRequiredForWriteOperations).
             # Er wird mit einem GetItem geholt, damit die Person ihn nicht selbst mitliefern muss.
             key = await _change_key(ctx, cred, uid)
-            _check(await call(ctx, cred, E.update_message(uid, key, **flags[aktion])), f"„{aktion}“")
+            fields = await _update_fields(ctx, cred, uid, key)
+            _check(await call(ctx, cred, E.update_message(uid, key, fields=fields, **flags[aktion])),
+                   f"„{aktion}“")
         return {"ok": True, "aktion": aktion, "uids": uids}
     if aktion == "verschieben":
         ziel = str(a.get("ziel") or "").strip()
