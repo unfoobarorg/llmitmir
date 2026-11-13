@@ -99,6 +99,45 @@ CONTACT_FIELDS = ("contacts:DisplayName", "contacts:GivenName", "contacts:Surnam
                   "contacts:JobTitle")
 CONTACT_PHONES = (("BusinessPhone", "telefon"), ("MobilePhone", "mobil"), ("HomePhone", "privat"))
 
+# Telefonnummern sind in EWS immer indizierte Felder (contacts:PhoneNumber mit FieldIndex). Manche Server nehmen
+# stattdessen eigene Feldnamen – deshalb wird auch hier ausgehandelt statt geraten.
+CONTACT_PHONE_VARIANTS: dict[str, tuple[str, ...]] = {
+    "telefon": ("contacts:PhoneNumber#BusinessPhone", "contacts:BusinessPhoneNumber", "contacts:PhoneNumber#HomePhone"),
+    "mobil": ("contacts:PhoneNumber#MobilePhone", "contacts:MobilePhoneNumber"),
+    "privat": ("contacts:PhoneNumber#HomePhone", "contacts:HomePhoneNumber"),
+}
+
+
+def probe_contact_phone(field: str, folder: str = "contacts") -> str:
+    """FindItem auf Kontakte mit genau einem Telefonfeld – um eine Schreibweise einzeln zu prüfen."""
+    if "#" in field:
+        uri, index = field.split("#", 1)
+        extra = f'<t:IndexedFieldURI FieldURI="{uri}" FieldIndex="{index}"/>'
+    else:
+        extra = _field(field)
+    return envelope(
+        '<m:FindItem Traversal="Shallow">'
+        f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{extra}"
+        "</t:AdditionalProperties></m:ItemShape>"
+        '<m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>'
+        f"<m:ParentFolderIds>{folder_ref(folder)}</m:ParentFolderIds>"
+        "</m:FindItem>")
+
+
+def contact_props(phones: dict[str, str] | None = None) -> str:
+    """Die Zusatzfelder für FindItem auf Kontakte (``phones`` = Ergebnis der Aushandlung)."""
+    props = "".join(_field(f) for f in CONTACT_FIELDS)
+    props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress1"/>'
+    props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress2"/>'
+    for key, variants in CONTACT_PHONE_VARIANTS.items():
+        choice = (phones or {}).get(key) or variants[0]
+        if "#" in choice:  # indiziertes Feld: contacts:PhoneNumber#BusinessPhone
+            uri, index = choice.split("#", 1)
+            props += f'<t:IndexedFieldURI FieldURI="{uri}" FieldIndex="{index}"/>'
+        else:  # eigener Feldname
+            props += _field(choice)
+    return props
+
 CONTACT_FIELD_CANDIDATES = tuple(CONTACT_FIELDS) + tuple(
     indexed("contacts:PhoneNumber", i) for i, _ in CONTACT_PHONES)
 
@@ -117,12 +156,13 @@ def find_calendar(von: str | None = None, bis: str | None = None, max_entries: i
         "</m:FindItem>")
 
 
-def find_contacts(max_entries: int = 100, folder: str = "contacts") -> str:
-    """Kontakte des Postfachs (Adressbuch-Ordner), ohne Volltextsuche – die macht der Aufrufer lokal."""
-    props = "".join(_field(f) for f in CONTACT_FIELDS)
-    props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress1"/>'
-    props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress2"/>'
-    props += "".join(indexed("contacts:PhoneNumber", i) for i, _ in CONTACT_PHONES)
+def find_contacts(max_entries: int = 100, folder: str = "contacts",
+                  phones: dict[str, str] | None = None) -> str:
+    """Kontakte des Postfachs (Adressbuch-Ordner), ohne Volltextsuche – die macht der Aufrufer lokal.
+
+    ``phones`` ist das Ergebnis der Aushandlung (negotiate_contact_phones) – ohne Angabe gilt die Vorgabe.
+    """
+    props = contact_props(phones)
     return envelope(
         '<m:FindItem Traversal="Shallow">'
         f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
@@ -130,6 +170,59 @@ def find_contacts(max_entries: int = 100, folder: str = "contacts") -> str:
         'Offset="0" BasePoint="Beginning"/>'
         f"<m:ParentFolderIds>{folder_ref(folder or 'contacts')}</m:ParentFolderIds>"
         "</m:FindItem>")
+
+
+async def negotiate_update_fields(session, endpoint: str, username: str, password: str, item_id: str,
+                                  change_key: str, domain: str = "", known: dict[str, str] | None = None,
+                                  timeout: int = TIMEOUT) -> dict[str, str]:
+    """Herausfinden, welche Feld-Schreibweise dieser Server beim Ändern einer Nachricht nimmt.
+
+    Probiert an einer echten Nachricht die Varianten für IsRead und Flag durch. Der Aufruf setzt dabei den
+    Lesestatus bzw. die Markierung – der Aufrufer stellt danach den gewünschten Zustand, das ist unkritisch.
+    """
+    chosen = dict(known or {})
+    for key, variants in UPDATE_FIELD_VARIANTS.items():
+        current = chosen.get(key) or variants[0]
+        if current not in variants:
+            continue
+        for variant in variants[variants.index(current):]:
+            candidate = dict(chosen)
+            candidate[key] = variant
+            # gelesen=True ist der harmloseste Test: eine ungelesene Mail wird gelesen, mehr nicht
+            body = update_message(item_id, change_key, gelesen=True if key == "read" else None,
+                                  markiert=False if key == "flag" else None, fields=candidate)
+            try:
+                out = await call(session, endpoint, username, password, body, timeout=timeout, domain=domain)
+            except EwsError:
+                continue
+            if out.get("ok"):
+                chosen = candidate
+                break
+    return chosen
+
+
+async def negotiate_contact_phones(session, endpoint: str, username: str, password: str, domain: str = "",
+                                   known: dict[str, str] | None = None, timeout: int = TIMEOUT) -> dict[str, str]:
+    """Herausfinden, wie dieser Server Telefonnummern in Kontakten liefert.
+
+    Vorgabe ist das indizierte Feld (``contacts:PhoneNumber`` mit FieldIndex). Nimmt der Server das nicht, werden
+    je Nummer die Alternativen probiert. Ergebnis: Nummer-Art -> Feldangabe.
+    """
+    chosen = dict(known or {})
+    # Jede Nummer-Art einzeln prüfen – ein Fehler bei „mobil“ darf nicht verdecken, dass „telefon“ passt.
+    for key, variants in CONTACT_PHONE_VARIANTS.items():
+        current = chosen.get(key) or variants[0]
+        order = [current] + [v for v in variants if v != current]
+        for variant in order:
+            try:
+                out = await call(session, endpoint, username, password, probe_contact_phone(variant),
+                                 timeout=timeout, domain=domain)
+            except EwsError:
+                continue
+            if out.get("ok"):
+                chosen[key] = variant
+                break
+    return chosen
 
 
 def probe_field(folder: str, field: str) -> str:
@@ -252,18 +345,58 @@ def get_folder(folder: str = "calendar") -> str:
 
 # ---------------------------------------------------------------- Postfach
 # Feld-URIs für FindItem auf Nachrichten (Kopfzeilen und Zustand, ohne den Text).
-# Der GWDG-Exchange nimmt hier eine Mischung: Betreff, Größe, Datum und Klasse unter ``item:``, Lesestatus,
-# Absender und Empfängerlisten dagegen nur unter ``message:``. Andersherum lehnt er mit HTTP 500 ab – einzeln
-# gegen den Server geprüft (credential/diagnose).
+#
+# Exchange kennt für Nachrichtenfelder zwei Namensräume, ``item:`` und ``message:``. Welcher Server welche
+# Eigenschaft in welchem Namensraum erwartet, ist nicht einheitlich: Der GWDG-Exchange nimmt Betreff, Größe, Datum
+# und Klasse nur unter ``item:``, Lesestatus, Absender und Empfängerlisten dagegen nur unter ``message:``.
+# Deshalb wird nicht geraten, sondern ausgehandelt (siehe MAIL_FIELD_GROUPS und negotiate_mail_fields): Diese
+# Werte sind der Ausgangspunkt, bei einem Fehler probiert LLMitMir die Alternativen durch und merkt sich das
+# Ergebnis je Zugang.
 MAIL_FIELDS = ("item:Subject", "item:DateTimeReceived", "item:DateTimeSent", "item:HasAttachments",
                "item:Size", "item:ItemClass", "item:Flag",
                "message:IsRead", "message:From", "message:ToRecipients", "message:CcRecipients")
 
-# Kandidaten für die Fehlersuche: Exchange kennt für Nachrichtenfelder zwei Schreibweisen (item: und message:)
-MAIL_FIELD_CANDIDATES = tuple(
-    f"{ns}:{name}" for name in ("IsRead", "From", "ToRecipients", "CcRecipients", "Subject", "Size", "ItemClass",
-                                "HasAttachments", "DateTimeReceived", "DateTimeSent", "Flag")
-    for ns in ("item", "message"))
+# Je Eigenschaft die möglichen Schreibweisen, in der Reihenfolge, in der sie probiert werden. Die erste ist die
+# Vorgabe (die der GWDG-Exchange nimmt). Wird eine Gruppe abgelehnt, wird die nächste Variante getestet.
+MAIL_FIELD_GROUPS: dict[str, tuple[str, ...]] = {
+    "subject": ("item:Subject", "message:Subject"),
+    "received": ("item:DateTimeReceived", "message:DateTimeReceived"),
+    "sent": ("item:DateTimeSent", "message:DateTimeSent"),
+    "attachments": ("item:HasAttachments", "message:HasAttachments"),
+    "size": ("item:Size", "message:Size"),
+    "class": ("item:ItemClass", "message:ItemClass"),
+    "flag": ("item:Flag", "message:Flag"),
+    "read": ("message:IsRead", "item:IsRead"),
+    "from": ("message:From", "item:From"),
+    "to": ("message:ToRecipients", "item:ToRecipients"),
+    "cc": ("message:CcRecipients", "item:CcRecipients"),
+}
+
+# Alle Kandidaten – für die Fehlersuche in der Diagnose
+MAIL_FIELD_CANDIDATES = tuple(f for variants in MAIL_FIELD_GROUPS.values() for f in variants)
+
+
+def mail_fields(chosen: dict[str, str] | None = None) -> tuple[str, ...]:
+    """Die Feld-URIs für FindItem aus einer Aushandlung (oder die Vorgabe)."""
+    if not chosen:
+        return MAIL_FIELDS
+    return tuple(chosen.get(group, variants[0]) for group, variants in MAIL_FIELD_GROUPS.items())
+
+
+def probe_mail_field(field: str, folder: str = "inbox") -> str:
+    """FindItem mit genau einem Zusatzfeld – um zu testen, ob der Server diese Schreibweise annimmt.
+
+    BaseShape=Default liefert die Standardfelder; das eine Feld kommt zusätzlich dazu. So lässt sich jede
+    Schreibweise einzeln prüfen, ohne dass ein anderes, ebenfalls falsches Feld die Antwort verfälscht.
+    """
+    return envelope(
+        '<m:FindItem Traversal="Shallow">'
+        f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{_field(field)}"
+        "</t:AdditionalProperties></m:ItemShape>"
+        '<m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>'
+        f"<m:ParentFolderIds>{folder_ref(folder)}</m:ParentFolderIds>"
+        "</m:FindItem>")
+
 
 # Ordnernamen, die Exchange selbst kennt (DistinguishedFolderId) – alles andere ist eine FolderId oder ein Name
 DISTINGUISHED = {
@@ -323,9 +456,13 @@ def _restriction(suche: str | None = None, von: str | None = None, bis: str | No
 
 
 def find_messages(folder: str | None = "inbox", suche: str | None = None, von: str | None = None,
-                  bis: str | None = None, ungelesen: bool = False, max_entries: int = 20) -> str:
-    """Nachrichten eines Ordners, neueste zuerst. Der Server filtert und sortiert; der Text bleibt draußen."""
-    props = "".join(_field(f) for f in MAIL_FIELDS)
+                  bis: str | None = None, ungelesen: bool = False, max_entries: int = 20,
+                  fields: dict[str, str] | None = None) -> str:
+    """Nachrichten eines Ordners, neueste zuerst. Der Server filtert und sortiert; der Text bleibt draußen.
+
+    ``fields`` ist das Ergebnis der Aushandlung (negotiate_mail_fields) – ohne Angabe gilt die Vorgabe.
+    """
+    props = "".join(_field(f) for f in mail_fields(fields))
     return envelope(
         '<m:FindItem Traversal="Shallow">'
         # BaseShape=Default, nicht IdOnly: IsRead, From und die Empfängerlisten gibt es bei IdOnly nicht,
@@ -338,6 +475,37 @@ def find_messages(folder: str | None = "inbox", suche: str | None = None, von: s
         + _restriction(suche, von, bis, ungelesen)
         + f"<m:ParentFolderIds>{folder_ref(folder)}</m:ParentFolderIds>"
         "</m:FindItem>")
+
+
+async def negotiate_mail_fields(session, endpoint: str, username: str, password: str, domain: str = "",
+                                known: dict[str, str] | None = None, folder: str = "inbox",
+                                timeout: int = TIMEOUT) -> dict[str, str]:
+    """Herausfinden, welche Feld-Schreibweise dieser Exchange-Server für Nachrichten nimmt.
+
+    Ausgangspunkt ist ``known`` (die beim letzten Mal gefundene Belegung) oder die Vorgabe. Schlägt die Anfrage
+    fehl, wird Gruppe für Gruppe die nächste Variante probiert, bis der Server die Anfrage annimmt. Das Ergebnis
+    ist ein Wörterbuch Gruppe -> Feld-URI und wird von der Aufruferseite je Zugang gemerkt.
+
+    Gibt bei einem Server, der gar nicht antwortet, die zuletzt gefundene (oder die Vorgabe-)Belegung zurück –
+    dann scheitert der eigentliche Aufruf mit der echten Fehlermeldung, statt hier zu verschwinden.
+    """
+    chosen = dict(known or {})
+    # Jede Gruppe einzeln prüfen: FindItem mit genau diesem einen Feld. Die bekannte (oder Vorgabe-)Variante
+    # zuerst; nimmt der Server sie nicht, die Alternativen der Reihe nach. Ein Fehler in einer Gruppe kann so
+    # nicht die anderen verdecken.
+    for group, variants in MAIL_FIELD_GROUPS.items():
+        current = chosen.get(group) or variants[0]
+        order = [current] + [v for v in variants if v != current]
+        for variant in order:
+            try:
+                out = await call(session, endpoint, username, password, probe_mail_field(variant, folder),
+                                 timeout=timeout, domain=domain)
+            except EwsError:
+                continue
+            if out.get("ok"):
+                chosen[group] = variant
+                break
+    return chosen
 
 
 def get_mime(item_id: str, change_key: str = "") -> str:
@@ -369,19 +537,28 @@ def probe_update(item_id: str, change_key: str, field: str, inner: str) -> str:
         "</t:Updates></t:ItemChange></m:ItemChanges></m:UpdateItem>")
 
 
+# Beim Schreiben (UpdateItem) gilt dieselbe Unsicherheit wie beim Lesen: IsRead nimmt der GWDG-Exchange nur als
+# message:IsRead, Flag nur als item:Flag. Andere Server können es andersherum erwarten – deshalb auch hier
+# Varianten, die nacheinander probiert werden.
+UPDATE_FIELD_VARIANTS: dict[str, tuple[str, ...]] = {
+    "read": ("message:IsRead", "item:IsRead"),
+    "flag": ("item:Flag", "message:Flag"),
+}
+
+
 def update_message(item_id: str, change_key: str = "", gelesen: bool | None = None,
-                  markiert: bool | None = None) -> str:
+                  markiert: bool | None = None, fields: dict[str, str] | None = None) -> str:
     """Zustand einer Nachricht setzen: gelesen/ungelesen, markiert/nicht markiert."""
     sets = []
     if gelesen is not None:
-        sets.append('<t:SetItemField><t:FieldURI FieldURI="message:IsRead"/><t:Message>'
+        uri = (fields or {}).get("read") or UPDATE_FIELD_VARIANTS["read"][0]
+        sets.append(f'<t:SetItemField><t:FieldURI FieldURI="{_esc(uri)}"/><t:Message>'
                     f"<t:IsRead>{'true' if gelesen else 'false'}</t:IsRead></t:Message></t:SetItemField>")
     if markiert is not None:
         flag = ('<t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag>' if markiert
                 else '<t:Flag><t:FlagStatus>NotFlagged</t:FlagStatus></t:Flag>')
-        # Beim Schreiben ist es umgekehrt zum Lesen: IsRead nimmt der Server nur als message:IsRead,
-        # Flag dagegen nur als item:Flag (message:Flag -> HTTP 500). Einzeln gegen den Server geprüft.
-        sets.append('<t:SetItemField><t:FieldURI FieldURI="item:Flag"/><t:Message>'
+        uri = (fields or {}).get("flag") or UPDATE_FIELD_VARIANTS["flag"][0]
+        sets.append(f'<t:SetItemField><t:FieldURI FieldURI="{_esc(uri)}"/><t:Message>'
                     f"{flag}</t:Message></t:SetItemField>")
     if not sets:
         raise ValueError("Nichts zu ändern (gelesen oder markiert angeben)")
