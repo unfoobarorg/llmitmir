@@ -38,7 +38,7 @@ from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
-from .storage import BillingStore, ConfigStore, UserStore, new_id, now
+from .storage import BillingStore, ConfigStore, EwsStore, UserStore, new_id, now
 from .tools import GROUPS, REGISTRY, as_text, finish_progress, load_all
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ class Manager:
         self._poll_key = ""  # last key that worked for a run (per-user keys: something to poll /models with)
         self.observed: dict[str, tuple[float, str]] = {}  # model -> (when, "slow" | "fast") as LLMitMir saw it
         self.billing = BillingStore(hass)
+        self.ews = EwsStore(hass)  # was über die EWS-Server gelernt wurde (Feld-Schreibweise)
         self._ext: dict[str, ClaudeClient] = {}
         self._ext_refreshed: dict[str, float] = {}
         load_all()
@@ -115,6 +116,7 @@ class Manager:
     async def async_setup(self) -> None:
         await self.config.async_load()
         await self.billing.async_load()
+        await self.ews.async_load()
 
     async def ensure_models(self, user_id: str) -> None:
         """Load the model list if it is still empty or stale (e.g. per-user keys)."""

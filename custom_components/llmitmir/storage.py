@@ -22,7 +22,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
-from .const import BILLING_STORE_KEY, CONFIG_STORE_KEY, KEY_SHARED, STORAGE_VERSION, TASK_KEY_SAME
+from .const import (BILLING_STORE_KEY, CONFIG_STORE_KEY, EWS_STORE_KEY, KEY_SHARED, STORAGE_VERSION,
+                    TASK_KEY_SAME)
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -96,6 +97,34 @@ class ConfigStore:
 
     def schedule_save(self, delay: float = 10.0) -> None:
         self._store.async_delay_save(lambda: self.data, delay)
+
+
+class EwsStore:
+    """Was LLMitMir über die EWS-Server gelernt hat – je Zugang die passende Feld-Schreibweise.
+
+    Exchange-Server unterscheiden sich darin, ob sie Nachrichtenfelder unter ``item:`` oder ``message:``
+    erwarten. Die Aushandlung (ews.negotiate_mail_fields) dauert ein paar Anfragen; das Ergebnis wird hier
+    festgehalten, damit sie nur einmal nötig ist. Der Schlüssel ist die EWS-Adresse plus Benutzername, nicht die
+    Zugangs-ID – so gilt das Gelernte auch, wenn der Zugang neu angelegt wird.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._store = Store(hass, STORAGE_VERSION, EWS_STORE_KEY, private=True)
+        self.data: dict[str, Any] = {"fields": {}}
+
+    async def async_load(self) -> None:
+        data = await self._store.async_load() or {}
+        self.data = {"fields": dict(data.get("fields") or {})}
+
+    async def async_save(self) -> None:
+        await self._store.async_save(self.data)
+
+    def fields(self, key: str) -> dict[str, str]:
+        """Die gemerkte Feldbelegung eines Servers (leer, wenn noch nichts ausgehandelt wurde)."""
+        return dict((self.data.get("fields") or {}).get(key) or {})
+
+    def remember(self, key: str, fields: dict[str, str]) -> None:
+        self.data.setdefault("fields", {})[key] = dict(fields)
 
 
 class BillingStore:

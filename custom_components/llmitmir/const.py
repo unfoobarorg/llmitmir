@@ -13,6 +13,7 @@ PANEL_ELEMENT = "llmitmir-panel"
 STORAGE_VERSION = 1
 CONFIG_STORE_KEY = "llmitmir.config"
 BILLING_STORE_KEY = "llmitmir.billing"
+EWS_STORE_KEY = "llmitmir.ews"
 
 # Key modes chosen by the admin
 KEY_SHARED = "shared"            # one central key for everybody
