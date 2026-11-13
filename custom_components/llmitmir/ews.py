@@ -360,6 +360,15 @@ def create_message_mime(mime_b64: str, disposition: str = "SendAndSaveCopy") -> 
         "</t:Message></m:Items></m:CreateItem>")
 
 
+def probe_update(item_id: str, change_key: str, field: str, inner: str) -> str:
+    """Eine UpdateItem-Anfrage mit genau einem Feld – für die Fehlersuche, welche Schreibweise der Server nimmt."""
+    return envelope(
+        '<m:UpdateItem ConflictResolution="AutoResolve" MessageDisposition="SaveOnly">'
+        f'<m:ItemChanges><t:ItemChange><t:ItemId Id="{_esc(item_id)}" ChangeKey="{_esc(change_key)}"/><t:Updates>'
+        f'<t:SetItemField><t:FieldURI FieldURI="{_esc(field)}"/><t:Message>{inner}</t:Message></t:SetItemField>'
+        "</t:Updates></t:ItemChange></m:ItemChanges></m:UpdateItem>")
+
+
 def update_message(item_id: str, change_key: str = "", gelesen: bool | None = None,
                   markiert: bool | None = None) -> str:
     """Zustand einer Nachricht setzen: gelesen/ungelesen, markiert/nicht markiert."""

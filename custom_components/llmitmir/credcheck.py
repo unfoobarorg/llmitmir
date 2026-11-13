@@ -163,6 +163,32 @@ async def ews_diagnose(session: aiohttp.ClientSession, cred: dict) -> dict:
             except E.EwsError as e:
                 bad.append(f"{f} -> {e}")
         out["felder"][name] = {"angenommen": good, "abgelehnt": bad}
+
+    # Markieren: welche Schreibweise nimmt der Server? An einer echten Nachricht getestet.
+    out["markieren"] = {}
+    try:
+        res = await E.call(session, endpoint, user, password, E.find_messages("inbox", None, None, None, False, 1),
+                           timeout=CHECK_TIMEOUT, domain=domain)
+        items = E.parse(res.get("raw") or "").get("items") or []
+        if items:
+            iid, ck = items[0].get("item_id", ""), items[0].get("change_key", "")
+            variants = {
+                "message:Flag": "<t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag>",
+                "item:Flag": "<t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag>",
+                "message:FlagStatus": "<t:FlagStatus>Flagged</t:FlagStatus>",
+                "item:FlagStatus": "<t:FlagStatus>Flagged</t:FlagStatus>",
+            }
+            for field, inner in variants.items():
+                try:
+                    r = await E.call(session, endpoint, user, password, E.probe_update(iid, ck, field, inner),
+                                     timeout=CHECK_TIMEOUT, domain=domain)
+                    out["markieren"][field] = "ok" if r.get("ok") else (r.get("code") or r.get("message"))
+                except E.EwsError as e:
+                    out["markieren"][field] = str(e)
+        else:
+            out["markieren"] = "keine Nachricht zum Testen gefunden"
+    except E.EwsError as e:
+        out["markieren"] = str(e)
     return out
 
 
