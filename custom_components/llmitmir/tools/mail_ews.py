@@ -50,8 +50,10 @@ async def folders(ctx, cred: dict) -> dict:
 async def list_messages(ctx, cred: dict, a: dict) -> dict:
     ordner = str(a.get("ordner") or "inbox")
     anzahl = max(1, min(int(a.get("anzahl") or 20), 100))
+    folder_id = await _folder_id(ctx, cred, ordner)
     out = _check(await call(ctx, cred, E.find_messages(
-        ordner, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl)), "Nachrichten lesen")
+        folder_id, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl)),
+        "Nachrichten lesen")
     rows = E.parse_messages(out.get("raw") or "")
     # Absender filtert der Client: EWS kann „From“ nicht zuverlässig serverseitig durchsuchen
     who = str(a.get("absender") or "").strip().casefold()
