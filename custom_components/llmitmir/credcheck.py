@@ -145,8 +145,14 @@ async def ews_diagnose(session: aiohttp.ClientSession, cred: dict) -> dict:
     for name, body in probes.items():
         try:
             res = await E.call(session, endpoint, user, password, body, timeout=CHECK_TIMEOUT, domain=domain)
+            # Ordner stehen nicht in "items", sondern kommen aus parse_folders – sonst meldet die
+            # Diagnose 0 Ordner, obwohl das Postfach sie liefert.
+            if name == "ordner":
+                anzahl = len(E.parse_folders(res.get("raw") or ""))
+            else:
+                anzahl = len(res.get("items") or [])
             out[name] = {"status": res.get("status"), "ok": res.get("ok"), "code": res.get("code"),
-                         "message": res.get("message"), "anzahl": len(res.get("items") or [])}
+                         "message": res.get("message"), "anzahl": anzahl}
         except E.EwsError as e:
             out[name] = {"fehler": str(e)}
 
