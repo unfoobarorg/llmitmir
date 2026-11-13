@@ -2421,7 +2421,7 @@ def test_built_message_is_seven_bit_clean():
     body = raw.split(b"\n\n", 1)[1]
     # der transportierte Text ist reines ASCII
     assert all(b < 128 for b in body), body[:200]
-    assert b"quoted-printable" in raw.lower()
+    assert b"base64" in raw.lower()
     # und kommt unveraendert wieder heraus
     back = email.message_from_bytes(raw, policy=policy.default)
     assert back.get_content().strip() == text.strip()
