@@ -185,6 +185,10 @@ async def change_messages(ctx, cred: dict, a: dict, uids: list[str]) -> dict:
             # Er wird mit einem GetItem geholt, damit die Person ihn nicht selbst mitliefern muss.
             key = await _change_key(ctx, cred, uid)
             fields = await _update_fields(ctx, cred, uid, key)
+            # Die Aushandlung ändert die Nachricht selbst (sie probiert IsRead und Flag aus) und macht damit den
+            # ChangeKey ungültig. Deshalb ihn danach neu holen – sonst antwortet Exchange mit
+            # ErrorIrresolvableConflict („change key does not match“).
+            key = await _change_key(ctx, cred, uid) or key
             _check(await call(ctx, cred, E.update_message(uid, key, fields=fields, **flags[aktion])),
                    f"„{aktion}“")
         return {"ok": True, "aktion": aktion, "uids": uids}

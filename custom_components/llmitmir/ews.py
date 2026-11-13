@@ -181,6 +181,10 @@ async def negotiate_update_fields(session, endpoint: str, username: str, passwor
     Lesestatus bzw. die Markierung – der Aufrufer stellt danach den gewünschten Zustand, das ist unkritisch.
     """
     chosen = dict(known or {})
+    # Ist fuer jede Gruppe schon eine gueltige Variante gemerkt, ist nichts zu tun – dann wird die Nachricht
+    # nicht angefasst und der ChangeKey bleibt gueltig.
+    if all(chosen.get(k) in v for k, v in UPDATE_FIELD_VARIANTS.items()):
+        return chosen
     for key, variants in UPDATE_FIELD_VARIANTS.items():
         current = chosen.get(key) or variants[0]
         if current not in variants:

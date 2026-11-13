@@ -2609,3 +2609,26 @@ def test_negotiate_update_fields_against_two_schemas():
             assert all(accept(f) for f in fields), (name, fields)
     finally:
         E.call = original
+
+
+def test_negotiate_update_fields_skips_when_known():
+    """Ist die Belegung schon bekannt, wird die Nachricht nicht angefasst (ChangeKey bleibt gueltig)."""
+    import asyncio
+
+    E = _pkg("ews")
+    calls = []
+
+    async def fake_call(session, endpoint, user, pw, body, timeout=30, domain=""):
+        calls.append(body)
+        return {"ok": True, "raw": "<x/>"}
+
+    original = E.call
+    try:
+        E.call = fake_call
+        known = {"read": "message:IsRead", "flag": "item:Flag"}
+        chosen = asyncio.run(E.negotiate_update_fields(None, "https://x/EWS.asmx", "u", "p", "AAA=", "CQ==",
+                                                       known=known))
+        assert chosen == known
+        assert calls == [], "keine Anfrage noetig, wenn alles bekannt ist"
+    finally:
+        E.call = original
