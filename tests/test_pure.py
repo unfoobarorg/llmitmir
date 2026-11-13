@@ -2425,3 +2425,32 @@ def test_built_message_is_seven_bit_clean():
     # und kommt unveraendert wieder heraus
     back = email.message_from_bytes(raw, policy=policy.default)
     assert back.get_content().strip() == text.strip()
+
+
+def test_ews_update_message_field_names():
+    """Beim Schreiben: IsRead nur als message:IsRead, Flag nur als item:Flag (einzeln geprueft)."""
+    E = _pkg("ews")
+    gelesen = E.update_message("AAA=", "CQ==", gelesen=True)
+    assert 'FieldURI="message:IsRead"' in gelesen
+    assert 'FieldURI="item:IsRead"' not in gelesen
+    markiert = E.update_message("AAA=", "CQ==", markiert=True)
+    assert 'FieldURI="item:Flag"' in markiert
+    assert 'FieldURI="message:Flag"' not in markiert
+
+
+def test_ews_unread_filter_uses_message_namespace():
+    """Der Ungelesen-Filter nutzt message:IsRead – item:IsRead lehnt der Server ab."""
+    E = _pkg("ews")
+    body = E.find_messages("inbox", None, None, None, True, 5)
+    assert 'FieldURI="message:IsRead"' in body
+    assert 'FieldURI="item:IsRead"' not in body
+
+
+def test_ews_move_resolves_folder_names():
+    """Eigene Ordner haben eine FolderId; der Name allein ergibt 'Id is malformed'."""
+    E = _pkg("ews")
+    # Standardordner bleiben DistinguishedFolderId
+    assert E.folder_ref("inbox") == '<t:DistinguishedFolderId Id="inbox"/>'
+    # ein eigener Ordner wird als FolderId behandelt
+    assert E.folder_ref("AAMkADarchiv=") == '<t:FolderId Id="AAMkADarchiv="/>'
+    assert "Archiv" not in E.DISTINGUISHED
