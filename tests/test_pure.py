@@ -1496,7 +1496,8 @@ ews = load("ews")
 
 def test_ews_window_and_times():
     start, end = ews.window("2026-11-20", "2026-11-27")
-    assert start == "2026-11-20T00:00:00Z" and end == "2026-11-27T00:00:00Z"
+    # ein reines Datum ist der lokale Kalendertag: 00:00 Ortszeit = 23:00 UTC des Vortags
+    assert start == "2026-11-19T23:00:00Z" and end == "2026-11-26T23:00:00Z"
     # ohne bis: 14 Tage; ohne von: heute
     s2, e2 = ews.window(None, None)
     assert s2.endswith("Z") and e2 > s2
@@ -1505,12 +1506,12 @@ def test_ews_window_and_times():
     assert ews.iso("2026-11-20T14:00:00") == "2026-11-20T13:00:00Z"  # Europe/Berlin im Winter = +01:00
     # verdrehter Zeitraum wird zu einem Tag
     s3, e3 = ews.window("2026-11-27", "2026-11-20")
-    assert e3 == "2026-11-28T00:00:00Z"
+    assert e3 == "2026-11-27T23:00:00Z"  # ein Tag nach dem lokalen 27.11.
 
 
 def test_ews_find_calendar_escapes_and_limits():
     body = ews.find_calendar("2026-11-20", "2026-11-21", max_entries=5000)
-    assert 'StartDate="2026-11-20T00:00:00Z"' in body and 'EndDate="2026-11-21T00:00:00Z"' in body
+    assert 'StartDate="2026-11-19T23:00:00Z"' in body and 'EndDate="2026-11-20T23:00:00Z"' in body
     assert f'MaxEntriesReturned="{ews.MAX_ENTRIES}"' in body  # Obergrenze greift
     assert 'DistinguishedFolderId Id="calendar"' in body
     assert "calendar:RequiredAttendees" in body
@@ -2267,3 +2268,71 @@ def test_ntlm_tries_username_variants(monkeypatch):
     assert seen[-1] == ("nikolaj.kopp@gwdg.de", "")
     assert len(seen) > 1
     assert len(handshakes) == len(seen)  # je Versuch ein eigener Type 1
+
+
+def test_ews_contacts_folder_is_known():
+    """contacts muss als bekannter Ordner gelten – sonst wird daraus eine ungültige FolderId (ErrorInvalidIdMalformed)."""
+    E = _pkg("ews")
+    assert "contacts" in E.DISTINGUISHED
+    assert E.folder_ref("contacts") == '<t:DistinguishedFolderId Id="contacts"/>'
+    assert E.folder_ref("kontakte") == '<t:DistinguishedFolderId Id="contacts"/>'
+
+
+def test_ews_mail_and_contacts_use_default_shape():
+    """IsRead, From und die Empfängerlisten gibt es bei BaseShape=IdOnly nicht – Exchange antwortet mit HTTP 500."""
+    E = _pkg("ews")
+    for body in (E.find_messages("inbox", None, None, None, False, 5), E.find_contacts(5)):
+        assert "<t:BaseShape>Default</t:BaseShape>" in body
+        assert "<t:BaseShape>IdOnly</t:BaseShape>" not in body
+
+
+def test_ews_raw_is_not_truncated():
+    """Die Antwort wird vollständig behalten – gekürzt fehlten bei vielen Ordnern die hinteren Einträge."""
+    import pathlib as _p
+
+    src = _p.Path("custom_components/llmitmir/ews.py").read_text()
+    assert 'out["raw"] = text' in src
+    assert 'text[:4000]' not in src
+
+
+def test_ews_plain_date_is_local_midnight():
+    """Ein reines Datum ist ein Kalendertag in der Ortszeit – sonst landet ein ganztägiger Termin einen Tag zu früh."""
+    E = _pkg("ews")
+    dt = E._utc("2026-11-24", None)
+    assert (dt.year, dt.month, dt.day, dt.hour) == (2026, 11, 24, 0)
+    assert dt.utcoffset().total_seconds() in (3600, 7200)  # Ortszeit, nicht UTC
+    # in UTC ist das der Vortag 23:00 – genau das erwartet CalendarView
+    assert E.iso("2026-11-24") == "2026-11-23T23:00:00Z"
+
+
+def test_ews_all_day_span():
+    """Ganztägig: Ende genau einen Tag nach dem Start."""
+    import pathlib as _p
+    from datetime import datetime, timedelta, timezone
+
+    src = _p.Path("custom_components/llmitmir/tools/ews.py").read_text()
+    start, end = src.index("def _all_day_span("), src.index("def _shape(")
+    ns = {"datetime": datetime, "timedelta": timedelta, "timezone": timezone}
+    exec(src[start:end], ns)
+    span = ns["_all_day_span"]
+    assert span("2026-11-24T00:00:00+01:00", "2026-11-25T00:00:00+01:00") == (
+        "2026-11-24T00:00:00+01:00", "2026-11-25T00:00:00+01:00")
+    # Ende am selben Tag wird auf den Folgetag gesetzt
+    assert span("2026-11-24T00:00:00+01:00", "2026-11-24T00:00:00+01:00")[1] == "2026-11-25T00:00:00+01:00"
+    # Ende vor dem Start ebenfalls
+    assert span("2026-11-24T00:00:00+01:00", "2026-11-20T00:00:00+01:00")[1] == "2026-11-25T00:00:00+01:00"
+
+
+def test_ews_when_has_colon_in_offset():
+    """Exchange lehnt +0100 ab (ErrorInvalidValueForProperty) – der Offset braucht einen Doppelpunkt."""
+    import pathlib as _p
+    from datetime import datetime, timedelta, timezone
+
+    src = _p.Path("custom_components/llmitmir/tools/ews.py").read_text()
+    start, end = src.index("def _when("), src.index("def _all_day_span(")
+    ns = {"datetime": datetime, "timedelta": timedelta, "timezone": timezone,
+          "_tz": lambda: timezone(timedelta(hours=1))}
+    exec(src[start:end], ns)
+    out = ns["_when"]("2026-11-24T10:00")
+    assert out == "2026-11-24T10:00:00+01:00"
+    assert "+0100" not in out

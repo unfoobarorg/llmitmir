@@ -88,6 +88,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   zwangsläufig. Bietet der Server `NEGOTIATE_VERSION` an, enthält die dritte Nachricht wie bei Windows ein
   Versionsfeld. Bleibt es beim 401, nennt die Fehlermeldung alle probierten Schreibweisen – dann stimmen Kennwort
   oder Benutzername nicht.
+  Für Postfach und Kontakte gilt `BaseShape=Default` (bei `IdOnly` kennt Exchange `IsRead`, `From` und die
+  Empfängerlisten nicht und antwortet mit HTTP 500). Ein reines Datum ist immer der lokale Kalendertag – auch bei
+  ganztägigen Terminen, deren Ende genau einen Tag nach dem Start liegt. Fehlt beim Ändern der `change_key`, holt
+  LLMitMir ihn selbst.
 - **Postfach über EWS:** Bei einem Exchange-Zugang laufen auch die `mail_*`-Werkzeuge über EWS – so beschreibt die
   GWDG den Zugang für Exchange-Konten (Apple Mail, „manuell konfigurieren“); IMAP nennt sie nur als eingeschränkte
   Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der

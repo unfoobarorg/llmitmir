@@ -52,7 +52,10 @@ def _utc(value: str | datetime | None, fallback: datetime | None = None) -> date
         if not raw:
             dt = fallback or datetime.now(timezone.utc)
         elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
-            dt = datetime.fromisoformat(raw).replace(tzinfo=timezone.utc)
+            # Ein reines Datum ist ein Kalendertag in der Ortszeit, nicht in UTC: 24.11. heißt in Berlin
+            # 00:00 Ortszeit (= 23:00 UTC am Vortag). Mit UTC-Mitternacht landet ein ganztägiger Termin
+            # einen Tag zu früh im Kalender.
+            dt = datetime.fromisoformat(raw).replace(tzinfo=_zone())
         else:
             try:
                 dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
@@ -110,10 +113,10 @@ def find_contacts(max_entries: int = 100, folder: str = "contacts") -> str:
     props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress2"/>'
     return envelope(
         '<m:FindItem Traversal="Shallow">'
-        f"<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
+        f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
         f'<m:IndexedPageItemView MaxEntriesReturned="{max(1, min(int(max_entries or 100), MAX_ENTRIES))}" '
         'Offset="0" BasePoint="Beginning"/>'
-        f'<m:ParentFolderIds><t:DistinguishedFolderId Id="{_esc(folder or "contacts")}"/></m:ParentFolderIds>'
+        f"<m:ParentFolderIds>{folder_ref(folder or 'contacts')}</m:ParentFolderIds>"
         "</m:FindItem>")
 
 
@@ -229,6 +232,7 @@ MAIL_FIELDS = ("item:Subject", "item:DateTimeReceived", "item:DateTimeSent", "it
 # Ordnernamen, die Exchange selbst kennt (DistinguishedFolderId) – alles andere ist eine FolderId oder ein Name
 DISTINGUISHED = {
     "inbox": "inbox", "posteingang": "inbox", "eingang": "inbox",
+    "contacts": "contacts", "kontakte": "contacts", "adressbuch": "contacts",
     "sent": "sentitems", "sentitems": "sentitems", "gesendet": "sentitems", "gesendete objekte": "sentitems",
     "gesendete elemente": "sentitems",
     "trash": "deleteditems", "deleteditems": "deleteditems", "papierkorb": "deleteditems",
@@ -288,7 +292,9 @@ def find_messages(folder: str | None = "inbox", suche: str | None = None, von: s
     props = "".join(_field(f) for f in MAIL_FIELDS)
     return envelope(
         '<m:FindItem Traversal="Shallow">'
-        f"<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
+        # BaseShape=Default, nicht IdOnly: IsRead, From und die Empfängerlisten gibt es bei IdOnly nicht,
+        # Exchange lehnt die Anfrage dann mit HTTP 500 („The request is invalid“) ab.
+        f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
         f'<m:IndexedPageItemView MaxEntriesReturned="{max(1, min(int(max_entries or 20), MAX_ENTRIES))}" '
         'Offset="0" BasePoint="Beginning"/>'
         '<m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/>'
@@ -677,7 +683,7 @@ async def call(session: aiohttp.ClientSession, endpoint: str, username: str, pas
         raise EwsError(f"HTTP {status}: Exchange meldet einen Serverfehler" + (f" – {hint}" if hint else ""))
     out = parse(text)
     out["status"] = status
-    out["raw"] = text[:4000]  # für die Fehlersuche; wird nicht an das Modell gegeben
+    out["raw"] = text  # vollständig: bei vielen Ordnern/Nachrichten reichen 4000 Zeichen nicht
     if not out["ok"] and out["code"] in ("ErrorAccessDenied", "ErrorInvalidCredentials", "ErrorMissingEmailAddress"):
         raise EwsError(f"{out['code']}: {out['message'] or 'Zugriff verweigert'}")
     return out

@@ -88,6 +88,33 @@ def _when(value: str) -> str:
     return f"{dt.strftime('%Y-%m-%dT%H:%M:%S')}{sign}{hours:02d}:{minutes:02d}"
 
 
+def _all_day_span(start: str, ende: str) -> tuple[str, str]:
+    """Ganztägiger Termin: Start auf 00:00 des Tages, Ende auf 00:00 des Folgetags.
+
+    Exchange erwartet bei ``IsAllDayEvent`` genau einen Tag Abstand. Liegt das Ende am selben Tag (oder fehlt es),
+    wird es auf den Folgetag gesetzt – sonst landet der Termin einen Tag zu früh oder wird abgelehnt.
+    """
+    try:
+        s = datetime.fromisoformat(start)
+        e = datetime.fromisoformat(ende)
+    except ValueError:
+        return start, ende
+    day = s.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = e.replace(hour=0, minute=0, second=0, microsecond=0)
+    if end_day <= day:
+        end_day = day + timedelta(days=1)
+    return _fmt(day), _fmt(end_day)
+
+
+def _fmt(dt: datetime) -> str:
+    """Zeit im EWS-Format mit Doppelpunkt im Offset (+01:00)."""
+    offset = dt.utcoffset() or timedelta(0)
+    total = int(offset.total_seconds())
+    sign = "+" if total >= 0 else "-"
+    hours, minutes = divmod(abs(total) // 60, 60)
+    return f"{dt.strftime('%Y-%m-%dT%H:%M:%S')}{sign}{hours:02d}:{minutes:02d}"
+
+
 def _shape(items: list[dict]) -> list[dict]:
     """Termine für das Modell: Zeiten lesbar, ItemId zum Wiederfinden."""
     out = []
@@ -137,11 +164,16 @@ async def ews_save(ctx, a: dict):
     senden = {"keine": "SendToNone", "alle": "SendToAllAndSaveCopy", "teilnehmer": "SendOnlyToAll"}.get(
         str(a.get("einladungen") or "keine").strip().casefold(), "SendToNone")
     if aktion == "anlegen":
+        ganztaegig = bool(a.get("ganztaegig"))
         start, ende = _when(a.get("start")), _when(a.get("ende"))
+        if ganztaegig:
+            # Bei einem ganztägigen Termin muss das Ende genau einen Tag nach dem Start liegen – sonst legt
+            # Exchange den Termin am falschen Tag ab oder lehnt ihn ab.
+            start, ende = _all_day_span(start, ende)
         body = E.create_appointment(
             str(a.get("betreff") or "").strip() or "(ohne Betreff)", start, ende,
             body=str(a.get("text") or ""), location=str(a.get("ort") or ""),
-            all_day=bool(a.get("ganztaegig")),
+            all_day=ganztaegig,
             required=[x for x in str(a.get("teilnehmer") or "").replace(";", ",").split(",") if x.strip()],
             optional=[x for x in str(a.get("optionale") or "").replace(";", ",").split(",") if x.strip()],
             categories=[x for x in str(a.get("kategorien") or "").replace(";", ",").split(",") if x.strip()],
@@ -157,6 +189,13 @@ async def ews_save(ctx, a: dict):
     if not item_id:
         return "Fehler: Für ändern und löschen brauche ich die item_id (aus ews_events)."
     change_key = str(a.get("change_key") or "").strip()
+    if not change_key:
+        # Exchange verlangt beim Aendern und Loeschen einen ChangeKey (ErrorChangeKeyRequiredForWriteOperations).
+        # Statt die Person mit einer Fehlermeldung stehen zu lassen, wird er mit einem GetItem geholt.
+        got = await _call(ctx, cred, E.get_item(item_id, shape="IdOnly"))
+        if got["ok"]:
+            found = E.item_ids(got.get("raw") or "")
+            change_key = (found[0].get("change_key") or "") if found else ""
     if aktion == "loeschen":
         out = await _call(ctx, cred, E.delete_item(item_id, change_key, send_cancellations=senden))
         if not out["ok"]:
