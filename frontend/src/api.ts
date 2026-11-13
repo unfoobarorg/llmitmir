@@ -63,6 +63,8 @@ export class Store extends EventTarget {
   chatFiles = new Map<string, any[]>();
   runs: Record<string, RunState> = {};
   permissions: any[] = [];
+  inbox: any[] = [];        // Benachrichtigungen auf der Startseite (inbox.ts)
+  inboxPing = 0;            // Zähler: steigt, wenn eine neue Karte kam (die Startseite spielt dann einen Ton)
   error = "";
   toast = "";
   private _t: any;
@@ -75,6 +77,7 @@ export class Store extends EventTarget {
     this.data = await this.api.ws("bootstrap");
     this.runs = this.data.runs || {};
     this.permissions = this.data.permissions || [];
+    this.inbox = this.data.inbox || [];
     this.changed();
   }
   async loadChat(id: string, force = false) {
@@ -156,6 +159,13 @@ export class Store extends EventTarget {
         break;
       }
       case "tasks_queue": d.queue = e.queue; break;
+      case "inbox": {
+        // neue Karten von geplanten Aufgaben – die Startseite zeigt sie und spielt einen kurzen Ton
+        const before = new Set(this.inbox.map((x: any) => x.id));
+        this.inbox = e.items || [];
+        if (this.inbox.some((x: any) => !before.has(x.id))) this.inboxPing++;
+        break;
+      }
       case "models": d.models = e.models; d.defaults = e.defaults; if (e.external) d.external = e.external; break;
       case "meta": this.load(); return;
       case "import_done": this.notify("Import abgeschlossen"); break;

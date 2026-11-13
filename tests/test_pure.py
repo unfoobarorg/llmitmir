@@ -23,6 +23,7 @@ ck = load("credcheck")
 tk = load("taskkeys")
 views = load("views")
 retention = load("retention")
+inbox = load("inbox")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -1311,3 +1312,48 @@ def test_imap_falls_back_to_starttls(monkeypatch):
     assert r["ok"], r["message"]
     assert "STARTTLS auf Port 143" in r["message"]
     assert (993, True) in gesehen and (143, False) in gesehen and b"<tls>" in gesehen
+
+
+# ---------------------------------------------------------------- Benachrichtigungen auf der Startseite
+def test_inbox_mode_and_device():
+    assert inbox.clean_mode(None) == "auto"
+    assert inbox.clean_mode("quatsch") == "auto"
+    # automatisch: nur ohne Push-Gerät
+    assert inbox.enabled({}, has_device=False) is True
+    assert inbox.enabled({}, has_device=True) is False
+    assert inbox.enabled({"inbox_mode": "on"}, has_device=True) is True
+    assert inbox.enabled({"inbox_mode": "off"}, has_device=False) is False
+
+
+def test_inbox_minutes():
+    assert inbox.clean_minutes(None) == inbox.DEFAULT_MINUTES
+    assert inbox.clean_minutes(0) == 0
+    assert inbox.minutes({}) == inbox.DEFAULT_MINUTES
+    assert inbox.minutes({"inbox_minutes": 0}) == 0
+    assert inbox.minutes({"inbox_minutes": "kaputt"}) == inbox.DEFAULT_MINUTES
+    with pytest.raises(ValueError):
+        inbox.clean_minutes(-1)
+    with pytest.raises(ValueError):
+        inbox.clean_minutes(inbox.MAX_MINUTES + 1)
+
+
+def test_inbox_add_replaces_same_text_and_keeps_order():
+    items = inbox.add([], {"id": "a", "chat_id": "c1", "text": "3 neue Mails"}, 100.0)
+    items = inbox.add(items, {"id": "b", "chat_id": "c2", "text": "Fertig"}, 101.0)
+    assert [e["id"] for e in items] == ["b", "a"]
+    # derselbe Chat mit demselben Text ersetzt die alte Karte, statt sie zu verdoppeln
+    items = inbox.add(items, {"id": "c", "chat_id": "c1", "text": "3 neue Mails"}, 102.0)
+    assert [e["id"] for e in items] == ["c", "b"]
+    assert len(inbox.add(items, {"id": "d", "chat_id": "c3", "text": "x"}, 103.0, keep=2)) == 2
+
+
+def test_inbox_prune_and_mute():
+    now = 1_000_000.0
+    items = [{"id": "alt", "chat_id": "c1", "at": now - 3600}, {"id": "neu", "chat_id": "c2", "at": now - 60}]
+    assert [e["id"] for e in inbox.prune(items, now, 30)] == ["neu"]          # 30 Minuten Anzeigedauer
+    assert [e["id"] for e in inbox.prune(items, now, 0)] == ["alt", "neu"]    # 0 = bleibt stehen
+    assert [e["id"] for e in inbox.prune(items, now, 0, max_age_days=0)] == []  # Höchstfrist greift trotzdem
+    assert inbox.muted({}) == []
+    assert inbox.mute(["c1"], "c2") == ["c1", "c2"]
+    assert inbox.mute(["c1", "c2"], "c1", False) == ["c2"]
+    assert inbox.drop_chat(items, "c1") == [items[1]]

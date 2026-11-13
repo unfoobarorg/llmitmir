@@ -7,6 +7,7 @@ import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
 import type { SendDetail } from "./composer";
 import { explainer, explainerCss, more } from "./simple";
+import "./inbox";
 
 export async function startChat(d: SendDetail) {
   const kind = d.mode === "cowork" ? "cowork" : "chat";
@@ -72,6 +73,7 @@ export class Home extends StoreElement {
       ${u && !u.has_key ? html`<div class="card nokey row">${icon("key")}<div class="grow">${d.key_mode === "per_user_own"
         ? html`Trag zuerst deinen API-Schlüssel ein.` : html`Es ist noch kein API-Schlüssel hinterlegt. ${d.user.is_admin ? "Lege ihn unter Admin fest." : "Bitte den Admin, einen einzutragen."}`}</div>
         <button class="btn" @click=${() => navigate(d.key_mode === "per_user_own" ? "/settings" : "/admin")}>Öffnen</button></div>` : nothing}
+      <lm-inbox></lm-inbox>
       <h1><lm-spark size="34" .active=${false}></lm-spark>${greeting()}${name ? `, ${name}` : ""}</h1>
       <lm-composer big ?showMode=${!simple} ?showProject=${!simple} .simple=${simple} .mode=${mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
         placeholder=${mode === "cowork" ? t("Was soll ich erledigen?") : t("Wie kann ich helfen?")}

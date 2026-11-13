@@ -4,9 +4,11 @@ from __future__ import annotations
 from homeassistant.core import Context
 
 from .. import credentials as C
+from .. import inbox as IB
 from .. import notifydevices as ND
 from .. import selfdoc
 from .. import tasknotify as TN
+from ..storage import new_id, now
 from . import Tool, advance_progress, obj, register
 
 
@@ -20,6 +22,19 @@ async def notify(ctx, a: dict):
     devices = ND.apply_links(await ND.async_devices(ctx.hass), ctx.manager.config.data.get("notify_devices"))
     device = ND.resolve(ND.for_user(devices, ctx.user_id), ctx.user_id, ctx.store.meta["settings"])
     if not device:
+        # Kein Push-Gerät (z. B. eine Umgebung ohne Benachrichtigungen): die Nachricht erscheint als Karte auf
+        # der Startseite – sofern die Person das dort eingeschaltet hat und den Chat nicht stumm geschaltet hat.
+        settings = ctx.store.meta["settings"]
+        if ctx.chat_id and IB.enabled(settings, has_device=False) and ctx.chat_id not in IB.muted(settings):
+            entry = {"id": new_id("n"), "chat_id": ctx.chat_id, "task_id": None, "task": "LLMitMir",
+                     "title": str(a.get("titel") or "LLMitMir")[:120], "text": str(a.get("text") or "")[:600],
+                     "status": "done"}
+            ctx.store.meta["inbox"] = IB.add(ctx.store.meta.get("inbox"), entry, now())
+            await ctx.store.async_save_meta()
+            ctx.manager.emit(ctx.user_id, {"type": "inbox",
+                                           "items": IB.prune(ctx.store.meta["inbox"], now(), IB.minutes(settings))})
+            return {"ok": True, "auf_startseite": True,
+                    "hinweis": "Kein Push-Gerät – die Nachricht steht auf der Startseite."}
         return ("Fehler: In den Einstellungen ist kein Gerät für Benachrichtigungen gewählt "
                 "(oder deinem Benutzer ist in Home Assistant kein Gerät zugeordnet).")
     await ND.async_send(ctx.hass, device, str(a.get("titel") or "LLMitMir")[:120], str(a.get("text") or "")[:2000],

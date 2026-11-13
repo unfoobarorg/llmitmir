@@ -90,6 +90,12 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
   noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*
   sieht der Admin, welches Gerät mit welcher Person verknüpft ist, und kann es korrigieren.
+- **Benachrichtigungen auf der Startseite** (für Umgebungen ohne Push): Ergebnisse geplanter Aufgaben erscheinen als
+  Karten auf der Startseite – im Stil der Benachrichtigungen eines Smartphones, mit kurzem Ton, wenn die Startseite
+  gerade offen ist. Kurz tippen öffnet den Quellchat, lange drücken schaltet dessen Benachrichtigungen stumm, „×“ oder
+  Wischen entfernt die Karte. In den Einstellungen wählt jede Person, ob die Karten erscheinen (*automatisch*: an,
+  solange kein Push-Gerät gewählt ist; *immer*; *aus*) und wie lange sie stehen bleiben (5 Minuten bis 1 Tag oder bis
+  sie von Hand entfernt werden).
 - **Mehrere Personen**: Alles ist pro HA-Nutzer*in getrennt. Admins legen fest, wer LLMitMir nutzen darf, und wählen,
   ob es **einen gemeinsamen Schlüssel**, **einen Schlüssel je Person (vom Admin eingetragen)** oder **eigene Schlüssel** gibt.
 - **Eigener Schlüssel für geplante Aufgaben** (optional), damit Aufgaben nicht das Kontingent für spontane Chats aufbrauchen:

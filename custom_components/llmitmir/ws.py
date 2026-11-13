@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from . import credcheck as CK
 from . import credentials as C
+from . import inbox as IB
 from . import manage as M
 from . import models as MS
 from . import notifydevices as ND
@@ -142,6 +143,10 @@ async def _bootstrap(hass, m, user, st) -> dict:
     # Lebensdauer der Chats und Coworks außerhalb von Projekten (ohne Angabe der Standard)
     s["retention_days"] = RT.user_days(st.meta["settings"])
     s["has_own_task_key"] = bool(s.pop("own_task_key", ""))
+    # Benachrichtigungen auf der Startseite (inbox.py)
+    s["inbox_mode"] = IB.clean_mode(st.meta["settings"].get("inbox_mode"))
+    s["inbox_minutes"] = IB.minutes(st.meta["settings"])
+    s["inbox_muted"] = IB.muted(st.meta["settings"])
     # The device this person actually uses (own choice, else their only device) – the panel shows its name
     devices = ND.apply_links(await ND.async_devices(hass), m.config.data.get("notify_devices"))
     device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
@@ -171,6 +176,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
                                  "default_services": v.get("default_services", [])}
                              for k, v in C.TYPES.items()},
         "tasks": await _tasks_view(m, user),
+        "inbox": IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"])),
         "chats": sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True),
         "models": _models_for_users(m, user.id),
         "defaults": m.defaults_view(user.id),
@@ -216,6 +222,47 @@ async def ws_subscribe(hass, conn, msg, m, user, st):
     conn.subscriptions[msg["id"]] = m.subscribe(user.id, forward)
     conn.send_result(msg["id"])
     return _NO_RESULT
+
+
+# ---------------------------------------------------------------- Benachrichtigungen auf der Startseite
+def _inbox_view(st) -> list[dict]:
+    return IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"]))
+
+
+@command(_t("inbox/dismiss") | {vol.Optional("id"): str, vol.Optional("chat_id"): str})
+async def ws_inbox_dismiss(hass, conn, msg, m, user, st):
+    """Eine Karte entfernen (Wischen bzw. „×“) – oder alle eines Chats."""
+    nid, cid = msg.get("id"), msg.get("chat_id")
+    if not nid and not cid:
+        raise ValueError("id oder chat_id fehlt")
+    st.meta["inbox"] = [e for e in st.meta.get("inbox") or []
+                        if not ((nid and e.get("id") == nid) or (cid and e.get("chat_id") == cid))]
+    await st.async_save_meta()
+    items = _inbox_view(st)
+    m.emit(user.id, {"type": "inbox", "items": items})
+    return {"items": items}
+
+
+@command(_t("inbox/clear"))
+async def ws_inbox_clear(hass, conn, msg, m, user, st):
+    """Alle Karten entfernen („Alle löschen“)."""
+    st.meta["inbox"] = []
+    await st.async_save_meta()
+    m.emit(user.id, {"type": "inbox", "items": []})
+    return {"items": []}
+
+
+@command(_t("inbox/mute") | {vol.Required("chat_id"): str, vol.Optional("mute", default=True): bool})
+async def ws_inbox_mute(hass, conn, msg, m, user, st):
+    """Einen Quellchat stummschalten (Long Touch) oder wieder anschalten."""
+    cid = msg["chat_id"]
+    st.meta["settings"]["inbox_muted"] = IB.mute(IB.muted(st.meta["settings"]), cid, bool(msg.get("mute", True)))
+    if msg.get("mute", True):
+        st.meta["inbox"] = IB.drop_chat(st.meta.get("inbox"), cid)
+    await st.async_save_meta()
+    items = _inbox_view(st)
+    m.emit(user.id, {"type": "inbox", "items": items})
+    return {"items": items, "muted": IB.muted(st.meta["settings"])}
 
 
 # ---------------------------------------------------------------- chats
@@ -597,6 +644,14 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
         except (TypeError, ValueError):
             raise ValueError("Wartezeit muss eine Zahl in Minuten sein") from None
         cur["permission_timeout_min"] = max(0, min(mins, 1440))
+    if "inbox_mode" in s:
+        # Benachrichtigungen auf der Startseite: automatisch, immer oder aus
+        cur["inbox_mode"] = IB.clean_mode(s["inbox_mode"])
+    if "inbox_minutes" in s:
+        # Anzeigedauer in Minuten, 0 = bleibt stehen, bis die Person sie entfernt
+        cur["inbox_minutes"] = IB.clean_minutes(s["inbox_minutes"])
+    if "inbox_muted" in s:
+        cur["inbox_muted"] = [str(c) for c in (s["inbox_muted"] or []) if c][:200]
     if "notify_device" in s:
         # Only a device that belongs to this person – the link is set in Home Assistant (or by an admin)
         key = str(s["notify_device"] or "")

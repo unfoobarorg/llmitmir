@@ -10,6 +10,7 @@ from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.util import dt as dt_util
 
+from . import inbox as IB
 from . import sharing as SH
 from . import tasknotify as TN
 from .const import KIND_TASK_RUN
@@ -152,6 +153,35 @@ class Scheduler:
                 self.running = None
                 self.m.emit(uid, {"type": "tasks_queue", "queue": self.queue_info(uid)})
 
+    async def _inbox_entries(self, user, task: dict, chat: dict, status: str, title: str, text: str) -> None:
+        """Benachrichtigungskarten auf der Startseite anlegen (inbox.py).
+
+        Die Eigentümerin oder der Eigentümer bekommt sie nach der eigenen Einstellung, alle, mit denen die Aufgabe
+        geteilt ist, nach ihrer. Stumm geschaltete Quellchats bleiben still.
+        """
+        from . import notifydevices as ND
+
+        ts = now()
+        devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
+        for uid in [user.id, *SH.recipients(task.get("share"))]:
+            try:
+                other = await self.m.user_store(uid)
+                settings = other.meta["settings"]
+                # „automatisch“ heißt: Karten nur, solange kein Push-Gerät gewählt ist
+                device = ND.resolve(ND.for_user(devices, uid), uid, settings)
+                if not IB.enabled(settings, has_device=bool(device)):
+                    continue
+                if chat["id"] in IB.muted(settings):
+                    continue
+                entry = {"id": new_id("n"), "chat_id": chat["id"], "task_id": task.get("id"),
+                         "task": str(task.get("name") or "Aufgabe"), "title": title[:120], "text": text[:600],
+                         "status": status}
+                other.meta["inbox"] = IB.add(other.meta.get("inbox"), entry, ts)
+                await other.async_save_meta()
+                self.m.emit(uid, {"type": "inbox", "items": IB.prune(other.meta["inbox"], ts, IB.minutes(settings))})
+            except Exception:  # noqa: BLE001 - eine Karte darf den Lauf nicht aufhalten
+                _LOGGER.warning("Benachrichtigung auf der Startseite für %s fehlgeschlagen", uid, exc_info=True)
+
     async def run_finished(self, user, task: dict, chat: dict, status: str, error: str | None) -> None:
         st = await self.m.user_store(user.id)
         last = task.get("last_run") or {}
@@ -184,6 +214,8 @@ class Scheduler:
             if chat.get("external_used") and chat.get("model_fallback"):
                 title += " (Notfall: externes Modell)"
             text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
+            # Benachrichtigungen auf der Startseite – für alle, die die Aufgabe betrifft, unabhängig vom Push-Gerät
+            await self._inbox_entries(user, task, chat, status, title, text)
             # The owner gets the message according to the task's setting; everybody the task is shared with and
             # who is marked for notifications gets it on their own device as well.
             for uid in [user.id, *SH.recipients(task.get("share"))]:

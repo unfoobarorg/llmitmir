@@ -5,6 +5,7 @@ export {
   mdiApi,
   mdiArrowDown,
   mdiArrowUp,
+  mdiBellOffOutline,
   mdiBellOutline,
   mdiBellRingOutline,
   mdiCalendarClockOutline,

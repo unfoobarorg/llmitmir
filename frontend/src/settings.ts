@@ -123,6 +123,44 @@ export class SettingsPage extends StoreElement {
     this.impBusy = ""; this.impResult = sum;
     await store.load(); store.notify("Import abgeschlossen");
   }
+  /** Benachrichtigungen auf der Startseite: Modus, Anzeigedauer, stumm geschaltete Chats. */
+  private inboxSection() {
+    const s = this.s;
+    const mode = s.inbox_mode || "auto";
+    const mins = Number(s.inbox_minutes ?? 30);
+    const muted: string[] = s.inbox_muted || [];
+    const chats = store.data?.chats || [];
+    const nameOf = (id: string) => chats.find((c: any) => c.id === id)?.title || id;
+    const opts: [string, string, string][] = [
+      ["auto", "Automatisch", "An, solange kein Push-Gerät gewählt ist – so bekommst du die Ergebnisse geplanter Aufgaben auf jeden Fall mit."],
+      ["on", "Immer an", "Auch wenn Push-Nachrichten ankommen: die Ergebnisse stehen zusätzlich auf der Startseite."],
+      ["off", "Aus", "Keine Benachrichtigungen auf der Startseite."],
+    ];
+    return html`<div class="sub">
+      <div class="row" style="align-items:center;gap:8px;margin-top:14px">${icon("bell", 16)}<b class="grow">Auf der Startseite anzeigen</b></div>
+      <div class="hint">Ergebnisse geplanter Aufgaben erscheinen als Karten auf der Startseite – wie Benachrichtigungen auf dem Handy.
+        Kurz tippen öffnet den Chat, lange drücken schaltet den Chat stumm, „×“ oder Wischen entfernt die Karte.</div>
+      <label class="f" style="margin-top:10px"><span>Anzeige</span>
+        <select @change=${(e: any) => this.set("inbox_mode", e.target.value)}>
+          ${opts.map(([v, l]) => html`<option value=${v} ?selected=${mode === v}>${l}</option>`)}
+        </select></label>
+      <div class="hint">${opts.find(([v]) => v === mode)?.[2] || ""}</div>
+      ${mode === "off" ? nothing : html`<label class="f" style="margin-top:10px"><span>Anzeigedauer</span>
+        <select @change=${(e: any) => this.set("inbox_minutes", Number(e.target.value))}>
+          ${[[0, "Bleibt stehen, bis ich sie entferne"], [5, "5 Minuten"], [15, "15 Minuten"], [30, "30 Minuten"],
+             [60, "1 Stunde"], [180, "3 Stunden"], [720, "12 Stunden"], [1440, "1 Tag"]]
+            .map(([v, l]) => html`<option value=${v} ?selected=${mins === v}>${l}</option>`)}
+          ${[0, 5, 15, 30, 60, 180, 720, 1440].includes(mins) ? nothing
+            : html`<option value=${mins} selected>${mins} Minuten</option>`}
+        </select></label>
+        <div class="hint">Danach verschwindet die Karte von selbst. „Bleibt stehen“ heißt: nur du entfernst sie.</div>`}
+      ${muted.length ? html`<div style="margin-top:12px"><div class="hint">Stumm geschaltete Chats</div>
+        ${muted.map((id) => html`<div class="row" style="padding:4px 0"><span class="grow ellipsis">${nameOf(id)}</span>
+          <button class="btn ghost" @click=${() => this.set("inbox_muted", muted.filter((x) => x !== id))}>${icon("bell", 15)} wieder an</button></div>`)}
+      </div>` : nothing}
+    </div>`;
+  }
+
   private taskKeySection() {
     const tk = store.data?.usage?.tasks; const s = this.s;
     if (!tk || tk.mode === "same") return nothing;
@@ -213,7 +251,8 @@ export class SettingsPage extends StoreElement {
               : "Fehlt dein Gerät, frag einen Admin von Home Assistant."}</div>`
           : html`<div class="hint">Deinem Benutzer ist in Home Assistant noch kein Gerät zugeordnet – deshalb gibt es hier nichts auszuwählen.
             ${d.user.is_admin ? html`Unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Benachrichtigungsgeräte</a> kannst du Geräte zuordnen.`
-              : "Ein Admin von Home Assistant kann dein Handy mit deinem Benutzer verknüpfen."}</div>`}</section>
+              : "Ein Admin von Home Assistant kann dein Handy mit deinem Benutzer verknüpfen."}</div>`}
+        ${this.inboxSection()}</section>
       <section><h2>${icon("hourglass", 18)} Lebensdauer von Chats und Coworks</h2><div class="form">
         <label class="row hint" style="align-items:center"><input type="checkbox" style="width:auto" .checked=${rdays > 0}
           @change=${(e: any) => this.set("retention_days", e.target.checked ? (d.retention?.suggest || 30) : 0)}>

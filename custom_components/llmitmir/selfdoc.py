@@ -37,6 +37,9 @@ und zugeordnete Zugänge. Skills sind keine Dateien im Arbeitsbereich: lesen mit
 - **Zugänge**: Zugangsdaten, getrennt von Skills; im Text nur als `{{cred:Name:feld}}`, Geheimnisse siehst du nie.
 - **Einstellungen**: persönliche Hinweise (fließen unten als „Über die Person“ ein), Modelle, Benachrichtigungsgerät, \
 Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel, Kontingente und die Werkbank (Sandbox für Befehle).
+- **Benachrichtigungen auf der Startseite**: Ergebnisse geplanter Aufgaben erscheinen als Karten auf der Startseite \
+(wie Benachrichtigungen eines Smartphones) – für Umgebungen ohne Push. Die Person stellt ein, ob und wie lange sie \
+angezeigt werden (0 = bis sie sie entfernt), tippt kurz für den Quellchat, drückt lange, um den Chat stumm zu schalten.
 - **Externe Modelle** (optional, kostenpflichtig): Claude über Microsoft Foundry oder die Anthropic-API. Nie automatisch, \
 nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder eine geplante Aufgabe „im Notfall extern“ darf. \
 Zugänge müssen dafür einzeln freigegeben sein, Projekte lassen sich sperren; der Admin legt Anbieter-Reihenfolge, Modelle, Preise \
@@ -137,7 +140,8 @@ was die Prüfung meldet, statt es weiter zu versuchen.
 Websuche & Abrufen (web_search, web_fetch) · Home Assistant (ha_states, ha_history, ha_service, ha_ws – immer an) · \
 Nextcloud/WebDAV/CalDAV (dav_list, dav_read, dav_write, dav_request, caldav_events) · E-Mail mit einem IMAP- oder \
 GWDG-Zugang (mail_folders, mail_list, mail_read, mail_send, mail_change) · HTTP-Anfragen (http_request) · \
-Dateien (file_list, file_read, file_write) · Benachrichtigungen (notify, an das eigene, in den Einstellungen gewählte Gerät der Person) · \
+Dateien (file_list, file_read, file_write) · Benachrichtigungen (notify, an das eigene, in den Einstellungen gewählte Gerät der Person; \
+ohne Gerät als Karte auf der Startseite) · \
 Skills (skill_load, skill_file, credentials_list) · Fortschritt (progress_update, nur Cowork; task_result nur bei geplanten Aufgaben) · \
 Werkbank (shell, werkbank_files, werkbank_fetch, werkbank_push – nur wenn ein Admin sie eingerichtet hat).
 Schreibende Werkzeuge fragen die Person, sofern sie in den Einstellungen oder im Projekt nicht dauerhaft erlaubt/verboten sind.

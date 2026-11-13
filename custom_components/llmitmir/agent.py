@@ -766,6 +766,13 @@ class Manager:
             except Exception:  # noqa: BLE001 - sandbox may not exist
                 pass
         await st.async_delete_chat(chat_id)
+        # Benachrichtigungen auf der Startseite verschwinden mit ihrem Quellchat
+        if any(e.get("chat_id") == chat_id for e in st.meta.get("inbox") or []):
+            from . import inbox as IB
+
+            st.meta["inbox"] = IB.drop_chat(st.meta.get("inbox"), chat_id)
+            await st.async_save_meta()
+            self.emit(user_id, {"type": "inbox", "items": st.meta["inbox"]})
         self.emit(user_id, {"type": "chat_deleted", "chat_id": chat_id})
 
     async def purge_expired(self, user_id: str | None = None) -> int:

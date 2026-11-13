@@ -27,7 +27,7 @@ const MAP: Record<string, string> = {
   tools: mdi.mdiToolboxOutline, file: mdi.mdiFileDocumentOutline, download: mdi.mdiDownload, upload: mdi.mdiUpload,
   play: mdi.mdiPlay, pause: mdi.mdiPause, clock: mdi.mdiClockOutline, alert: mdi.mdiAlertCircleOutline,
   info: mdi.mdiInformationOutline, search: mdi.mdiMagnify, web: mdi.mdiWeb, home: mdi.mdiHomeOutline, image: mdi.mdiImageOutline,
-  lock: mdi.mdiLockOutline, gauge: mdi.mdiGauge, bell: mdi.mdiBellOutline, list: mdi.mdiFormatListChecks, user: mdi.mdiAccountOutline,
+  lock: mdi.mdiLockOutline, gauge: mdi.mdiGauge, bell: mdi.mdiBellOutline, bellOff: mdi.mdiBellOffOutline, list: mdi.mdiFormatListChecks, user: mdi.mdiAccountOutline,
   import: mdi.mdiDatabaseImportOutline, panel: mdi.mdiDockRight, sparkle: mdi.mdiCreationOutline, hourglass: mdi.mdiTimerSandComplete,
   cloud: mdi.mdiCloudOutline, wait: mdi.mdiProgressClock, external: mdi.mdiOpenInNew,
   up: mdi.mdiArrowUp, arrowDown: mdi.mdiArrowDown, euro: mdi.mdiCurrencyEur, shield: mdi.mdiShieldAlertOutline,

@@ -30,6 +30,10 @@ const EN: Record<string, string> = {
   "Zurücknehmen": "Take back", "Kommt als Nächstes dran": "Up next", "Wartet · {n}.": "Waiting · {n}.",
   "Jetzt senden": "Send now",
   "Senden – kommt nach der laufenden Antwort dran": "Send – goes out after the current answer",
+  "Geplante Aufgabe": "Scheduled task", "Fertig": "Done", "Entfernen": "Remove", "Chat öffnen": "Open chat",
+  "Alle {n} entfernen": "Remove all {n}", "Nur diese entfernen": "Remove just this one",
+  "Benachrichtigungen dieses Chats ausschalten": "Turn off notifications for this chat",
+  "Benachrichtigungen für diesen Chat aus": "Notifications for this chat are off",
 };
 
 let lang = "de";

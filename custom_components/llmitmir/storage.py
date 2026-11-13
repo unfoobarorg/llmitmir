@@ -147,6 +147,9 @@ class UserStore:
         for key in ("projects", "skills", "credentials", "tasks", "chats", "usage", "import_tokens"):
             meta.setdefault(key, {})
         meta.setdefault("memory", "")
+        # Benachrichtigungen auf der Startseite (inbox.py) – eine Liste, kein Verzeichnis
+        if not isinstance(meta.get("inbox"), list):
+            meta["inbox"] = []
         self.meta = meta
 
     def _write(self, rel: str, data: Any) -> None:

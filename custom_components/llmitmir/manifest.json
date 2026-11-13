@@ -1,14 +1,25 @@
 {
   "domain": "llmitmir",
   "name": "LLMitMir",
-  "codeowners": ["@niko"],
+  "codeowners": [
+    "@niko"
+  ],
   "config_flow": true,
-  "dependencies": ["http", "frontend", "panel_custom", "websocket_api", "recorder"],
+  "dependencies": [
+    "http",
+    "frontend",
+    "panel_custom",
+    "websocket_api",
+    "recorder"
+  ],
   "documentation": "https://git.unfoobar.org/ha-integrations/llmitmir",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://git.unfoobar.org/ha-integrations/llmitmir/-/issues",
-  "requirements": ["pypdfium2>=4.30.0", "anthropic>=2.6.0"],
+  "requirements": [
+    "pypdfium2>=4.30.0",
+    "anthropic>=2.6.0"
+  ],
   "single_config_entry": true,
-  "version": "0.12.2"
+  "version": "0.13.0"
 }
