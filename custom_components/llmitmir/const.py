@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.18.6"
+VERSION = "0.18.7"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"

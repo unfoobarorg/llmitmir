@@ -100,13 +100,25 @@ async def send_message(ctx, cred: dict, a: dict, files: list[tuple[str, bytes]],
             "kopie": "in „Gesendete Elemente“ abgelegt"}
 
 
+async def _change_key(ctx, cred: dict, uid: str) -> str:
+    """ChangeKey einer Nachricht holen – nötig für UpdateItem, sonst antwortet Exchange mit einem Fehler."""
+    out = await call(ctx, cred, E.get_item(uid, shape="IdOnly"))
+    if not out.get("ok"):
+        return ""
+    found = E.item_ids(out.get("raw") or "")
+    return (found[0].get("change_key") or "") if found else ""
+
+
 async def change_messages(ctx, cred: dict, a: dict, uids: list[str]) -> dict:
     aktion = str(a.get("aktion") or "")
     flags = {"gelesen": {"gelesen": True}, "ungelesen": {"gelesen": False},
              "markieren": {"markiert": True}, "entmarkieren": {"markiert": False}}
     if aktion in flags:
         for uid in uids:
-            _check(await call(ctx, cred, E.update_message(uid, **flags[aktion])), f"„{aktion}“")
+            # Exchange verlangt beim Aendern einen ChangeKey (ErrorChangeKeyRequiredForWriteOperations).
+            # Er wird mit einem GetItem geholt, damit die Person ihn nicht selbst mitliefern muss.
+            key = await _change_key(ctx, cred, uid)
+            _check(await call(ctx, cred, E.update_message(uid, key, **flags[aktion])), f"„{aktion}“")
         return {"ok": True, "aktion": aktion, "uids": uids}
     if aktion == "verschieben":
         ziel = str(a.get("ziel") or "").strip()
