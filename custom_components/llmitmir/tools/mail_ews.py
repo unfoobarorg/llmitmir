@@ -44,7 +44,7 @@ def _check(out: dict, what: str) -> dict:
 async def folders(ctx, cred: dict) -> dict:
     out = _check(await call(ctx, cred, E.find_folders()), "Ordner lesen")
     return {"ordner": [{"name": f["name"], "art": f.get("art") or None, "anzahl": f.get("anzahl", 0),
-                        "ungelesen": f.get("ungelesen", 0)} for f in E.parse_folders(out.get("xml") or "")]}
+                        "ungelesen": f.get("ungelesen", 0)} for f in E.parse_folders(out.get("raw") or "")]}
 
 
 async def list_messages(ctx, cred: dict, a: dict) -> dict:
@@ -52,7 +52,7 @@ async def list_messages(ctx, cred: dict, a: dict) -> dict:
     anzahl = max(1, min(int(a.get("anzahl") or 20), 100))
     out = _check(await call(ctx, cred, E.find_messages(
         ordner, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl)), "Nachrichten lesen")
-    rows = E.parse_messages(out.get("xml") or "")
+    rows = E.parse_messages(out.get("raw") or "")
     # Absender filtert der Client: EWS kann „From“ nicht zuverlässig serverseitig durchsuchen
     who = str(a.get("absender") or "").strip().casefold()
     if who:
@@ -63,7 +63,7 @@ async def list_messages(ctx, cred: dict, a: dict) -> dict:
 async def read_message(ctx, cred: dict, a: dict) -> dict:
     uid = str(a.get("uid") or "").strip()
     out = _check(await call(ctx, cred, E.get_mime(uid, str(a.get("change_key") or ""))), "Nachricht lesen")
-    raw = E.mime_content(out.get("xml") or "")
+    raw = E.mime_content(out.get("raw") or "")
     if not raw:
         raise MailEwsError("Exchange hat keinen Inhalt zu dieser Nachricht geliefert (uid aus mail_list verwenden)")
     msg = MB.parse_message(raw)
@@ -88,7 +88,7 @@ async def send_message(ctx, cred: dict, a: dict, files: list[tuple[str, bytes]],
     ref = None
     if reply and reply.get("uid"):
         out = _check(await call(ctx, cred, E.get_mime(str(reply["uid"]))), "Ursprungsnachricht lesen")
-        raw = E.mime_content(out.get("xml") or "")
+        raw = E.mime_content(out.get("raw") or "")
         if raw:
             orig = email.message_from_bytes(raw, policy=POLICY)
             ref = {"message_id": str(orig.get("Message-ID") or ""), "references": str(orig.get("References") or "")}

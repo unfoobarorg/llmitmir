@@ -85,11 +85,20 @@ def _field(uri: str) -> str:
     return f'<t:FieldURI FieldURI="{_esc(uri)}"/>'
 
 
+def indexed(uri: str, index: str) -> str:
+    """Feld mit Index, z. B. die Telefonnummern eines Kontakts (contacts:PhoneNumber + FieldIndex)."""
+    return f'<t:IndexedFieldURI FieldURI="{_esc(uri)}" FieldIndex="{_esc(index)}"/>'
+
+
 CALENDAR_FIELDS = ("item:Subject", "calendar:Start", "calendar:End", "calendar:Location", "calendar:IsAllDayEvent",
                    "calendar:Organizer", "calendar:RequiredAttendees", "calendar:OptionalAttendees",
                    "calendar:LegacyFreeBusyStatus", "item:Categories", "item:ItemClass")
 CONTACT_FIELDS = ("contacts:DisplayName", "contacts:GivenName", "contacts:Surname", "contacts:CompanyName",
                   "contacts:JobTitle", "contacts:BusinessPhoneNumber", "contacts:MobilePhoneNumber")
+
+# Telefonnummern sind indizierte Felder – die Feld-URI allein lehnt Exchange ab
+CONTACT_FIELD_CANDIDATES = tuple(CONTACT_FIELDS) + tuple(
+    indexed("contacts:PhoneNumber", i) for i in ("BusinessPhone", "MobilePhone", "HomePhone"))
 
 
 def find_calendar(von: str | None = None, bis: str | None = None, max_entries: int = 200,
@@ -121,10 +130,15 @@ def find_contacts(max_entries: int = 100, folder: str = "contacts") -> str:
 
 
 def probe_field(folder: str, field: str) -> str:
-    """Eine FindItem-Anfrage mit genau einem Zusatzfeld – für die Fehlersuche, welches Feld der Server ablehnt."""
+    """Eine FindItem-Anfrage mit genau einem Zusatzfeld – für die Fehlersuche, welches Feld der Server ablehnt.
+
+    ``field`` ist entweder eine Feld-URI (``item:Subject``) oder bereits ein fertiges XML-Fragment
+    (``<t:IndexedFieldURI …/>``).
+    """
+    inner = field if str(field).lstrip().startswith("<") else _field(field)
     return envelope(
         '<m:FindItem Traversal="Shallow">'
-        f"<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{_field(field)}"
+        f"<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{inner}"
         "</t:AdditionalProperties></m:ItemShape>"
         '<m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>'
         f"<m:ParentFolderIds>{folder_ref(folder)}</m:ParentFolderIds>"
@@ -228,6 +242,12 @@ def get_folder(folder: str = "calendar") -> str:
 # Feld-URIs, die FindItem für Nachrichten liefert (Kopfzeilen und Zustand, ohne den Text)
 MAIL_FIELDS = ("item:Subject", "item:DateTimeReceived", "item:DateTimeSent", "item:IsRead", "item:HasAttachments",
                "item:From", "item:ToRecipients", "item:CcRecipients", "item:Size", "item:ItemClass", "item:Flag")
+
+# Kandidaten für die Fehlersuche: Exchange kennt für Nachrichtenfelder zwei Schreibweisen (item: und message:)
+MAIL_FIELD_CANDIDATES = tuple(
+    f"{ns}:{name}" for name in ("IsRead", "From", "ToRecipients", "CcRecipients", "Subject", "Size", "ItemClass",
+                                "HasAttachments", "DateTimeReceived", "DateTimeSent", "Flag")
+    for ns in ("item", "message"))
 
 # Ordnernamen, die Exchange selbst kennt (DistinguishedFolderId) – alles andere ist eine FolderId oder ein Name
 DISTINGUISHED = {
