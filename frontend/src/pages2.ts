@@ -36,6 +36,10 @@ const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   .item.cred.bad { border-color: var(--lm-err); background: color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel)); }
   .item.cred.bad > .i { color: var(--lm-err); }
   .item.cred.bad:hover { border-color: var(--lm-err); }
+  /* Aufgabe, deren Lauf an der Hoechstzahl an Schritten gescheitert ist: rot, bis sie freigegeben wird */
+  .item.task.bad { border-color: var(--lm-err); background: color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel)); }
+  .item.task.bad > .i { color: var(--lm-err); }
+  .item.task.bad:hover { border-color: var(--lm-err); }
   .cred-err { color: var(--lm-err); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
   .checkbox { display: flex; gap: 10px; align-items: flex-start; border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; }
   .checkbox.ok { background: rgba(63,143,91,.10); }
@@ -48,6 +52,9 @@ const switchEl = (checked: boolean, onChange: (v: boolean) => void) =>
   html`<label class="switch" @click=${(e: Event) => e.stopPropagation()}><input type="checkbox" .checked=${checked} @change=${(e: any) => onChange(e.target.checked)}><span></span></label>`;
 
 // ---------------------------------------------------------------- tasks
+/** Aufgaben, deren Lauf an der Hoechstzahl an Schritten gescheitert ist und die noch nicht freigegeben sind. */
+const limitHit = (tasks: any[]) => (tasks || []).filter((x: any) => x.limit_hit && !x.heavy);
+
 @safeElement("lm-tasks")
 export class Tasks extends StoreElement {
   static styles = [base, pageCss, taskUsageCss];
@@ -80,8 +87,14 @@ export class Tasks extends StoreElement {
         können sich verzögern, wenn die Modelle ausgelastet sind oder ein Limit erreicht ist – dann wartet LLMitMir und versucht es weiter (bis zu 6 Stunden).
         Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>`}
       ${tasks.length && !isSimple() ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
-      <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item" @click=${() => navigate(`/task/${x.id}`)}>
+      ${limitHit(tasks).length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
+        <div><b>${limitHit(tasks).length === 1 ? "Eine Aufgabe hat die Höchstzahl an Schritten erreicht" : `${limitHit(tasks).length} Aufgaben haben die Höchstzahl an Schritten erreicht`}:</b>
+        ${limitHit(tasks).map((x: any) => x.name).join(", ")}. Öffne die Aufgabe und gib sie für mehr Schritte frei – dann hat ein Lauf bis zu 150 statt 60 Schritte.</div></div>` : nothing}
+      <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item task ${x.limit_hit && !x.heavy ? "bad" : ""}" @click=${() => navigate(`/task/${x.id}`)}>
         ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">importiert – prüfen</span>` : nothing}
+          ${x.heavy ? html`<span class="chip" title="Besonders aufwändig: bis zu 150 Schritte je Lauf">${icon("list", 13)} 150 Schritte</span>` : nothing}
+          ${x.limit_hit && !x.heavy ? html`<span class="chip err" title="Ein Lauf hat die Höchstzahl von 60 Schritten erreicht – die Aufgabe lässt sich für 150 Schritte freigeben">${icon("alert", 13)} Schritte erschöpft</span>` : nothing}
+          ${x.limit_hit && x.heavy ? html`<span class="chip warn" title="Auch 150 Schritte haben für einen Lauf nicht gereicht">${icon("alert", 13)} 150 Schritte erschöpft</span>` : nothing}
           ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}
           ${x.external_fallback ? html`<span class="chip" title="Darf im Notfall auf kostenpflichtige externe Modelle ausweichen">${icon("euro", 13)} Notfall extern</span>` : nothing}
           ${x.last_run?.external ? html`<span class="chip warn" title="Der letzte Lauf lief über ein externes Modell">${icon("euro", 13)} zuletzt extern</span>` : nothing}</div>
@@ -155,6 +168,25 @@ export class TaskPage extends StoreElement {
         und die Ergebnisse der Werkzeuge dorthin – nie Passwörter, und nur Zugänge, die für externe Modelle freigegeben sind. Kosten zählen zu deinem
         Monatslimit (${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)} verbraucht). Bitte nur ankreuzen, wenn der Auftrag keine sensiblen Informationen enthält.</div></div>`;
   }
+  /** Besonders aufwaendige Aufgabe: bis zu 150 statt 60 Schritte – und die Freigabe, wenn die Grenze erreicht war. */
+  private stepsCard(x: any) {
+    const simple = isSimple();
+    const hit = !!x.limit_hit && !x.heavy;
+    return html`<div class="card" style=${hit ? "border-color:var(--lm-err);background:color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel))" : ""}>
+      ${hit ? html`<div class="checkbox err" style="margin:0 0 12px;padding:0;background:none">${icon("alert", 18)}
+        <div><b>Diese Aufgabe hat die Höchstzahl von 60 Schritten erreicht.</b> Ein Lauf wurde deshalb abgebrochen, bevor er fertig war.
+        Gib die Aufgabe hier für mehr Schritte frei – dann hat jeder Lauf bis zu 150 Schritte.</div></div>` : nothing}
+      <label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!x.heavy}
+        @change=${(e: any) => this.set("heavy", e.target.checked)}>
+        <b>${simple ? "Besonders aufwändige Aufgabe (mehr Schritte)" : "Besonders aufwändig – bis zu 150 Schritte je Lauf"}</b></label>
+      <div class="hint" style="margin:4px 0 0">Normal sind es 60 Schritte je Lauf. Reicht das für eine Aufgabe nicht (viele Dateien, viele Abfragen,
+        lange Prüfungen), bekommt sie mit dieser Markierung bis zu 150. Ein Lauf dauert dann entsprechend länger und verbraucht mehr Kontingent.</div>
+      ${hit ? html`<div class="row" style="margin-top:12px"><button class="btn primary" @click=${async () => {
+          this.set("heavy", true); await this.save(); }}>${icon("check", 16)} Für 150 Schritte freigeben</button></div>` : nothing}
+      ${x.limit_hit && x.heavy ? html`<div class="hint" style="margin-top:10px">Auch 150 Schritte haben für einen Lauf nicht gereicht. Teile die Aufgabe auf
+        oder formuliere den Auftrag enger – mehr Schritte gibt es nicht.</div>` : nothing}</div>`;
+  }
+
   /** Owner only: who else sees the task, who may change it, who gets a notification of their own. */
   private shareCard(x: any) {
     const simple = isSimple();
@@ -264,6 +296,7 @@ export class TaskPage extends StoreElement {
             ${isExternal(x.model) ? html`<span class="hint">${icon("euro", 13)} Jeder Lauf kostet Geld (${priceText((d.models || []).find((m: any) => m.id === x.model)?.price)}). Ist das Modell gerade nicht wählbar, läuft die Aufgabe beim Hauptanbieter.</span>` : nothing}</label>
         </div>`}
         ${this.fallbackCard(x)}
+        ${this.stepsCard(x)}
         <div class="two">
           <label class="f"><span>${simple ? "Nachricht aufs Handy" : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
             ${[["always", "nach jedem Lauf"], ["on_change", "nur bei neuem Ergebnis, Rückfrage oder Fehler"], ["error", "nur bei Fehlern"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select>

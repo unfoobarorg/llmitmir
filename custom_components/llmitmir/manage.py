@@ -129,9 +129,13 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
                 requires=[r for r in (t.get("requires", old.get("requires")) or []) if r in ("werkbank",)],
                 requires_note=str(t.get("requires_note", old.get("requires_note")) or "")[:1500],
                 external_fallback=bool(t.get("external_fallback", old.get("external_fallback"))),
+                # besonders aufwaendig: bis zu 150 statt 60 Schritte je Lauf
+                heavy=bool(t.get("heavy", old.get("heavy"))),
                 share=share, updated=now())
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
+    if task["heavy"]:
+        task.pop("limit_hit", None)  # freigegeben: die rote Markierung hat sich erledigt
     return task
 
 

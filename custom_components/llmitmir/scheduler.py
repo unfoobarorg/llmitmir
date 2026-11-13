@@ -186,10 +186,19 @@ class Scheduler:
         st = await self.m.user_store(user.id)
         last = task.get("last_run") or {}
         answer = next((m.get("content") for m in reversed(chat["messages"]) if m["role"] == "assistant" and m.get("content")), "")
+        run_info = chat.get("last_run") or {}
         last.update({"status": status, "finished": now(), "error": error, "summary": (answer or "")[:400],
                      "external": chat.get("model") if chat.get("external_used") else None,
-                     "fallback": bool(chat.get("model_fallback"))})
+                     "fallback": bool(chat.get("model_fallback")),
+                     "steps": run_info.get("steps"), "limit_hit": bool(run_info.get("limit_hit"))})
         task["last_run"] = last
+        if run_info.get("limit_hit"):
+            # Die Hoechstzahl an Schritten hat den Lauf beendet: die Aufgabe wird markiert und laesst sich
+            # fuer mehr Schritte freigeben (heavy = bis zu 150 statt 60). Ein Lauf, der wieder durchkommt,
+            # nimmt die Markierung weg.
+            task["limit_hit"] = now()
+        else:
+            task.pop("limit_hit", None)
         # what the model declared with `task_result` decides whether the phone rings – not the length of the report
         res = chat.get("result") or {}
         art = res.get("art") if res.get("art") in TN.ARTS else "nichts"
@@ -214,6 +223,9 @@ class Scheduler:
             if chat.get("external_used") and chat.get("model_fallback"):
                 title += " (Notfall: externes Modell)"
             text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
+            if run_info.get("limit_hit") and not task.get("heavy"):
+                text += (" " if text else "") + (f"Höchstzahl von {run_info.get('steps') or 60} Schritten erreicht – "
+                                                 "die Aufgabe lässt sich für 150 Schritte freigeben.")
             # Benachrichtigungen auf der Startseite – für alle, die die Aufgabe betrifft, unabhängig vom Push-Gerät
             await self._inbox_entries(user, task, chat, status, title, text)
             # The owner gets the message according to the task's setting; everybody the task is shared with and

@@ -144,6 +144,7 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     requires = list(cur.get("requires") or [])
     if a.get("braucht_werkbank") is not None:
         requires = ["werkbank"] if a["braucht_werkbank"] else []
+    heavy = bool(a["besonders_aufwaendig"]) if a.get("besonders_aufwaendig") is not None else bool(cur.get("heavy"))
     new_name = str(a.get("neuer_name") or "").strip() or (cur.get("name") or name)
     other = _find(ctx.store.meta["tasks"], new_name)
     if other is not None and other is not old:
@@ -156,7 +157,7 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
            "schedule": a.get("zeitplan") or cur.get("schedule"),
            "enabled": bool(a["aktiv"]) if a.get("aktiv") is not None else cur.get("enabled", True),
            "allow_write": perms, "tool_groups": cur.get("tool_groups"), "notify": notify, "requires": requires,
-           "requires_note": cur.get("requires_note") or ""}
+           "requires_note": cur.get("requires_note") or "", "heavy": heavy}
     if a.get("_share_users") is not None:
         raw["share"] = {"users": a["_share_users"]}
     try:
@@ -300,6 +301,8 @@ register(Tool("task_save", "llmitmir",
                                  "description": "Schreibende Werkzeuge, die die Aufgabe ohne Rückfrage nutzen darf, z. B. notify, file_write"},
                    "benachrichtigen": {"type": "string", "enum": list(CH.NOTIFY)},
                    "braucht_werkbank": {"type": "boolean"},
+                   "besonders_aufwaendig": {"type": "boolean",
+                                            "description": "Besonders aufwaendige Aufgabe: bis zu 150 statt 60 Schritte je Lauf"},
                    "teilen": {"type": "array", "items": {"type": "object", "properties": {
                        "person": {"type": "string", "description": "Name der Person in Home Assistant"},
                        "bearbeiten": {"type": "boolean", "description": "Darf die Aufgabe ändern und starten"},

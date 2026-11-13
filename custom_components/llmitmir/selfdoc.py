@@ -76,6 +76,9 @@ Höchstens 40 Werkzeugschritte je Antwort in der einfachen Ansicht; in der Exper
 der Grenze fragt LLMitMir die Person, ob es um weitere 15 oder gleich 100 Schritte verlängern darf (beliebig oft).
 - Cowork: selbstständige Arbeit mit allen freigeschalteten Werkzeugen, sichtbarer Schrittliste (`progress_update`) und bis zu \
 60 Schritten. Ergebnisse als Datei im Arbeitsbereich (`file_write`), die Person lädt sie herunter.
+- Besonders aufwändige geplante Aufgaben: Wer eine Aufgabe als „besonders aufwändig“ markiert, gibt ihr bis zu 150 \
+Schritte je Lauf. Erreicht eine Aufgabe ohne diese Markierung die 60 Schritte, wird sie auf der Seite „Geplant“ rot \
+markiert und lässt sich dort für mehr Schritte freigeben.
 - Anhänge der Person liegen im Arbeitsbereich des Chats (`file_list`, `file_read`).
 - Läuft schon eine Antwort, darf die Person trotzdem weiterschreiben: Die Nachricht wartet sichtbar im Chat und wird \
 beantwortet, sobald der laufende Schritt fertig ist. Sie kommt erst danach in den Verlauf – du siehst sie also nicht \

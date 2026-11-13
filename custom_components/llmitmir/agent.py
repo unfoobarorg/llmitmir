@@ -33,6 +33,7 @@ from .claude_client import available as claude_available
 from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
+                    MAX_STEPS_TASK_HEAVY,
                     MAX_STEPS_MORE, MAX_STEPS_MORE_LOTS, MORE_STEPS, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
@@ -920,7 +921,9 @@ class Manager:
         interactive = task is None
         max_wait = RETRY_INTERACTIVE_MAX_WAIT if interactive else RETRY_TASK_MAX_WAIT
         final_status, error, offer = "done", None, None
-        steps = MAX_STEPS_COWORK
+        # Eine als besonders aufwaendig markierte geplante Aufgabe bekommt mehr Schritte als ein Cowork
+        steps = MAX_STEPS_TASK_HEAVY if task is not None and task.get("heavy") else MAX_STEPS_COWORK
+        limit_hit = False  # der Lauf endete, weil die Hoechstzahl an Schritten erreicht war
         # a scheduled task marked "in an emergency, external models are fine" moves there when the main provider is down
         may_fallback = task is not None and bool(task.get("external_fallback"))
         first_429: list[float] = []
@@ -978,6 +981,7 @@ class Manager:
             while True:
                 step += 1
                 if step >= steps:
+                    limit_hit = True
                     chat["messages"].append({"id": new_id("m"), "role": "assistant", "created": now(),
                                              "content": f"_Abgebrochen: Höchstzahl von {steps} Schritten erreicht._"})
                     break
@@ -1212,7 +1216,8 @@ class Manager:
                                     [dict(p, status="offen") if p.get("status") == "laeuft" else p for p in chat["progress"]])
                 self.emit(user.id, {"type": "progress", "chat_id": chat["id"], "items": chat["progress"]})
             chat["status"] = final_status if final_status != "done" else "idle"
-            chat["last_run"] = {"status": final_status, "error": error, "finished": now(), "started": run.started}
+            chat["last_run"] = {"status": final_status, "error": error, "finished": now(), "started": run.started,
+                                "steps": steps, "limit_hit": limit_hit}
             await st.async_save_chat(chat)
             await self._status(run, final_status, {"error": error} if error else {})
             self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})

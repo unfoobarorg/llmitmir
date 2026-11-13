@@ -269,6 +269,16 @@ def test_change_sets():
     assert ch["aktion"] == "loeschen" and {"feld": "Zeitplan", "alt": "werktags um 07:00", "neu": None} in ch["felder"]
 
 
+def test_task_heavy_flag_in_change_set():
+    meta = {}
+    task = {"name": "Post", "prompt": "Prüfe", "schedule": {"type": "daily", "time": "07:00"}}
+    rows = dict((r[0], r[1]) for r in changes.task_fields(task, meta))
+    assert rows["Besonders aufwändig"] == "nein"
+    heavy = dict(task, heavy=True)
+    ch = changes.build("aufgabe", "Post", changes.task_fields(task, meta), changes.task_fields(heavy, meta))
+    assert ch["felder"] == [{"feld": "Besonders aufwändig", "alt": "nein", "neu": "ja"}]
+
+
 def test_credential_change_never_shows_secrets():
     old = {"name": "Mail", "type": "imap", "fields": {"imap_host": "a", "password": "alt-geheim"}}
     same = dict(old, fields=dict(old["fields"], imap_host="b"))

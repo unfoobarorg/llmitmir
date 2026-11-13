@@ -83,6 +83,7 @@ def task_fields(t: dict | None, meta: dict) -> list[tuple[str, str, bool]]:
             ("Freigaben", ", ".join(t.get("allow_write") or []) or "keine", False),
             ("Benachrichtigen", NOTIFY.get(t.get("notify") or "always", str(t.get("notify"))), False),
             ("Braucht die Werkbank", _yes("werkbank" in (t.get("requires") or [])), False),
+            ("Besonders aufwändig", _yes(t.get("heavy")), False),
             ("Geteilt mit", share_summary(t.get("share"), meta.get("user_names")), False)]
 
 

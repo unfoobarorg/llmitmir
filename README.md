@@ -40,6 +40,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Geplante Aufgaben** mit Zeitplan (täglich, werktags, Wochentage, monatlich, Intervall, einmalig, Cron), gemeinsamer
   Warteschlange, langen Wiederholungsfristen und Push-Benachrichtigung über die HA-App. Ausdrücklich für Open-Weight-Modelle
   gebaut: Läufe dürfen verzögert starten und lange dauern.
+- **Besonders aufwändige Aufgaben**: Normal hat ein Lauf 60 Schritte. Reicht das nicht, markiert man die Aufgabe als
+  besonders aufwändig und gibt ihr damit bis zu 150 Schritte. Erreicht eine Aufgabe ohne diese Markierung die 60 Schritte,
+  wird sie unter *Geplant* rot markiert („Schritte erschöpft“) und lässt sich dort mit einem Klick für 150 Schritte
+  freigeben – wie ein Zugang, dessen Prüfung fehlgeschlagen ist.
 - **Aufgaben teilen**: Eine Aufgabe gehört der Person, die sie anlegt. Sie lässt sich mit anderen Personen der
   HA-Instanz teilen – je Person einstellbar, ob sie die Aufgabe nur sieht, sie auch ändern und starten darf und ob sie
   bei jedem Lauf eine Nachricht aufs eigene Gerät bekommt. Geteilte Aufgaben stehen bei allen unter *Geplant* mit dem
