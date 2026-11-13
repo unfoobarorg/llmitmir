@@ -563,8 +563,12 @@ export class CredentialPage extends StoreElement {
     const svcDefs: Record<string, string> = ty.services || {};
     const svc: string[] = c.services ?? ty.default_services ?? [];
     const svcFields: Record<string, string[]> = ty.service_fields || {};
-    const auto = new Set(Object.values(svcFields).flat());
-    const own = [...ty.fields, ...Object.entries(svcFields).filter(([k]) => svc.includes(k)).flatMap(([, v]) => v)];
+    // automatisch erzeugte Felder und Adressen früherer Versionen zeigt das Formular nicht als „weiteres Feld“
+    const auto = new Set([...Object.values(svcFields).flat(), ...(ty.obsolete || [])]);
+    // Adressen, die LLMitMir selbst setzt (GWDG), stehen im Hinweis statt als Feld im Formular
+    const hidden = new Set<string>(ty.hidden || []);
+    const own = [...ty.fields, ...Object.entries(svcFields).filter(([k]) => svc.includes(k)).flatMap(([, v]) => v)]
+      .filter(k => !hidden.has(k));
     const keys = [...own, ...Object.keys(c.fields || {}).filter(k => !own.includes(k) && !auto.has(k))];
     const readonly = new Set<string>(ty.readonly || []);
     const labels: Record<string, string> = { url: "URL", username: "Benutzername", password: "Passwort", token: "Token", share_token: "Freigabe-Token",

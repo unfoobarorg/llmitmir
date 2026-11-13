@@ -918,6 +918,24 @@ def test_gwdg_account_like_calmerge():
     assert list(creds.TYPES)[-2:] == ["ews", "gwdg"]
 
 
+def test_gwdg_form_shows_only_what_the_person_fills_in():
+    """Die Adressen setzt LLMitMir – im Formular stehen nur E-Mail-Adresse und Passwort."""
+    t = creds.TYPES["gwdg"]
+    auto = {k for ks in t["service_fields"].values() for k in ks}
+    assert auto == {"imap_host", "smtp_host", "ews_url"}
+    assert set(t["hidden"]) == auto  # nicht als Feld anzeigen
+    assert set(t["readonly"]) == auto  # und nicht von Hand ändern
+    assert t["fields"] == ["username", "password"]
+    # DavMail-Adressen früherer Versionen verschwinden beim Speichern
+    assert set(t["obsolete"]) == {"url", "contacts_url"}
+    old = {"username": "a@gwdg.de", "password": "pw", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/",
+           "contacts_url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/contacts/"}
+    f = creds.normalize_fields("gwdg", old, ["calendar"])
+    assert f == {"username": "a@gwdg.de", "password": "pw", "ews_url": creds.GWDG_EWS}
+    # der eigene Exchange-Typ hat keine automatischen Felder
+    assert not creds.TYPES["ews"].get("hidden") and not creds.TYPES["ews"].get("obsolete")
+
+
 def test_gwdg_services_and_legacy():
     new = {"type": "gwdg", "fields": {"username": "a@gwdg.de", "password": "pw"}}
     assert creds.services(new) == ["calendar"]  # Standard wie in calmerge: der Kalender

@@ -171,6 +171,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "credentials": [mask_credential(c, C.secret_fields(c)) for c in st.meta["credentials"].values()],
         "credential_types": {k: {"label": v["label"], "fields": v["fields"], "secret": sorted(v["secret"]), "hint": v.get("hint", ""),
                                  "readonly": v.get("readonly", []), "labels": v.get("labels", {}),
+                                 "obsolete": v.get("obsolete", []), "hidden": v.get("hidden", []),
                                  "placeholders": v.get("placeholders", {}), "services": v.get("services", {}),
                                  "service_fields": v.get("service_fields", {}),
                                  "default_services": v.get("default_services", [])}

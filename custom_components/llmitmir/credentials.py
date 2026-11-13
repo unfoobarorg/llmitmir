@@ -44,12 +44,16 @@ TYPES: dict[str, dict[str, Any]] = {
              "service_fields": {"mail": ["imap_host", "smtp_host"], "calendar": ["ews_url"], "contacts": ["ews_url"]},
              "default_services": ["calendar"],
              "readonly": ["ews_url", "imap_host", "smtp_host"],
+             # Adressen setzt LLMitMir selbst – sie stehen im Hinweis, nicht als Felder im Formular
+             "hidden": ["ews_url", "imap_host", "smtp_host"],
+             # Felder früherer Versionen (DavMail-Kalender und -Kontakte): nicht mehr anzeigen, beim Speichern entfernen
+             "obsolete": ["url", "contacts_url"],
              "labels": {"username": "GWDG-E-Mail-Adresse", "password": "Passwort", "ews_url": "EWS-Adresse",
                         "imap_host": "IMAP-Server", "smtp_host": "SMTP-Server"},
              "placeholders": {"username": "vorname.nachname@gwdg.de", "ews_url": "Wird automatisch gesetzt"},
              "hint": "Dein Konto im GWDG-Exchange. Trag nur deine GWDG-E-Mail-Adresse und dein Passwort ein und wähl, wofür "
-                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt. Kalender und Kontakte laufen über EWS, das Postfach "
-                     "über IMAP/SMTP; die Adressen setzt LLMitMir selbst."},
+                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt. Die Adressen setzt LLMitMir selbst: Kalender und "
+                     "Kontakte über EWS (email.gwdg.de/EWS/Exchange.asmx), das Postfach über IMAP/SMTP (email.gwdg.de)."},
 }
 
 GWDG_DAVMAIL = "https://davmail.gwdg.de:1080"
@@ -193,8 +197,9 @@ def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) ->
     if typ != "gwdg":
         return fields
     t = TYPES["gwdg"]
-    auto = {k for ks in t["service_fields"].values() for k in ks}
-    # leere Reste eines anderen Typs und alle automatisch erzeugten Felder weg – die gewählten kommen gleich neu dazu
+    auto = {k for ks in t["service_fields"].values() for k in ks} | set(t.get("obsolete") or [])
+    # leere Reste eines anderen Typs, alle automatisch erzeugten Felder und die Adressen früherer Versionen weg –
+    # die gewählten kommen gleich neu dazu
     out = {k: v for k, v in fields.items() if k in t["fields"] or (k not in auto and str(v or "").strip())}
     email = gwdg_email(out.get("username") or "")
     out["username"] = email
