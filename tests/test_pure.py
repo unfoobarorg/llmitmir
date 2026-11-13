@@ -2336,3 +2336,45 @@ def test_ews_when_has_colon_in_offset():
     out = ns["_when"]("2026-11-24T10:00")
     assert out == "2026-11-24T10:00:00+01:00"
     assert "+0100" not in out
+
+
+def test_ews_mail_fields_use_the_names_the_server_accepts():
+    """Der GWDG-Exchange nimmt Lesestatus, Absender und Empfaenger nur unter message:, den Rest unter item:."""
+    E = _pkg("ews")
+    for f in ("message:IsRead", "message:From", "message:ToRecipients", "message:CcRecipients"):
+        assert f in E.MAIL_FIELDS
+    for f in ("item:Subject", "item:Size", "item:ItemClass", "item:DateTimeReceived"):
+        assert f in E.MAIL_FIELDS
+    # die abgelehnten Schreibweisen duerfen nicht mehr vorkommen
+    for f in ("item:IsRead", "item:From", "item:ToRecipients", "item:CcRecipients", "message:Subject"):
+        assert f not in E.MAIL_FIELDS
+
+
+def test_ews_contact_phones_are_indexed():
+    """Telefonnummern sind indizierte Felder – contacts:BusinessPhoneNumber lehnt der Server ab."""
+    E = _pkg("ews")
+    body = E.find_contacts(5)
+    assert 'FieldURI="contacts:PhoneNumber" FieldIndex="BusinessPhone"' in body
+    assert 'FieldURI="contacts:PhoneNumber" FieldIndex="MobilePhone"' in body
+    assert "contacts:BusinessPhoneNumber" not in body
+    assert "contacts:MobilePhoneNumber" not in body
+
+
+def test_ews_contact_parser_reads_indexed_phones():
+    """Der Parser liest die Telefonnummern aus den indizierten Feldern."""
+    E = _pkg("ews")
+    xml = """<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body>
+      <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
+      <m:ResponseCode>NoError</m:ResponseCode><m:RootFolder TotalItemsInView="1">
+      <t:Items><t:Contact><t:ItemId Id="AAA=" ChangeKey="CQ=="/><t:DisplayName>Kopp, Nikolaj</t:DisplayName>
+      <t:PhoneNumbers>
+        <t:Entry FieldIndex="BusinessPhone">0551 201-1234</t:Entry>
+        <t:Entry FieldIndex="MobilePhone">0170 1234567</t:Entry>
+      </t:PhoneNumbers></t:Contact></t:Items></m:RootFolder>
+      </m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse></s:Body></s:Envelope>"""
+    items = E.parse(xml)["items"]
+    assert items[0]["name"] == "Kopp, Nikolaj"
+    assert items[0]["telefon"] == "0551 201-1234"
+    assert items[0]["mobil"] == "0170 1234567"

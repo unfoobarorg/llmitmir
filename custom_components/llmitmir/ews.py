@@ -93,12 +93,14 @@ def indexed(uri: str, index: str) -> str:
 CALENDAR_FIELDS = ("item:Subject", "calendar:Start", "calendar:End", "calendar:Location", "calendar:IsAllDayEvent",
                    "calendar:Organizer", "calendar:RequiredAttendees", "calendar:OptionalAttendees",
                    "calendar:LegacyFreeBusyStatus", "item:Categories", "item:ItemClass")
+# Kontaktfelder. Telefonnummern sind indizierte Felder: ``contacts:BusinessPhoneNumber`` lehnt der GWDG-Exchange
+# mit HTTP 500 ab, ``contacts:PhoneNumber`` mit FieldIndex nimmt er an (einzeln gegen den Server geprüft).
 CONTACT_FIELDS = ("contacts:DisplayName", "contacts:GivenName", "contacts:Surname", "contacts:CompanyName",
-                  "contacts:JobTitle", "contacts:BusinessPhoneNumber", "contacts:MobilePhoneNumber")
+                  "contacts:JobTitle")
+CONTACT_PHONES = (("BusinessPhone", "telefon"), ("MobilePhone", "mobil"), ("HomePhone", "privat"))
 
-# Telefonnummern sind indizierte Felder – die Feld-URI allein lehnt Exchange ab
 CONTACT_FIELD_CANDIDATES = tuple(CONTACT_FIELDS) + tuple(
-    indexed("contacts:PhoneNumber", i) for i in ("BusinessPhone", "MobilePhone", "HomePhone"))
+    indexed("contacts:PhoneNumber", i) for i, _ in CONTACT_PHONES)
 
 
 def find_calendar(von: str | None = None, bis: str | None = None, max_entries: int = 200,
@@ -120,6 +122,7 @@ def find_contacts(max_entries: int = 100, folder: str = "contacts") -> str:
     props = "".join(_field(f) for f in CONTACT_FIELDS)
     props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress1"/>'
     props += '<t:IndexedFieldURI FieldURI="contacts:EmailAddress" FieldIndex="EmailAddress2"/>'
+    props += "".join(indexed("contacts:PhoneNumber", i) for i, _ in CONTACT_PHONES)
     return envelope(
         '<m:FindItem Traversal="Shallow">'
         f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
@@ -239,9 +242,13 @@ def get_folder(folder: str = "calendar") -> str:
 
 
 # ---------------------------------------------------------------- Postfach
-# Feld-URIs, die FindItem für Nachrichten liefert (Kopfzeilen und Zustand, ohne den Text)
-MAIL_FIELDS = ("item:Subject", "item:DateTimeReceived", "item:DateTimeSent", "item:IsRead", "item:HasAttachments",
-               "item:From", "item:ToRecipients", "item:CcRecipients", "item:Size", "item:ItemClass", "item:Flag")
+# Feld-URIs für FindItem auf Nachrichten (Kopfzeilen und Zustand, ohne den Text).
+# Der GWDG-Exchange nimmt hier eine Mischung: Betreff, Größe, Datum und Klasse unter ``item:``, Lesestatus,
+# Absender und Empfängerlisten dagegen nur unter ``message:``. Andersherum lehnt er mit HTTP 500 ab – einzeln
+# gegen den Server geprüft (credential/diagnose).
+MAIL_FIELDS = ("item:Subject", "item:DateTimeReceived", "item:DateTimeSent", "item:HasAttachments",
+               "item:Size", "item:ItemClass", "item:Flag",
+               "message:IsRead", "message:From", "message:ToRecipients", "message:CcRecipients")
 
 # Kandidaten für die Fehlersuche: Exchange kennt für Nachrichtenfelder zwei Schreibweisen (item: und message:)
 MAIL_FIELD_CANDIDATES = tuple(
@@ -432,11 +439,24 @@ def _item(el: ET.Element) -> dict:
     for key, name in (("betreff", "Subject"), ("start", "Start"), ("ende", "End"), ("ort", "Location"),
                       ("ganztaegig", "IsAllDayEvent"), ("status", "LegacyFreeBusyStatus"), ("text", "Body"),
                       ("name", "DisplayName"), ("vorname", "GivenName"), ("nachname", "Surname"),
-                      ("firma", "CompanyName"), ("position", "JobTitle"), ("telefon", "BusinessPhoneNumber"),
-                      ("mobil", "MobilePhoneNumber"), ("item_class", "ItemClass")):
+                      ("firma", "CompanyName"), ("position", "JobTitle"), ("item_class", "ItemClass")):
         value = _text(el, name)
         if value:
             out[key] = value
+    # Telefonnummern kommen als indizierte Felder: <PhoneNumbers><Entry FieldIndex="BusinessPhone">...
+    entries = [e for box in _kids(el, "PhoneNumbers") for e in _kids(box, "Entry")]
+    entries += _kids(el, "PhoneNumber")  # falls der Server sie einzeln liefert
+    for entry in entries:
+        index = (entry.get("FieldIndex") or "").casefold()
+        value = (entry.text or "").strip()
+        if not value:
+            continue
+        for idx, key in CONTACT_PHONES:
+            if idx.casefold() == index:
+                out[key] = value
+                break
+        else:
+            out.setdefault("telefon", value)
     org = _kid(el, "Organizer")
     if org is not None:
         out["organisator"] = _mailbox(org)
