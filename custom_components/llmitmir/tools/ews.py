@@ -66,7 +66,12 @@ def _local(value: str) -> str:
 
 
 def _when(value: str) -> str:
-    """Zeit für EWS: ISO mit Offset. Ohne Offset gilt die Ortszeit von Home Assistant; JJJJ-MM-TT wird 00:00."""
+    """Zeit für EWS: ``JJJJ-MM-TTTHH:MM:SS+HH:MM``.
+
+    Exchange lehnt ein Datum mit ``ErrorInvalidValueForProperty`` ab, wenn der Offset ohne Doppelpunkt steht
+    (``+0100``) – ``%z`` liefert genau das. Deshalb wird der Offset von Hand gesetzt. Ohne Offset gilt die Ortszeit
+    von Home Assistant; ``JJJJ-MM-TT`` wird 00:00.
+    """
     raw = str(value or "").strip()
     if not raw:
         raise E.EwsError("Start und Ende fehlen (ISO-Zeit wie 2026-11-20T14:00 oder JJJJ-MM-TT bei ganztägig).")
@@ -76,7 +81,11 @@ def _when(value: str) -> str:
         raise E.EwsError(f"„{raw}“ ist keine gültige Zeit (ISO wie 2026-11-20T14:00 erwartet).") from e
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_tz())
-    return dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+    offset = dt.utcoffset() or timedelta(0)
+    total = int(offset.total_seconds())
+    sign = "+" if total >= 0 else "-"
+    hours, minutes = divmod(abs(total) // 60, 60)
+    return f"{dt.strftime('%Y-%m-%dT%H:%M:%S')}{sign}{hours:02d}:{minutes:02d}"
 
 
 def _shape(items: list[dict]) -> list[dict]:

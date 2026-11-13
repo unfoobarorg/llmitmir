@@ -124,6 +124,34 @@ async def _check_ews(session: aiohttp.ClientSession, cred: dict, folder: str = "
     return _result(True, "EWS antwortet", out.get("status"))
 
 
+async def ews_diagnose(session: aiohttp.ClientSession, cred: dict) -> dict:
+    """Was der Exchange auf die einzelnen Anfragen antwortet – für die Fehlersuche bei 500ern.
+
+    Gibt je Anfrage Status, Antwortcode und – wenn der Server einen Fehler meldet – seine Meldung zurück.
+    """
+    from . import credentials as C
+    from . import ews as E
+
+    user, password = C.ews_account(cred)
+    endpoint = C.ews_endpoint(cred)
+    domain = C.ews_domain(cred)
+    probes = {
+        "kalender": E.find_calendar(None, None, 5),
+        "postfach": E.find_messages("inbox", None, None, None, False, 5),
+        "ordner": E.find_folders(),
+        "kontakte": E.find_contacts(5),
+    }
+    out: dict = {}
+    for name, body in probes.items():
+        try:
+            res = await E.call(session, endpoint, user, password, body, timeout=CHECK_TIMEOUT, domain=domain)
+            out[name] = {"status": res.get("status"), "ok": res.get("ok"), "code": res.get("code"),
+                         "message": res.get("message"), "anzahl": len(res.get("items") or [])}
+        except E.EwsError as e:
+            out[name] = {"fehler": str(e)}
+    return out
+
+
 async def _check_gwdg(session: aiohttp.ClientSession, cred: dict) -> dict:
     """GWDG-Exchange: jeden angehakten Dienst einzeln prüfen.
 
@@ -217,7 +245,7 @@ async def _imap_connect(host: str, port: int) -> tuple[asyncio.StreamReader, asy
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port, ssl=ctx, server_hostname=host), CHECK_TIMEOUT)
         return reader, writer, f"TLS auf Port {port}", None
-    except asyncio.TimeoutError as e:
+    except asyncio.TimeoutError:
         fehler = (f"TCP/TLS: Port {port} antwortet nicht innerhalb von {CHECK_TIMEOUT} s "
                   f"(Port gesperrt oder Firewall auf dem Weg?)")
     except (ssl.SSLError, OSError) as e:

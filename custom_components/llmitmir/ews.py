@@ -655,9 +655,18 @@ async def call(session: aiohttp.ClientSession, endpoint: str, username: str, pas
     if status == 404:
         raise EwsError(f"HTTP 404: {endpoint} ist kein EWS-Endpunkt – stimmt die Adresse?")
     if status >= 500:
-        raise EwsError(f"HTTP {status}: Exchange meldet einen Serverfehler")
+        # Die Antwort enthält oft den Grund (z. B. ErrorInvalidServerVersion) – ohne ihn ist die Meldung nutzlos
+        detail = parse(text)
+        hint = detail.get("message") or detail.get("code") or ""
+        if not hint:
+            import re as _re
+
+            found = _re.search(r"<(?:(?:\w+):)?(?:faultstring|MessageText|ResponseCode)>([^<]{1,300})<", text)
+            hint = found.group(1).strip() if found else text.strip()[:300]
+        raise EwsError(f"HTTP {status}: Exchange meldet einen Serverfehler" + (f" – {hint}" if hint else ""))
     out = parse(text)
     out["status"] = status
+    out["raw"] = text[:4000]  # für die Fehlersuche; wird nicht an das Modell gegeben
     if not out["ok"] and out["code"] in ("ErrorAccessDenied", "ErrorInvalidCredentials", "ErrorMissingEmailAddress"):
         raise EwsError(f"{out['code']}: {out['message'] or 'Zugriff verweigert'}")
     return out

@@ -7,6 +7,7 @@ import secrets
 import time
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
@@ -521,6 +522,18 @@ async def ws_cred_check(hass, conn, msg, m, user, st):
     if msg["credential_id"] not in st.meta["credentials"]:
         raise ValueError("Zugang nicht gefunden")
     return await _check_one(m, st, user.id, msg["credential_id"])
+
+
+@command(_t("credential/diagnose") | {vol.Required("credential_id"): str})
+async def ws_cred_diagnose(hass, conn, msg, m, user, st):
+    """Zeigt, was der Exchange auf die einzelnen Anfragen antwortet – fuer die Fehlersuche."""
+    if msg["credential_id"] not in st.meta["credentials"]:
+        raise ValueError("Zugang nicht gefunden")
+    cred = await M.get_credential(m, user.id, st, msg["credential_id"])
+    from . import credcheck as CC
+
+    async with aiohttp.ClientSession() as session:
+        return await CC.ews_diagnose(session, cred)
 
 
 @command(_t("credential/check_all"))
