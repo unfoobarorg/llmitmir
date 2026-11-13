@@ -29,7 +29,7 @@ async def call(ctx, cred: dict, body: str) -> dict:
     """SOAP-Anfrage mit den Zugangsdaten des Exchange-Kontos."""
     user, password = C.ews_account(cred)
     try:
-        return await E.call(ctx.session, C.ews_endpoint(cred), user, password, body)
+        return await E.call(ctx.session, C.ews_endpoint(cred), user, password, body, domain=C.ews_domain(cred))
     except E.EwsError as e:
         raise MailEwsError(str(e)) from e
 

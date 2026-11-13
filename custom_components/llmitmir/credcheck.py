@@ -113,7 +113,8 @@ async def _check_ews(session: aiohttp.ClientSession, cred: dict, folder: str = "
 
     user, password = C.ews_account(cred)
     try:
-        out = await E.call(session, C.ews_endpoint(cred), user, password, E.get_folder(folder), timeout=CHECK_TIMEOUT)
+        out = await E.call(session, C.ews_endpoint(cred), user, password, E.get_folder(folder),
+                           timeout=CHECK_TIMEOUT, domain=C.ews_domain(cred))
     except E.EwsError as e:
         msg = str(e)
         ok = not any(m in msg for m in ("401", "403", "abgelehnt", "verweigert"))

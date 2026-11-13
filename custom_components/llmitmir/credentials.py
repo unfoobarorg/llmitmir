@@ -127,6 +127,22 @@ def ews_account(cred: dict) -> tuple[str, str]:
     return user, str(f.get("password") or "")
 
 
+def ews_domain(cred: dict) -> str:
+    r"""Domäne für die NTLM-Anmeldung.
+
+    Der GWDG-Exchange nimmt nur NTLM an und erwartet dort ``gwdg\userid`` – die Domäne ist also ``gwdg``.
+    Steht im Benutzernamen schon eine Domäne (``DOMAIN\benutzer``), gilt die. Bei anderen Exchange-Servern
+    bleibt sie leer, dann entscheidet der Server über die Domäne des Kontos.
+    """
+    f = cred.get("fields") or {}
+    raw = str(f.get("username") or "").strip()
+    if "\\" in raw:
+        return raw.partition("\\")[0].strip()
+    if cred.get("type") == "gwdg" or "gwdg.de" in str(f.get("url") or "") + str(f.get("ews_url") or ""):
+        return "gwdg"
+    return ""
+
+
 def gwdg_account(cred: dict) -> tuple[str, str]:
     """(E-Mail, DavMail-Stamm) eines GWDG-Zugangs. Bei älteren WebDAV-Zugängen mit DavMail-URL kommt die Adresse aus der
     URL, falls kein Benutzername eingetragen ist."""

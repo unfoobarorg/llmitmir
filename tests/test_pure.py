@@ -2064,3 +2064,130 @@ def test_mail_tools_use_ews_for_exchange():
     assert "nur lesen" in run("mail_send", {"zugang": "GWDG", "an": "x@y.de", "betreff": "b", "text": "t"})
     assert "nur lesen" in run("mail_change", {"zugang": "GWDG", "uids": ["AAMkAD1"], "aktion": "loeschen"})
     assert len(calls) == before
+
+
+# ---------------------------------------------------------------- NTLM (GWDG-Exchange)
+def test_ntlm_matches_the_specification():
+    """MD4, NT-Hash und NTLMv2-Beweis gegen die Testvektoren aus MS-NLMP – ohne Fremdbibliothek."""
+    import struct
+
+    N = _pkg("ntlm")
+    # MD4 (RFC 1320)
+    assert N.md4(b"").hex() == "31d6cfe0d16ae931b73c59d7e0c089c0"
+    assert N.md4(b"abc").hex() == "a448017aaf21d8525fc10ae87aa6729d"
+    assert N.md4(b"message digest").hex() == "d9130a8164549fe818874806e1c7014b"
+    # NT-Hash und NTLMv2-Hash (MS-NLMP 4.2.2 / 4.2.4)
+    assert N.ntlm_hash("Password").hex() == "a4f49c406510bdcab6824ee7c30fd852"
+    assert N.ntlmv2_hash("User", "Domain", "Password").hex() == "0c868a403bfd7a93a3001ef22ef02e3f"
+    # NTProofStr (MS-NLMP 4.2.4.2.2): gleiche Eingaben, gleicher Beweis
+    challenge = bytes.fromhex("0123456789abcdef")
+    client = bytes.fromhex("aaaaaaaaaaaaaaaa")
+    target_info = bytes.fromhex("02000c0044006f006d00610069006e0001000c0053006500720076006500720000000000")
+    blob = (b"\x01\x01\x00\x00" + b"\x00\x00\x00\x00" + struct.pack("<Q", 0) + client + b"\x00\x00\x00\x00"
+            + target_info + b"\x00\x00\x00\x00")
+    import hashlib
+    import hmac
+
+    proof = hmac.new(N.ntlmv2_hash("User", "Domain", "Password"), challenge + blob, hashlib.md5).digest()
+    assert proof.hex() == "68cd0ab851e51c96aabc927bebef6a1c"
+    # Type 3 trägt genau diesen Beweis
+    t3 = N.type3("User", "Password", "Domain", challenge, target_info, client_challenge=client,
+                 timestamp=struct.pack("<Q", 0))
+    assert t3.startswith(b"NTLMSSP\x00") and struct.unpack("<I", t3[8:12])[0] == 3
+    nt_off = struct.unpack("<I", t3[24:28])[0]  # zweiter Puffer: Länge, Maximallänge, Offset
+    assert t3[nt_off:nt_off + 16] == proof
+
+
+def test_ntlm_handshake_messages():
+    """Type 1 bietet NTLM an, Type 2 wird gelesen, der Benutzername darf die Domäne enthalten."""
+    import struct
+
+    N = _pkg("ntlm")
+    t1 = N.type1("gwdg")
+    assert t1.startswith(b"NTLMSSP\x00") and struct.unpack("<I", t1[8:12])[0] == 1
+    flags = struct.unpack("<I", t1[12:16])[0]
+    assert flags & N.NEGOTIATE_NTLM and flags & N.NEGOTIATE_UNICODE
+    assert b"GWDG" in t1  # Domäne groß, wie im Protokoll üblich
+
+    # Type 2 mit TargetInfo (wie der GWDG-Server: 210 Bytes, Unicode, NTLM2Key, TargetInfo)
+    ti = bytes.fromhex("02000c0044006f006d00610069006e0000000000")
+    t2 = (b"NTLMSSP\x00" + struct.pack("<I", 2) + struct.pack("<HHI", 0, 0, 48)
+          + struct.pack("<I", 0xA2898205) + bytes.fromhex("1122334455667788") + b"\x00" * 8
+          + struct.pack("<HHI", len(ti), len(ti), 48) + ti)
+    info = N.parse_type2(t2)
+    assert info["challenge"] == bytes.fromhex("1122334455667788")
+    assert info["target_info"] == ti and info["flags"] == 0xA2898205
+    with pytest.raises(ValueError):
+        N.parse_type2(b"kein NTLM")
+
+    assert N.split_user("gwdg\\nikolaj.kopp") == ("nikolaj.kopp", "gwdg")
+    assert N.split_user("nikolaj.kopp", "gwdg") == ("nikolaj.kopp", "gwdg")
+    assert N.split_user("DOMAIN\\user", "gwdg") == ("user", "DOMAIN")
+
+
+def test_ews_domain_for_gwdg():
+    """Der GWDG-Exchange nimmt nur NTLM: die Domäne ist gwdg, außer der Benutzername nennt eine."""
+    creds = _pkg("credentials")
+    assert creds.ews_domain({"type": "gwdg", "fields": {"username": "a@gwdg.de"}}) == "gwdg"
+    assert creds.ews_domain({"type": "gwdg", "fields": {"username": "gwdg\\a"}}) == "gwdg"
+    assert creds.ews_domain({"type": "ews", "fields": {"username": "FIRMA\\a",
+                                                       "url": "https://mail.firma.de/EWS/Exchange.asmx"}}) == "FIRMA"
+    assert creds.ews_domain({"type": "ews", "fields": {"username": "a@firma.de",
+                                                       "url": "https://mail.firma.de/EWS/Exchange.asmx"}}) == ""
+
+
+def test_ews_call_falls_back_to_ntlm(monkeypatch):
+    """Antwortet der Server nur mit NTLM, wird derselbe Aufruf mit NTLMv2 wiederholt – nicht mit Basic aufgegeben."""
+    import asyncio
+    import base64
+    import struct
+
+    E = _pkg("ews")
+    N = _pkg("ntlm")
+    seen = []
+
+    ti = bytes.fromhex("02000c0044006f006d00610069006e0000000000")
+    t2 = (b"NTLMSSP\x00" + struct.pack("<I", 2) + struct.pack("<HHI", 0, 0, 48)
+          + struct.pack("<I", 0xA2898205) + bytes.fromhex("1122334455667788") + b"\x00" * 8
+          + struct.pack("<HHI", len(ti), len(ti), 48) + ti)
+
+    class Headers(dict):
+        """Wie die Kopfzeilen von aiohttp: ein Name, mehrere Werte."""
+
+        def __init__(self, pairs):
+            super().__init__()
+            self._pairs = pairs
+
+        def getall(self, key, default=None):
+            return [v for k, v in self._pairs if k.lower() == key.lower()] or (default or [])
+
+    async def fake_post(session, endpoint, payload, headers, auth, timeout):
+        seen.append(headers.get("Authorization", "Basic" if auth else ""))
+        if len(seen) == 1:  # Basic wird abgelehnt, der Server bietet nur NTLM an
+            return 401, b"", Headers([("WWW-Authenticate", "Negotiate"), ("WWW-Authenticate", "NTLM")])
+        if len(seen) == 2:  # Type 1 → Challenge
+            return 401, b"", Headers([("WWW-Authenticate", "NTLM " + base64.b64encode(t2).decode())])
+        return 200, b'<ok><ResponseCode>NoError</ResponseCode></ok>', Headers([])
+
+    monkeypatch.setattr(E, "_post", fake_post)
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "a@gwdg.de", "pw", "<x/>",
+                             domain="gwdg"))
+    assert out["ok"] is True
+    assert len(seen) == 3
+    assert seen[1].startswith("NTLM ") and seen[2].startswith("NTLM ")
+    # Type 3 trägt den Benutzernamen ohne Domäne und die Domäne getrennt
+    t3 = base64.b64decode(seen[2][5:])
+    assert struct.unpack("<I", t3[8:12])[0] == 3
+    assert "a@gwdg.de".encode("utf-16-le") in t3 and "gwdg".encode("utf-16-le") in t3
+
+    # ohne NTLM-Angebot bleibt es bei der klaren Meldung
+    seen.clear()
+
+    async def only_basic(session, endpoint, payload, headers, auth, timeout):
+        seen.append(1)
+        return 401, b"", Headers([("WWW-Authenticate", "Basic realm=x")])
+
+    monkeypatch.setattr(E, "_post", only_basic)
+    with pytest.raises(E.EwsError) as err:
+        asyncio.run(E.call(None, "https://x/EWS/Exchange.asmx", "u", "p", "<x/>"))
+    assert "abgelehnt" in str(err.value) and len(seen) == 1

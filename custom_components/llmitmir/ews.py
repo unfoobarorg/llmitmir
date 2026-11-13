@@ -583,22 +583,17 @@ class EwsError(Exception):
     """Fehler, der so wie er ist an das Modell geht (Anmeldung, Adresse, Serverfehler)."""
 
 
-async def call(session: aiohttp.ClientSession, endpoint: str, username: str, password: str, body: str,
-               timeout: int = TIMEOUT) -> dict:
-    """SOAP-Anfrage an den EWS-Endpunkt. Gibt ``parse()`` zurück, ergänzt um ``status``.
+async def _post(session: aiohttp.ClientSession, endpoint: str, body: bytes, headers: dict,
+                auth: aiohttp.BasicAuth | None, timeout: int):
+    """Eine POST-Anfrage; gibt Status, Inhalt und Kopfzeilen zurück (für den NTLM-Handschlag nötig).
 
-    HTTP 401/403 werden als abgelehnte Anmeldung gemeldet (nicht als Verbindungsfehler), 404 als falscher
-    Endpunkt; nur echte Transportfehler (DNS, TLS, Zeitüberschreitung) heißen „keine Verbindung“.
+    Die Kopfzeilen bleiben als Mehrfach-Wert erhalten: Der Server schickt ``WWW-Authenticate`` zweimal
+    (``Negotiate`` und ``NTLM <Challenge>``), und ein einfaches Wörterbuch würde eine davon verlieren.
     """
-    if not endpoint:
-        raise EwsError("Im Zugang fehlt die EWS-Adresse (z. B. https://email.gwdg.de/EWS/Exchange.asmx).")
-    headers = {"Content-Type": "text/xml; charset=utf-8", "Accept": "text/xml, application/xml"}
-    auth = aiohttp.BasicAuth(username, password) if username else None
     try:
-        async with session.post(endpoint, data=body.encode("utf-8"), headers=headers, auth=auth,
+        async with session.post(endpoint, data=body, headers=headers, auth=auth,
                                 timeout=aiohttp.ClientTimeout(total=timeout)) as r:
-            raw = await r.read()
-            status = r.status
+            return r.status, await r.read(), r.headers
     except aiohttp.ClientConnectorError as e:
         raise EwsError(f"Keine Verbindung zu {endpoint} ({type(e).__name__})") from e
     except aiohttp.ClientSSLError as e:
@@ -607,6 +602,51 @@ async def call(session: aiohttp.ClientSession, endpoint: str, username: str, pas
         raise EwsError(f"Zeitüberschreitung bei {endpoint}") from e
     except aiohttp.ClientError as e:
         raise EwsError(f"Keine Verbindung zu {endpoint} ({type(e).__name__}: {e})") from e
+
+
+def _auth_headers(headers) -> list[str]:
+    """Alle ``WWW-Authenticate``-Werte einer Antwort (der Server schickt oft mehrere)."""
+    try:
+        return [str(v) for v in headers.getall("WWW-Authenticate", [])]
+    except AttributeError:
+        return [str(v) for k, v in dict(headers or {}).items() if str(k).lower() == "www-authenticate"]
+
+
+def _ntlm_challenge(headers) -> bytes | None:
+    """Die Type-2-Nachricht aus ``WWW-Authenticate: NTLM <base64>`` holen (None, wenn der Server nur „NTLM“ sagt)."""
+    import base64
+
+    for value in _auth_headers(headers):
+        for part in str(value).split(","):
+            piece = part.strip()
+            if piece.upper().startswith("NTLM ") and len(piece) > 5:
+                try:
+                    return base64.b64decode(piece[5:].strip())
+                except (ValueError, TypeError):
+                    return None
+    return None
+
+
+async def call(session: aiohttp.ClientSession, endpoint: str, username: str, password: str, body: str,
+               timeout: int = TIMEOUT, domain: str = "") -> dict:
+    """SOAP-Anfrage an den EWS-Endpunkt. Gibt ``parse()`` zurück, ergänzt um ``status``.
+
+    Erst Basic Auth. Antwortet der Server mit 401 und bietet nur ``Negotiate``/``NTLM`` an (so macht es der
+    GWDG-Exchange), wird derselbe Aufruf mit NTLMv2 wiederholt – Basic Auth ist dort schlicht abgeschaltet.
+    HTTP 401/403 werden als abgelehnte Anmeldung gemeldet (nicht als Verbindungsfehler), 404 als falscher
+    Endpunkt; nur echte Transportfehler (DNS, TLS, Zeitüberschreitung) heißen „keine Verbindung“.
+    """
+    if not endpoint:
+        raise EwsError("Im Zugang fehlt die EWS-Adresse (z. B. https://email.gwdg.de/EWS/Exchange.asmx).")
+    headers = {"Content-Type": "text/xml; charset=utf-8", "Accept": "text/xml, application/xml"}
+    payload = body.encode("utf-8")
+    auth = aiohttp.BasicAuth(username, password) if username else None
+    status, raw, reply = await _post(session, endpoint, payload, headers, auth, timeout)
+    if status == 401 and username:
+        offered = " ".join(_auth_headers(reply)).lower()
+        if "ntlm" in offered or "negotiate" in offered:
+            status, raw, reply = await _ntlm_post(session, endpoint, payload, headers, username, password,
+                                                  domain, timeout)
     text = raw.decode("utf-8", "ignore")
     if status in (401, 407):
         raise EwsError(f"HTTP {status}: Exchange hat Benutzername oder Passwort abgelehnt")
@@ -621,6 +661,26 @@ async def call(session: aiohttp.ClientSession, endpoint: str, username: str, pas
     if not out["ok"] and out["code"] in ("ErrorAccessDenied", "ErrorInvalidCredentials", "ErrorMissingEmailAddress"):
         raise EwsError(f"{out['code']}: {out['message'] or 'Zugriff verweigert'}")
     return out
+
+
+async def _ntlm_post(session: aiohttp.ClientSession, endpoint: str, payload: bytes, headers: dict,
+                     username: str, password: str, domain: str, timeout: int) -> tuple[int, bytes, dict]:
+    """Anmeldung mit NTLMv2: Type 1 → Type 2 (Challenge) → Type 3 (Beweis), dann die eigentliche Anfrage."""
+    import base64
+
+    from . import ntlm as N
+
+    user, dom = N.split_user(username, domain)
+    h = dict(headers)
+    h["Authorization"] = "NTLM " + base64.b64encode(N.type1(dom)).decode()
+    status, raw, reply = await _post(session, endpoint, payload, h, None, timeout)
+    challenge = _ntlm_challenge(reply)
+    if status != 401 or not challenge:
+        return status, raw, reply
+    info = N.parse_type2(challenge)
+    h["Authorization"] = "NTLM " + base64.b64encode(N.type3(
+        user, password, dom, info["challenge"], info["target_info"], info["flags"])).decode()
+    return await _post(session, endpoint, payload, h, None, timeout)
 
 
 def describe_error(out: dict) -> str:

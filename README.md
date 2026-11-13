@@ -75,6 +75,11 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   bleiben. Beim Typ „Exchange (EWS)“ trägt die Person EWS-Adresse (`…/EWS/Exchange.asmx`), Benutzername und Passwort
   selbst ein; beim GWDG-Exchange genügen E-Mail-Adresse und Passwort, den Endpunkt setzt LLMitMir
   (`https://email.gwdg.de/EWS/Exchange.asmx`).
+- **NTLM-Anmeldung:** Der GWDG-Exchange bietet kein Basic Auth an – auf eine einfache Anmeldung antwortet er mit
+  `401` und nur `WWW-Authenticate: Negotiate, NTLM`. LLMitMir meldet sich deshalb mit NTLMv2 an (`ntlm.py`, ohne
+  Fremdbibliothek, MD4 nach RFC 1320 selbst mitgebracht): erst Basic, und wenn der Server nur NTLM anbietet, derselbe
+  Aufruf mit NTLMv2. Die Domäne ist beim GWDG-Zugang `gwdg` (wie in der GWDG-Doku `gwdg\userid`), bei einem eigenen
+  Exchange-Server die Domäne aus dem Benutzernamen (`DOMAIN\benutzer`) oder keine.
 - **Postfach über EWS:** Bei einem Exchange-Zugang laufen auch die `mail_*`-Werkzeuge über EWS – so beschreibt die
   GWDG den Zugang für Exchange-Konten (Apple Mail, „manuell konfigurieren“); IMAP nennt sie nur als eingeschränkte
   Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der

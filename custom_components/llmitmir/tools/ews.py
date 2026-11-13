@@ -38,7 +38,7 @@ def _account(ctx, name: str, service: str, write: bool = False) -> dict:
 
 async def _call(ctx, cred: dict, body: str) -> dict:
     user, password = C.ews_account(cred)
-    return await E.call(ctx.session, C.ews_endpoint(cred), user, password, body)
+    return await E.call(ctx.session, C.ews_endpoint(cred), user, password, body, domain=C.ews_domain(cred))
 
 
 def _tz():
