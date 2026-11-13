@@ -5,7 +5,7 @@ import { StoreElement, base, icon, fmtTime, daysText, confirmDialog, safeElement
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
-import type { SendDetail } from "./composer";
+import { draftNew, draftProject, type SendDetail } from "./composer";
 import { explainer, explainerCss, more } from "./simple";
 import "./inbox";
 
@@ -76,6 +76,7 @@ export class Home extends StoreElement {
       <lm-inbox></lm-inbox>
       <h1><lm-spark size="34" .active=${false}></lm-spark>${greeting()}${name ? `, ${name}` : ""}</h1>
       <lm-composer big ?showMode=${!simple} ?showProject=${!simple} .simple=${simple} .mode=${mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
+        .draftKey=${this.projectId ? draftProject(this.projectId) : draftNew}
         placeholder=${mode === "cowork" ? t("Was soll ich erledigen?") : t("Wie kann ich helfen?")}
         @mode=${(e: CustomEvent) => { this.mode = e.detail; this.manual = false; }} @model=${(e: CustomEvent) => { this.model = e.detail; this.manual = true; }}
         @project=${(e: CustomEvent) => { this.projectId = e.detail; this.manual = false; this.pickModel(); }} @send=${this.send}></lm-composer>
@@ -230,7 +231,8 @@ export class ProjectPage extends StoreElement {
         <h2>${instrLabel}</h2><textarea rows="10" placeholder=${instrPh}
           .value=${p.instructions || ""} @input=${(e: any) => this.set("instructions", e.target.value)}></textarea>` : html`
       <div class="cols"><div>
-        <lm-composer ?showMode=${!simple} .simple=${simple} .projectId=${p.id} .mode=${"chat"} .model=${p.model_chat || d.defaults.chat} placeholder="Neuer Chat in diesem Projekt …"
+        <lm-composer ?showMode=${!simple} .simple=${simple} .projectId=${p.id} .mode=${"chat"} .model=${p.model_chat || d.defaults.chat}
+          .draftKey=${draftProject(p.id)} placeholder="Neuer Chat in diesem Projekt …"
           @send=${async (e: CustomEvent) => { try { await startChat({ ...e.detail, project_id: p.id }); } catch (err: any) { store.notify(err.message); } }}></lm-composer>
         <h2>Chats & Coworks</h2>
         <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>

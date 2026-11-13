@@ -17,8 +17,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
-- **Entwurf je Chat**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel in einen anderen
-  Chat erhalten und steht beim Zurückkommen wieder da (im Browser, nicht über ein Neuladen der Seite hinweg).
+- **Entwurf je Chat und je Projekt**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel
+  in einen anderen Chat erhalten und steht beim Zurückkommen wieder da – auch auf der Startseite und auf einer
+  Projektseite, wo ein neuer Chat oder Cowork beginnt. Wer dort etwas tippt, kurz in einen Chat schaut und zurückkommt,
+  findet den Text wieder vor (im Browser, nicht über ein Neuladen der Seite hinweg).
 - **Ungelesen-Punkt**: Hat ein Chat ein neues Ergebnis bekommen, seit er zuletzt offen war, steht in der Seitenleiste ein
   Punkt neben dem Titel – auch bei Läufen geplanter Aufgaben. Öffnen nimmt ihn weg.
 - **Weiterschreiben während einer Antwort** (wie bei Claude): Läuft schon eine Antwort, lässt sich die nächste Nachricht

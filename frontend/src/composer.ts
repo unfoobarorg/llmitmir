@@ -13,9 +13,14 @@ const TX_VERBS = ["Hört genau hin", "Sortiert Silben", "Fügt Wörter zusammen"
 
 export interface SendDetail { text: string; files: File[]; model: string; mode: "chat" | "cowork"; tools: string[] | null; project_id: string | null; }
 
-/** Entwürfe je Chat: halb getippter Text und Anhänge bleiben beim Wechseln erhalten.
- *  Nur im Browser – nach einem Neuladen der Seite fängt der Chat leer an. */
+/** Entwürfe: halb getippter Text und Anhänge bleiben beim Wechseln erhalten – je Chat und
+ *  je Startseite bzw. Projektseite (neuer Chat/Cowork). Nur im Browser – nach einem Neuladen
+ *  der Seite fängt alles leer an. */
 const DRAFTS = new Map<string, { text: string; files: File[] }>();
+
+/** Schlüssel der Entwürfe für die Felder, in denen ein neuer Chat oder Cowork beginnt. */
+export const draftNew = "neu:startseite";
+export const draftProject = (projectId: string) => `neu:projekt:${projectId}`;
 
 @safeElement("lm-composer")
 export class Composer extends LitElement {
@@ -33,7 +38,7 @@ export class Composer extends LitElement {
   @property({ type: Boolean }) simple = false;
   /** The chat already has messages (moving it to an external model sends the history along). */
   @property({ type: Boolean }) history = false;
-  /** Chat id this composer writes to – the draft is kept per chat (empty = new chat, nothing kept). */
+  /** Wo dieser Entwurf hingehört (Chat-Kennung, Startseite, Projektseite) – leer heißt: nichts merken. */
   @property() draftKey = "";
   @state() private text = "";
   @state() private files: File[] = [];
@@ -168,7 +173,7 @@ export class Composer extends LitElement {
     }
   }
 
-  /** Keep what is typed so far under the current chat, so switching chats does not lose it. */
+  /** Halb Getipptes unter dem aktuellen Schlüssel ablegen, damit ein Wechsel es nicht verliert. */
   private saveDraft() {
     if (!this.draftKey) return;
     if (this.text || this.files.length) DRAFTS.set(this.draftKey, { text: this.text, files: this.files });
@@ -244,7 +249,7 @@ export class Composer extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    this.saveDraft();  // halb Getipptes bleibt beim Wechsel des Chats erhalten
+    this.saveDraft();  // halb Getipptes bleibt beim Wechsel des Chats oder der Seite erhalten
     clearInterval(this._txTimer); cancelAnimationFrame(this._raf);
   }
 
