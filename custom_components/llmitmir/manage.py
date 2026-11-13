@@ -134,8 +134,8 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
                 share=share, updated=now())
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
-    if task["heavy"]:
-        task.pop("limit_hit", None)  # freigegeben: die rote Markierung hat sich erledigt
+    if task["heavy"] and not old.get("heavy"):
+        task.pop("limit_hit", None)  # gerade freigegeben: die rote Markierung hat sich erledigt
     return task
 
 
