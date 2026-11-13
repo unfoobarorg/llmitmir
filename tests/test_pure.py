@@ -2175,10 +2175,10 @@ def test_ews_call_falls_back_to_ntlm(monkeypatch):
     assert out["ok"] is True
     assert len(seen) == 3
     assert seen[1].startswith("NTLM ") and seen[2].startswith("NTLM ")
-    # Type 3 trägt den Benutzernamen ohne Domäne und die Domäne getrennt
+    # Type 3 nimmt die Domäne aus der Challenge des Servers ("Domain"), nicht die geratene "gwdg"
     t3 = base64.b64decode(seen[2][5:])
     assert struct.unpack("<I", t3[8:12])[0] == 3
-    assert "a@gwdg.de".encode("utf-16-le") in t3 and "gwdg".encode("utf-16-le") in t3
+    assert "a".encode("utf-16-le") in t3 and "Domain".encode("utf-16-le") in t3
 
     # ohne NTLM-Angebot bleibt es bei der klaren Meldung
     seen.clear()
@@ -2191,3 +2191,77 @@ def test_ews_call_falls_back_to_ntlm(monkeypatch):
     with pytest.raises(E.EwsError) as err:
         asyncio.run(E.call(None, "https://x/EWS/Exchange.asmx", "u", "p", "<x/>"))
     assert "abgelehnt" in str(err.value) and len(seen) == 1
+
+
+def test_ntlm_tries_username_variants(monkeypatch):
+    """Lehnt der Server die erste Schreibweise ab, werden die weiteren probiert – bis eine angenommen wird."""
+    import asyncio
+    import base64
+    import struct
+
+    E = _pkg("ews")
+    N = _pkg("ntlm")
+    seen = []
+
+    # Challenge mit NbDomain = UM (wie der GWDG-Exchange)
+    ti = bytes.fromhex("0200040055004d0000000000")
+    t2 = (b"NTLMSSP\x00" + struct.pack("<I", 2) + struct.pack("<HHI", 0, 0, 48)
+          + struct.pack("<I", 0xA2898205) + bytes.fromhex("12471ad84001cd19") + b"\x00" * 8
+          + struct.pack("<HHI", len(ti), len(ti), 48) + ti)
+
+    class Headers(dict):
+        def __init__(self, pairs):
+            super().__init__()
+            self._pairs = pairs
+
+        def getall(self, key, default=None):
+            return [v for k, v in self._pairs if k.lower() == key.lower()] or (default or [])
+
+    def who(auth):
+        """Benutzer und Domäne aus einem Type-3 lesen."""
+        msg = base64.b64decode(auth[5:])
+        dom_len, _, dom_off = struct.unpack("<HHI", msg[28:36])
+        usr_len, _, usr_off = struct.unpack("<HHI", msg[36:44])
+        return (msg[usr_off:usr_off + usr_len].decode("utf-16-le"),
+                msg[dom_off:dom_off + dom_len].decode("utf-16-le"))
+
+    async def fake_post(session, endpoint, payload, headers, auth, timeout):
+        if "Authorization" not in headers:  # Basic
+            return 401, b"", Headers([("WWW-Authenticate", "Negotiate"), ("WWW-Authenticate", "NTLM")])
+        msg = base64.b64decode(headers["Authorization"][5:])
+        kind = struct.unpack("<I", msg[8:12])[0]
+        if kind == 1:
+            return 401, b"", Headers([("WWW-Authenticate", "NTLM " + base64.b64encode(t2).decode())])
+        seen.append(who(headers["Authorization"]))
+        # nur die Anmeldung mit der Kennung und der Domäne des Servers wird angenommen
+        if seen[-1] == ("nikolaj.kopp", "UM"):
+            return 200, b'<ok><ResponseCode>NoError</ResponseCode></ok>', Headers([])
+        return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
+
+    monkeypatch.setattr(E, "_post", fake_post)
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
+                             "<x/>", domain="gwdg"))
+    assert out["ok"] is True
+    assert seen[0] == ("nikolaj.kopp", "UM")  # Domäne aus der Challenge, Kennung ohne @gwdg.de
+    assert len(seen) == 1  # beim ersten Versuch angenommen
+
+    # wird die erste Variante abgelehnt, kommen die weiteren dran
+    seen.clear()
+
+    async def strict(session, endpoint, payload, headers, auth, timeout):
+        if "Authorization" not in headers:
+            return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
+        msg = base64.b64decode(headers["Authorization"][5:])
+        if struct.unpack("<I", msg[8:12])[0] == 1:
+            return 401, b"", Headers([("WWW-Authenticate", "NTLM " + base64.b64encode(t2).decode())])
+        seen.append(who(headers["Authorization"]))
+        if seen[-1] == ("nikolaj.kopp@gwdg.de", ""):  # nur die volle Adresse ohne Domäne
+            return 200, b'<ok><ResponseCode>NoError</ResponseCode></ok>', Headers([])
+        return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
+
+    monkeypatch.setattr(E, "_post", strict)
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
+                             "<x/>", domain="gwdg"))
+    assert out["ok"] is True
+    assert seen[-1] == ("nikolaj.kopp@gwdg.de", "")
+    assert len(seen) > 1  # mehrere Schreibweisen probiert

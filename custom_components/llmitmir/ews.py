@@ -665,22 +665,34 @@ async def call(session: aiohttp.ClientSession, endpoint: str, username: str, pas
 
 async def _ntlm_post(session: aiohttp.ClientSession, endpoint: str, payload: bytes, headers: dict,
                      username: str, password: str, domain: str, timeout: int) -> tuple[int, bytes, dict]:
-    """Anmeldung mit NTLMv2: Type 1 → Type 2 (Challenge) → Type 3 (Beweis), dann die eigentliche Anfrage."""
+    """Anmeldung mit NTLMv2: Type 1 → Type 2 (Challenge) → Type 3 (Beweis), dann die eigentliche Anfrage.
+
+    Die Domäne kommt aus der Challenge des Servers, nicht aus einer Annahme: Der GWDG-Exchange meldet dort ``UM``
+    (Domäne ``um.gwdg.de``), nicht ``gwdg`` – mit der falschen Domäne im Hash lehnt er ab, obwohl das Kennwort stimmt.
+    Bleibt es beim 401, werden weitere Schreibweisen des Benutzers probiert (mit Domäne, als volle Adresse, ohne
+    Domäne); die erste, die der Server annimmt, gilt.
+    """
     import base64
 
     from . import ntlm as N
 
-    user, dom = N.split_user(username, domain)
     h = dict(headers)
-    h["Authorization"] = "NTLM " + base64.b64encode(N.type1(dom)).decode()
+    h["Authorization"] = "NTLM " + base64.b64encode(N.type1(domain)).decode()
     status, raw, reply = await _post(session, endpoint, payload, h, None, timeout)
     challenge = _ntlm_challenge(reply)
     if status != 401 or not challenge:
         return status, raw, reply
     info = N.parse_type2(challenge)
-    h["Authorization"] = "NTLM " + base64.b64encode(N.type3(
-        user, password, dom, info["challenge"], info["target_info"], info["flags"])).decode()
-    return await _post(session, endpoint, payload, h, None, timeout)
+    server_domain = N.target_domain(info["target_info"])
+    last = (status, raw, reply)
+    for user, dom in N.candidates(username, domain, server_domain):
+        h["Authorization"] = "NTLM " + base64.b64encode(N.type3(
+            user, password, dom, info["challenge"], info["target_info"], info["flags"])).decode()
+        status, raw, reply = await _post(session, endpoint, payload, h, None, timeout)
+        if status != 401:
+            return status, raw, reply
+        last = (status, raw, reply)
+    return last
 
 
 def describe_error(out: dict) -> str:

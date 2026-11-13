@@ -22,6 +22,7 @@ NEGOTIATE_NTLM = 0x00000200
 NEGOTIATE_ALWAYS_SIGN = 0x00008000
 NEGOTIATE_EXTENDED_SESSIONSECURITY = 0x00080000
 NEGOTIATE_TARGET_INFO = 0x00800000
+NEGOTIATE_VERSION = 0x02000000
 NEGOTIATE_128 = 0x20000000
 NEGOTIATE_56 = 0x80000000
 
@@ -133,10 +134,18 @@ def parse_type2(message: bytes) -> dict:
     return {"flags": flags, "challenge": challenge, "target_info": target}
 
 
+# Windows 10 (10.0, Build 19041) – nur Anzeige, der Server prüft das Feld nicht
+VERSION_WIN10 = b"\x0a\x00\x63\x4a\x00\x00\x00\x0f"
+
+
 def type3(user: str, password: str, domain: str, challenge: bytes, target_info: bytes = b"",
           flags: int = SUPPORTED, client_challenge: bytes | None = None,
           timestamp: bytes | None = None, workstation: str = "") -> bytes:
-    """Dritte Nachricht: der Beweis, dass wir das Kennwort kennen (NTLMv2)."""
+    """Dritte Nachricht: der Beweis, dass wir das Kennwort kennen (NTLMv2).
+
+    Bietet der Server ``NEGOTIATE_VERSION`` an (der GWDG-Exchange tut das), enthält die Nachricht wie bei Windows ein
+    Versionsfeld – sonst lehnen manche Server ab, obwohl der Beweis stimmt.
+    """
     client = client_challenge if client_challenge is not None else os.urandom(8)
     stamp = timestamp if timestamp is not None else struct.pack("<Q", int((time.time() + 11644473600) * 10_000_000))
     blob = (b"\x01\x01\x00\x00" + b"\x00\x00\x00\x00" + stamp + client + b"\x00\x00\x00\x00"
@@ -150,8 +159,12 @@ def type3(user: str, password: str, domain: str, challenge: bytes, target_info: 
     host = str(workstation or "").encode("utf-16-le")
     session_key = b""
     out_flags = (flags & SUPPORTED) | NEGOTIATE_UNICODE | NEGOTIATE_NTLM
+    version = b""
+    if flags & NEGOTIATE_VERSION:
+        out_flags |= NEGOTIATE_VERSION
+        version = VERSION_WIN10
 
-    pos = 64
+    pos = 64 + len(version)
     parts = []
     for data in (lm_response, nt_response, dom, usr, host, session_key):
         parts.append((len(data), len(data), pos))
@@ -159,6 +172,7 @@ def type3(user: str, password: str, domain: str, challenge: bytes, target_info: 
     return (SIGNATURE + struct.pack("<I", 3)
             + b"".join(struct.pack("<HHI", *p) for p in parts)
             + struct.pack("<I", out_flags)
+            + version
             + lm_response + nt_response + dom + usr + host + session_key)
 
 
@@ -169,3 +183,59 @@ def split_user(value: str, default_domain: str = "") -> tuple[str, str]:
         dom, _, usr = raw.partition("\\")
         return usr.strip(), dom.strip() or default_domain
     return raw, default_domain
+
+
+# ---------------------------------------------------------------- Ziel-Informationen
+AV_NB_DOMAIN = 2
+AV_DNS_DOMAIN = 4
+
+
+def av_pairs(target_info: bytes) -> dict[int, bytes]:
+    """Die AV_PAIRS aus den Ziel-Informationen als {Kennung: Wert}."""
+    out: dict[int, bytes] = {}
+    i = 0
+    while i + 4 <= len(target_info):
+        avid, avlen = struct.unpack("<HH", target_info[i:i + 4])
+        if avid == 0:  # MsvAvEOL
+            break
+        out[avid] = target_info[i + 4:i + 4 + avlen]
+        i += 4 + avlen
+    return out
+
+
+def target_domain(target_info: bytes) -> str:
+    """Die Domäne, die der Server selbst nennt (NbDomain, sonst DnsDomain).
+
+    Der GWDG-Exchange meldet hier ``UM`` (Domäne ``um.gwdg.de``) – nicht ``gwdg``. Für NTLMv2 muss die Domäne im
+    Hash genau diese sein, sonst lehnt der Server mit 401 ab, obwohl das Kennwort stimmt.
+    """
+    pairs = av_pairs(target_info or b"")
+    for avid in (AV_NB_DOMAIN, AV_DNS_DOMAIN):
+        raw = pairs.get(avid) or b""
+        if raw:
+            try:
+                return raw.decode("utf-16-le").strip()
+            except UnicodeDecodeError:
+                continue
+    return ""
+
+
+def candidates(username: str, domain_hint: str = "", server_domain: str = "") -> list[tuple[str, str]]:
+    """Mögliche (Benutzer, Domäne)-Paare für die Anmeldung, das wahrscheinlichste zuerst.
+
+    Exchange-Konten lassen sich auf verschiedene Weise anmelden: mit der Kennung und der Domäne des Servers, mit der
+    vollen Adresse als Benutzername (UPN) oder ganz ohne Domäne. Statt eine Variante zu raten, probiert LLMitMir sie
+    der Reihe nach durch und merkt sich die erste, die der Server annimmt.
+    """
+    raw = str(username or "").strip()
+    local = raw.partition("@")[0] if "@" in raw else raw
+    if "\\" in raw:
+        dom, _, rest = raw.partition("\\")
+        local, raw = rest.strip(), rest.strip()
+        domain_hint = dom.strip() or domain_hint
+    out: list[tuple[str, str]] = []
+    for user, dom in ((local, server_domain), (raw, server_domain), (local, domain_hint),
+                      (raw, ""), (local, "")):
+        if user and (user, dom) not in out:
+            out.append((user, dom))
+    return out
