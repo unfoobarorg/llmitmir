@@ -1,8 +1,13 @@
-"""E-Mail-Werkzeuge (IMAP/SMTP) für GWDG-Exchange- und IMAP-Zugänge.
+"""E-Mail-Werkzeuge: Exchange über EWS, alles andere über IMAP/SMTP.
+
+Welcher Weg gilt, entscheidet der Zugang (``credentials.is_ews``): Ein Exchange-Konto läuft vollständig über EWS –
+so dokumentiert es die GWDG für Exchange-Konten (Apple Mail, „manuell konfigurieren“), IMAP ist dort nur die
+eingeschränkte Alternative. Gmail, Posteo und Co. bleiben bei IMAP/SMTP.
 
 Das Recht kommt aus dem Zugang (``credentials.access(cred, "mail")``): Ist das Postfach nur lesend freigegeben,
 öffnet ``mailbox.Mailbox`` Ordner nur mit EXAMINE und lehnt jede Änderung ab; ``mail_send`` und ``mail_change``
-brechen schon vor der Verbindung ab. Das Passwort selbst bekommt das Modell nie.
+brechen schon vor der Verbindung ab – beim EWS-Weg prüft dieselbe Stelle, bevor eine SOAP-Anfrage rausgeht.
+Das Passwort selbst bekommt das Modell nie.
 """
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ import smtplib
 from .. import credentials as C
 from .. import mailbox as MB
 from . import Tool, obj, register
+from . import mail_ews as EW
 from .dav import _cred
 
 MAX_ATTACH = 25_000_000
@@ -32,11 +38,14 @@ def _account(ctx, name: str, write: bool = False) -> dict:
         raise MailError(f"Der Zugang „{cred.get('name')}“ darf das E-Mail-Postfach nur lesen – senden, verschieben, "
                         "markieren und löschen sind gesperrt. Die Person kann das auf der Seite „Zugänge“ ändern.")
     f = cred.get("fields") or {}
+    ews = C.is_ews(cred)
     user = C.gwdg_email(f.get("username") or "") if cred.get("type") == "gwdg" else str(f.get("username") or "")
-    if not f.get("imap_host") or not user or not f.get("password"):
-        raise MailError(f"Im Zugang „{cred.get('name')}“ fehlen IMAP-Server, Benutzername oder Passwort.")
-    return {"cred": cred, "imap": f["imap_host"], "smtp": f.get("smtp_host") or "", "user": user,
-            "password": f["password"], "writable": acc == "write",
+    if not user or not f.get("password"):
+        raise MailError(f"Im Zugang „{cred.get('name')}“ fehlen Benutzername oder Passwort.")
+    if not ews and not f.get("imap_host"):
+        raise MailError(f"Im Zugang „{cred.get('name')}“ fehlt der IMAP-Server.")
+    return {"cred": cred, "ews": ews, "imap": f.get("imap_host") or "", "smtp": f.get("smtp_host") or "",
+            "user": user, "password": f["password"], "writable": acc == "write",
             "sender": str(f.get("from") or f.get("absender") or user)}
 
 
@@ -47,6 +56,8 @@ async def _run(fn):
     except MailError as e:
         return f"Fehler: {e}"
     except MB.ReadOnly as e:
+        return f"Fehler: {e}"
+    except EW.MailEwsError as e:
         return f"Fehler: {e}"
     except (imaplib.IMAP4.error, smtplib.SMTPAuthenticationError) as e:
         text = str(e)
@@ -59,6 +70,16 @@ async def _run(fn):
         return f"Fehler: {e}"
     except OSError as e:
         return f"Fehler: Keine Verbindung zum Mailserver ({type(e).__name__}: {e})"
+
+
+async def _ews(fn):
+    """EWS-Aufruf ausführen und Fehler in Klartext übersetzen (die EWS-Funktionen sind selbst async)."""
+    try:
+        return await fn()
+    except MailError as e:
+        return f"Fehler: {e}"
+    except EW.MailEwsError as e:
+        return f"Fehler: {e}"
 
 
 def _safe(fn):
@@ -80,16 +101,20 @@ def _box(acc: dict) -> MB.Mailbox:
 _CONNECT: dict = {}  # Tests setzen hier Ersatz-Verbindungen ein
 
 
-def _uids(a: dict) -> list[str]:
+def _uids(a: dict, ews: bool = False) -> list[str]:
+    """uids aus mail_list. Über IMAP sind das Zahlen, über EWS die ItemIds (lange Zeichenketten)."""
     raw = a.get("uids") if a.get("uids") is not None else [a.get("uid")]
     out = [str(x).strip() for x in (raw if isinstance(raw, list) else [raw]) if str(x or "").strip()]
-    if not out or not all(x.isdigit() for x in out):
-        raise MailError("uid bzw. uids (Zahlen aus mail_list) angeben")
+    if not out or (not ews and not all(x.isdigit() for x in out)):
+        raise MailError("uid bzw. uids (Zahlen aus mail_list) angeben" if not ews
+                        else "uid bzw. uids (die Kennungen aus mail_list) angeben")
     return out
 
 
 async def mail_folders(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""))
+    if acc["ews"]:
+        return await _ews(lambda: EW.folders(ctx, acc["cred"]))
 
     def work():
         with _box(acc) as box:
@@ -103,6 +128,11 @@ async def mail_list(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""))
     ordner = str(a.get("ordner") or "INBOX")
     anzahl = max(1, min(int(a.get("anzahl") or 20), 100))
+    if acc["ews"]:
+        out = await _ews(lambda: EW.list_messages(ctx, acc["cred"], a))
+        if isinstance(out, dict):
+            out["recht"] = C.ACCESS_LABELS["write" if acc["writable"] else "read"]
+        return out
 
     def work():
         crit, literal = MB.search_criteria(a.get("suche"), a.get("absender"), a.get("von"), a.get("bis"),
@@ -118,7 +148,9 @@ async def mail_list(ctx, a: dict):
 async def mail_read(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""))
     ordner = str(a.get("ordner") or "INBOX")
-    uid = _uids(a)[0]
+    uid = _uids(a, acc["ews"])[0]
+    if acc["ews"]:
+        return await _ews(lambda: EW.read_message(ctx, acc["cred"], a))
 
     def work():
         with _box(acc) as box:
@@ -146,7 +178,7 @@ async def mail_read(ctx, a: dict):
 
 async def mail_send(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""), write=True)
-    if not acc["smtp"]:
+    if not acc["ews"] and not acc["smtp"]:
         return f"Fehler: Im Zugang „{acc['cred'].get('name')}“ fehlt der SMTP-Server."
     an = str(a.get("an") or "").strip()
     if not an:
@@ -155,6 +187,8 @@ async def mail_send(ctx, a: dict):
     for name in a.get("anhaenge") or []:
         files.append((str(name).rsplit("/", 1)[-1], await ctx.store.async_read_file("chat", ctx.chat_id, str(name))))
     reply = a.get("antwort_auf") if isinstance(a.get("antwort_auf"), dict) else None
+    if acc["ews"]:  # Exchange: senden über EWS, die Kopie legt der Server in „Gesendete Elemente“ ab
+        return await _ews(lambda: EW.send_message(ctx, acc["cred"], a, files, reply))
 
     def work():
         ref = None
@@ -194,7 +228,9 @@ async def mail_change(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""), write=True)
     ordner = str(a.get("ordner") or "INBOX")
     aktion = str(a.get("aktion") or "")
-    uids = _uids(a)
+    uids = _uids(a, acc["ews"])
+    if acc["ews"]:
+        return await _ews(lambda: EW.change_messages(ctx, acc["cred"], a, uids))
 
     def work():
         with _box(acc) as box:
@@ -217,7 +253,7 @@ async def mail_change(ctx, a: dict):
     return await _run(work)
 
 
-Z = {"type": "string", "description": "Name des Zugangs (E-Mail- oder GWDG-Exchange-Zugang mit Postfach)"}
+Z = {"type": "string", "description": "Name des Zugangs (E-Mail- oder Exchange-Zugang mit Postfach)"}
 O = {"type": "string", "description": "Ordner, Standard INBOX (Namen aus mail_folders)"}
 register(Tool("mail_folders", "mail", "Listet die Ordner eines E-Mail-Postfachs.", obj({"zugang": Z}, ["zugang"]),
               _safe(mail_folders), label="Mail-Ordner", icon="mdi:folder-outline"))
@@ -230,7 +266,7 @@ register(Tool("mail_list", "mail",
               _safe(mail_list), label="Mails suchen", icon="mdi:email-search-outline"))
 register(Tool("mail_read", "mail",
               "Liest eine Nachricht (Kopf, Text, Anhänge) – ohne sie als gelesen zu markieren. Anhänge auf Wunsch in den Arbeitsbereich.",
-              obj({"zugang": Z, "ordner": O, "uid": {"type": "string", "description": "UID aus mail_list"},
+              obj({"zugang": Z, "ordner": O, "uid": {"type": "string", "description": "UID bzw. Kennung aus mail_list"},
                    "anhaenge_speichern": {"type": "boolean"}}, ["zugang", "uid"]),
               _safe(mail_read), label="Mail lesen", icon="mdi:email-open-outline"))
 register(Tool("mail_send", "mail",

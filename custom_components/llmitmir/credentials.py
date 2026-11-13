@@ -28,38 +28,39 @@ TYPES: dict[str, dict[str, Any]] = {
     # Exchange Web Services als eigener Typ: beliebiger Exchange-Server mit eigenen Endpunkten (Kalender, Kontakte).
     # Wer nur einen Exchange hat (nicht die GWDG), trägt Adresse, Benutzer und Passwort selbst ein.
     "ews": {"label": "Exchange (EWS)", "fields": ["url", "username", "password"], "secret": {"password"},
-            "services": {"calendar": "Kalender", "contacts": "Kontakte"},
+            "services": {"mail": "E-Mail-Postfach", "calendar": "Kalender", "contacts": "Kontakte"},
             "service_fields": {},
-            "default_services": ["calendar", "contacts"],
+            "default_services": ["mail", "calendar", "contacts"],
             "labels": {"url": "EWS-Adresse", "username": "Benutzername", "password": "Passwort"},
             "placeholders": {"url": "https://server.example.org/EWS/Exchange.asmx",
                              "username": "z. B. vorname.nachname@example.org oder DOMAIN\\benutzer"},
             "hint": "Exchange Web Services: die Adresse der Exchange.asmx deines Servers, dazu Benutzername und Passwort. "
-                    "Kalender und Kontakte laufen über EWS (Termine mit Zeitraum, Ändern und Löschen über die ItemId)."},
+                    "Postfach, Kalender und Kontakte laufen alle über diese eine Schnittstelle – kein IMAP, kein SMTP."},
     # GWDG-Exchange (Uni-Konto) – wie in calmerge gibt die Person nur E-Mail-Adresse und Passwort an und wählt, wofür der
     # Zugang gilt (Postfach, Kalender, Kontakte). Kalender und Kontakte laufen über EWS mit den Endpunkten der GWDG,
     # das Postfach über IMAP/SMTP – alles setzt LLMitMir beim Speichern selbst.
     "gwdg": {"label": "GWDG-Exchange (Uni-Konto)", "fields": ["username", "password"], "secret": {"password"},
              "services": {"mail": "E-Mail-Postfach", "calendar": "Kalender", "contacts": "Kontakte"},
-             "service_fields": {"mail": ["imap_host", "smtp_host"], "calendar": ["ews_url"], "contacts": ["ews_url"]},
+             "service_fields": {"mail": ["ews_url"], "calendar": ["ews_url"], "contacts": ["ews_url"]},
              "default_services": ["calendar"],
-             "readonly": ["ews_url", "imap_host", "smtp_host"],
-             # Adressen setzt LLMitMir selbst – sie stehen im Hinweis, nicht als Felder im Formular
-             "hidden": ["ews_url", "imap_host", "smtp_host"],
-             # Felder früherer Versionen (DavMail-Kalender und -Kontakte): nicht mehr anzeigen, beim Speichern entfernen
-             "obsolete": ["url", "contacts_url"],
-             "labels": {"username": "GWDG-E-Mail-Adresse", "password": "Passwort", "ews_url": "EWS-Adresse",
-                        "imap_host": "IMAP-Server", "smtp_host": "SMTP-Server"},
+             "readonly": ["ews_url"],
+             # die Adresse setzt LLMitMir selbst – sie steht im Hinweis, nicht als Feld im Formular
+             "hidden": ["ews_url"],
+             # Felder früherer Versionen (DavMail-Kalender und -Kontakte, IMAP/SMTP): nicht anzeigen, beim Speichern weg
+             "obsolete": ["url", "contacts_url", "imap_host", "smtp_host"],
+             "labels": {"username": "GWDG-E-Mail-Adresse", "password": "Passwort", "ews_url": "EWS-Adresse"},
              "placeholders": {"username": "vorname.nachname@gwdg.de", "ews_url": "Wird automatisch gesetzt"},
              "hint": "Dein Konto im GWDG-Exchange. Trag nur deine GWDG-E-Mail-Adresse und dein Passwort ein und wähl, wofür "
-                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt. Die Adressen setzt LLMitMir selbst: Kalender und "
-                     "Kontakte über EWS (email.gwdg.de/EWS/Exchange.asmx), das Postfach über IMAP/SMTP (email.gwdg.de)."},
+                     "der Zugang gilt – ohne @ wird @gwdg.de ergänzt. Alles läuft über Exchange Web Services "
+                     "(email.gwdg.de/EWS/Exchange.asmx): Postfach, Kalender und Kontakte – so wie die GWDG es für "
+                     "Exchange-Konten beschreibt. Weitere Adressen brauchst du nicht."},
 }
 
 GWDG_DAVMAIL = "https://davmail.gwdg.de:1080"
 GWDG_EWS = "https://email.gwdg.de/EWS/Exchange.asmx"  # Exchange Web Services der GWDG
-GWDG_IMAP = "email.gwdg.de:993"  # Exchange-IMAP der GWDG (SSL)
-GWDG_SMTP = "email.gwdg.de:587"  # Versand mit STARTTLS
+# IMAP/SMTP der GWDG – nur noch für ältere Zugänge, die diese Felder schon haben (neue laufen ganz über EWS)
+GWDG_IMAP = "email.gwdg.de:993"
+GWDG_SMTP = "email.gwdg.de:587"
 ACCESS_LABELS = {"read": "nur lesen", "write": "lesen und schreiben"}
 GWDG_USAGE = ("Postfach: mail_folders, mail_list, mail_read; mail_send und mail_change nur bei „lesen und schreiben“. "
               "Kalender: ews_events (auch caldav_events), anlegen/ändern/löschen mit ews_save. "
@@ -187,8 +188,8 @@ def access_text(cred: dict) -> dict[str, str]:
 def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) -> dict:
     """Felder vor dem Speichern vereinheitlichen.
 
-    GWDG: E-Mail-Adresse normalisieren, die Adressen der gewählten Dienste daraus erzeugen und die der abgewählten
-    entfernen – Kalender und Kontakte über EWS (fester Endpunkt der GWDG), das Postfach über IMAP/SMTP.
+    GWDG: E-Mail-Adresse normalisieren und die EWS-Adresse der GWDG setzen, sobald ein Dienst gewählt ist –
+    Postfach, Kalender und Kontakte laufen alle über diesen einen Endpunkt.
     Typ ``ews``: nur die Felder des Typs behalten, die EWS-Adresse bleibt wie eingetragen (eigener Server).
     """
     if typ == "ews":
@@ -204,11 +205,8 @@ def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) ->
     email = gwdg_email(out.get("username") or "")
     out["username"] = email
     picked = t["default_services"] if picked is None else picked
-    if email:
-        if "calendar" in picked or "contacts" in picked:
-            out["ews_url"] = GWDG_EWS
-        if "mail" in picked:
-            out["imap_host"], out["smtp_host"] = GWDG_IMAP, GWDG_SMTP
+    if email and picked:
+        out["ews_url"] = GWDG_EWS
     return out
 
 

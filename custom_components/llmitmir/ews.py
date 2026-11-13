@@ -1,11 +1,14 @@
-"""Exchange Web Services (EWS): Kalender und Kontakte direkt am Exchange, ohne DavMail.
+"""Exchange Web Services (EWS): Postfach, Kalender und Kontakte direkt am Exchange.
 
 Reine Funktionen zum Bauen und Auswerten der SOAP-Nachrichten (ohne Home Assistant testbar) und ein schlanker
-Client. Die Rechteprüfung (nur lesen / lesen und schreiben) macht ``tools/ews.py`` – hier steht nur das Protokoll.
+Client. Die Rechteprüfung (nur lesen / lesen und schreiben) macht ``tools/ews.py`` bzw. ``tools/mail.py`` – hier
+steht nur das Protokoll.
 
 Warum EWS: Zeitbereichsabfragen beantwortet der Server selbst (FindItem + CalendarView), Einträge haben eine
 stabile ItemId samt ChangeKey, und Teilnehmer, Einladungen und Antwortstände kommen sauber mit. Über CalDAV
-(DavMail) musste dafür jedes Mal der ganze Kalender geholt und lokal gefiltert werden.
+(DavMail) musste dafür jedes Mal der ganze Kalender geholt und lokal gefiltert werden. Für das Postfach gilt
+dasselbe: Die GWDG dokumentiert EWS als Weg für Exchange-Konten (Apple Mail, „manuell konfigurieren“), IMAP nur
+als eingeschränkte Alternative – deshalb laufen Mails, Kalender und Kontakte über eine Schnittstelle.
 """
 from __future__ import annotations
 
@@ -207,6 +210,139 @@ def get_folder(folder: str = "calendar") -> str:
         f'<m:FolderIds><t:DistinguishedFolderId Id="{_esc(folder or "calendar")}"/></m:FolderIds></m:GetFolder>')
 
 
+# ---------------------------------------------------------------- Postfach
+# Feld-URIs, die FindItem für Nachrichten liefert (Kopfzeilen und Zustand, ohne den Text)
+MAIL_FIELDS = ("item:Subject", "item:DateTimeReceived", "item:DateTimeSent", "item:IsRead", "item:HasAttachments",
+               "item:From", "item:ToRecipients", "item:CcRecipients", "item:Size", "item:ItemClass", "item:Flag")
+
+# Ordnernamen, die Exchange selbst kennt (DistinguishedFolderId) – alles andere ist eine FolderId oder ein Name
+DISTINGUISHED = {
+    "inbox": "inbox", "posteingang": "inbox", "eingang": "inbox",
+    "sent": "sentitems", "sentitems": "sentitems", "gesendet": "sentitems", "gesendete objekte": "sentitems",
+    "gesendete elemente": "sentitems",
+    "trash": "deleteditems", "deleteditems": "deleteditems", "papierkorb": "deleteditems",
+    "gelöschte elemente": "deleteditems", "geloeschte elemente": "deleteditems",
+    "drafts": "drafts", "entwürfe": "drafts", "entwuerfe": "drafts",
+    "outbox": "outbox", "postausgang": "outbox", "msgfolderroot": "msgfolderroot", "root": "msgfolderroot",
+}
+
+
+def folder_ref(folder: str | None) -> str:
+    """Ordner für eine Anfrage: bekannter Name → DistinguishedFolderId, sonst die FolderId selbst."""
+    raw = str(folder or "inbox").strip()
+    known = DISTINGUISHED.get(raw.casefold())
+    if known:
+        return f'<t:DistinguishedFolderId Id="{_esc(known)}"/>'
+    return f'<t:FolderId Id="{_esc(raw)}"/>'
+
+
+def find_folders(root: str = "msgfolderroot") -> str:
+    """Alle Ordner des Postfachs (Name, Id, Anzahl, ungelesen) – Grundlage für mail_folders."""
+    return envelope(
+        '<m:FindFolder Traversal="Deep">'
+        "<m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>"
+        '<m:IndexedPageFolderView MaxEntriesReturned="500" Offset="0" BasePoint="Beginning"/>'
+        f"<m:ParentFolderIds>{folder_ref(root)}</m:ParentFolderIds>"
+        "</m:FindFolder>")
+
+
+def _restriction(suche: str | None = None, von: str | None = None, bis: str | None = None,
+                 ungelesen: bool = False) -> str:
+    """Suchbedingung für FindItem: Text im Betreff, Zeitraum, ungelesen – der Server filtert, nicht der Client."""
+    parts = []
+    if str(suche or "").strip():
+        parts.append('<t:Contains ContainmentMode="Substring" ContainmentComparison="IgnoreCase">'
+                     '<t:FieldURI FieldURI="item:Subject"/>'
+                     f'<t:Constant Value="{_esc(suche)}"/></t:Contains>')
+    if str(von or "").strip():
+        parts.append("<t:IsGreaterThanOrEqualTo><t:FieldURI FieldURI=\"item:DateTimeReceived\"/>"
+                     f'<t:FieldURIOrConstant><t:Constant Value="{iso(von)}"/></t:FieldURIOrConstant>'
+                     "</t:IsGreaterThanOrEqualTo>")
+    if str(bis or "").strip():
+        parts.append("<t:IsLessThan><t:FieldURI FieldURI=\"item:DateTimeReceived\"/>"
+                     f'<t:FieldURIOrConstant><t:Constant Value="{iso(bis)}"/></t:FieldURIOrConstant>'
+                     "</t:IsLessThan>")
+    if ungelesen:
+        parts.append('<t:IsEqualTo><t:FieldURI FieldURI="item:IsRead"/>'
+                     '<t:FieldURIOrConstant><t:Constant Value="false"/></t:FieldURIOrConstant></t:IsEqualTo>')
+    if not parts:
+        return ""
+    inner = parts[0] if len(parts) == 1 else "<t:And>" + "".join(parts) + "</t:And>"
+    return f"<m:Restriction>{inner}</m:Restriction>"
+
+
+def find_messages(folder: str | None = "inbox", suche: str | None = None, von: str | None = None,
+                  bis: str | None = None, ungelesen: bool = False, max_entries: int = 20) -> str:
+    """Nachrichten eines Ordners, neueste zuerst. Der Server filtert und sortiert; der Text bleibt draußen."""
+    props = "".join(_field(f) for f in MAIL_FIELDS)
+    return envelope(
+        '<m:FindItem Traversal="Shallow">'
+        f"<m:ItemShape><t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
+        f'<m:IndexedPageItemView MaxEntriesReturned="{max(1, min(int(max_entries or 20), MAX_ENTRIES))}" '
+        'Offset="0" BasePoint="Beginning"/>'
+        '<m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/>'
+        "</t:FieldOrder></m:SortOrder>"
+        + _restriction(suche, von, bis, ungelesen)
+        + f"<m:ParentFolderIds>{folder_ref(folder)}</m:ParentFolderIds>"
+        "</m:FindItem>")
+
+
+def get_mime(item_id: str, change_key: str = "") -> str:
+    """Eine Nachricht als vollständige MIME-Datei (base64) – damit gilt derselbe Parser wie bei IMAP."""
+    ck = f' ChangeKey="{_esc(change_key)}"' if change_key else ""
+    return envelope(
+        "<m:GetItem><m:ItemShape><t:BaseShape>IdOnly</t:BaseShape>"
+        "<t:IncludeMimeContent>true</t:IncludeMimeContent></m:ItemShape>"
+        f'<m:ItemIds><t:ItemId Id="{_esc(item_id)}"{ck}/></m:ItemIds></m:GetItem>')
+
+
+def create_message_mime(mime_b64: str, disposition: str = "SendAndSaveCopy") -> str:
+    """Nachricht aus einer fertigen MIME-Datei senden (Anhänge, Kopfzeilen, Antwortbezug inklusive).
+
+    ``SendAndSaveCopy`` legt die Kopie in „Gesendete Elemente“ ab – wie es ein Mailprogramm tut.
+    """
+    return envelope(
+        f'<m:CreateItem MessageDisposition="{_esc(disposition)}"><m:Items><t:Message>'
+        f'<t:MimeContent CharacterSet="UTF-8">{mime_b64}</t:MimeContent>'
+        "</t:Message></m:Items></m:CreateItem>")
+
+
+def update_message(item_id: str, change_key: str = "", gelesen: bool | None = None,
+                  markiert: bool | None = None) -> str:
+    """Zustand einer Nachricht setzen: gelesen/ungelesen, markiert/nicht markiert."""
+    sets = []
+    if gelesen is not None:
+        sets.append('<t:SetItemField><t:FieldURI FieldURI="item:IsRead"/><t:Message>'
+                    f"<t:IsRead>{'true' if gelesen else 'false'}</t:IsRead></t:Message></t:SetItemField>")
+    if markiert is not None:
+        flag = ('<t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag>' if markiert
+                else '<t:Flag><t:FlagStatus>NotFlagged</t:FlagStatus></t:Flag>')
+        sets.append('<t:SetItemField><t:FieldURI FieldURI="item:Flag"/><t:Message>'
+                    f"{flag}</t:Message></t:SetItemField>")
+    if not sets:
+        raise ValueError("Nichts zu ändern (gelesen oder markiert angeben)")
+    ck = f' ChangeKey="{_esc(change_key)}"' if change_key else ""
+    return envelope(
+        '<m:UpdateItem ConflictResolution="AutoResolve" MessageDisposition="SaveOnly">'
+        f'<m:ItemChanges><t:ItemChange><t:ItemId Id="{_esc(item_id)}"{ck}/><t:Updates>'
+        + "".join(sets)
+        + "</t:Updates></t:ItemChange></m:ItemChanges></m:UpdateItem>")
+
+
+def move_items(ids: list[str], ziel: str) -> str:
+    """Nachrichten in einen anderen Ordner verschieben (Ids als ItemId)."""
+    inner = "".join(f'<t:ItemId Id="{_esc(i)}"/>' for i in ids if str(i or "").strip())
+    return envelope(
+        f"<m:MoveItem><m:ToFolderId>{folder_ref(ziel)}</m:ToFolderId>"
+        f"<m:ItemIds>{inner}</m:ItemIds></m:MoveItem>")
+
+
+def delete_messages(ids: list[str], mode: str = "MoveToDeletedItems") -> str:
+    """Nachrichten löschen (Standard: in den Papierkorb, nicht endgültig)."""
+    inner = "".join(f'<t:ItemId Id="{_esc(i)}"/>' for i in ids if str(i or "").strip())
+    return envelope(f'<m:DeleteItem DeleteType="{_esc(mode)}"><m:ItemIds>{inner}</m:ItemIds></m:DeleteItem>')
+
+
 # ---------------------------------------------------------------- auswerten
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
@@ -321,6 +457,112 @@ def parse(xml: str | bytes) -> dict:
                 if _local(child.tag) in ITEM_TAGS:
                     items.append(_item(child))
     return {"ok": ok, "code": code, "message": message, "items": items, "total": total or len(items)}
+
+
+def parse_folders(xml: str | bytes) -> list[dict]:
+    """Ordner aus FindFolder: {"name", "id", "anzahl", "ungelesen", "art"}."""
+    out: list[dict] = []
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return out
+    for el in root.iter():
+        if _local(el.tag) != "Folder":
+            continue
+        fid = _kid(el, "FolderId")
+        name = _text(el, "DisplayName")
+        if fid is None or not fid.get("Id") or not name:
+            continue
+        entry = {"name": name, "id": fid.get("Id") or "", "art": _text(el, "FolderClass")}
+        for key, tag in (("anzahl", "TotalCount"), ("ungelesen", "UnreadCount")):
+            try:
+                entry[key] = int(_text(el, tag) or 0)
+            except ValueError:
+                entry[key] = 0
+        out.append(entry)
+    return out
+
+
+def parse_messages(xml: str | bytes) -> list[dict]:
+    """Nachrichten aus FindItem: {"uid" (= ItemId), "betreff", "von", "datum", "ungelesen", "anhaenge", "groesse"}."""
+    out: list[dict] = []
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return out
+    for el in root.iter():
+        if _local(el.tag) != "Message":
+            continue
+        iid = _kid(el, "ItemId")
+        if iid is None or not iid.get("Id"):
+            continue
+        sender = _mailbox(_kid(el, "From"))
+        to = [_mailbox(a) for a in _kids(_kid(el, "ToRecipients") or ET.Element("x"), "Mailbox")]
+        entry = {
+            "uid": iid.get("Id") or "",
+            "change_key": iid.get("ChangeKey") or "",
+            "betreff": _text(el, "Subject"),
+            "von": sender.get("email") or sender.get("name") or "",
+            "von_name": sender.get("name") or "",
+            "an": [t.get("email") for t in to if t.get("email")],
+            "datum": _local_time(_text(el, "DateTimeReceived") or _text(el, "DateTimeSent")),
+            "ungelesen": _text(el, "IsRead").lower() != "true",
+            "anhaenge": _text(el, "HasAttachments").lower() == "true",
+        }
+        size = _text(el, "Size")
+        if size.isdigit():
+            entry["groesse"] = int(size)
+        flag = _kid(el, "Flag")
+        if flag is not None and _text(flag, "FlagStatus") == "Flagged":
+            entry["markiert"] = True
+        out.append(entry)
+    return out
+
+
+def mime_content(xml: str | bytes) -> bytes:
+    """MIME-Inhalt (base64) aus GetItem als Bytes – leer, wenn die Antwort keinen enthält."""
+    import base64
+
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return b""
+    for el in root.iter():
+        if _local(el.tag) == "MimeContent" and (el.text or "").strip():
+            try:
+                return base64.b64decode("".join((el.text or "").split()))
+            except (ValueError, TypeError):
+                return b""
+    return b""
+
+
+def _local_time(value: str) -> str:
+    """EWS-Zeitstempel (UTC) in der Zeitzone von Home Assistant (Europe/Berlin), mit Offset."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_zone()).isoformat(timespec="minutes")
+
+
+def _zone():
+    """Zeitzone von Home Assistant, sonst Europe/Berlin – ohne Import auf Modulebene (Tests ohne HA)."""
+    try:
+        from homeassistant.util import dt as dt_util
+
+        return dt_util.DEFAULT_TIME_ZONE
+    except Exception:  # noqa: BLE001
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo("Europe/Berlin")
+        except Exception:  # noqa: BLE001
+            return datetime.now().astimezone().tzinfo or timezone.utc
 
 
 def item_ids(xml: str | bytes) -> list[dict]:

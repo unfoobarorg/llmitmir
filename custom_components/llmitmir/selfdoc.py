@@ -133,14 +133,16 @@ Gute Anleitungen nennen die LLMitMir-Werkzeuge, mit denen etwas geht (z. B. `dav
 
 ## Zugänge (Seite „Zugänge“)
 Typen: webdav, basic, bearer, header, telegram, imap, other, ews, gwdg. Felder je nach Typ (url, username, password, token …) plus Notiz. \
-Exchange (ews): EWS-Adresse (…/EWS/Exchange.asmx), Benutzername, Passwort, dazu Kalender und/oder Kontakte; je Dienst \
-„nur lesen“ (Standard) oder „lesen und schreiben“. Termine mit `ews_events` (Zeitraum, den der Server filtert), anlegen, \
-ändern und löschen mit `ews_save` über die `item_id` aus `ews_events`, Kontakte mit `ews_contacts`. \
+Exchange (ews): EWS-Adresse (…/EWS/Exchange.asmx), Benutzername, Passwort, dazu Postfach, Kalender und/oder Kontakte; \
+je Dienst „nur lesen“ (Standard) oder „lesen und schreiben“. Alles läuft über diese eine Schnittstelle – kein IMAP, \
+kein SMTP. Termine mit `ews_events` (Zeitraum, den der Server filtert), anlegen, ändern und löschen mit `ews_save` \
+über die `item_id` aus `ews_events`, Kontakte mit `ews_contacts`, Postfach mit mail_folders, mail_list, mail_read \
+(markiert nichts als gelesen), mail_send und mail_change. \
 GWDG-Exchange (gwdg): nur GWDG-E-Mail-Adresse und Passwort, dazu die Dienste, für die der Zugang gilt (E-Mail-Postfach, \
-Kalender, Kontakte); die Adressen setzt LLMitMir selbst – Kalender und Kontakte laufen über EWS \
-(https://email.gwdg.de/EWS/Exchange.asmx), das Postfach über IMAP/SMTP email.gwdg.de. Postfach mit mail_folders, \
-mail_list, mail_read (markiert nichts als gelesen), mail_send und mail_change; Kalender mit `ews_events` (oder \
-`caldav_events`, das intern auf EWS geht), Termine anlegen/ändern/löschen mit `ews_save`; Kontakte mit `ews_contacts`. \
+Kalender, Kontakte); die Adresse setzt LLMitMir selbst (https://email.gwdg.de/EWS/Exchange.asmx) – so beschreibt die \
+GWDG den Zugang für Exchange-Konten. Postfach mit mail_folders, mail_list, mail_read, mail_send und mail_change; \
+Kalender mit `ews_events` (oder `caldav_events`, das intern auf EWS geht), Termine anlegen/ändern/löschen mit \
+`ews_save`; Kontakte mit `ews_contacts`. \
 Was nicht angehakt ist oder nur lesend freigegeben, lehnen die Werkzeuge ab – das Passwort eines Exchange-Zugangs gibt \
 LLMitMir nie heraus (kein Platzhalter, kein http_request). Braucht eine Aufgabe Schreibrechte, der Person sagen, dass \
 sie das beim Zugang umstellen muss; selbst ändern geht nur mit `credential_save` und ihrer Bestätigung. \
@@ -152,7 +154,7 @@ was die Prüfung meldet, statt es weiter zu versuchen.
 ## Werkzeuggruppen
 Websuche & Abrufen (web_search, web_fetch) · Home Assistant (ha_states, ha_history, ha_service, ha_ws – immer an) · \
 Nextcloud/WebDAV/CalDAV (dav_list, dav_read, dav_write, dav_request, caldav_events, caldav_entry, caldav_changes) · \
-Exchange (ews_events, ews_contacts, ews_save) · E-Mail mit einem IMAP- oder Exchange-Zugang (mail_folders, mail_list, \
+Exchange (ews_events, ews_contacts, ews_save) · E-Mail mit einem Exchange- oder IMAP-Zugang (mail_folders, mail_list, \
 mail_read, mail_send, mail_change) · HTTP-Anfragen (http_request) · \
 Dateien (file_list, file_read, file_write) · Benachrichtigungen (notify, an das eigene, in den Einstellungen gewählte Gerät der Person; \
 ohne Gerät als Karte auf der Startseite) · \

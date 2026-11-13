@@ -909,10 +909,10 @@ def test_gwdg_account_like_calmerge():
     assert f == {"username": "max.muster@gwdg.de", "password": "pw", "ews_url": creds.GWDG_EWS}
     # alle Dienste: Postfach kommt dazu, abgewählte Adressen verschwinden wieder
     f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail", "contacts"])
-    assert f["ews_url"] == creds.GWDG_EWS  # Kontakte brauchen denselben Endpunkt
-    assert (f["imap_host"], f["smtp_host"]) == ("email.gwdg.de:993", "email.gwdg.de:587")
+    assert f["ews_url"] == creds.GWDG_EWS  # Postfach, Kalender und Kontakte: derselbe Endpunkt
+    assert "imap_host" not in f and "smtp_host" not in f  # kein IMAP/SMTP mehr nötig
     f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail"])
-    assert "ews_url" not in f and f["imap_host"] == creds.GWDG_IMAP
+    assert f["ews_url"] == creds.GWDG_EWS  # auch das Postfach läuft über EWS
     assert creds.normalize_fields("webdav", {"url": "x"}) == {"url": "x"}
     # gwdg steht unten in der Liste der Typen, ews direkt davor
     assert list(creds.TYPES)[-2:] == ["ews", "gwdg"]
@@ -922,12 +922,12 @@ def test_gwdg_form_shows_only_what_the_person_fills_in():
     """Die Adressen setzt LLMitMir – im Formular stehen nur E-Mail-Adresse und Passwort."""
     t = creds.TYPES["gwdg"]
     auto = {k for ks in t["service_fields"].values() for k in ks}
-    assert auto == {"imap_host", "smtp_host", "ews_url"}
+    assert auto == {"ews_url"}  # eine Adresse für Postfach, Kalender und Kontakte
     assert set(t["hidden"]) == auto  # nicht als Feld anzeigen
     assert set(t["readonly"]) == auto  # und nicht von Hand ändern
     assert t["fields"] == ["username", "password"]
-    # DavMail-Adressen früherer Versionen verschwinden beim Speichern
-    assert set(t["obsolete"]) == {"url", "contacts_url"}
+    # DavMail-Adressen und IMAP/SMTP früherer Versionen verschwinden beim Speichern
+    assert set(t["obsolete"]) == {"url", "contacts_url", "imap_host", "smtp_host"}
     old = {"username": "a@gwdg.de", "password": "pw", "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/",
            "contacts_url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/contacts/"}
     f = creds.normalize_fields("gwdg", old, ["calendar"])
@@ -1068,11 +1068,11 @@ def test_gwdg_check_each_service(monkeypatch):
     monkeypatch.setattr(K, "_check_imap", fake_imap)
     monkeypatch.setattr(K, "_check_ews", fake_ews)
     cred = {"type": "gwdg", "services": ["mail", "calendar", "contacts"],
-            "fields": {"username": "a@gwdg.de", "password": "pw", "imap_host": "email.gwdg.de:993"}}
+            "fields": {"username": "a@gwdg.de", "password": "pw"}}
     r = asyncio.run(K.check_credential(None, cred))
-    # Kalender und Kontakte über EWS, das Postfach über IMAP – kein DavMail mehr
-    assert seen == [("IMAP", "email.gwdg.de:993"), ("EWS", "calendar"), ("EWS", "contacts")]
-    assert not r["ok"] and r["message"].startswith("E-Mail-Postfach: Anmeldung abgelehnt") and "Kalender: ok" in r["message"]
+    # Postfach, Kalender und Kontakte über dieselbe Schnittstelle – kein IMAP, kein DavMail
+    assert seen == [("EWS", "inbox"), ("EWS", "calendar"), ("EWS", "contacts")]
+    assert r["ok"] and "E-Mail-Postfach: ok" in r["message"] and "Kalender: ok" in r["message"]
     assert K._missing({"type": "gwdg", "fields": {"username": "a@gwdg.de"}}) == "password"
     # älterer Zugang mit DavMail-Adresse: weiterhin PROPFIND auf die DavMail-Ordner
     seen.clear()
@@ -1186,9 +1186,11 @@ def test_mailbox_read_only_never_changes_anything():
 def _mail_ctx(access):
     import types
 
+    # älterer GWDG-Zugang mit DavMail-Adresse: läuft weiter über IMAP/SMTP (neue Zugänge nutzen EWS)
     cred = {"id": "k", "name": "Uni", "type": "gwdg", "services": ["mail", "calendar"], "access": access,
             "fields": {"username": "a@gwdg.de", "password": "pw", "imap_host": "email.gwdg.de:993",
-                       "smtp_host": "email.gwdg.de:587"}}
+                       "smtp_host": "email.gwdg.de:587",
+                       "url": "https://davmail.gwdg.de:1080/users/a@gwdg.de/calendar/"}}
     saved = {}
 
     async def write_file(scope, owner, name, data):
@@ -1613,14 +1615,14 @@ def test_ews_credentials_types():
     # eigener Exchange
     ex = {"type": "ews", "fields": {"url": "https://mail.example.org/EWS/Exchange.asmx", "username": "u", "password": "p"}}
     assert creds.is_ews(ex) and creds.ews_endpoint(ex).endswith("Exchange.asmx")
-    assert creds.services(ex) == ["calendar", "contacts"]
+    assert creds.services(ex) == ["mail", "calendar", "contacts"]
     assert creds.access(ex, "contacts") == "read"
-    assert creds.access_text(ex) == {"Kalender": "nur lesen", "Kontakte": "nur lesen"}
+    assert creds.access_text(ex) == {"E-Mail-Postfach": "nur lesen", "Kalender": "nur lesen", "Kontakte": "nur lesen"}
     # Felder: GWDG erzeugt den EWS-Endpunkt, der eigene Typ behält seine Adresse
     norm = creds.normalize_fields("gwdg", {"username": "Niko", "password": "p"}, ["calendar"])
     assert norm["username"] == "niko@gwdg.de" and norm["ews_url"] == creds.GWDG_EWS and "url" not in norm
     norm = creds.normalize_fields("gwdg", {"username": "niko@gwdg.de", "password": "p"}, ["mail"])
-    assert norm["imap_host"] == creds.GWDG_IMAP and "ews_url" not in norm
+    assert norm["ews_url"] == creds.GWDG_EWS and "imap_host" not in norm  # Postfach über EWS
     norm = creds.normalize_fields("ews", {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p", "alt": ""})
     assert norm == {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p"}
 
@@ -1918,3 +1920,147 @@ def test_skill_load_is_never_truncated_and_can_pick_a_section():
     assert not T.REGISTRY["ews_events"].is_write({}) and not T.REGISTRY["ews_contacts"].is_write({})
     assert T.REGISTRY["ews_save"].is_write({"aktion": "anlegen"})
     assert T.REGISTRY["ews_events"].group == "ews" and T.GROUPS["ews"]["label"] == "Exchange (EWS)"
+
+
+# ---------------------------------------------------------------- Postfach über EWS
+def test_ews_mail_requests_are_well_formed():
+    """Die SOAP-Anfragen fürs Postfach: Ordner, Suche, Inhalt, Senden, Zustand, Verschieben, Löschen."""
+    E = _pkg("ews")
+    # Ordnernamen: bekannte Namen werden zu DistinguishedFolderId, alles andere ist eine FolderId
+    assert 'Id="inbox"' in E.folder_ref("INBOX") and 'Id="inbox"' in E.folder_ref("Posteingang")
+    assert 'Id="sentitems"' in E.folder_ref("Gesendete Elemente") and 'Id="deleteditems"' in E.folder_ref("Papierkorb")
+    assert '<t:FolderId Id="AAMkAD' in E.folder_ref("AAMkADxyz")
+    # Suche: der Server filtert (Betreff, Zeitraum, ungelesen) und sortiert nach Eingang
+    body = E.find_messages("inbox", "Rechnung", "2026-11-01", "2026-11-13", True, 5)
+    assert 'ContainmentMode="Substring"' in body and "Rechnung" in body
+    assert "item:DateTimeReceived" in body and 'Value="false"' in body
+    assert 'Order="Descending"' in body and 'MaxEntriesReturned="5"' in body
+    assert "<t:And>" in body  # mehrere Bedingungen werden verknüpft
+    assert "Restriction" not in E.find_messages("inbox")  # ohne Filter keine Bedingung
+    # Inhalt: MIME (base64) – derselbe Parser wie bei IMAP
+    assert "<t:IncludeMimeContent>true</t:IncludeMimeContent>" in E.get_mime("ID1", "CK1")
+    assert 'ChangeKey="CK1"' in E.get_mime("ID1", "CK1")
+    # Senden: fertige MIME-Nachricht, Kopie in „Gesendete Elemente“
+    send = E.create_message_mime("QUJD")
+    assert 'MessageDisposition="SendAndSaveCopy"' in send and ">QUJD<" in send
+    # Zustand und Verschieben
+    assert "<t:IsRead>true</t:IsRead>" in E.update_message("ID1", gelesen=True)
+    assert "Flagged" in E.update_message("ID1", markiert=True)
+    with pytest.raises(ValueError):
+        E.update_message("ID1")
+    assert '<t:FolderId Id="AAMkZiel"' in E.move_items(["ID1", "ID2"], "AAMkZiel")
+    assert 'DeleteType="MoveToDeletedItems"' in E.delete_messages(["ID1"])  # Papierkorb, nicht endgültig
+
+
+def test_ews_mail_parsing():
+    """Antworten auswerten: Ordner mit Zählern, Nachrichten mit Absender, Datum und Zustand, MIME-Inhalt."""
+    import base64
+
+    E = _pkg("ews")
+    folders = """<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body>
+      <m:FindFolderResponse><m:ResponseMessages><m:FindFolderResponseMessage ResponseClass="Success">
+      <m:ResponseCode>NoError</m:ResponseCode><m:RootFolder>
+      <t:Folders><t:Folder><t:FolderId Id="F1"/><t:DisplayName>Posteingang</t:DisplayName>
+      <t:TotalCount>42</t:TotalCount><t:UnreadCount>3</t:UnreadCount></t:Folder>
+      <t:Folder><t:FolderId Id="F2"/><t:DisplayName>Gesendete Elemente</t:DisplayName>
+      <t:TotalCount>7</t:TotalCount><t:UnreadCount>0</t:UnreadCount></t:Folder>
+      </t:Folders></m:RootFolder></m:FindFolderResponseMessage></m:ResponseMessages></m:FindFolderResponse>
+      </s:Body></s:Envelope>"""
+    got = E.parse_folders(folders)
+    assert [f["name"] for f in got] == ["Posteingang", "Gesendete Elemente"]
+    assert got[0]["id"] == "F1" and got[0]["anzahl"] == 42 and got[0]["ungelesen"] == 3
+
+    msgs = """<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body>
+      <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
+      <m:RootFolder><t:Items>
+      <t:Message><t:ItemId Id="M1" ChangeKey="C1"/><t:Subject>Rechnung 4711</t:Subject>
+      <t:DateTimeReceived>2026-11-13T09:15:00Z</t:DateTimeReceived><t:IsRead>false</t:IsRead>
+      <t:HasAttachments>true</t:HasAttachments><t:Size>2048</t:Size>
+      <t:From><t:Mailbox><t:Name>Buchhaltung</t:Name><t:EmailAddress>buch@example.org</t:EmailAddress></t:Mailbox></t:From>
+      <t:ToRecipients><t:Mailbox><t:EmailAddress>niko@gwdg.de</t:EmailAddress></t:Mailbox></t:ToRecipients>
+      <t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag></t:Message>
+      <t:Message><t:ItemId Id="M2" ChangeKey="C2"/><t:Subject>Termin</t:Subject>
+      <t:DateTimeReceived>2026-11-12T08:00:00Z</t:DateTimeReceived><t:IsRead>true</t:IsRead>
+      <t:HasAttachments>false</t:HasAttachments></t:Message>
+      </t:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse>
+      </s:Body></s:Envelope>"""
+    rows = E.parse_messages(msgs)
+    assert [r["uid"] for r in rows] == ["M1", "M2"]  # ItemId ist die Kennung
+    first = rows[0]
+    assert first["betreff"] == "Rechnung 4711" and first["von"] == "buch@example.org"
+    assert first["von_name"] == "Buchhaltung" and first["an"] == ["niko@gwdg.de"]
+    assert first["ungelesen"] is True and first["anhaenge"] is True and first["markiert"] is True
+    assert first["groesse"] == 2048 and first["change_key"] == "C1"
+    assert first["datum"].startswith("2026-11-13T10:15")  # UTC → Europe/Berlin
+    assert rows[1]["ungelesen"] is False and "markiert" not in rows[1]
+
+    raw = b"Subject: Test\r\n\r\nHallo"
+    xml = ('<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+           'xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body><m:GetItemResponse '
+           'xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><m:ResponseMessages>'
+           '<m:GetItemResponseMessage><m:Items><t:Message><t:MimeContent CharacterSet="UTF-8">'
+           + base64.b64encode(raw).decode() + "</t:MimeContent></t:Message></m:Items>"
+           "</m:GetItemResponseMessage></m:ResponseMessages></m:GetItemResponse></s:Body></s:Envelope>")
+    assert E.mime_content(xml) == raw
+    assert E.mime_content("<x/>") == b""
+
+
+def test_mail_tools_use_ews_for_exchange():
+    """Ein Exchange-Zugang läuft ohne IMAP/SMTP: die Werkzeuge gehen über EWS, das Recht gilt weiter."""
+    import asyncio
+    import types
+
+    M = _pkg("tools.mail")
+    EW = _pkg("tools.mail_ews")
+    calls = []
+
+    async def fake_folders(ctx, cred):
+        calls.append(("folders", cred["name"]))
+        return {"ordner": [{"name": "Posteingang", "anzahl": 3, "ungelesen": 1}]}
+
+    async def fake_list(ctx, cred, a):
+        calls.append(("list", a.get("ordner")))
+        return {"ordner": "inbox", "treffer": 1, "gezeigt": 1,
+                "nachrichten": [{"uid": "AAMkAD1", "betreff": "Hi", "ungelesen": True}]}
+
+    async def fake_change(ctx, cred, a, uids):
+        calls.append(("change", a.get("aktion"), tuple(uids)))
+        return {"ok": True, "aktion": a.get("aktion"), "uids": uids}
+
+    async def fake_send(ctx, cred, a, files, reply):
+        calls.append(("send", a.get("an")))
+        return {"ok": True, "an": a.get("an")}
+
+    for name, fn in (("folders", fake_folders), ("list_messages", fake_list),
+                     ("change_messages", fake_change), ("send_message", fake_send)):
+        setattr(EW, name, fn)
+
+    cred = {"id": "k", "name": "GWDG", "type": "gwdg", "services": ["mail"], "access": {"mail": "write"},
+            "fields": {"username": "a@gwdg.de", "password": "pw", "ews_url": "https://email.gwdg.de/EWS/Exchange.asmx"}}
+    store = types.SimpleNamespace(async_read_file=lambda *a: b"", async_write_file=lambda *a: {"name": "x"})
+
+    async def emit():
+        return None
+
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit)
+    reg = _pkg("tools").REGISTRY
+    run = lambda name, a: asyncio.run(reg[name].handler(ctx, a))  # noqa: E731
+
+    assert run("mail_folders", {"zugang": "GWDG"})["ordner"][0]["name"] == "Posteingang"
+    out = run("mail_list", {"zugang": "GWDG"})
+    assert out["nachrichten"][0]["uid"] == "AAMkAD1" and out["recht"] == "lesen und schreiben"
+    # Kennungen sind hier keine Zahlen – die Prüfung darf sie nicht abweisen
+    assert run("mail_change", {"zugang": "GWDG", "uids": ["AAMkAD1"], "aktion": "gelesen"})["ok"] is True
+    assert run("mail_send", {"zugang": "GWDG", "an": "x@y.de", "betreff": "b", "text": "t"})["ok"] is True
+    assert calls == [("folders", "GWDG"), ("list", None), ("change", "gelesen", ("AAMkAD1",)), ("send", "x@y.de")]
+
+    # nur lesen: senden und ändern wird abgelehnt, bevor eine Anfrage rausgeht
+    cred["access"] = {"mail": "read"}
+    before = len(calls)
+    assert "nur lesen" in run("mail_send", {"zugang": "GWDG", "an": "x@y.de", "betreff": "b", "text": "t"})
+    assert "nur lesen" in run("mail_change", {"zugang": "GWDG", "uids": ["AAMkAD1"], "aktion": "loeschen"})
+    assert len(calls) == before

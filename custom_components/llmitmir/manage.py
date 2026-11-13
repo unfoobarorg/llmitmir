@@ -51,8 +51,7 @@ def build_credential(st, c: dict) -> dict:
         raw = c["services"] if c.get("services") is not None else old.get("services")
         svc = [k for k in known if k in (raw if raw is not None else C.TYPES[typ]["default_services"])]
         if not svc:
-            raise ValueError("Wähl aus, wofür der Zugang gilt: "
-                             + ("E-Mail-Postfach, Kalender und/oder Kontakte." if typ == "gwdg" else "Kalender und/oder Kontakte."))
+            raise ValueError("Wähl aus, wofür der Zugang gilt: E-Mail-Postfach, Kalender und/oder Kontakte.")
     fields = C.normalize_fields(typ, fields, svc)
     if typ == "gwdg":
         if not fields.get("username"):

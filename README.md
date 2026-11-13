@@ -73,15 +73,21 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   `ews_save` (anlegen, ändern, löschen, optional Einladungen an Teilnehmer), `ews_contacts` (Adressbuch). `caldav_events`
   bleibt für Nextcloud und leitet bei einem Exchange-Zugang an `ews_events` weiter, damit bestehende Skills gültig
   bleiben. Beim Typ „Exchange (EWS)“ trägt die Person EWS-Adresse (`…/EWS/Exchange.asmx`), Benutzername und Passwort
-  selbst ein; beim GWDG-Exchange genügen E-Mail-Adresse und Passwort, die Endpunkte setzt LLMitMir
-  (`https://email.gwdg.de/EWS/Exchange.asmx`, IMAP `email.gwdg.de:993`, SMTP `email.gwdg.de:587`).
+  selbst ein; beim GWDG-Exchange genügen E-Mail-Adresse und Passwort, den Endpunkt setzt LLMitMir
+  (`https://email.gwdg.de/EWS/Exchange.asmx`).
+- **Postfach über EWS:** Bei einem Exchange-Zugang laufen auch die `mail_*`-Werkzeuge über EWS – so beschreibt die
+  GWDG den Zugang für Exchange-Konten (Apple Mail, „manuell konfigurieren“); IMAP nennt sie nur als eingeschränkte
+  Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der
+  MIME-Inhalt kommt als base64 und geht durch denselben Parser, Text und Anhänge verhalten sich also gleich. Gmail,
+  Posteo und Co. bleiben bei IMAP/SMTP.
 - **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste): GWDG-E-Mail-Adresse und Passwort eintragen (ohne @
   wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender und/oder Kontakte**.
-  Kalender und Kontakte laufen über EWS, das Postfach mit den `mail_*`-Werkzeugen. Geprüft wird jeder angehakte Dienst
-  einzeln (EWS-`GetFolder` bzw. IMAP-LOGIN).
-  **Je Dienst „nur lesen“ (Standard) oder „lesen und schreiben“**, durchgesetzt auf dem Server: Bei „nur lesen“ öffnen
-  die Mail-Werkzeuge Ordner nur mit IMAP-EXAMINE und holen Nachrichten mit BODY.PEEK, `mail_send`/`mail_change` brechen
-  vor der Verbindung ab, und `ews_save` lehnt Anlegen, Ändern und Löschen ab. Damit sich das nicht umgehen lässt, gibt
+  Postfach, Kalender und Kontakte laufen über EWS. Geprüft wird jeder angehakte Dienst einzeln (EWS-`GetFolder` auf
+  Posteingang, Kalender bzw. Kontakte).
+  **Je Dienst „nur lesen“ (Standard) oder „lesen und schreiben“**, durchgesetzt vor jeder Anfrage: Bei „nur lesen“
+  brechen `mail_send` und `mail_change` ab, bevor eine SOAP-Anfrage rausgeht, `mail_read` markiert nichts als gelesen,
+  und `ews_save` lehnt Anlegen, Ändern und Löschen ab. (Bei einem IMAP-Zugang öffnet `mailbox.Mailbox` Ordner nur mit
+  EXAMINE und holt Nachrichten mit BODY.PEEK.) Damit sich das nicht umgehen lässt, gibt
   LLMitMir das Passwort eines Exchange-Zugangs nie heraus: kein Platzhalter {{cred:…:password}} (Werkbank, HTTP, DAV) und kein
   `http_request` mit diesem Zugang.
   Ältere WebDAV-Zugänge mit DavMail-URL behandelt LLMitMir weiter als GWDG-Kalender (DavMail, `dav_request`).
@@ -144,7 +150,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | Web | `web_search` (DuckDuckGo oder SearXNG), `web_fetch` (Seiten, PDFs, Bilder) |
 | Home Assistant | `ha_states`, `ha_history`, `ha_service`*, `ha_ws` (Websocket-Befehle, lesend frei, sonst*) – mit den Rechten der Person |
 | Nextcloud / WebDAV | `dav_list`, `dav_read`, `dav_write`*, `dav_request` (PROPFIND/REPORT frei, sonst*), `caldav_events` |
-| E-Mail (IMAP/SMTP, GWDG-Exchange) | `mail_folders`, `mail_list`, `mail_read` (öffnet mit EXAMINE, markiert nichts als gelesen), `mail_send`*, `mail_change`* (gelesen/markiert, verschieben, in den Papierkorb) |
+| E-Mail (Exchange über EWS, sonst IMAP/SMTP) | `mail_folders`, `mail_list`, `mail_read` (markiert nichts als gelesen), `mail_send`*, `mail_change`* (gelesen/markiert, verschieben, in den Papierkorb) |
 | HTTP | `http_request` (GET frei, sonst*) |
 | Dateien | `file_list`, `file_read` (Textebene oder Bildmodell), `file_write` |
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |

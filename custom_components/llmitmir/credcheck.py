@@ -2,7 +2,7 @@
 
 Ein abgelaufenes Passwort oder ein zurueckgezogener Token faellt sonst erst auf, wenn ein Werkzeug ihn
 braucht – und dann mitten in einer Aufgabe. Deshalb prueft LLMitMir die Zugangsdaten mit einer harmlosen
-Leseanfrage (PROPFIND, GET, getMe, IMAP-LOGIN; GWDG-Exchange je gewähltem Dienst) und merkt sich das Ergebnis am Zugang (``check``).
+Leseanfrage (PROPFIND, GET, getMe, IMAP-LOGIN; Exchange je gewähltem Dienst über EWS) und merkt sich das Ergebnis am Zugang (``check``).
 Die Einordnung einer Antwort steckt in ``verdict`` und ist ohne Home Assistant testbar.
 """
 from __future__ import annotations
@@ -126,8 +126,9 @@ async def _check_ews(session: aiohttp.ClientSession, cred: dict, folder: str = "
 async def _check_gwdg(session: aiohttp.ClientSession, cred: dict) -> dict:
     """GWDG-Exchange: jeden angehakten Dienst einzeln prüfen.
 
-    Kalender und Kontakte laufen über EWS (GetFolder), das Postfach über IMAP-LOGIN. Ältere Zugänge mit
-    DavMail-Adresse werden weiterhin per PROPFIND auf den DavMail-Ordner geprüft.
+    Kalender, Kontakte und Postfach laufen über EWS (GetFolder auf den jeweiligen Ordner) – so prüft die GWDG
+    selbst den Zugang (Apple Mail, „manuell konfigurieren“). Ältere Zugänge mit DavMail-Adresse werden weiterhin per
+    PROPFIND auf den DavMail-Ordner geprüft.
     """
     from . import credentials as C
     from .tools import dav as D
@@ -139,10 +140,10 @@ async def _check_gwdg(session: aiohttp.ClientSession, cred: dict) -> dict:
     ews = C.is_ews(cred)
     parts, ok_all, status = [], True, None
     for svc in picked:
-        if svc == "mail":
+        if ews:  # Exchange: alle drei Dienste über dieselbe Schnittstelle
+            r = await _check_ews(session, cred, {"mail": "inbox", "contacts": "contacts"}.get(svc, "calendar"))
+        elif svc == "mail":
             r = await _check_imap(cred)
-        elif ews:
-            r = await _check_ews(session, cred, "contacts" if svc == "contacts" else "calendar")
         else:
             try:
                 st = await _http(session, "PROPFIND", D.dav_root(cred) + "/" + D.GWDG_FOLDERS[svc], data=DAV_PING,

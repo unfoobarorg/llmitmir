@@ -1303,8 +1303,8 @@ Sammle alles, worauf du mit deinen Werkzeugen zugreifen kannst, und baue daraus 
   "credentials": [
     {"name": "<sprechender Name, eindeutig>", "type": "webdav|basic|bearer|header|telegram|imap|ews|gwdg|other",
      "fields": {"url": "...", "username": "...", "password": "...", "token": "...", "share_token": "...", "chat_ids": "..."},
-     "services": ["<nur bei type gwdg (GWDG-Exchange, fields nur username = GWDG-E-Mail und password): mail, calendar und/oder contacts>"],
-     "access": {"<nur bei type gwdg, je Dienst>": "read|write"},
+     "services": ["<nur bei type gwdg (GWDG-Exchange, fields nur username = GWDG-E-Mail und password) und type ews: mail, calendar und/oder contacts>"],
+     "access": {"<nur bei type gwdg und ews, je Dienst>": "read|write"},
      "notes": "<wof\xFCr, G\xFCltigkeit/Ablaufdatum, Hinweise>", "secret_fields": ["<nur bei type other: welche Felder geheim sind>"]}
   ],
   "skills": [
