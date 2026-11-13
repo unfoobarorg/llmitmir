@@ -238,7 +238,9 @@ def build_message(sender: str, an: str, betreff: str, text: str, cc: str = "", b
     if reply_to and reply_to.get("message_id"):
         msg["In-Reply-To"] = reply_to["message_id"]
         msg["References"] = " ".join(x for x in (reply_to.get("references"), reply_to["message_id"]) if x)
-    msg.set_content(text or "")
+    # quoted-printable statt 8bit: Der Text bleibt 7-Bit-sauber und kommt auch über Exchange unverändert an.
+    # Mit 8bit wurden Umlaute und das Euro-Zeichen unterwegs zerstört („ging“ kam als „=ing“ an).
+    msg.set_content(text or "", cte="quoted-printable")
     import mimetypes
 
     for name, data in files or []:

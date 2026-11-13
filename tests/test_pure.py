@@ -2407,3 +2407,21 @@ def test_ews_windows_zone_mapping():
     # ein fester Offset hat keinen .key – dann gilt der Standard
     ns["_tz"] = lambda: timezone(timedelta(hours=1))
     assert ns["_windows_zone"]() == "W. Europe Standard Time"
+
+
+def test_built_message_is_seven_bit_clean():
+    """quoted-printable statt 8bit: Umlaute und Euro kamen ueber Exchange sonst zerstoert an."""
+    import email
+    from email import policy
+
+    MB = _pkg("mailbox")
+    text = "Sie ging ausschliesslich an dich.\nUmlaute: \u00e4\u00f6\u00fc\u00df \u00c4\u00d6\u00dc \u20ac \u2013 \u201eAnf\u00fchrung\"\n"
+    msg = MB.build_message("nikolaj.kopp@gwdg.de", "nikolaj.kopp@gwdg.de", "Test", text)
+    raw = bytes(msg)
+    body = raw.split(b"\n\n", 1)[1]
+    # der transportierte Text ist reines ASCII
+    assert all(b < 128 for b in body), body[:200]
+    assert b"quoted-printable" in raw.lower()
+    # und kommt unveraendert wieder heraus
+    back = email.message_from_bytes(raw, policy=policy.default)
+    assert back.get_content().strip() == text.strip()
