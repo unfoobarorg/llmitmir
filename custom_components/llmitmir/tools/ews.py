@@ -106,6 +106,27 @@ def _all_day_span(start: str, ende: str) -> tuple[str, str]:
     return _fmt(day), _fmt(end_day)
 
 
+# IANA -> Windows: Exchange erwartet in StartTimeZone/EndTimeZone eine Windows-ID
+_WINDOWS_ZONES = {
+    "Europe/Berlin": "W. Europe Standard Time",
+    "Europe/Vienna": "W. Europe Standard Time",
+    "Europe/Zurich": "W. Europe Standard Time",
+    "Europe/London": "GMT Standard Time",
+    "UTC": "UTC",
+}
+
+
+def _windows_zone() -> str:
+    """Windows-Zeitzonen-ID der Zeitzone von Home Assistant (Standard: W. Europe Standard Time)."""
+    try:
+        zone = _tz()
+        # ZoneInfo hat .key ("Europe/Berlin"), ein fester Offset nicht – dann gilt der Standard
+        name = str(getattr(zone, "key", "") or zone)
+    except Exception:  # noqa: BLE001
+        return "W. Europe Standard Time"
+    return _WINDOWS_ZONES.get(name, "W. Europe Standard Time")
+
+
 def _fmt(dt: datetime) -> str:
     """Zeit im EWS-Format mit Doppelpunkt im Offset (+01:00)."""
     offset = dt.utcoffset() or timedelta(0)
@@ -177,7 +198,7 @@ async def ews_save(ctx, a: dict):
             required=[x for x in str(a.get("teilnehmer") or "").replace(";", ",").split(",") if x.strip()],
             optional=[x for x in str(a.get("optionale") or "").replace(";", ",").split(",") if x.strip()],
             categories=[x for x in str(a.get("kategorien") or "").replace(";", ",").split(",") if x.strip()],
-            send_invitations=senden)
+            send_invitations=senden, time_zone=_windows_zone())
         out = await _call(ctx, cred, body)
         if not out["ok"]:
             return f"Fehler: {E.describe_error(out)}"

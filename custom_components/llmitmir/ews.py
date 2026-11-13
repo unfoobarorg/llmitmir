@@ -169,10 +169,18 @@ def _attendees(tag: str, people: list[str]) -> str:
 def create_appointment(subject: str, start: str, end: str, body: str = "", location: str = "",
                        all_day: bool = False, required: list[str] | None = None,
                        optional: list[str] | None = None, categories: list[str] | None = None,
-                       send_invitations: str = "SendToNone") -> str:
-    """Termin anlegen. ``start``/``end`` sind ISO-Zeiten (mit Offset) oder JJJJ-MM-TT bei ganztägig."""
+                       send_invitations: str = "SendToNone", time_zone: str = "") -> str:
+    """Termin anlegen. ``start``/``end`` sind ISO-Zeiten (mit Offset) oder JJJJ-MM-TT bei ganztägig.
+
+    ``time_zone`` ist eine Windows-Zeitzonen-ID (z. B. ``W. Europe Standard Time``). Sie wird als
+    ``StartTimeZone``/``EndTimeZone`` mitgeschickt und ist bei **ganztägigen** Terminen nötig: Ohne sie liest
+    Exchange die lokale Mitternacht als UTC-Datum und legt den Termin einen Tag zu früh ab.
+    """
     cats = ("<t:Categories>" + "".join(f"<t:String>{_esc(c)}</t:String>" for c in categories or [] if str(c).strip())
             + "</t:Categories>") if categories else ""
+    zones = ""
+    if time_zone:
+        zones = (f'<t:StartTimeZone Id="{_esc(time_zone)}"/><t:EndTimeZone Id="{_esc(time_zone)}"/>')
     return envelope(
         f'<m:CreateItem SendMeetingInvitations="{_esc(send_invitations)}"><m:Items><t:CalendarItem>'
         f"<t:Subject>{_esc(subject)}</t:Subject>"
@@ -180,6 +188,7 @@ def create_appointment(subject: str, start: str, end: str, body: str = "", locat
         + f"<t:Start>{_esc(start)}</t:Start><t:End>{_esc(end)}</t:End>"
         + (f"<t:Location>{_esc(location)}</t:Location>" if location else "")
         + f"<t:IsAllDayEvent>{'true' if all_day else 'false'}</t:IsAllDayEvent>"
+        + zones
         + cats + _attendees("RequiredAttendees", required or []) + _attendees("OptionalAttendees", optional or [])
         + "</t:CalendarItem></m:Items></m:CreateItem>")
 

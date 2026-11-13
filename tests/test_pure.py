@@ -2378,3 +2378,32 @@ def test_ews_contact_parser_reads_indexed_phones():
     assert items[0]["name"] == "Kopp, Nikolaj"
     assert items[0]["telefon"] == "0551 201-1234"
     assert items[0]["mobil"] == "0170 1234567"
+
+
+def test_ews_all_day_sends_time_zone():
+    """Ganztägig braucht StartTimeZone/EndTimeZone – sonst liest Exchange die lokale Mitternacht als UTC-Datum."""
+    E = _pkg("ews")
+    body = E.create_appointment("Test", "2026-11-24T00:00:00+01:00", "2026-11-25T00:00:00+01:00",
+                                all_day=True, time_zone="W. Europe Standard Time")
+    assert '<t:StartTimeZone Id="W. Europe Standard Time"/>' in body
+    assert '<t:EndTimeZone Id="W. Europe Standard Time"/>' in body
+    # ohne Zeitzone bleibt der Aufbau wie bisher (keine leeren Elemente)
+    plain = E.create_appointment("Test", "2026-11-24T10:00:00+01:00", "2026-11-24T11:00:00+01:00")
+    assert "StartTimeZone" not in plain
+
+
+def test_ews_windows_zone_mapping():
+    """Die IANA-Zeitzone wird auf die Windows-ID abgebildet, die Exchange erwartet."""
+    import pathlib as _p
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+
+    src = _p.Path("custom_components/llmitmir/tools/ews.py").read_text()
+    start, end = src.index("_WINDOWS_ZONES = {"), src.index("def _fmt(")
+    ns = {"datetime": datetime, "timedelta": timedelta, "timezone": timezone,
+          "_tz": lambda: ZoneInfo("Europe/Berlin")}
+    exec(src[start:end], ns)
+    assert ns["_windows_zone"]() == "W. Europe Standard Time"
+    # ein fester Offset hat keinen .key – dann gilt der Standard
+    ns["_tz"] = lambda: timezone(timedelta(hours=1))
+    assert ns["_windows_zone"]() == "W. Europe Standard Time"
