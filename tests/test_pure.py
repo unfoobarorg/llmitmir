@@ -1357,3 +1357,32 @@ def test_inbox_prune_and_mute():
     assert inbox.mute(["c1"], "c2") == ["c1", "c2"]
     assert inbox.mute(["c1", "c2"], "c1", False) == ["c2"]
     assert inbox.drop_chat(items, "c1") == [items[1]]
+
+
+# ---------------------------------------------------------------- WebSocket-Schemata
+def test_ws_schemas_do_not_use_protocol_fields():
+    """Kein Befehl darf ein Feld „id“ oder „type“ im Schema führen.
+
+    Home Assistant validiert die ganze Nachricht gegen das Schema – und setzt vorher „id“ auf die Befehlsnummer
+    (int) und „type“ auf den Befehlsnamen. Ein eigenes Feld „id: str“ scheitert deshalb immer, und das Frontend
+    sieht nur „expected str for dictionary value @ data['id']“. Genau daran ist das Wegwischen einer
+    Benachrichtigung gescheitert (die Karte kam beim nächsten Laden zurück).
+    """
+    import ast
+
+    src = (BASE / "ws.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    # Der Helfer _t() setzt „type“ bewusst (das ist der Befehlsname) – alles andere ist ein Fehler.
+    helper = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_t")
+    inside = {id(n) for n in ast.walk(helper)}
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict) or id(node) in inside:
+            continue
+        for key in node.keys:
+            # Muster: vol.Optional("id") / vol.Required("type")
+            if (isinstance(key, ast.Call) and isinstance(key.func, ast.Attribute)
+                    and key.func.attr in ("Optional", "Required") and key.args
+                    and isinstance(key.args[0], ast.Constant) and key.args[0].value in ("id", "type")):
+                offenders.append((key.args[0].value, node.lineno))
+    assert not offenders, f"Protokollfelder im Schema: {offenders}"

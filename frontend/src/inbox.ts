@@ -119,7 +119,12 @@ export class Inbox extends StoreElement {
   private async dismiss(e: any) {
     const el = this.renderRoot.querySelector(`[data-id="${e.id}"]`) as HTMLElement | null;
     el?.classList.add("gone");
-    setTimeout(() => { store.api.ws("inbox/dismiss", { id: e.id }).catch(() => store.load()); }, 160);
+    // Erst wegblenden, dann serverseitig entfernen. Klappt das nicht, kommt die Karte zurück – und die Person
+    // erfährt, warum, statt dass die Nachricht beim nächsten Laden wieder auftaucht.
+    setTimeout(async () => {
+      try { await store.api.ws("inbox/dismiss", { entry_id: e.id }); }
+      catch (err: any) { store.notify(err.message || t("Konnte nicht entfernt werden")); await store.load(); }
+    }, 160);
   }
   private async muteChat(e: any) {
     this.menu = null;
@@ -128,7 +133,7 @@ export class Inbox extends StoreElement {
   }
   private open(e: any) {
     this.menu = null;
-    store.api.ws("inbox/dismiss", { id: e.id }).catch(() => undefined);
+    store.api.ws("inbox/dismiss", { entry_id: e.id }).catch(() => undefined);
     navigate(`/chat/${e.chat_id}`);
   }
 

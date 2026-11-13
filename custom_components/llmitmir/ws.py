@@ -229,12 +229,15 @@ def _inbox_view(st) -> list[dict]:
     return IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"]))
 
 
-@command(_t("inbox/dismiss") | {vol.Optional("id"): str, vol.Optional("chat_id"): str})
+# Achtung: „id“ und „type“ gehören dem WebSocket-Protokoll (Home Assistant setzt dort die Befehlsnummer bzw. den
+# Befehlsnamen). Ein eigenes Feld darf nie „id“ heißen – sonst scheitert die Validierung, weil die Nummer keine
+# Zeichenkette ist. Deshalb heißt die Kennung einer Karte hier „entry_id“.
+@command(_t("inbox/dismiss") | {vol.Optional("entry_id"): str, vol.Optional("chat_id"): str})
 async def ws_inbox_dismiss(hass, conn, msg, m, user, st):
     """Eine Karte entfernen (Wischen bzw. „×“) – oder alle eines Chats."""
-    nid, cid = msg.get("id"), msg.get("chat_id")
+    nid, cid = msg.get("entry_id"), msg.get("chat_id")
     if not nid and not cid:
-        raise ValueError("id oder chat_id fehlt")
+        raise ValueError("entry_id oder chat_id fehlt")
     st.meta["inbox"] = [e for e in st.meta.get("inbox") or []
                         if not ((nid and e.get("id") == nid) or (cid and e.get("chat_id") == cid))]
     await st.async_save_meta()
