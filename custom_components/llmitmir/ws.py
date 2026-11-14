@@ -298,9 +298,10 @@ async def ws_chat_get(hass, conn, msg, m, user, st):
 
 @command(_t("chat/create") | {vol.Optional("kind", default=KIND_CHAT): vol.In([KIND_CHAT, KIND_COWORK]),
                                vol.Optional("project_id"): vol.Any(str, None), vol.Optional("model"): vol.Any(str, None),
-                               vol.Optional("tools"): vol.Any([str], None)})
+                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("voice", default=False): bool})
 async def ws_chat_create(hass, conn, msg, m, user, st):
-    chat = await m.create_chat(user.id, msg["kind"], msg.get("project_id"), msg.get("model"), tools=msg.get("tools"))
+    chat = await m.create_chat(user.id, msg["kind"], msg.get("project_id"), msg.get("model"), tools=msg.get("tools"),
+                               voice=msg["voice"])
     return st.chat_summary(chat)
 
 
@@ -356,9 +357,10 @@ async def ws_chat_delete_many(hass, conn, msg, m, user, st):
 
 @command(_t("chat/send") | {vol.Required("chat_id"): str, vol.Required("text"): str,
                              vol.Optional("attachments"): [str], vol.Optional("model"): str,
-                             vol.Optional("tools"): vol.Any([str], None)})
+                             vol.Optional("tools"): vol.Any([str], None), vol.Optional("voice", default=False): bool})
 async def ws_chat_send(hass, conn, msg, m, user, st):
-    run_id = await m.send(user, msg["chat_id"], msg["text"], msg.get("attachments"), msg.get("model"), msg.get("tools"))
+    run_id = await m.send(user, msg["chat_id"], msg["text"], msg.get("attachments"), msg.get("model"), msg.get("tools"),
+                          voice=msg["voice"])
     return {"run_id": run_id}
 
 

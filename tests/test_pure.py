@@ -2632,3 +2632,33 @@ def test_negotiate_update_fields_skips_when_known():
         assert calls == [], "keine Anfrage noetig, wenn alles bekannt ist"
     finally:
         E.call = original
+
+
+# ------------------------------------------------------------------ Sprachgespräch (voice.py)
+voice = load("voice")
+
+
+def test_voice_turn_follows_last_user_message():
+    """Der Sprach-Hinweis gilt, solange die letzte Nachricht der Person gesprochen war."""
+    spoken = {"role": "user", "content": "Wie wird das Wetter?", "voice": True}
+    typed = {"role": "user", "content": "Und morgen?"}
+    assert not voice.is_voice_turn(None)
+    assert not voice.is_voice_turn([])
+    assert voice.is_voice_turn([spoken])
+    # Werkzeug- und Modellnachrichten nach der gesprochenen Frage aendern nichts (mehrere Schritte eines Laufs)
+    assert voice.is_voice_turn([typed, {"role": "assistant", "content": "…"}, spoken,
+                                {"role": "assistant", "content": "", "tool_calls": [{"id": "t"}]},
+                                {"role": "tool", "content": "sonnig"}])
+    # tippt die Person im selben Chat weiter, gilt wieder die normale Schreibweise
+    assert not voice.is_voice_turn([spoken, {"role": "assistant", "content": "Sonnig."}, typed])
+
+
+def test_voice_prompt_asks_for_speakable_answers():
+    p = voice.VOICE_PROMPT
+    assert p.startswith("## Sprachgespräch")
+    for word in ("vorgelesen", "Kein Markdown", "Tabellen", "Links", "Hörfehler", "Freigabe"):
+        assert word in p, word
+
+
+def test_selfdoc_mentions_voice():
+    assert "**Sprechen**" in selfdoc.ABOUT

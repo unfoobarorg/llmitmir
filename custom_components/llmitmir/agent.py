@@ -28,6 +28,7 @@ from . import selfdoc as SD
 from . import sharing as SH
 from . import taskkeys as TK
 from . import views as V
+from . import voice as VO
 from .claude_client import ClaudeClient
 from .claude_client import available as claude_available
 from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
@@ -736,7 +737,8 @@ class Manager:
 
     # ------------------------------------------------------------- chats
     async def create_chat(self, user_id: str, kind: str, project_id: str | None = None, model: str | None = None,
-                          title: str = "", task_id: str | None = None, tools: list[str] | None = None) -> dict:
+                          title: str = "", task_id: str | None = None, tools: list[str] | None = None,
+                          voice: bool = False) -> dict:
         st = await self.user_store(user_id)
         if project_id and project_id not in st.meta["projects"]:
             raise ValueError("Projekt unbekannt")
@@ -765,6 +767,8 @@ class Manager:
                 "last_seen": 0 if kind == KIND_TASK_RUN else now(),
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": tools}
+        if voice and kind == KIND_CHAT:
+            chat["voice"] = True  # als Sprachgespräch begonnen (Ansicht „Sprechen“); sonst ein normaler Chat
         await st.async_save_chat(chat)
         self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
         return chat
@@ -815,12 +819,14 @@ class Manager:
         return None
 
     async def send(self, user, chat_id: str, text: str, attachments: list[str] | None = None,
-                   model: str | None = None, tools: list[str] | None = None) -> str:
+                   model: str | None = None, tools: list[str] | None = None, voice: bool = False) -> str:
         st = await self.user_store(user.id)
         chat = await st.async_get_chat(chat_id)
         if not chat:
             raise ValueError("Chat nicht gefunden")
         msg = {"id": new_id("m"), "role": "user", "content": text, "created": now(), "attachments": attachments or []}
+        if voice:
+            msg["voice"] = True  # gesprochen statt getippt: die Antwort wird vorgelesen (voice.py)
         if self.active_run(chat_id):
             # Wie bei Claude: mitten im Lauf weiterschreiben ist erlaubt. Die Nachricht steht sichtbar
             # als "wartet" im Verlauf und wird beantwortet, sobald der laufende Schritt fertig ist.
@@ -1522,6 +1528,11 @@ class ToolContext:
                 "- Hast du eine Datei angelegt, sag, wie sie heißt – die Person findet sie oben im Chat unter „Dateien“.\n"
                 "- Vor und zwischen Werkzeugaufrufen keinen Text schreiben (keine Ankündigungen wie „Ich schaue kurz nach“): "
                 "Die Person sieht nur deine fertige Antwort.")
+        if self.task is None and VO.is_voice_turn(self.chat.get("messages")):
+            # gesprochen statt getippt: die Antwort wird vorgelesen (gilt vor der Markdown-Regel oben und
+            # erlaubt – anders als die einfache Ansicht – einen kurzen Satz vor einem Werkzeugaufruf)
+            parts.append(VO.VOICE_PROMPT + "\nDiese Regeln gehen der Markdown-Formatierung und dem Verbot von Text vor "
+                         "Werkzeugaufrufen vor, solange das Gespräch gesprochen wird.")
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "
