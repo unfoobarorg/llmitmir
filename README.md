@@ -30,8 +30,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Ist die Stimme nicht erreichbar, liest die **Sprachausgabe von Home Assistant** (die Stimme des bevorzugten
   Sprachassistenten, z. B. Piper oder Home Assistant Cloud), sonst die Stimme des Browsers oder nur als Untertitel. Es ist ein ganz normaler Chat: Open-Weight-Modelle wie
   kostenpflichtige externe Modelle (Expertenansicht: Modellwahl in den Einstellungen der Ansicht), Werkzeuge und
-  Freigaben (als Karte zum Antippen) funktionieren wie dort, und das Gespräch steht danach in der Chatliste zum
-  Nachlesen und Weiterschreiben. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
+  Freigaben (als Karte zum Antippen) funktionieren wie dort – mit einem Unterschied: Was im Gespräch einmal erlaubt
+  wurde (ein Werkzeug oder eine ganze Werkzeuggruppe), gilt für den Rest des Gesprächs und wird nicht bei jeder
+  Aktion erneut gefragt; sonst stockt der Gesprächsfluss. Getippt wird weiterhin jede Aktion einzeln bestätigt.
+  Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
   das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
   Den Bildschirm füllt der **Roboter aus dem LLMitMir-Icon in 3D** (eigenes kleines WebGL, keine 3D-Bibliothek): weiße
   Schale, grüne Gesichtsscheibe, leuchtende Augen, Antenne – menschenähnlich in Haltung und Gesten, in der Oberfläche

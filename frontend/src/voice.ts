@@ -389,6 +389,7 @@ export class Voice extends StoreElement {
         : p.group ? html`Darf ich dafür <b>${p.group_label || p.group}</b> benutzen?`
         : html`Darf ich das tun? <b>${p.label}</b>`}</div>
       ${p.group && p.label ? html`<div class="hint">${p.label}</div>` : nothing}
+      ${p.steps ? nothing : html`<div class="hint">${t("Einmal Ja genügt: Diese Erlaubnis gilt für den Rest des Gesprächs.")}</div>`}
       <div class="brow"><button class="btn primary" @click=${() => answer("once")}>${icon("check", 16)} ${del ? "Ja, löschen" : "Ja"}</button>
         <button class="btn" @click=${() => answer("deny")}>Nein</button>
         <button class="btn ghost" @click=${() => { const id = this.chatId; this.endSession(); navigate(`/chat/${id}`); }}>${icon("eye", 16)} ${t("Im Chat ansehen")}</button></div></div>`;

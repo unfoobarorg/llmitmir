@@ -1011,7 +1011,7 @@ class Manager:
                     break
                 if tools and interactive and not simple and steps - step == WRAPUP_STEPS:
                     # expert view: the model is still at work and the limit is near – ask before it has to wrap up
-                    more = await self._ask_more_steps(run, steps)
+                    more = await self._ask_more_steps(run, chat, steps)
                     if run.cancel.is_set():
                         final_status = "stopped"
                         break
@@ -1293,15 +1293,20 @@ class Manager:
                                 (self.config.data.get("billing") or {}).get("fallback_model") or None)
         return {"models": models, "recommended": pref, "reason": ps["why"].get(PV.MAIN) or ""}
 
-    async def _ask_more_steps(self, run: Run, steps: int) -> int:
+    async def _ask_more_steps(self, run: Run, chat: dict, steps: int) -> int:
         """Ask (expert view) how many more steps the run may use instead of wrapping up.
 
         Returns 0 (wrap up now), MAX_STEPS_MORE (a little more) or MAX_STEPS_MORE_LOTS (a lot more, so the
         question does not come back soon)."""
+        if VO.allowed(chat, "more_steps"):
+            # im Sprachgespraech schon einmal erlaubt: gleich viel mehr, statt mitten im Gespraech wieder zu fragen
+            return MAX_STEPS_MORE_LOTS
         decision = await self.ask_permission(run, {"tool": "more_steps", "label": f"{MAX_STEPS_MORE} weitere Schritte",
                                                    "icon": "list", "steps": {"used": steps - WRAPUP_STEPS,
                                                                               "limit": steps, "more": MAX_STEPS_MORE,
                                                                               "lots": MAX_STEPS_MORE_LOTS}})
+        if decision in MORE_STEPS:
+            VO.remember(chat, "more_steps")
         return MORE_STEPS.get(decision, 0)
 
     async def _apply_switch(self, run: Run, chat: dict, st: UserStore, amsg: dict | None) -> None:
@@ -1780,15 +1785,20 @@ class ToolContext:
             if self.permission_for(name) == PERM_DENY:
                 msg.update(content="Abgelehnt: Diese Aktion ist hier nicht freigegeben.", status="denied")
                 return msg
-            decision = await self.manager.ask_permission(self.run, {
-                "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
-                "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
-            if decision in ("deny", "skip"):
-                msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
-                                   "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
-                return msg
-            if decision == "always":
+            if VO.group_allowed(self.chat, tool.group):
+                # im Sprachgespraech schon einmal erlaubt: nicht wieder fragen, sonst stockt das Gespraech
                 self._grant_group(tool.group)
+            else:
+                decision = await self.manager.ask_permission(self.run, {
+                    "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
+                    "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
+                if decision in ("deny", "skip"):
+                    msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
+                                       "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
+                    return msg
+                if decision == "always":
+                    self._grant_group(tool.group)
+                VO.remember_group(self.chat, tool.group)
             asked = True
         if tool.preview is not None:
             if self.task is not None:
@@ -1818,7 +1828,7 @@ class ToolContext:
                             "abgelehnt – ohne diese Aktion weiterarbeiten und sie im Bericht nennen.")
                 msg.update(content=text, status="denied")
                 return msg
-            if perm == PERM_ASK:
+            if perm == PERM_ASK and not VO.allowed(self.chat, name):
                 decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"],
                                                                          "icon": tool.icon, "args": msg["args"]})
                 if decision in ("deny", "skip"):
@@ -1827,6 +1837,8 @@ class ToolContext:
                     return msg
                 if decision == "always":
                     self._remember_allow(name)
+                # im Sprachgespraech gilt die Erlaubnis fuer den Rest des Gespraechs (auch bei „einmal“)
+                VO.remember(self.chat, name)
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                       "args": msg["args"]})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,

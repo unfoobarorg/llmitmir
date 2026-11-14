@@ -46,6 +46,8 @@ const EN: Record<string, string> = {
   "Pause – tippe auf das Mikrofon, wenn es weitergehen soll": "Paused – tap the microphone to continue",
   "Ich warte auf deine Bestätigung": "Waiting for your confirmation",
   "Dafür brauche ich kurz deine Bestätigung auf dem Bildschirm.": "I need your confirmation on the screen for that.",
+  "Einmal Ja genügt: Diese Erlaubnis gilt für den Rest des Gesprächs.":
+    "One yes is enough: this permission lasts for the rest of the conversation.",
   "Das hat gerade leider nicht geklappt.": "Sorry, that didn't work just now.",
   "Ich suche im Internet …": "Searching the web …", "Ich schaue im Zuhause nach …": "Checking your home …",
   "Ich schaue in deiner Nextcloud nach …": "Checking your Nextcloud …", "Ich schaue in deinen Kalender …": "Checking your calendar …",

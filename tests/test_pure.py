@@ -2653,6 +2653,27 @@ def test_voice_turn_follows_last_user_message():
     assert not voice.is_voice_turn([spoken, {"role": "assistant", "content": "Sonnig."}, typed])
 
 
+def test_voice_remembers_permission_for_the_conversation():
+    """Im Sprachgespraech gilt eine Erlaubnis fuer den Rest des Gespraechs – nicht fuer getippte Chats."""
+    spoken = {"role": "user", "content": "Mach das Licht an.", "voice": True}
+    typed = {"role": "user", "content": "Mach das Licht an."}
+    chat = {"messages": [spoken]}
+    assert not voice.allowed(chat, "ha_service")
+    assert voice.remember(chat, "ha_service") is True
+    assert voice.allowed(chat, "ha_service")
+    assert voice.remember(chat, "ha_service") is False, "nur einmal merken"
+    assert not voice.allowed(chat, "dav_write")
+    # Werkzeuggruppen genauso
+    assert voice.remember_group(chat, "dav") is True
+    assert voice.group_allowed(chat, "dav")
+    assert not voice.group_allowed(chat, "mail")
+    # getippt: nichts gemerkt, also weiterhin jede Aktion einzeln fragen
+    typed_chat = {"messages": [typed]}
+    assert voice.remember(typed_chat, "ha_service") is False
+    assert not voice.allowed(typed_chat, "ha_service")
+    assert "voice_allowed" not in typed_chat
+
+
 def test_voice_prompt_asks_for_speakable_answers():
     p = voice.VOICE_PROMPT
     assert p.startswith("## Sprachgespräch")
