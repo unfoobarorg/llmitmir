@@ -1,6 +1,7 @@
 // Icons bundled into the panel (keeps the bundle small).
 export {
   mdiAccountOutline,
+  mdiAccountVoice,
   mdiAccountBoxOutline,
   mdiAlertCircleOutline,
   mdiApi,
@@ -63,11 +64,13 @@ export {
   mdiLockOutline,
   mdiMagnify,
   mdiMenu,
+  mdiMicrophoneOff,
   mdiMicrophoneOutline,
   mdiOpenInNew,
   mdiPaperclip,
   mdiPause,
   mdiPencilOutline,
+  mdiPhoneHangup,
   mdiPinOffOutline,
   mdiPinOutline,
   mdiPlay,
