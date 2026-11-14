@@ -2682,7 +2682,9 @@ def test_voice_prompt_asks_for_speakable_answers():
 
 
 def test_selfdoc_mentions_voice():
-    assert "**Sprechen**" in selfdoc.ABOUT
+    """Die Ansicht heisst seit 0.28.0 „Gespraech“; der alte Name steht nur noch als Hinweis dabei."""
+    assert "**Gespräch**" in selfdoc.ABOUT
+    assert "**Sprechen**" not in selfdoc.ABOUT
 
 
 speech = load("speech")

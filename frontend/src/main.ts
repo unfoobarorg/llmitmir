@@ -394,6 +394,7 @@ export class LLMitMirPanel extends LitElement {
       ${unread ? html`<span class="dot" title=${t("Neu seit deinem letzten Blick")}></span>` : nothing}
       <lm-menu class="more" direction="down" align="right" @click=${(e: Event) => e.stopPropagation()}><button slot="trigger" class="iconbtn">${icon("dots", 16)}</button>
         <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: c.id, pinned: !c.pinned })}>${icon(c.pinned ? "pinOff" : "pin", 18)} ${c.pinned ? t("Lösen") : t("Anheften")}</button>
+        ${c.kind !== "task_run" ? html`<button class="mi" data-close @click=${() => navigate(`/voice/${c.id}`)}>${icon("voice", 18)} ${t("Im Gespräch sprechen")}</button>` : nothing}
         ${projects.length ? html`<div class="mh">${t("In Projekt verschieben")}</div>
           <button class="mi" data-close @click=${() => this.moveChat(c.id, null)}>${icon("chat", 18)} ${t("Ohne Projekt")}</button>
           ${projects.map((p: any) => html`<button class="mi ${c.project_id === p.id ? "sel" : ""}" data-close @click=${() => this.moveChat(c.id, p.id)}>${icon("project", 18)} ${p.name}</button>`)}` : nothing}
@@ -434,7 +435,7 @@ export class LLMitMirPanel extends LitElement {
       <div class="nv">
         <button class="ni new" title=${t("Neuer Chat")} @click=${() => navigate("/")}><span class="plus">${icon("plus", 18)}</span><span class="lbl">${t("Neuer Chat")}</span></button>
         ${isSimple() ? nothing : ni("/cowork", "cowork", t("Neues Cowork"), p === "cowork")}
-        ${ni("/voice", "voice", t("Sprechen"), p === "voice")}
+        ${ni("/voice", "voice", t("Gespräch"), p === "voice")}
         ${ni("/chats", "chat", t("Chats"), p === "chats")}
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
         ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}

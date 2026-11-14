@@ -284,6 +284,9 @@ export class ChatView extends LitElement {
     @keyframes bin { from { opacity: 0; transform: translateY(6px) scale(.98); } }
     @media (prefers-reduced-motion: reduce) { .dots i, .bubble { animation: none; } .dots i { opacity: .7; } }
     .taskinfo { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 12px; padding: 10px 12px; display: flex; gap: 8px; }
+    /* Gespräch: der Weg vom getippten Chat zur Sprachansicht – zurückhaltend, aber immer da */
+    .btn.talk { color: var(--lm-accent); }
+    .btn.talk:hover { background: var(--lm-accent-soft); }
     @media (max-width: 640px) { .thread { padding: 8px 14px 24px; gap: 18px; } .foot { padding: 0 10px 10px; } header { padding: 6px 6px; } }
   `];
 
@@ -668,11 +671,14 @@ export class ChatView extends LitElement {
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
         ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon("euro", 14)} ${simple ? "Ersatz-KI" : "extern"}</span>` : nothing}
         <span class="grow"></span>
+        ${chat.kind !== "task_run" ? html`<button class="btn ghost talk" title=${t("Im Gespräch sprechen")}
+          @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)}${this.narrow ? "" : ` ${t("Gespräch")}`}</button>` : nothing}
         ${files.length ? html`<lm-menu direction="down" align="right"><button slot="trigger" class="btn ghost" title=${t("Dateien")}>${icon("file", 18)}${this.narrow ? "" : ` ${t("Dateien")}`} <span class="chip">${files.length}</span></button>
           <div class="mh">Dateien in diesem Chat</div>
           ${files.map((f: any) => html`<button class="mi" data-close @click=${() => this.openFile(f.name)}>${icon("file", 18)}<span class="grow ellipsis">${f.name}</span>${icon("download", 16)}</button>`)}</lm-menu>` : nothing}
         ${isWork && this.narrow && !simple ? html`<button class="iconbtn" @click=${() => (this.panel = true)} title="Details">${icon("panel")}</button>` : nothing}
         <lm-menu direction="down" align="right"><button slot="trigger" class="iconbtn">${icon("dots")}</button>
+          ${chat.kind !== "task_run" ? html`<button class="mi" data-close @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)} ${t("Im Gespräch sprechen")}</button>` : nothing}
           <button class="mi" data-close @click=${() => (this.editTitle = true)}>${icon("edit", 18)} ${t("Umbenennen")}</button>
           <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
           <div class="mh">In Projekt verschieben</div>

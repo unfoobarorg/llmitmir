@@ -17,8 +17,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
-- **Sprechen (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite und aus der Seitenleiste –, in der
-  man mit LLMitMir redet wie am Telefon, beliebig lange und über viele Runden. Das Mikrofon bleibt offen; eine
+- **Gespräch (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite, aus der Seitenleiste und aus
+  jedem Chat und Cowork über den Knopf *Gespräch* –, in der man mit LLMitMir redet wie am Telefon, beliebig lange und
+  über viele Runden. Aus einem Chat heraus setzt das Gespräch dessen Verlauf fort (die letzte Antwort wird einmal
+  vorgelesen, damit klar ist, wo es weitergeht); getippt und gesprochen wechseln sich also im selben Chat ab. Das Mikrofon bleibt offen; eine
   Sprechpause beendet die Äußerung (keine Taste halten), sie wird abgeschrieben (`/audio/transcriptions` des Anbieters,
   Fallback Browser-Spracherkennung) und als normale Nachricht in einen Chat gestellt. Die Antwort wird Satz für Satz
   vorgelesen, noch während sie entsteht – mit der **festen Stimme des Roboters**, die LLMitMir selbst mitbringt

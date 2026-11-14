@@ -82,7 +82,7 @@ export class Home extends StoreElement {
         @mode=${(e: CustomEvent) => { this.mode = e.detail; this.manual = false; }} @model=${(e: CustomEvent) => { this.model = e.detail; this.manual = true; }}
         @project=${(e: CustomEvent) => { this.projectId = e.detail; this.manual = false; this.pickModel(); }} @send=${this.send}></lm-composer>
       <div class="sugg">
-        <button class="talk" @click=${() => navigate("/voice")}>${icon("voice", 16)} ${t("Sprechen")}</button>
+        <button class="talk" @click=${() => navigate("/voice")}>${icon("voice", 16)} ${t("Gespräch beginnen")}</button>
         ${simple ? html`
           <button @click=${() => this.fill("Erkläre mir einfach und verständlich: ", "chat")}>${icon("sparkle", 16)} Etwas erklären lassen</button>
           <button @click=${() => this.fill("Verbessere diesen Text, freundlich und gut verständlich:\n\n", "chat")}>${icon("edit", 16)} Text verbessern</button>

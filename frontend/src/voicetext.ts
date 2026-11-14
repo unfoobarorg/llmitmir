@@ -83,3 +83,20 @@ export function isNoise(text: string): boolean {
   if (/^[\[(♪*].*[\])♪*]$/.test(s)) return true;                                   // [Musik], (Applaus), * räuspert sich *
   return /untertitel|amara\.org|copyright\s+(wdr|zdf|swr|ard)|im auftrag des (zdf|wdr|swr)|subtitles? by|thanks? for watching|vielen dank f(ü|ue)rs zuschauen/i.test(s);
 }
+
+/** Aus einem Chat ins Gespräch gewechselt: die letzte Antwort kurz anteasern, damit klar ist, wo es weitergeht.
+ *  Nur die ersten Sätze – eine lange Antwort komplett vorzulesen, bevor man selbst zu Wort kommt, nervt. */
+export function resumeText(md: string, maxSentences = 2, maxChars = 320): string {
+  // Tausenderpunkte (1.234,56) sind keine Satzenden – sonst bliebe „Betrag: 1.“ übrig
+  const text = speakable(md).replace(/(\d)\.(\d{3})/g, "$1\u0001$2").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const parts = text.match(/[^.!?…]+[.!?…]+["“”»)\]]*|[^.!?…]+$/g) || [text];
+  let out = "";
+  for (const part of parts.slice(0, maxSentences)) {
+    if (out && (out + part).length > maxChars) break;
+    out += part;
+  }
+  out = out.trim().replace(/\u0001/g, ".");
+  if (out.length > maxChars) out = out.slice(0, maxChars).replace(/\s+\S*$/, "") + " …";
+  return out;
+}

@@ -1,4 +1,4 @@
-// Sprachgespräch („Sprechen“): eine eigene Ansicht, in der man mit LLMitMir redet wie am Telefon.
+// Sprachgespräch („Gespräch“): eine eigene Ansicht, in der man mit LLMitMir redet wie am Telefon.
 //
 // Ablauf einer Runde: zuhören (Mikrofon offen, Sprechpause beendet die Äußerung) → abschreiben → als normale
 // Nachricht in den Chat stellen (mit dem Kennzeichen `voice`, damit die Antwort vorlesbar ausfällt) → die
@@ -8,6 +8,10 @@
 //
 // Der Roboter (robot3d.ts) zeigt durchgehend, was gerade passiert: zuhören, warten, nachdenken,
 // recherchieren, antworten.
+//
+// Aus jedem Chat und jedem Cowork führt ein Knopf hierher (`/voice/<chat-id>`): Das Gespräch setzt den
+// vorhandenen Verlauf fort, statt einen neuen Chat anzulegen – die Person kann also tippen, dann
+// weitersprechen und danach im Chat weiterlesen und weiterschreiben.
 import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, menuItemStyles, safeElement } from "./ui";
@@ -17,7 +21,7 @@ import { defaultLabel, modelName } from "./modelpick";
 import { confirmExternal, isExternal } from "./external";
 import { Robot3D, type RobotState } from "./robot3d";
 import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type TtsChoice, type TtsSetup } from "./voiceio";
-import { SentenceFeed, isNoise } from "./voicetext";
+import { SentenceFeed, isNoise, resumeText } from "./voicetext";
 
 type Phase = "off" | "listening" | "understanding" | "thinking" | "researching" | "speaking" | "paused" | "permission";
 
@@ -74,6 +78,7 @@ export class Voice extends StoreElement {
   private timer: any; private wake: any; private spokePerm = "";
   private keepAlive = 0; private lastFeedAt = 0; private lastPhase = "";
   private mine = "";                           // Chat, den diese Ansicht selbst angelegt hat
+  private resume = "";                         // letzte Antwort eines übernommenen Chats, einmal vorlesen
   private _sync = () => this.sync();
 
   static styles = [base, menuItemStyles, css`
@@ -82,7 +87,7 @@ export class Voice extends StoreElement {
       background: radial-gradient(120% 90% at 50% 38%, #3f8a69 0%, #2d6a4f 55%, #245842 100%); }
     .stage.dark { background: radial-gradient(120% 90% at 50% 38%, #1f3a2e 0%, #18221d 55%, #151515 100%); }
     .top { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; position: relative; z-index: 2; }
-    .top b { font-family: var(--lm-head); font-size: 16px; font-weight: 600; padding-left: 6px; }
+    .top b { font-family: var(--lm-head); font-size: 16px; font-weight: 600; padding-left: 6px; min-width: 0; }
     .top .chipw { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.14); white-space: nowrap;
       overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
     .stage .iconbtn, ::slotted(.iconbtn) { color: rgba(255,255,255,.85); }
@@ -154,7 +159,7 @@ export class Voice extends StoreElement {
   updated(ch: Map<string, any>) {
     if (ch.has("chatId") && (this.chatId || "") !== this.mine) {
       // anderes Gespräch gewählt (Seitenleiste, Zurück-Taste): das laufende endet
-      this.endSession(); this.caption = this.heard = this.err = "";
+      this.endSession(); this.caption = this.heard = this.err = ""; this.resume = "";
       this.mine = this.chatId || "";
       if (this.chatId) this.openChat(this.chatId);
     }
@@ -179,6 +184,10 @@ export class Voice extends StoreElement {
     try {
       const chat = await store.loadChat(id);
       this.known = new Set((chat?.messages || []).map((m: any) => m.id));
+      // Aus einem Chat hierher gewechselt: die letzte Antwort einmal vorlesen, damit klar ist, wo es weitergeht.
+      // Danach ist sie „bekannt“ und wird nicht noch einmal gesagt.
+      const last = [...(chat?.messages || [])].reverse().find((m: any) => m.role === "assistant" && m.content && !m.error);
+      this.resume = last ? resumeText(String(last.content)) : "";
     } catch { store.notify(t("Chat nicht gefunden")); navigate("/voice", true); }
   }
 
@@ -223,6 +232,7 @@ export class Voice extends StoreElement {
       this.timer = setInterval(() => this.tick(), 1000);
       try { this.wake = await (navigator as any).wakeLock?.request("screen"); } catch { /* Bildschirm darf ausgehen */ }
       if (!this.chatId) sp.say(t("Hallo! Worüber möchtest du sprechen?"));
+      else if (this.resume) { sp.say(this.resume); this.resume = ""; }
       this.sync();
     } catch (e: any) {
       const blocked = e?.name === "NotAllowedError" || e?.name === "SecurityError";
@@ -475,7 +485,7 @@ export class Voice extends StoreElement {
     const models = (store.data?.models || []).filter((m: any) => m.status !== "unavailable" && !(m.external && (m.locked || !m.usable)));
     return html`<div class="sheet" @click=${(e: Event) => e.target === e.currentTarget && (this.sheet = false)}>
       <div class="sheetcard">
-        <div class="row"><b class="grow">${t("Sprechen")} – ${t("Einstellungen")}</b>
+        <div class="row"><b class="grow">${t("Gespräch")} – ${t("Einstellungen")}</b>
           <button class="iconbtn" title=${t("Schließen")} @click=${() => (this.sheet = false)}>${icon("close", 18)}</button></div>
         <label class="f"><span>${t("Stimme")}</span>
           <select .value=${this.cfg.tts} @change=${(e: any) => this.save({ tts: e.target.value })}>
@@ -512,7 +522,7 @@ export class Voice extends StoreElement {
     const model = !isSimple() && (this.cfg.model || chat?.model) ? modelName(this.cfg.model || chat?.model) : "";
     const on = this.active;
     return html`<div class="stage ${dark ? "dark" : ""}">
-      <div class="top"><slot name="menu"></slot><b class="grow">${t("Sprechen")}</b>
+      <div class="top"><slot name="menu"></slot><b class="grow ellipsis">${chat?.title || t("Gespräch")}</b>
         ${model ? html`<span class="chipw" title=${t("Modell")}>${model}</span>` : nothing}
         ${this.chatId ? html`<button class="iconbtn" title=${t("Im Chat ansehen")} @click=${() => { const id = this.chatId; this.endSession(); navigate(`/chat/${id}`); }}>${icon("chat")}</button>` : nothing}
         <button class="iconbtn" title=${t("Einstellungen")} @click=${() => (this.sheet = true)}>${icon("settings")}</button></div>
@@ -527,6 +537,7 @@ export class Voice extends StoreElement {
           ? html`<div class="cap ${this.phase === "speaking" ? "" : "old"}">${this.caption}</div>` : nothing}
         <div class="status">${this.statusText()}</div>
         ${!on && !this.starting ? html`<div><button class="startbtn" @click=${() => this.begin()}>${icon("mic", 22)} ${this.chatId ? t("Gespräch fortsetzen") : t("Gespräch beginnen")}</button></div>
+          ${this.chatId ? html`<div class="hint" style="color:rgba(255,255,255,.72)">${t("Das Gespräch setzt diesen Chat fort – der Verlauf bleibt erhalten.")}</div>` : nothing}
           ${last ? html`<div><button class="resume" @click=${() => navigate(`/voice/${last.id}`)}>${t("Letztes Gespräch fortsetzen")}: ${last.title || t("Neuer Chat")}</button></div>` : nothing}` : nothing}
       </div>
       <div class="ctl">

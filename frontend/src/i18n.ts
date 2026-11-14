@@ -38,7 +38,9 @@ const EN: Record<string, string> = {
   "Chat hierher ziehen": "Drag a chat here", "Nach „{p}“ verschoben": "Moved to “{p}”",
   "Aus dem Projekt entfernt": "Removed from the project", "Noch keine Projekte angelegt.": "No projects yet.",
   // Sprachgespräch
-  "Sprechen": "Talk", "Gespräch beginnen": "Start talking", "Gespräch fortsetzen": "Continue talking", "Gespräch beenden": "End conversation",
+  "Gespräch": "Conversation", "Sprechen": "Talk", "Gespräch beginnen": "Start talking", "Gespräch fortsetzen": "Continue talking",
+  "Gespräch beenden": "End conversation", "Im Gespräch sprechen": "Speak in the conversation",
+  "Das Gespräch setzt diesen Chat fort – der Verlauf bleibt erhalten.": "The conversation continues this chat – the history stays.",
   "Letztes Gespräch fortsetzen": "Continue last conversation", "Im Chat ansehen": "View in chat", "Einen Moment": "One moment",
   "Hallo! Worüber möchtest du sprechen?": "Hello! What would you like to talk about?",
   "Ich höre zu": "I'm listening", "Ich höre zu – sprich einfach los": "I'm listening – just start talking", "Ich verstehe": "Getting that",

@@ -768,7 +768,7 @@ class Manager:
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": tools}
         if voice and kind == KIND_CHAT:
-            chat["voice"] = True  # als Sprachgespräch begonnen (Ansicht „Sprechen“); sonst ein normaler Chat
+            chat["voice"] = True  # als Sprachgespräch begonnen (Ansicht „Gespräch“); sonst ein normaler Chat
         await st.async_save_chat(chat)
         self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
         return chat

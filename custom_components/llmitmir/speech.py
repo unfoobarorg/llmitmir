@@ -8,7 +8,7 @@ Drei Stimmen stehen zur Wahl:
 
 - **Roboterstimme** (Standard): eine neutrale, männliche deutsche Stimme, nicht so tief wie eine Erzählerstimme,
   und im Browser mit einem leichten Maschinenklang versehen (Ringmodulation, etwas schlanker im Bass) – so klingt
-  sie nach dem Roboter in der Ansicht „Sprechen“, bleibt aber gut verständlich.
+  sie nach dem Roboter in der Ansicht „Gespräch“, bleibt aber gut verständlich.
 - **Männliche Stimme (Conrad)**: die tiefe, ruhige Erzählerstimme, ohne Klangbearbeitung.
 - **Weibliche Stimme (Tanja)**: eine natürliche Frauenstimme, ohne Klangbearbeitung – für alle, die lieber mit
   einer Frau sprechen.
