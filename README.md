@@ -21,9 +21,11 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   man mit LLMitMir redet wie am Telefon, beliebig lange und über viele Runden. Das Mikrofon bleibt offen; eine
   Sprechpause beendet die Äußerung (keine Taste halten), sie wird abgeschrieben (`/audio/transcriptions` des Anbieters,
   Fallback Browser-Spracherkennung) und als normale Nachricht in einen Chat gestellt. Die Antwort wird Satz für Satz
-  vorgelesen, noch während sie entsteht – bevorzugt mit der **Sprachausgabe von Home Assistant** (die Stimme des
-  bevorzugten Sprachassistenten, z. B. Piper oder Home Assistant Cloud; funktioniert damit auch in der Companion-App),
-  sonst mit der Stimme des Browsers oder nur als Untertitel. Es ist ein ganz normaler Chat: Open-Weight-Modelle wie
+  vorgelesen, noch während sie entsteht – mit der **festen Stimme des Roboters**, die LLMitMir selbst mitbringt
+  (männlich, deutsch, ruhig und eine Spur tiefer; auf dem Server gesprochen, damit sie auf iPad, im Browser und in
+  der Android-App gleich klingt – dort gibt es keine brauchbare Stimme des Systems). Ist sie nicht erreichbar, liest
+  die **Sprachausgabe von Home Assistant** (die Stimme des bevorzugten Sprachassistenten, z. B. Piper oder Home
+  Assistant Cloud), sonst die Stimme des Browsers oder nur als Untertitel. Es ist ein ganz normaler Chat: Open-Weight-Modelle wie
   kostenpflichtige externe Modelle (Expertenansicht: Modellwahl in den Einstellungen der Ansicht), Werkzeuge und
   Freigaben (als Karte zum Antippen) funktionieren wie dort, und das Gespräch steht danach in der Chatliste zum
   Nachlesen und Weiterschreiben. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet

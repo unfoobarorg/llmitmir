@@ -196,7 +196,7 @@ export class Voice extends StoreElement {
       // Safari gibt die Stimme des Browsers nur frei, wenn sie noch im Tippen selbst einmal benutzt wurde
       try { if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch { /* keine Browserstimme */ }
       await this.ctx!.resume();
-      if (!this.tts) this.tts = await ttsSetup(store.api.hass);
+      if (!this.tts) this.tts = await ttsSetup(store.api.hass, store.data?.speech);
       const sp = this.speaker = new Speaker(store.api.hass, this.ctx!);
       sp.lang = this.locale; sp.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
       sp.onSpeak = txt => { if (txt) this.caption = txt; else this.holdUntil = performance.now() + 350; this.sync(); if (!txt) setTimeout(this._sync, 380); };
@@ -396,8 +396,32 @@ export class Voice extends StoreElement {
   private voiceLabel(): string {
     if (!this.tts) return t("Automatisch");
     const c = ttsChoice(this.tts, "auto", this.locale);
-    const name = c.kind === "ha" ? this.tts.engines.find(e => e.id === c.engine)?.name : c.kind === "browser" ? t("Stimme des Browsers") : t("nur Text");
+    const name = c.kind === "robot" ? this.robotLabel() : c.kind === "ha" ? this.tts.engines.find(e => e.id === c.engine)?.name
+      : c.kind === "browser" ? t("Stimme des Browsers") : t("nur Text");
     return `${t("Automatisch")} (${name})`;
+  }
+
+  /** Name der festen Stimme, z. B. „LLMitMir-Stimme (Conrad)“. */
+  private robotLabel(): string {
+    const s = this.tts;
+    if (!s?.robot) return t("LLMitMir-Stimme");
+    return s.robotName ? `${s.robotLabel || t("LLMitMir-Stimme")} (${s.robotName})` : (s.robotLabel || t("LLMitMir-Stimme"));
+  }
+
+  /** Die gewaehlte Stimme einmal anhoeren – auch ohne laufendes Gespraech. */
+  private async testVoice() {
+    try {
+      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AC();
+      await ctx.resume();
+      if (!this.tts) this.tts = await ttsSetup(store.api.hass, store.data?.speech);
+      const sp = new Speaker(store.api.hass, ctx);
+      sp.lang = this.locale; sp.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
+      sp.say(t("Hallo! Ich bin der Roboter von LLMitMir. So klinge ich."));
+      // warten, bis der Satz gesprochen ist, dann den Ton wieder freigeben
+      const wait = setInterval(() => { if (!sp.busy) { clearInterval(wait); ctx.close().catch(() => undefined); } }, 300);
+      setTimeout(() => { clearInterval(wait); ctx.close().catch(() => undefined); }, 30000);
+    } catch (e: any) { this.fail(String(e?.message || e)); }
   }
 
   private async pickModel(id: string) {
@@ -410,7 +434,7 @@ export class Voice extends StoreElement {
 
   private settings() {
     const s = this.tts;
-    if (!s) ttsSetup(store.api.hass).then(r => (this.tts = r));
+    if (!s) ttsSetup(store.api.hass, store.data?.speech).then(r => (this.tts = r));
     const models = (store.data?.models || []).filter((m: any) => m.status !== "unavailable" && !(m.external && (m.locked || !m.usable)));
     return html`<div class="sheet" @click=${(e: Event) => e.target === e.currentTarget && (this.sheet = false)}>
       <div class="sheetcard">
@@ -419,12 +443,14 @@ export class Voice extends StoreElement {
         <label class="f"><span>${t("Stimme")}</span>
           <select .value=${this.cfg.tts} @change=${(e: any) => this.save({ tts: e.target.value })}>
             <option value="auto" ?selected=${this.cfg.tts === "auto"}>${this.voiceLabel()}</option>
+            ${s?.robot ? html`<option value="robot" ?selected=${this.cfg.tts === "robot"}>${this.robotLabel()}</option>` : nothing}
             ${(s?.engines || []).map(e => html`<option value=${e.id} ?selected=${this.cfg.tts === e.id}>${e.name}</option>`)}
             ${s?.browser ? html`<option value="browser" ?selected=${this.cfg.tts === "browser"}>${t("Stimme des Browsers")}</option>` : nothing}
             <option value="off" ?selected=${this.cfg.tts === "off"}>${t("Ohne Stimme (nur Text)")}</option></select>
-          <span class="hint" style="font-weight:400">${s && !s.engines.length
-            ? t("Schöner klingt es mit einer Sprachausgabe in Home Assistant (z. B. Piper oder Home Assistant Cloud) – LLMitMir nutzt sie dann von selbst.")
-            : t("„Automatisch“ nimmt die Stimme deines Sprachassistenten in Home Assistant.")}</span></label>
+          <span class="hint" style="font-weight:400">${s?.robot
+            ? t("„Automatisch“ nimmt die Stimme des Roboters – sie klingt auf jedem Gerät gleich.")
+            : t("Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.")}</span>
+          <button class="btn" @click=${() => this.testVoice()}>${icon("play", 16)} ${t("Stimme anhören")}</button></label>
         <label class="f"><span>${t("Wie lange darf eine Sprechpause sein?")}</span>
           <select @change=${(e: any) => this.save({ pause: Number(e.target.value) })}>
             ${[[800, t("Kurz – antwortet schnell")], [1200, t("Normal")], [2000, t("Lang – lässt Zeit zum Überlegen")]].map(([v, l]) =>

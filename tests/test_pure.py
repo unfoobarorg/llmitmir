@@ -2662,3 +2662,39 @@ def test_voice_prompt_asks_for_speakable_answers():
 
 def test_selfdoc_mentions_voice():
     assert "**Sprechen**" in selfdoc.ABOUT
+
+
+speech = load("speech")
+
+
+def test_speech_voice_is_male_german_and_fixed():
+    """Die Stimme des Roboters ist fest eingestellt: deutsch, maennlich, etwas ruhiger als ueblich."""
+    assert speech.VOICE == "de-DE-ConradNeural"
+    assert speech.supports("de") and speech.supports("de-DE") and speech.supports(None)
+    assert not speech.supports("en")
+    assert speech.RATE.startswith("-") and speech.PITCH.startswith("-")
+
+
+def test_speech_info_and_cache():
+    info = speech.info()
+    assert info["voice"] == speech.VOICE and info["languages"] == ["de"]
+    assert set(info) >= {"available", "voice", "name", "label", "languages"}
+    speech.clear_cache()
+    assert speech.cached("Hallo") is None
+    speech._remember(speech._key("Hallo"), b"mp3")
+    assert speech.cached("Hallo") == b"mp3"
+    assert speech.cached("Hallo!") is None
+    # der Zwischenspeicher waechst nicht unbegrenzt
+    for i in range(speech.CACHE_MAX + 20):
+        speech._remember(speech._key(f"Satz {i}"), b"x")
+    assert len(speech._cache) == speech.CACHE_MAX
+    speech.clear_cache()
+
+
+def test_speech_rejects_empty_and_foreign_language():
+    import asyncio
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        asyncio.run(speech.synthesize("   "))
+    with _pytest.raises(ValueError):
+        asyncio.run(speech.synthesize("Hello", "en"))

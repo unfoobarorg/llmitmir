@@ -15,6 +15,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from . import credentials as C
+from . import speech as SP
 from .const import DOMAIN, KIND_CHAT
 from .storage import new_id, now, safe_name
 
@@ -138,6 +139,33 @@ class TranscribeView(_Base):
         st.add_usage(0, 0)
         m.emit(user.id, {"type": "usage", "usage": m.usage_snapshot(user.id)})
         return self.json({"text": text})
+
+
+class SpeakView(_Base):
+    """Die feste Stimme des Roboters: Text hinein, MP3 heraus (dieselbe Stimme auf jedem Gerät)."""
+
+    url = "/api/llmitmir/speak"
+    name = "api:llmitmir:speak"
+
+    async def post(self, request):
+        hass, m, user, st = await self._user_store(request)
+        try:
+            body = await request.json()
+        except ValueError:
+            return self.json_message("Ungültige Anfrage", HTTPStatus.BAD_REQUEST)
+        text = str(body.get("text") or "")
+        lang = str(body.get("lang") or "de")
+        if not text.strip():
+            return self.json_message("Kein Text", HTTPStatus.BAD_REQUEST)
+        try:
+            audio = await SP.synthesize(text, lang)
+        except ValueError as e:
+            return self.json_message(str(e), HTTPStatus.BAD_REQUEST)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("LLMitMir: Sprachausgabe fehlgeschlagen: %s", e)
+            return self.json_message(f"Sprachausgabe fehlgeschlagen: {e}", HTTPStatus.BAD_GATEWAY)
+        return web.Response(body=audio, content_type="audio/mpeg",
+                            headers={"Cache-Control": "private, max-age=600"})
 
 
 class ImportView(HomeAssistantView):
@@ -436,5 +464,5 @@ async def import_file(hass, m, user, st, name: str, data: bytes) -> dict:
 
 
 def async_register(hass: HomeAssistant) -> None:
-    for view in (UploadView, FileView, TranscribeView, ImportView):
+    for view in (UploadView, FileView, TranscribeView, SpeakView, ImportView):
         hass.http.register_view(view())

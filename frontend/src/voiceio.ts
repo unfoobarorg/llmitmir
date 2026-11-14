@@ -4,9 +4,10 @@
 // (Sprache beginnt, Sprechpause = fertig) und als WAV an die Spracherkennung des Anbieters geschickt –
 // niemand muss eine Taste halten. Solange LLMitMir selbst spricht oder arbeitet, wird nichts aufgenommen.
 //
-// Vorlesen: bevorzugt über die Sprachausgabe von Home Assistant (die Stimme des Sprachassistenten, z. B.
-// Piper oder Home Assistant Cloud) – das klingt überall gleich und funktioniert auch in der Companion-App,
-// deren Webansicht keine eigene Sprachausgabe hat. Sonst liest der Browser vor.
+// Vorlesen: zuerst mit der festen Stimme von LLMitMir (der Roboter-Stimme, auf dem Server gesprochen) – sie
+// klingt auf jedem Gerät gleich und funktioniert auch in der Companion-App auf Android, deren Webansicht keine
+// eigene Sprachausgabe hat. Ist sie nicht eingerichtet, mit der Sprachausgabe von Home Assistant (die Stimme des
+// Sprachassistenten, z. B. Piper oder Home Assistant Cloud), sonst mit der Stimme des Browsers.
 import { encodeWav } from "./ui";
 
 type Hass = any;
@@ -110,14 +111,18 @@ export class BrowserListener {
 
 // ------------------------------------------------------------------ Stimmen
 export interface TtsEngine { id: string; name: string; languages: string[]; }
-export interface TtsSetup { engines: TtsEngine[]; preferred?: { engine: string; language?: string; voice?: string }; browser: boolean; }
-export type TtsChoice = { kind: "ha"; engine: string; language?: string; voice?: string } | { kind: "browser" } | { kind: "none" };
+export interface TtsSetup { engines: TtsEngine[]; preferred?: { engine: string; language?: string; voice?: string }; browser: boolean;
+  /** Die feste Stimme von LLMitMir (Roboter-Stimme) steht bereit. */
+  robot?: boolean; robotName?: string; robotLabel?: string; }
+export type TtsChoice = { kind: "robot" } | { kind: "ha"; engine: string; language?: string; voice?: string }
+  | { kind: "browser" } | { kind: "none" };
 
 const browserTts = () => typeof window.speechSynthesis !== "undefined" && typeof (window as any).SpeechSynthesisUtterance !== "undefined";
 
 /** Welche Stimmen gibt es? Sprachausgaben von Home Assistant, die des bevorzugten Sprachassistenten und der Browser. */
-export async function ttsSetup(hass: Hass): Promise<TtsSetup> {
+export async function ttsSetup(hass: Hass, speech?: { available?: boolean; name?: string; label?: string }): Promise<TtsSetup> {
   const out: TtsSetup = { engines: [], browser: browserTts() };
+  if (speech) { out.robot = !!speech.available; out.robotName = speech.name; out.robotLabel = speech.label; }
   try {
     const r = await hass.callWS({ type: "tts/engine/list" });
     out.engines = (r?.providers || []).filter((p: any) => !p.deprecated).map((p: any) => ({ id: p.engine_id,
@@ -137,14 +142,18 @@ const langOf = (e: TtsEngine, lang: string) => {
   return e.languages.find(x => x.toLowerCase() === l) || e.languages.find(x => x.toLowerCase().startsWith(l));
 };
 
-/** Einstellung („auto“, „browser“, „off“ oder eine Sprachausgabe von Home Assistant) in eine Stimme auflösen. */
+/** Einstellung („auto“, „robot“, „browser“, „off“ oder eine Sprachausgabe von Home Assistant) in eine Stimme auflösen. */
 export function ttsChoice(setup: TtsSetup, setting: string, lang: string): TtsChoice {
   if (setting === "off") return { kind: "none" };
   if (setting === "browser") return setup.browser ? { kind: "browser" } : { kind: "none" };
+  const robot = (): TtsChoice | null => setup.robot && (lang || "de").toLowerCase().startsWith("de") ? { kind: "robot" } : null;
+  if (setting === "robot" && robot()) return { kind: "robot" };
   const pick = (e?: TtsEngine): TtsChoice | null => e ? { kind: "ha", engine: e.id,
     ...(setup.preferred?.engine === e.id ? { language: setup.preferred.language, voice: setup.preferred.voice } : { language: langOf(e, lang) }) } : null;
   if (setting && setting !== "auto") { const c = pick(setup.engines.find(e => e.id === setting)); if (c) return c; }
-  return pick(setup.engines.find(e => e.id === setup.preferred?.engine))
+  // „Automatisch“: die eigene Stimme zuerst – sie klingt überall gleich und ist auf jedem Gerät da
+  return robot()
+    || pick(setup.engines.find(e => e.id === setup.preferred?.engine))
     || pick(setup.engines.find(e => !!langOf(e, lang)))
     || (setup.browser ? { kind: "browser" } : pick(setup.engines[0]) || { kind: "none" });
 }
@@ -179,7 +188,7 @@ export class Speaker {
   say(text: string) {
     if (!text.trim()) return;
     const item: Item = { text };
-    if (this.choice.kind === "ha") item.audio = this.synth(text, this.choice).catch(() => null);
+    if (this.choice.kind === "ha" || this.choice.kind === "robot") item.audio = this.synth(text, this.choice).catch(() => null);
     this.queue.push(item);
     this.pump();
   }
@@ -205,11 +214,18 @@ export class Speaker {
     this.level = Math.min(1, Math.sqrt(s / this.buf.length) * 4.5);
   }
 
-  private async synth(text: string, c: Extract<TtsChoice, { kind: "ha" }>): Promise<AudioBuffer | null> {
-    // cache: false – einmalige Sätze sollen nicht dauerhaft im TTS-Ordner von Home Assistant landen
-    const r = await this.hass.callApi("POST", "tts_get_url", { engine_id: c.engine, message: text, cache: false,
-      ...(c.language ? { language: c.language } : {}), ...(c.voice ? { options: { voice: c.voice } } : {}) });
-    const res = await fetch(r.path || r.url);
+  private async synth(text: string, c: Extract<TtsChoice, { kind: "ha" } | { kind: "robot" }>): Promise<AudioBuffer | null> {
+    let res: Response;
+    if (c.kind === "robot") {
+      // Die feste Stimme von LLMitMir: auf dem Server gesprochen, damit sie auf jedem Gerät gleich klingt
+      res = await this.hass.fetchWithAuth("/api/llmitmir/speak", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: this.lang }) });
+    } else {
+      // cache: false – einmalige Sätze sollen nicht dauerhaft im TTS-Ordner von Home Assistant landen
+      const r = await this.hass.callApi("POST", "tts_get_url", { engine_id: c.engine, message: text, cache: false,
+        ...(c.language ? { language: c.language } : {}), ...(c.voice ? { options: { voice: c.voice } } : {}) });
+      res = await fetch(r.path || r.url);
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await this.ctx.decodeAudioData(await res.arrayBuffer());
   }
@@ -225,7 +241,7 @@ export class Speaker {
     if (item.audio) {
       buf = await item.audio;
       if (gen !== this.gen) return;
-      if (!buf && !this.failed) { this.failed = true; console.warn("LLMitMir: Sprachausgabe von Home Assistant nicht nutzbar – der Browser liest vor."); }
+      if (!buf && !this.failed) { this.failed = true; console.warn("LLMitMir: die Stimme ist nicht nutzbar – es liest die Sprachausgabe von Home Assistant oder der Browser."); }
     }
     this.onSpeak?.(item.text);
     if (buf) {

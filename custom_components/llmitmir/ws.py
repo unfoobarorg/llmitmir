@@ -22,6 +22,7 @@ from . import pricing as PR
 from . import retention as RT
 from . import providers as PV
 from . import sharing as SH
+from . import speech as SP
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, PRESETS,
                     TASK_KEY_CHOICES, TASK_KEY_MODES, TASK_KEY_OWN, VERSION)
@@ -191,6 +192,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "runs": runs,
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
+        # Die feste Stimme des Roboters (eigene Sprachausgabe, auf jedem Gerät gleich)
+        "speech": SP.info(),
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},

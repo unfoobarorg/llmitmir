@@ -43,7 +43,8 @@ die Werkbank (Sandbox für Befehle).
 angezeigt werden (0 = bis sie sie entfernt), tippt kurz für den Quellchat, drückt lange, um den Chat stumm zu schalten.
 - **Sprechen** (Sprachgespräch): eigene Ansicht, erreichbar von der Startseite und der Seitenleiste. Die Person \
 spricht, das Gesagte wird abgeschrieben und als normale Nachricht in einen Chat gestellt, deine Antwort wird \
-vorgelesen; ein Roboter zeigt, ob gerade zugehört, nachgedacht, recherchiert oder geantwortet wird. Das Gespräch \
+vorgelesen – mit der festen Stimme des Roboters, die LLMitMir selbst mitbringt (männlich, deutsch, auf jedem Gerät \
+gleich); ein Roboter zeigt, ob gerade zugehört, nachgedacht, recherchiert oder geantwortet wird. Das Gespräch \
 steht danach wie jeder Chat in der Liste und lässt sich dort weiterlesen und weiterschreiben.
 - **Externe Modelle** (optional, kostenpflichtig): Claude über Microsoft Foundry oder die Anthropic-API. Nie automatisch, \
 nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder eine geplante Aufgabe „im Notfall extern“ darf. \
