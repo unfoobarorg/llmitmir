@@ -4,12 +4,14 @@ LLMitMir bringt seine eigene Sprachausgabe mit, damit das Sprachgespräch übera
 im Browser und in der Home-Assistant-App auf Android, wo es keine brauchbare Stimme des Systems gibt. Gesprochen
 wird auf dem Server, deshalb ist die Stimme unabhängig vom Gerät.
 
-Zwei Stimmen stehen zur Wahl:
+Drei Stimmen stehen zur Wahl:
 
 - **Roboterstimme** (Standard): eine neutrale, männliche deutsche Stimme, nicht so tief wie eine Erzählerstimme,
   und im Browser mit einem leichten Maschinenklang versehen (Ringmodulation, etwas schlanker im Bass) – so klingt
   sie nach dem Roboter in der Ansicht „Sprechen“, bleibt aber gut verständlich.
 - **LLMitMir-Stimme (Conrad)**: die tiefe, ruhige Erzählerstimme, ohne Klangbearbeitung.
+- **Weibliche Stimme (Tanja)**: eine natürliche Frauenstimme, ohne Klangbearbeitung – für alle, die lieber mit
+  einer Frau sprechen.
 
 Erzeugte Sätze bleiben im Arbeitsspeicher liegen: kurze Sätze („Einen Moment.“, „Ich schaue nach.“) werden nur
 einmal geholt. Ist die Stimme nicht erreichbar, sagt das die Ansicht und liest mit der Sprachausgabe von Home
@@ -24,12 +26,15 @@ from collections import OrderedDict
 _LOGGER = logging.getLogger(__name__)
 
 # Fest eingestellte Stimmen. „robot“ ist der Standard: neutraler und eine Spur höher als Conrad, dazu der
-# Maschinenklang, den die Ansicht beim Abspielen hinzufügt (siehe voiceio.ts, Speaker).
+# Maschinenklang, den die Ansicht beim Abspielen hinzufügt (siehe voiceio.ts, Speaker). „tanja“ ist die
+# weibliche Stimme – natürlich, ohne Klangbearbeitung.
 VOICES: dict[str, dict] = {
     "robot": {"voice": "de-DE-KillianNeural", "name": "Killian", "label": "Roboterstimme",
               "rate": "-3%", "pitch": "+12Hz", "effect": True},
     "conrad": {"voice": "de-DE-ConradNeural", "name": "Conrad", "label": "LLMitMir-Stimme",
                "rate": "-6%", "pitch": "-8Hz", "effect": False},
+    "tanja": {"voice": "de-DE-TanjaNeural", "name": "Tanja", "label": "Weibliche Stimme",
+              "rate": "-2%", "pitch": "+0Hz", "effect": False},
 }
 DEFAULT_VOICE = "robot"
 LANGUAGES = ("de",)

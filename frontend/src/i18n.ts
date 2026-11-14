@@ -56,9 +56,10 @@ const EN: Record<string, string> = {
   "Tippen unterbricht die Antwort": "Tap to interrupt the answer", "Der Roboter von LLMitMir": "The LLMitMir robot",
   "Stimme": "Voice", "Automatisch": "Automatic", "Stimme des Browsers": "Browser voice", "nur Text": "text only", "Ohne Stimme (nur Text)": "No voice (text only)",
   "LLMitMir-Stimme": "LLMitMir voice", "Roboterstimme": "Robot voice", "Stimme anhören": "Listen to the voice",
-  "Hallo! Ich bin der Roboter von LLMitMir. So klinge ich.": "Hello! I'm the LLMitMir robot. This is how I sound.",
-  "„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Die LLMitMir-Stimme ist dieselbe Stimme ohne Maschinenklang, tiefer und ruhiger.":
-    "“Automatic” uses the robot voice – it sounds the same on every device. The LLMitMir voice is the same voice without the machine effect, deeper and calmer.",
+  "Hallo! Ich bin LLMitMir. So klinge ich.": "Hello! I'm LLMitMir. This is how I sound.",
+  "„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die LLMitMir-Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.":
+    "“Automatic” uses the robot voice – it sounds the same on every device. You can also pick the LLMitMir voice (deeper, no machine effect) or a natural female voice.",
+  "Weibliche Stimme": "Female voice",
   "Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.":
     "The robot's voice is not set up; Home Assistant's text-to-speech or the browser will read instead.",
   "Schöner klingt es mit einer Sprachausgabe in Home Assistant (z. B. Piper oder Home Assistant Cloud) – LLMitMir nutzt sie dann von selbst.":

@@ -420,7 +420,7 @@ export class Voice extends StoreElement {
       const sp = new Speaker(store.api.hass, ctx);
       sp.lang = this.locale; sp.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
       sp.fallback = ttsFallback(this.tts, this.locale);
-      sp.say(t("Hallo! Ich bin der Roboter von LLMitMir. So klinge ich."));
+      sp.say(t("Hallo! Ich bin LLMitMir. So klinge ich."));
       // warten, bis der Satz gesprochen ist, dann den Ton wieder freigeben
       const wait = setInterval(() => { if (!sp.busy) { clearInterval(wait); ctx.close().catch(() => undefined); } }, 300);
       setTimeout(() => { clearInterval(wait); ctx.close().catch(() => undefined); }, 30000);
@@ -451,7 +451,7 @@ export class Voice extends StoreElement {
             ${s?.browser ? html`<option value="browser" ?selected=${this.cfg.tts === "browser"}>${t("Stimme des Browsers")}</option>` : nothing}
             <option value="off" ?selected=${this.cfg.tts === "off"}>${t("Ohne Stimme (nur Text)")}</option></select>
           <span class="hint" style="font-weight:400">${s?.robot
-            ? t("„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Die LLMitMir-Stimme ist dieselbe Stimme ohne Maschinenklang, tiefer und ruhiger.")
+            ? t("„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die LLMitMir-Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.")
             : t("Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.")}</span>
           <button class="btn" @click=${() => this.testVoice()}>${icon("play", 16)} ${t("Stimme anhören")}</button></label>
         <label class="f"><span>${t("Wie lange darf eine Sprechpause sein?")}</span>

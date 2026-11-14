@@ -2667,26 +2667,30 @@ def test_selfdoc_mentions_voice():
 speech = load("speech")
 
 
-def test_speech_voices_are_male_german_and_fixed():
-    """Zwei feste Stimmen: die Roboterstimme als Standard und die tiefere LLMitMir-Stimme."""
+def test_speech_voices_are_german_and_fixed():
+    """Drei feste Stimmen: Roboterstimme als Standard, die tiefere LLMitMir-Stimme und eine weibliche."""
     assert speech.DEFAULT_VOICE == "robot"
-    assert set(speech.VOICES) == {"robot", "conrad"}
-    robot, conrad = speech.VOICES["robot"], speech.VOICES["conrad"]
+    assert set(speech.VOICES) == {"robot", "conrad", "tanja"}
+    robot, conrad, tanja = speech.VOICES["robot"], speech.VOICES["conrad"], speech.VOICES["tanja"]
     assert robot["voice"] == "de-DE-KillianNeural" and robot["effect"] is True
     assert conrad["voice"] == "de-DE-ConradNeural" and conrad["effect"] is False
+    # die weibliche Stimme klingt natuerlich: keine Klangbearbeitung
+    assert tanja["voice"] == "de-DE-TanjaNeural" and tanja["effect"] is False
+    assert tanja["label"] == "Weibliche Stimme"
     # die Roboterstimme ist hoeher (neutraler) als die tiefe Erzaehlerstimme
     assert int(robot["pitch"].rstrip("Hz")) > int(conrad["pitch"].rstrip("Hz"))
     assert speech.supports("de") and speech.supports("de-DE") and speech.supports(None)
     assert not speech.supports("en")
     # unbekannte Namen fallen auf den Standard zurueck
     assert speech.voice_id(None) == "robot" and speech.voice_id("conrad") == "conrad"
+    assert speech.voice_id("tanja") == "tanja"
     assert speech.voice_id("quatsch") == "robot"
 
 
 def test_speech_info_and_cache():
     info = speech.info()
     assert info["default"] == "robot" and info["languages"] == ["de"]
-    assert [v["id"] for v in info["voices"]] == ["robot", "conrad"]
+    assert [v["id"] for v in info["voices"]] == ["robot", "conrad", "tanja"]
     assert set(info) >= {"available", "default", "voices", "languages"}
     speech.clear_cache()
     assert speech.cached("Hallo") is None
