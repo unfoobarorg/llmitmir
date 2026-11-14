@@ -16,7 +16,7 @@ import { t } from "./i18n";
 import { defaultLabel, modelName } from "./modelpick";
 import { confirmExternal, isExternal } from "./external";
 import { Robot3D, type RobotState } from "./robot3d";
-import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type TtsSetup } from "./voiceio";
+import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type TtsChoice, type TtsSetup } from "./voiceio";
 import { SentenceFeed, isNoise } from "./voicetext";
 
 type Phase = "off" | "listening" | "understanding" | "thinking" | "researching" | "speaking" | "paused" | "permission";
@@ -396,17 +396,18 @@ export class Voice extends StoreElement {
 
   private voiceLabel(): string {
     if (!this.tts) return t("Automatisch");
-    const c = ttsChoice(this.tts, "auto", this.locale);
-    const name = c.kind === "robot" ? this.robotLabel() : c.kind === "ha" ? this.tts.engines.find(e => e.id === c.engine)?.name
-      : c.kind === "browser" ? t("Stimme des Browsers") : t("nur Text");
-    return `${t("Automatisch")} (${name})`;
+    return `${t("Automatisch")} (${this.choiceName(ttsChoice(this.tts, "auto", this.locale))})`;
   }
 
-  /** Name der festen Stimme, z. B. „LLMitMir-Stimme (Conrad)“. */
-  private robotLabel(): string {
+  /** Name einer Stimme für die Auswahlliste. */
+  private choiceName(c: TtsChoice): string {
     const s = this.tts;
-    if (!s?.robot) return t("LLMitMir-Stimme");
-    return s.robotName ? `${s.robotLabel || t("LLMitMir-Stimme")} (${s.robotName})` : (s.robotLabel || t("LLMitMir-Stimme"));
+    if (c.kind === "robot") {
+      const v = s?.robotVoices?.find(x => x.id === c.voice);
+      return v ? `${v.label} (${v.name})` : t("Roboterstimme");
+    }
+    if (c.kind === "ha") return s?.engines.find(e => e.id === c.engine)?.name || c.engine;
+    return c.kind === "browser" ? t("Stimme des Browsers") : t("nur Text");
   }
 
   /** Die gewaehlte Stimme einmal anhoeren – auch ohne laufendes Gespraech. */
@@ -445,12 +446,12 @@ export class Voice extends StoreElement {
         <label class="f"><span>${t("Stimme")}</span>
           <select .value=${this.cfg.tts} @change=${(e: any) => this.save({ tts: e.target.value })}>
             <option value="auto" ?selected=${this.cfg.tts === "auto"}>${this.voiceLabel()}</option>
-            ${s?.robot ? html`<option value="robot" ?selected=${this.cfg.tts === "robot"}>${this.robotLabel()}</option>` : nothing}
+            ${(s?.robotVoices || []).map(v => html`<option value="robot:${v.id}" ?selected=${this.cfg.tts === `robot:${v.id}`}>${v.label} (${v.name})</option>`)}
             ${(s?.engines || []).map(e => html`<option value=${e.id} ?selected=${this.cfg.tts === e.id}>${e.name}</option>`)}
             ${s?.browser ? html`<option value="browser" ?selected=${this.cfg.tts === "browser"}>${t("Stimme des Browsers")}</option>` : nothing}
             <option value="off" ?selected=${this.cfg.tts === "off"}>${t("Ohne Stimme (nur Text)")}</option></select>
           <span class="hint" style="font-weight:400">${s?.robot
-            ? t("„Automatisch“ nimmt die Stimme des Roboters – sie klingt auf jedem Gerät gleich.")
+            ? t("„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Die LLMitMir-Stimme ist dieselbe Stimme ohne Maschinenklang, tiefer und ruhiger.")
             : t("Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.")}</span>
           <button class="btn" @click=${() => this.testVoice()}>${icon("play", 16)} ${t("Stimme anhören")}</button></label>
         <label class="f"><span>${t("Wie lange darf eine Sprechpause sein?")}</span>

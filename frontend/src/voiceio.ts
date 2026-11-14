@@ -111,18 +111,24 @@ export class BrowserListener {
 
 // ------------------------------------------------------------------ Stimmen
 export interface TtsEngine { id: string; name: string; languages: string[]; }
+/** Eine der festen Stimmen von LLMitMir (auf dem Server gesprochen). */
+export interface RobotVoice { id: string; label: string; name: string; effect: boolean; }
 export interface TtsSetup { engines: TtsEngine[]; preferred?: { engine: string; language?: string; voice?: string }; browser: boolean;
-  /** Die feste Stimme von LLMitMir (Roboter-Stimme) steht bereit. */
-  robot?: boolean; robotName?: string; robotLabel?: string; }
-export type TtsChoice = { kind: "robot" } | { kind: "ha"; engine: string; language?: string; voice?: string }
-  | { kind: "browser" } | { kind: "none" };
+  /** Die festen Stimmen von LLMitMir stehen bereit. */
+  robot?: boolean; robotVoices?: RobotVoice[]; robotDefault?: string; }
+export type TtsChoice = { kind: "robot"; voice: string; effect: boolean }
+  | { kind: "ha"; engine: string; language?: string; voice?: string } | { kind: "browser" } | { kind: "none" };
 
 const browserTts = () => typeof window.speechSynthesis !== "undefined" && typeof (window as any).SpeechSynthesisUtterance !== "undefined";
 
 /** Welche Stimmen gibt es? Sprachausgaben von Home Assistant, die des bevorzugten Sprachassistenten und der Browser. */
-export async function ttsSetup(hass: Hass, speech?: { available?: boolean; name?: string; label?: string }): Promise<TtsSetup> {
+export async function ttsSetup(hass: Hass, speech?: { available?: boolean; voices?: RobotVoice[]; default?: string }): Promise<TtsSetup> {
   const out: TtsSetup = { engines: [], browser: browserTts() };
-  if (speech) { out.robot = !!speech.available; out.robotName = speech.name; out.robotLabel = speech.label; }
+  if (speech) {
+    out.robot = !!speech.available;
+    out.robotVoices = speech.voices || [];
+    out.robotDefault = speech.default || out.robotVoices[0]?.id;
+  }
   try {
     const r = await hass.callWS({ type: "tts/engine/list" });
     out.engines = (r?.providers || []).filter((p: any) => !p.deprecated).map((p: any) => ({ id: p.engine_id,
@@ -142,12 +148,23 @@ const langOf = (e: TtsEngine, lang: string) => {
   return e.languages.find(x => x.toLowerCase() === l) || e.languages.find(x => x.toLowerCase().startsWith(l));
 };
 
-/** Einstellung („auto“, „robot“, „browser“, „off“ oder eine Sprachausgabe von Home Assistant) in eine Stimme auflösen. */
+/** Eine der festen Stimmen von LLMitMir (Vorgabe: die Roboterstimme). */
+export function robotChoice(setup: TtsSetup, id?: string): TtsChoice | null {
+  if (!setup.robot) return null;
+  const list = setup.robotVoices || [];
+  const v = list.find(x => x.id === id) || list.find(x => x.id === setup.robotDefault) || list[0];
+  return v ? { kind: "robot", voice: v.id, effect: !!v.effect } : null;
+}
+
+/** Einstellung („auto“, „robot:<id>“, „browser“, „off“ oder eine Sprachausgabe von Home Assistant) in eine Stimme auflösen. */
 export function ttsChoice(setup: TtsSetup, setting: string, lang: string): TtsChoice {
   if (setting === "off") return { kind: "none" };
   if (setting === "browser") return setup.browser ? { kind: "browser" } : { kind: "none" };
-  const robot = (): TtsChoice | null => setup.robot && (lang || "de").toLowerCase().startsWith("de") ? { kind: "robot" } : null;
-  if (setting === "robot" && robot()) return { kind: "robot" };
+  const robot = (id?: string): TtsChoice | null => (lang || "de").toLowerCase().startsWith("de") ? robotChoice(setup, id) : null;
+  if (setting === "robot" || setting.startsWith("robot:")) {
+    const c = robot(setting.includes(":") ? setting.split(":")[1] : undefined);
+    if (c) return c;
+  }
   const pick = (e?: TtsEngine): TtsChoice | null => e ? { kind: "ha", engine: e.id,
     ...(setup.preferred?.engine === e.id ? { language: setup.preferred.language, voice: setup.preferred.voice } : { language: langOf(e, lang) }) } : null;
   if (setting && setting !== "auto") { const c = pick(setup.engines.find(e => e.id === setting)); if (c) return c; }
@@ -183,6 +200,7 @@ export class Speaker {
   private playing = false;
   private gen = 0;
   private node?: AudioBufferSourceNode;
+  private osc?: OscillatorNode;
   private analyser: AnalyserNode;
   private buf: Uint8Array;
   private fake = 0;           // Stimme ohne messbaren Pegel (Browser): Mundbewegung nachahmen
@@ -207,7 +225,8 @@ export class Speaker {
   stop() {
     this.gen++; this.queue = []; this.playing = false; this.fake = 0; this.level = 0;
     try { this.node?.stop(); } catch { /* schon zu Ende */ }
-    this.node = undefined;
+    try { this.osc?.stop(); } catch { /* schon zu Ende */ }
+    this.node = undefined; this.osc = undefined;
     if (browserTts()) try { speechSynthesis.cancel(); } catch { /* nichts zu tun */ }
     this.onSpeak?.(null);
   }
@@ -230,7 +249,8 @@ export class Speaker {
     if (c.kind === "robot") {
       // Die feste Stimme von LLMitMir: auf dem Server gesprochen, damit sie auf jedem Gerät gleich klingt
       res = await this.hass.fetchWithAuth("/api/llmitmir/speak", { method: "POST",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: this.lang }) });
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, lang: this.lang, voice: c.voice }) });
     } else {
       // cache: false – einmalige Sätze sollen nicht dauerhaft im TTS-Ordner von Home Assistant landen
       const r = await this.hass.callApi("POST", "tts_get_url", { engine_id: c.engine, message: text, cache: false,
@@ -241,13 +261,35 @@ export class Speaker {
     return await this.ctx.decodeAudioData(await res.arrayBuffer());
   }
 
+  /** Maschinenklang für die Roboterstimme: leichte Amplitudenmodulation, Bass weg, Höhen betont.
+   *  Das macht aus einer natürlichen Stimme einen Roboter, ohne dass sie schwer zu verstehen wird. */
+  private machine(): AudioNode {
+    const ctx = this.ctx;
+    const ring = ctx.createGain();
+    ring.gain.value = 0.62;
+    const osc = this.osc = ctx.createOscillator();
+    osc.type = "sine"; osc.frequency.value = 58;
+    const depth = ctx.createGain(); depth.gain.value = 0.38;
+    osc.connect(depth); depth.connect(ring.gain);
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 110; hp.Q.value = 0.7;
+    const peak = ctx.createBiquadFilter(); peak.type = "peaking"; peak.frequency.value = 2600; peak.Q.value = 1.1; peak.gain.value = 3.5;
+    ring.connect(hp); hp.connect(peak); peak.connect(this.analyser);
+    try { osc.start(); } catch { /* schon gestartet */ }
+    return ring;
+  }
+
   private async pump() {
     if (this.playing) return;
     const item = this.queue.shift();
     if (!item) { this.onSpeak?.(null); return; }
     const gen = this.gen;
     this.playing = true;
-    const next = () => { if (gen !== this.gen) return; this.playing = false; this.fake = 0; this.pump(); };
+    const next = () => {
+      if (gen !== this.gen) return;
+      try { this.osc?.stop(); } catch { /* schon zu Ende */ }
+      this.osc = undefined;
+      this.playing = false; this.fake = 0; this.pump();
+    };
     let buf: AudioBuffer | null = null;
     if (item.audio) {
       buf = await item.audio;
@@ -266,7 +308,10 @@ export class Speaker {
     this.onSpeak?.(item.text);
     if (buf) {
       const n = this.node = this.ctx.createBufferSource();
-      n.buffer = buf; n.connect(this.analyser); n.onended = next; n.start();
+      n.buffer = buf; n.onended = next;
+      const effect = this.choice.kind === "robot" && this.choice.effect;
+      n.connect(effect ? this.machine() : this.analyser);
+      n.start();
       return;
     }
     this.fake = 1;

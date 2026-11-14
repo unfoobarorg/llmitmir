@@ -155,10 +155,11 @@ class SpeakView(_Base):
             return self.json_message("Ungültige Anfrage", HTTPStatus.BAD_REQUEST)
         text = str(body.get("text") or "")
         lang = str(body.get("lang") or "de")
+        voice = str(body.get("voice") or "")
         if not text.strip():
             return self.json_message("Kein Text", HTTPStatus.BAD_REQUEST)
         try:
-            audio = await SP.synthesize(text, lang)
+            audio = await SP.synthesize(text, lang, voice)
         except ValueError as e:
             return self.json_message(str(e), HTTPStatus.BAD_REQUEST)
         except Exception as e:  # noqa: BLE001

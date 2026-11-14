@@ -2667,26 +2667,38 @@ def test_selfdoc_mentions_voice():
 speech = load("speech")
 
 
-def test_speech_voice_is_male_german_and_fixed():
-    """Die Stimme des Roboters ist fest eingestellt: deutsch, maennlich, etwas ruhiger als ueblich."""
-    assert speech.VOICE == "de-DE-ConradNeural"
+def test_speech_voices_are_male_german_and_fixed():
+    """Zwei feste Stimmen: die Roboterstimme als Standard und die tiefere LLMitMir-Stimme."""
+    assert speech.DEFAULT_VOICE == "robot"
+    assert set(speech.VOICES) == {"robot", "conrad"}
+    robot, conrad = speech.VOICES["robot"], speech.VOICES["conrad"]
+    assert robot["voice"] == "de-DE-KillianNeural" and robot["effect"] is True
+    assert conrad["voice"] == "de-DE-ConradNeural" and conrad["effect"] is False
+    # die Roboterstimme ist hoeher (neutraler) als die tiefe Erzaehlerstimme
+    assert int(robot["pitch"].rstrip("Hz")) > int(conrad["pitch"].rstrip("Hz"))
     assert speech.supports("de") and speech.supports("de-DE") and speech.supports(None)
     assert not speech.supports("en")
-    assert speech.RATE.startswith("-") and speech.PITCH.startswith("-")
+    # unbekannte Namen fallen auf den Standard zurueck
+    assert speech.voice_id(None) == "robot" and speech.voice_id("conrad") == "conrad"
+    assert speech.voice_id("quatsch") == "robot"
 
 
 def test_speech_info_and_cache():
     info = speech.info()
-    assert info["voice"] == speech.VOICE and info["languages"] == ["de"]
-    assert set(info) >= {"available", "voice", "name", "label", "languages"}
+    assert info["default"] == "robot" and info["languages"] == ["de"]
+    assert [v["id"] for v in info["voices"]] == ["robot", "conrad"]
+    assert set(info) >= {"available", "default", "voices", "languages"}
     speech.clear_cache()
     assert speech.cached("Hallo") is None
-    speech._remember(speech._key("Hallo"), b"mp3")
+    speech._remember(speech._key("Hallo", "robot"), b"mp3")
     assert speech.cached("Hallo") == b"mp3"
+    assert speech.cached("Hallo", "robot") == b"mp3"
+    # je Stimme ein eigener Eintrag: Conrad klingt anders und wird nicht mitgeliefert
+    assert speech.cached("Hallo", "conrad") is None
     assert speech.cached("Hallo!") is None
     # der Zwischenspeicher waechst nicht unbegrenzt
     for i in range(speech.CACHE_MAX + 20):
-        speech._remember(speech._key(f"Satz {i}"), b"x")
+        speech._remember(speech._key(f"Satz {i}", "robot"), b"x")
     assert len(speech._cache) == speech.CACHE_MAX
     speech.clear_cache()
 
