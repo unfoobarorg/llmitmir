@@ -39,6 +39,11 @@ const DEFAULTS: Cfg = { tts: "auto", pause: 1200, bargeIn: false, captions: true
 function loadCfg(): Cfg { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { ...DEFAULTS }; } }
 
 const IDLE_PAUSE = 5 * 60 * 1000;   // so lange Stille, dann macht das Mikrofon von selbst Pause
+const KEEP_ALIVE_MS = 9000;         // spaetestens so oft meldet sich der Roboter mit einem Lebenszeichen
+const KEEP_ALIVE: string[] = [       // kurze Lebenszeichen, waehrend nichts Neues passiert (abwechselnd)
+  "Ich bin noch dran …", "Einen Moment noch …", "Ich arbeite daran …", "Gleich habe ich es …",
+  "Noch kurz …", "Ich schaue weiter …",
+];
 
 @safeElement("lm-voice")
 export class Voice extends StoreElement {
@@ -67,6 +72,7 @@ export class Voice extends StoreElement {
   private pending = false; private sawRun = false; private pendingSince = 0;
   private holdUntil = 0; private quietSince = 0;
   private timer: any; private wake: any; private spokePerm = "";
+  private keepAlive = 0; private lastFeedAt = 0; private lastPhase = "";
   private mine = "";                           // Chat, den diese Ansicht selbst angelegt hat
   private _sync = () => this.sync();
 
@@ -347,8 +353,15 @@ export class Voice extends StoreElement {
     else if (this.pending || this.busy) ph = "thinking";
     else ph = this.muted ? "paused" : "listening";
     const d: any = run?.detail || {};
-    this.doing = ph !== "researching" ? "" : DOING[d.tool ? store.data?.tools?.[d.tool]?.group : ""] || (isSimple() || !d.label ? "Ich schaue nach …" : `${d.label} …`);
-    if (ph !== this.phase) { if (ph === "listening") this.quietSince = performance.now(); this.phase = ph; }
+    if (ph === "researching") {
+      this.doing = DOING[d.tool ? store.data?.tools?.[d.tool]?.group : ""] || (isSimple() || !d.label ? "Ich schaue nach …" : `${d.label} …`);
+      this.lastFeedAt = performance.now();
+    } else if (ph === "thinking" || ph === "understanding") {
+      // Lebenszeichen-Uhr mitlaufen lassen, solange regelmaessig Status kommt; sonst greift tick()
+      this.doing = this.keepAliveText();
+      if (run && (run.status !== this.lastPhase)) this.lastFeedAt = performance.now();
+    } else this.doing = "";
+    if (ph !== this.phase) { if (ph === "listening") this.quietSince = performance.now(); this.phase = ph; this.lastPhase = ph; this.lastFeedAt = performance.now(); }
     if (this.mic) {
       const barge = this.cfg.bargeIn && ph === "speaking" && this.mic instanceof Mic;
       this.mic.enabled = !this.muted && (barge || (ph === "listening" && performance.now() >= this.holdUntil));
@@ -361,6 +374,26 @@ export class Voice extends StoreElement {
     // lange nichts gesagt: Pause, damit das Mikrofon nicht stundenlang offen bleibt
     if (this.phase === "listening" && !this.mic?.hearing && performance.now() - this.quietSince > IDLE_PAUSE) this.toggleMute();
     this.sync();
+    // Lebenszeichen: spaetestens alle KEEP_ALIVE_MS meldet sich der Roboter kurz, solange er arbeitet
+    const now = performance.now();
+    const working = this.phase === "thinking" || this.phase === "researching" || this.phase === "understanding";
+    if (working && now - this.lastFeedAt >= KEEP_ALIVE_MS) {
+      this.lastFeedAt = now;
+      this.doing = this.keepAliveText();
+      this.keepAlive++;
+      this.requestUpdate();
+    }
+  }
+
+  /** Abwechselnd kurze Lebenszeichen, damit es nicht repetitiv wirkt. */
+  private keepAliveText(): string {
+    const run = this.chatId ? store.runs[this.chatId] : undefined;
+    const prog = store.chats.get(this.chatId || "")?.progress || [];
+    const live = prog.find((p: any) => p.status === "laeuft") || prog.find((p: any) => p.status === "offen");
+    if (live?.text) return `${live.text} …`;
+    const d: any = run?.detail || {};
+    if (run?.status === "tool" && d.label && !isSimple()) return `${d.label} …`;
+    return t(KEEP_ALIVE[this.keepAlive % KEEP_ALIVE.length]);
   }
 
   // ---------------------------------------------------------------- Anzeige
@@ -369,9 +402,9 @@ export class Voice extends StoreElement {
     switch (this.phase) {
       case "off": return this.starting ? html`${t("Einen Moment")}<span class="dots"></span>` : nothing;
       case "listening": return this.mic?.hearing ? t("Ich höre zu") : html`${t("Ich höre zu – sprich einfach los")}`;
-      case "understanding": return html`${t("Ich verstehe")}<span class="dots"></span>`;
       case "thinking": return run?.status === "retry" || run?.status === "quota_wait" ? html`${t("Gerade ist viel los – einen Moment")}<span class="dots"></span>`
-        : html`${t("Ich denke nach")}<span class="dots"></span>`;
+        : this.doing ? t(this.doing) : html`${t("Ich denke nach")}<span class="dots"></span>`;
+      case "understanding": return this.doing ? t(this.doing) : html`${t("Ich verstehe")}<span class="dots"></span>`;
       case "researching": return t(this.doing);
       case "speaking": return nothing;
       case "paused": return t("Pause – tippe auf das Mikrofon, wenn es weitergehen soll");

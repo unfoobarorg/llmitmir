@@ -12,6 +12,10 @@
 
 export type RobotState = "hello" | "idle" | "listening" | "thinking" | "researching" | "speaking" | "asking" | "error";
 
+/** So lange nach einem Zustandswechsel mischt der Roboter die alte in die neue Haltung –
+ *  dadurch gehen Nachdenken und Recherchieren weich ineinander ueber statt abrupt zu wechseln. */
+const TRANSITION_S = 0.7;
+
 type M4 = Float32Array;
 type V3 = [number, number, number];
 
@@ -184,6 +188,7 @@ export class Robot3D {
   private quad!: WebGLBuffer;
   private col!: Record<keyof RobotColors, V3>;
   private pose: Pose = { ...REST };
+  private prevPose: Pose = { ...REST };   // Pose beim letzten Zustandswechsel, fuer den weichen Uebergang
   private raf = 0; private last = 0; private t = 0; private since = 0; private prevState: RobotState = "idle";
   private blinkAt = 2; private blink = 0;
   private gaze: [number, number] = [0, 0]; private gazeAt = 0;
@@ -298,7 +303,7 @@ export class Robot3D {
 
   private frame(dt: number) {
     this.t += dt;
-    if (this.state !== this.prevState) { this.prevState = this.state; this.since = 0; }
+    if (this.state !== this.prevState) { this.prevState = this.state; this.since = 0; this.prevPose = { ...this.pose }; }
     this.since += dt;
     // Blinzeln in unregelmäßigen Abständen
     this.blinkAt -= dt;
@@ -314,9 +319,16 @@ export class Robot3D {
     this.mouth += (this.voiceLevel - this.mouth) * k(this.voiceLevel > this.mouth ? 30 : 14);
     this.mic += (this.micLevel - this.mic) * k(this.micLevel > this.mic ? 25 : 6);
     const tg = this.target();
-    const p = this.pose as any, g = tg as any;
+    // direkt nach einem Zustandswechsel die alte Pose anteilig mit einbeziehen (weicher Uebergang)
+    let g: any = tg;
+    if (this.since < TRANSITION_S) {
+      const w = this.since / TRANSITION_S, e = w * w * (3 - 2 * w), pp = this.prevPose as any;
+      g = {};
+      for (const key in tg) g[key] = pp[key] + (tg[key] - pp[key]) * e;
+    }
+    const p = this.pose as any;
     for (const key in g) {
-      const rate = key.startsWith("eye") ? 16 : key === "lamp" || key === "ear" || key === "core" ? 12 : key === "holo" ? 6 : 7;
+      const rate = key.startsWith("eye") ? 16 : key === "lamp" || key === "ear" || key === "core" ? 10 : key === "holo" ? 4.5 : 5.5;
       p[key] += (g[key] - p[key]) * k(rate);
     }
     // Antenne federt der Kopfbewegung nach
@@ -362,7 +374,7 @@ export class Robot3D {
         o.bp = 2.05; o.br = -0.2; o.bt = -0.1; o.be = 1.5 + 0.03 * sin(t * 1.3);   // Hand hinters Ohr
         break;
       case "thinking": { // Hand ans Kinn, Blick nach oben, Antenne pulsiert
-        const side = sin(t * 0.55) > -0.3 ? 1 : -1;
+        const side = Math.max(-1, Math.min(1, sin(t * 0.55) * 1.4));   // weich von einer Seite zur anderen
         o.headRz = 0.16; o.headRy = -0.2 * side; o.headRx = -0.13 + 0.02 * sin(t * 1.3);
         o.eyeX = -0.65 * side; o.eyeY = 0.75; o.eyeOpen = 0.82;
         o.ap = 1.35; o.ar = -0.3; o.at = 1.2; o.ae = 1.75 + 0.04 * sin(t * 2.1);
