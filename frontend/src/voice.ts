@@ -16,7 +16,7 @@ import { t } from "./i18n";
 import { defaultLabel, modelName } from "./modelpick";
 import { confirmExternal, isExternal } from "./external";
 import { Robot3D, type RobotState } from "./robot3d";
-import { BrowserListener, Mic, Speaker, ttsChoice, ttsSetup, type TtsSetup } from "./voiceio";
+import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type TtsSetup } from "./voiceio";
 import { SentenceFeed, isNoise } from "./voicetext";
 
 type Phase = "off" | "listening" | "understanding" | "thinking" | "researching" | "speaking" | "paused" | "permission";
@@ -199,6 +199,7 @@ export class Voice extends StoreElement {
       if (!this.tts) this.tts = await ttsSetup(store.api.hass, store.data?.speech);
       const sp = this.speaker = new Speaker(store.api.hass, this.ctx!);
       sp.lang = this.locale; sp.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
+      sp.fallback = ttsFallback(this.tts, this.locale);
       sp.onSpeak = txt => { if (txt) this.caption = txt; else this.holdUntil = performance.now() + 350; this.sync(); if (!txt) setTimeout(this._sync, 380); };
       if (store.data?.transcription && Mic.supported()) {
         const mic = this.mic = new Mic();
@@ -417,6 +418,7 @@ export class Voice extends StoreElement {
       if (!this.tts) this.tts = await ttsSetup(store.api.hass, store.data?.speech);
       const sp = new Speaker(store.api.hass, ctx);
       sp.lang = this.locale; sp.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
+      sp.fallback = ttsFallback(this.tts, this.locale);
       sp.say(t("Hallo! Ich bin der Roboter von LLMitMir. So klinge ich."));
       // warten, bis der Satz gesprochen ist, dann den Ton wieder freigeben
       const wait = setInterval(() => { if (!sp.busy) { clearInterval(wait); ctx.close().catch(() => undefined); } }, 300);

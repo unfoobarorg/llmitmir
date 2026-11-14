@@ -158,6 +158,15 @@ export function ttsChoice(setup: TtsSetup, setting: string, lang: string): TtsCh
     || (setup.browser ? { kind: "browser" } : pick(setup.engines[0]) || { kind: "none" });
 }
 
+/** Was liest vor, wenn die feste Stimme nicht erreichbar ist? (Sprachausgabe von Home Assistant, sonst Browser.) */
+export function ttsFallback(setup: TtsSetup, lang: string): TtsChoice {
+  const pick = (e?: TtsEngine): TtsChoice | null => e ? { kind: "ha", engine: e.id,
+    ...(setup.preferred?.engine === e.id ? { language: setup.preferred.language, voice: setup.preferred.voice } : { language: langOf(e, lang) }) } : null;
+  return pick(setup.engines.find(e => e.id === setup.preferred?.engine))
+    || pick(setup.engines.find(e => !!langOf(e, lang)))
+    || (setup.browser ? { kind: "browser" } : pick(setup.engines[0]) || { kind: "none" });
+}
+
 // ------------------------------------------------------------------ Vorlesen
 interface Item { text: string; audio?: Promise<AudioBuffer | null>; }
 
@@ -165,6 +174,8 @@ export class Speaker {
   /** Lautstärke der Stimme (0..1) – bewegt den Mund des Roboters. */
   level = 0;
   choice: TtsChoice = { kind: "none" };
+  /** Wenn die feste Stimme nicht erreichbar ist, liest diese hier (statt gar nichts). */
+  fallback?: TtsChoice;
   lang = "de";
   /** Wird aufgerufen, wenn ein Stück beginnt (Untertitel) und wenn alles gesagt ist (`null`). */
   onSpeak?: (text: string | null) => void;
@@ -241,7 +252,16 @@ export class Speaker {
     if (item.audio) {
       buf = await item.audio;
       if (gen !== this.gen) return;
-      if (!buf && !this.failed) { this.failed = true; console.warn("LLMitMir: die Stimme ist nicht nutzbar – es liest die Sprachausgabe von Home Assistant oder der Browser."); }
+      if (!buf && this.choice.kind === "robot" && this.fallback && this.fallback.kind !== "none") {
+        // die feste Stimme ist nicht erreichbar: für dieses und alle weiteren Stücke die Ersatzstimme nehmen
+        this.choice = this.fallback;
+        if (!this.failed) { this.failed = true; console.warn("LLMitMir: die feste Stimme ist nicht erreichbar – es liest die Sprachausgabe von Home Assistant oder der Browser."); }
+        if (this.choice.kind === "ha") buf = await this.synth(item.text, this.choice).catch(() => null);
+        if (gen !== this.gen) return;
+      } else if (!buf && !this.failed) {
+        this.failed = true;
+        console.warn("LLMitMir: die Stimme ist nicht nutzbar – es liest die Sprachausgabe von Home Assistant oder der Browser.");
+      }
     }
     this.onSpeak?.(item.text);
     if (buf) {
