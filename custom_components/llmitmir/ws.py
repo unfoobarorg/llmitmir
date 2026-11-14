@@ -22,6 +22,7 @@ from . import pricing as PR
 from . import retention as RT
 from . import providers as PV
 from . import sharing as SH
+from . import speech as SP
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, PRESETS,
                     TASK_KEY_CHOICES, TASK_KEY_MODES, TASK_KEY_OWN, VERSION)
@@ -191,6 +192,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "runs": runs,
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
+        # Die feste Stimme des Roboters (eigene Sprachausgabe, auf jedem Gerät gleich)
+        "speech": SP.info(),
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
@@ -298,9 +301,10 @@ async def ws_chat_get(hass, conn, msg, m, user, st):
 
 @command(_t("chat/create") | {vol.Optional("kind", default=KIND_CHAT): vol.In([KIND_CHAT, KIND_COWORK]),
                                vol.Optional("project_id"): vol.Any(str, None), vol.Optional("model"): vol.Any(str, None),
-                               vol.Optional("tools"): vol.Any([str], None)})
+                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("voice", default=False): bool})
 async def ws_chat_create(hass, conn, msg, m, user, st):
-    chat = await m.create_chat(user.id, msg["kind"], msg.get("project_id"), msg.get("model"), tools=msg.get("tools"))
+    chat = await m.create_chat(user.id, msg["kind"], msg.get("project_id"), msg.get("model"), tools=msg.get("tools"),
+                               voice=msg["voice"])
     return st.chat_summary(chat)
 
 
@@ -356,9 +360,10 @@ async def ws_chat_delete_many(hass, conn, msg, m, user, st):
 
 @command(_t("chat/send") | {vol.Required("chat_id"): str, vol.Required("text"): str,
                              vol.Optional("attachments"): [str], vol.Optional("model"): str,
-                             vol.Optional("tools"): vol.Any([str], None)})
+                             vol.Optional("tools"): vol.Any([str], None), vol.Optional("voice", default=False): bool})
 async def ws_chat_send(hass, conn, msg, m, user, st):
-    run_id = await m.send(user, msg["chat_id"], msg["text"], msg.get("attachments"), msg.get("model"), msg.get("tools"))
+    run_id = await m.send(user, msg["chat_id"], msg["text"], msg.get("attachments"), msg.get("model"), msg.get("tools"),
+                          voice=msg["voice"])
     return {"run_id": run_id}
 
 

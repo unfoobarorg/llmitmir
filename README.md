@@ -17,6 +17,33 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
+- **Sprechen (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite und aus der Seitenleiste –, in der
+  man mit LLMitMir redet wie am Telefon, beliebig lange und über viele Runden. Das Mikrofon bleibt offen; eine
+  Sprechpause beendet die Äußerung (keine Taste halten), sie wird abgeschrieben (`/audio/transcriptions` des Anbieters,
+  Fallback Browser-Spracherkennung) und als normale Nachricht in einen Chat gestellt. Die Antwort wird Satz für Satz
+  vorgelesen, noch während sie entsteht – mit der **festen Stimme des Roboters**, die LLMitMir selbst mitbringt
+  (auf dem Server gesprochen, damit sie auf iPad, im Browser und in der Android-App gleich klingt – dort gibt es
+  keine brauchbare Stimme des Systems). Standard ist die **Roboterstimme**: eine neutrale, männliche deutsche
+  Stimme, nicht so tief wie eine Erzählerstimme, mit einem leichten Maschinenklang (Ringmodulation, Bass weg,
+  Höhen betont). Wahlweise die **LLMitMir-Stimme** (dieselbe Stimme ohne Klangbearbeitung, tiefer und ruhiger)
+  oder die **weibliche Stimme** (natürlich, ohne Klangbearbeitung).
+  Ist die Stimme nicht erreichbar, liest die **Sprachausgabe von Home Assistant** (die Stimme des bevorzugten
+  Sprachassistenten, z. B. Piper oder Home Assistant Cloud), sonst die Stimme des Browsers oder nur als Untertitel. Es ist ein ganz normaler Chat: Open-Weight-Modelle wie
+  kostenpflichtige externe Modelle (Expertenansicht: Modellwahl in den Einstellungen der Ansicht), Werkzeuge und
+  Freigaben (als Karte zum Antippen) funktionieren wie dort – mit einem Unterschied: Was im Gespräch einmal erlaubt
+  wurde (ein Werkzeug oder eine ganze Werkzeuggruppe), gilt für den Rest des Gesprächs und wird nicht bei jeder
+  Aktion erneut gefragt; sonst stockt der Gesprächsfluss. Getippt wird weiterhin jede Aktion einzeln bestätigt.
+  Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
+  das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
+  Den Bildschirm füllt der **Roboter aus dem LLMitMir-Icon in 3D** (eigenes kleines WebGL, keine 3D-Bibliothek): weiße
+  Schale, grüne Gesichtsscheibe, leuchtende Augen, Antenne – menschenähnlich in Haltung und Gesten, in der Oberfläche
+  klar eine Maschine. Er ist durchgehend in Bewegung und zeigt, was gerade passiert: **Zuhören** (beugt sich vor, Hand
+  hinters Ohr, die Ohren leuchten mit der Stimme), **Warten** (schaut sich um, wiegt sich), **Nachdenken** (Hand ans
+  Kinn, Blick nach oben, Antenne pulsiert), **Recherchieren** (tippt auf einer schwebenden Tafel, Augen lesen Zeilen,
+  Lichtpunkte kreisen um die Antenne) und **Antworten** (der Mund bewegt sich mit der Lautstärke der Stimme, die Hände
+  gestikulieren). Tippen auf den Roboter unterbricht die Antwort, das Mikrofon lässt sich pausieren (nach fünf Minuten
+  Stille von selbst), optional unterbricht auch Dazwischenreden. Der Bildschirm bleibt während des Gesprächs an.
+  Voraussetzung fürs Mikrofon: HTTPS und kein `Permissions-Policy: microphone=()` am Webserver.
 - **Entwurf je Chat und je Projekt**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel
   in einen anderen Chat erhalten und steht beim Zurückkommen wieder da – auch auf der Startseite und auf einer
   Projektseite, wo ein neuer Chat oder Cowork beginnt. Wer dort etwas tippt, kurz in einen Chat schaut und zurückkommt,
@@ -217,12 +244,14 @@ npm run check      # TypeScript prüfen
 ```
 
 Das Frontend ist TypeScript mit [Lit](https://lit.dev), gebündelt mit esbuild; Markdown über `marked` + `DOMPurify`.
+Der 3D-Roboter des Sprachgesprächs (`frontend/src/robot3d.ts`) ist eigenes WebGL ohne weitere Abhängigkeit; Mikrofon und
+Vorlesen stehen in `voiceio.ts`, die Aufbereitung des Textes fürs Vorlesen in `voicetext.ts`, die Ansicht in `voice.ts`.
 
 ## English
 
 LLMitMir adds a Claude-Desktop-style panel to Home Assistant. By default people get a simple view (messenger-style chat
 with request and answer only, automatic model choice, plain-language answers, explained features); the full expert view
-can be switched on in the settings, and admins can fix the view per person. The expert view offers chats with streaming, reasoning and voice input; coworks
+can be switched on in the settings, and admins can fix the view per person. Both views include a talk mode: a hands-free spoken conversation (speech recognition via the provider, answers read aloud with Home Assistant's text-to-speech or the browser voice) in which the robot from the LLMitMir icon, rendered in 3D, visibly listens, waits, thinks, researches and answers. The expert view offers chats with streaming, reasoning and voice input; coworks
 (autonomous tool use with approvals); scheduled tasks designed for slow, rate-limited open-weight models, which can be
 shared with other Home Assistant users (view, edit, own push notification per person); projects; skills;
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).

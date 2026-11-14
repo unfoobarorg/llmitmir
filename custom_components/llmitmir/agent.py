@@ -28,6 +28,7 @@ from . import selfdoc as SD
 from . import sharing as SH
 from . import taskkeys as TK
 from . import views as V
+from . import voice as VO
 from .claude_client import ClaudeClient
 from .claude_client import available as claude_available
 from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
@@ -736,7 +737,8 @@ class Manager:
 
     # ------------------------------------------------------------- chats
     async def create_chat(self, user_id: str, kind: str, project_id: str | None = None, model: str | None = None,
-                          title: str = "", task_id: str | None = None, tools: list[str] | None = None) -> dict:
+                          title: str = "", task_id: str | None = None, tools: list[str] | None = None,
+                          voice: bool = False) -> dict:
         st = await self.user_store(user_id)
         if project_id and project_id not in st.meta["projects"]:
             raise ValueError("Projekt unbekannt")
@@ -765,6 +767,8 @@ class Manager:
                 "last_seen": 0 if kind == KIND_TASK_RUN else now(),
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": tools}
+        if voice and kind == KIND_CHAT:
+            chat["voice"] = True  # als Sprachgespräch begonnen (Ansicht „Sprechen“); sonst ein normaler Chat
         await st.async_save_chat(chat)
         self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
         return chat
@@ -815,12 +819,14 @@ class Manager:
         return None
 
     async def send(self, user, chat_id: str, text: str, attachments: list[str] | None = None,
-                   model: str | None = None, tools: list[str] | None = None) -> str:
+                   model: str | None = None, tools: list[str] | None = None, voice: bool = False) -> str:
         st = await self.user_store(user.id)
         chat = await st.async_get_chat(chat_id)
         if not chat:
             raise ValueError("Chat nicht gefunden")
         msg = {"id": new_id("m"), "role": "user", "content": text, "created": now(), "attachments": attachments or []}
+        if voice:
+            msg["voice"] = True  # gesprochen statt getippt: die Antwort wird vorgelesen (voice.py)
         if self.active_run(chat_id):
             # Wie bei Claude: mitten im Lauf weiterschreiben ist erlaubt. Die Nachricht steht sichtbar
             # als "wartet" im Verlauf und wird beantwortet, sobald der laufende Schritt fertig ist.
@@ -1005,7 +1011,7 @@ class Manager:
                     break
                 if tools and interactive and not simple and steps - step == WRAPUP_STEPS:
                     # expert view: the model is still at work and the limit is near – ask before it has to wrap up
-                    more = await self._ask_more_steps(run, steps)
+                    more = await self._ask_more_steps(run, chat, steps)
                     if run.cancel.is_set():
                         final_status = "stopped"
                         break
@@ -1287,15 +1293,20 @@ class Manager:
                                 (self.config.data.get("billing") or {}).get("fallback_model") or None)
         return {"models": models, "recommended": pref, "reason": ps["why"].get(PV.MAIN) or ""}
 
-    async def _ask_more_steps(self, run: Run, steps: int) -> int:
+    async def _ask_more_steps(self, run: Run, chat: dict, steps: int) -> int:
         """Ask (expert view) how many more steps the run may use instead of wrapping up.
 
         Returns 0 (wrap up now), MAX_STEPS_MORE (a little more) or MAX_STEPS_MORE_LOTS (a lot more, so the
         question does not come back soon)."""
+        if VO.allowed(chat, "more_steps"):
+            # im Sprachgespraech schon einmal erlaubt: gleich viel mehr, statt mitten im Gespraech wieder zu fragen
+            return MAX_STEPS_MORE_LOTS
         decision = await self.ask_permission(run, {"tool": "more_steps", "label": f"{MAX_STEPS_MORE} weitere Schritte",
                                                    "icon": "list", "steps": {"used": steps - WRAPUP_STEPS,
                                                                               "limit": steps, "more": MAX_STEPS_MORE,
                                                                               "lots": MAX_STEPS_MORE_LOTS}})
+        if decision in MORE_STEPS:
+            VO.remember(chat, "more_steps")
         return MORE_STEPS.get(decision, 0)
 
     async def _apply_switch(self, run: Run, chat: dict, st: UserStore, amsg: dict | None) -> None:
@@ -1522,6 +1533,11 @@ class ToolContext:
                 "- Hast du eine Datei angelegt, sag, wie sie heißt – die Person findet sie oben im Chat unter „Dateien“.\n"
                 "- Vor und zwischen Werkzeugaufrufen keinen Text schreiben (keine Ankündigungen wie „Ich schaue kurz nach“): "
                 "Die Person sieht nur deine fertige Antwort.")
+        if self.task is None and VO.is_voice_turn(self.chat.get("messages")):
+            # gesprochen statt getippt: die Antwort wird vorgelesen (gilt vor der Markdown-Regel oben und
+            # erlaubt – anders als die einfache Ansicht – einen kurzen Satz vor einem Werkzeugaufruf)
+            parts.append(VO.VOICE_PROMPT + "\nDiese Regeln gehen der Markdown-Formatierung und dem Verbot von Text vor "
+                         "Werkzeugaufrufen vor, solange das Gespräch gesprochen wird.")
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "
@@ -1769,15 +1785,20 @@ class ToolContext:
             if self.permission_for(name) == PERM_DENY:
                 msg.update(content="Abgelehnt: Diese Aktion ist hier nicht freigegeben.", status="denied")
                 return msg
-            decision = await self.manager.ask_permission(self.run, {
-                "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
-                "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
-            if decision in ("deny", "skip"):
-                msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
-                                   "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
-                return msg
-            if decision == "always":
+            if VO.group_allowed(self.chat, tool.group):
+                # im Sprachgespraech schon einmal erlaubt: nicht wieder fragen, sonst stockt das Gespraech
                 self._grant_group(tool.group)
+            else:
+                decision = await self.manager.ask_permission(self.run, {
+                    "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
+                    "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
+                if decision in ("deny", "skip"):
+                    msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
+                                       "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
+                    return msg
+                if decision == "always":
+                    self._grant_group(tool.group)
+                VO.remember_group(self.chat, tool.group)
             asked = True
         if tool.preview is not None:
             if self.task is not None:
@@ -1807,7 +1828,7 @@ class ToolContext:
                             "abgelehnt – ohne diese Aktion weiterarbeiten und sie im Bericht nennen.")
                 msg.update(content=text, status="denied")
                 return msg
-            if perm == PERM_ASK:
+            if perm == PERM_ASK and not VO.allowed(self.chat, name):
                 decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"],
                                                                          "icon": tool.icon, "args": msg["args"]})
                 if decision in ("deny", "skip"):
@@ -1816,6 +1837,8 @@ class ToolContext:
                     return msg
                 if decision == "always":
                     self._remember_allow(name)
+                # im Sprachgespraech gilt die Erlaubnis fuer den Rest des Gespraechs (auch bei „einmal“)
+                VO.remember(self.chat, name)
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                       "args": msg["args"]})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,

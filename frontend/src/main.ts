@@ -9,6 +9,7 @@ import "./chat";
 import "./pages";
 import "./pages2";
 import "./settings";
+import "./voice";
 
 const LS = "llmitmir.sidebar";
 
@@ -433,6 +434,7 @@ export class LLMitMirPanel extends LitElement {
       <div class="nv">
         <button class="ni new" title=${t("Neuer Chat")} @click=${() => navigate("/")}><span class="plus">${icon("plus", 18)}</span><span class="lbl">${t("Neuer Chat")}</span></button>
         ${isSimple() ? nothing : ni("/cowork", "cowork", t("Neues Cowork"), p === "cowork")}
+        ${ni("/voice", "voice", t("Sprechen"), p === "voice")}
         ${ni("/chats", "chat", t("Chats"), p === "chats")}
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
         ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
@@ -452,6 +454,7 @@ export class LLMitMirPanel extends LitElement {
     const [p, id] = this.path;
     switch (p) {
       case "chat": return html`<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
+      case "voice": return html`<lm-voice .chatId=${id}>${this.menuBtn()}</lm-voice>`;
       case "cowork": return this.wrap(html`<lm-home initialMode=${isSimple() ? "chat" : "cowork"}></lm-home>`);
       case "chats": return this.wrap(html`<lm-chats></lm-chats>`);
       case "projects": return this.wrap(html`<lm-projects></lm-projects>`);

@@ -2632,3 +2632,106 @@ def test_negotiate_update_fields_skips_when_known():
         assert calls == [], "keine Anfrage noetig, wenn alles bekannt ist"
     finally:
         E.call = original
+
+
+# ------------------------------------------------------------------ Sprachgespräch (voice.py)
+voice = load("voice")
+
+
+def test_voice_turn_follows_last_user_message():
+    """Der Sprach-Hinweis gilt, solange die letzte Nachricht der Person gesprochen war."""
+    spoken = {"role": "user", "content": "Wie wird das Wetter?", "voice": True}
+    typed = {"role": "user", "content": "Und morgen?"}
+    assert not voice.is_voice_turn(None)
+    assert not voice.is_voice_turn([])
+    assert voice.is_voice_turn([spoken])
+    # Werkzeug- und Modellnachrichten nach der gesprochenen Frage aendern nichts (mehrere Schritte eines Laufs)
+    assert voice.is_voice_turn([typed, {"role": "assistant", "content": "…"}, spoken,
+                                {"role": "assistant", "content": "", "tool_calls": [{"id": "t"}]},
+                                {"role": "tool", "content": "sonnig"}])
+    # tippt die Person im selben Chat weiter, gilt wieder die normale Schreibweise
+    assert not voice.is_voice_turn([spoken, {"role": "assistant", "content": "Sonnig."}, typed])
+
+
+def test_voice_remembers_permission_for_the_conversation():
+    """Im Sprachgespraech gilt eine Erlaubnis fuer den Rest des Gespraechs – nicht fuer getippte Chats."""
+    spoken = {"role": "user", "content": "Mach das Licht an.", "voice": True}
+    typed = {"role": "user", "content": "Mach das Licht an."}
+    chat = {"messages": [spoken]}
+    assert not voice.allowed(chat, "ha_service")
+    assert voice.remember(chat, "ha_service") is True
+    assert voice.allowed(chat, "ha_service")
+    assert voice.remember(chat, "ha_service") is False, "nur einmal merken"
+    assert not voice.allowed(chat, "dav_write")
+    # Werkzeuggruppen genauso
+    assert voice.remember_group(chat, "dav") is True
+    assert voice.group_allowed(chat, "dav")
+    assert not voice.group_allowed(chat, "mail")
+    # getippt: nichts gemerkt, also weiterhin jede Aktion einzeln fragen
+    typed_chat = {"messages": [typed]}
+    assert voice.remember(typed_chat, "ha_service") is False
+    assert not voice.allowed(typed_chat, "ha_service")
+    assert "voice_allowed" not in typed_chat
+
+
+def test_voice_prompt_asks_for_speakable_answers():
+    p = voice.VOICE_PROMPT
+    assert p.startswith("## Sprachgespräch")
+    for word in ("vorgelesen", "Kein Markdown", "Tabellen", "Links", "Hörfehler", "Freigabe"):
+        assert word in p, word
+
+
+def test_selfdoc_mentions_voice():
+    assert "**Sprechen**" in selfdoc.ABOUT
+
+
+speech = load("speech")
+
+
+def test_speech_voices_are_german_and_fixed():
+    """Drei feste Stimmen: Roboterstimme als Standard, die tiefere LLMitMir-Stimme und eine weibliche."""
+    assert speech.DEFAULT_VOICE == "robot"
+    assert set(speech.VOICES) == {"robot", "conrad", "tanja"}
+    robot, conrad, tanja = speech.VOICES["robot"], speech.VOICES["conrad"], speech.VOICES["tanja"]
+    assert robot["voice"] == "de-DE-KillianNeural" and robot["effect"] is True
+    assert conrad["voice"] == "de-DE-ConradNeural" and conrad["effect"] is False
+    # die weibliche Stimme klingt natuerlich: keine Klangbearbeitung
+    assert tanja["voice"] == "de-DE-TanjaNeural" and tanja["effect"] is False
+    assert tanja["label"] == "Weibliche Stimme"
+    # die Roboterstimme ist hoeher (neutraler) als die tiefe Erzaehlerstimme
+    assert int(robot["pitch"].rstrip("Hz")) > int(conrad["pitch"].rstrip("Hz"))
+    assert speech.supports("de") and speech.supports("de-DE") and speech.supports(None)
+    assert not speech.supports("en")
+    # unbekannte Namen fallen auf den Standard zurueck
+    assert speech.voice_id(None) == "robot" and speech.voice_id("conrad") == "conrad"
+    assert speech.voice_id("tanja") == "tanja"
+    assert speech.voice_id("quatsch") == "robot"
+
+
+def test_speech_info_and_cache():
+    info = speech.info()
+    assert info["default"] == "robot" and info["languages"] == ["de"]
+    assert [v["id"] for v in info["voices"]] == ["robot", "conrad", "tanja"]
+    assert set(info) >= {"available", "default", "voices", "languages"}
+    speech.clear_cache()
+    assert speech.cached("Hallo") is None
+    speech._remember(speech._key("Hallo", "robot"), b"mp3")
+    assert speech.cached("Hallo") == b"mp3"
+    assert speech.cached("Hallo", "robot") == b"mp3"
+    # je Stimme ein eigener Eintrag: Conrad klingt anders und wird nicht mitgeliefert
+    assert speech.cached("Hallo", "conrad") is None
+    assert speech.cached("Hallo!") is None
+    # der Zwischenspeicher waechst nicht unbegrenzt
+    for i in range(speech.CACHE_MAX + 20):
+        speech._remember(speech._key(f"Satz {i}", "robot"), b"x")
+    assert len(speech._cache) == speech.CACHE_MAX
+    speech.clear_cache()
+
+
+def test_speech_rejects_empty_and_foreign_language():
+    import asyncio
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        asyncio.run(speech.synthesize("   "))
+    with _pytest.raises(ValueError):
+        asyncio.run(speech.synthesize("Hello", "en"))

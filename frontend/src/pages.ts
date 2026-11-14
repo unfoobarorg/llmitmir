@@ -41,6 +41,7 @@ export class Home extends StoreElement {
     .sugg button { border: 1px solid var(--lm-line); background: transparent; border-radius: 999px; padding: 7px 13px; font-size: 13.5px;
       color: var(--lm-muted); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; transition: all .15s; }
     .sugg button:hover { background: var(--lm-panel); color: var(--lm-text); border-color: color-mix(in srgb, var(--lm-accent) 40%, var(--lm-line)); }
+    .sugg button.talk { color: var(--lm-accent); border-color: color-mix(in srgb, var(--lm-accent) 45%, var(--lm-line)); font-weight: 560; }
     .info { margin-top: 26px; font-size: 12.5px; color: var(--lm-faint); text-align: center; }
     .nokey { margin-bottom: 16px; }
   `];
@@ -81,6 +82,7 @@ export class Home extends StoreElement {
         @mode=${(e: CustomEvent) => { this.mode = e.detail; this.manual = false; }} @model=${(e: CustomEvent) => { this.model = e.detail; this.manual = true; }}
         @project=${(e: CustomEvent) => { this.projectId = e.detail; this.manual = false; this.pickModel(); }} @send=${this.send}></lm-composer>
       <div class="sugg">
+        <button class="talk" @click=${() => navigate("/voice")}>${icon("voice", 16)} ${t("Sprechen")}</button>
         ${simple ? html`
           <button @click=${() => this.fill("Erkläre mir einfach und verständlich: ", "chat")}>${icon("sparkle", 16)} Etwas erklären lassen</button>
           <button @click=${() => this.fill("Verbessere diesen Text, freundlich und gut verständlich:\n\n", "chat")}>${icon("edit", 16)} Text verbessern</button>

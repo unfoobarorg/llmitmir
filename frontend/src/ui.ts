@@ -32,7 +32,7 @@ const MAP: Record<string, string> = {
   cloud: mdi.mdiCloudOutline, wait: mdi.mdiProgressClock, external: mdi.mdiOpenInNew,
   calendarEdit: mdi.mdiCalendarEdit, calendarPlus: mdi.mdiCalendarPlus, contact: mdi.mdiAccountBoxOutline,
   up: mdi.mdiArrowUp, arrowDown: mdi.mdiArrowDown, euro: mdi.mdiCurrencyEur, shield: mdi.mdiShieldAlertOutline,
-  share: mdi.mdiShareVariantOutline,
+  share: mdi.mdiShareVariantOutline, voice: mdi.mdiAccountVoice, micOff: mdi.mdiMicrophoneOff, hangup: mdi.mdiPhoneHangup,
 };
 
 export function mdiPath(name: string): string {
@@ -329,6 +329,30 @@ export const menuItemStyles = css`
 `;
 
 // ------------------------------------------------------------------ voice recorder (16 kHz mono WAV)
+/** Aufnahme (Float-Blöcke in der Abtastrate des Geräts) als WAV mit 16 kHz mono – so erwartet es die Spracherkennung. */
+export function encodeWav(chunks: Float32Array[], rate: number): Blob {
+  const len = chunks.reduce((a, c) => a + c.length, 0);
+  const all = new Float32Array(len); let o = 0;
+  for (const c of chunks) { all.set(c, o); o += c.length; }
+  // downsample to 16 kHz
+  const ratio = rate / 16000, n = Math.floor(all.length / ratio);
+  const pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(all.length, Math.floor((i + 1) * ratio));
+    let s = 0; for (let j = a; j < b; j++) s += all[j];
+    const v = Math.max(-1, Math.min(1, s / Math.max(1, b - a)));
+    pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+  }
+  const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
+  const w = (p: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(p + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, 16000, true);
+  dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, "data");
+  dv.setUint32(40, pcm.length * 2, true);
+  new Int16Array(buf, 44).set(pcm);
+  return new Blob([buf], { type: "audio/wav" });
+}
+
 export class VoiceRecorder {
   private ctx?: AudioContext; private src?: MediaStreamAudioSourceNode; private proc?: ScriptProcessorNode;
   private stream?: MediaStream; private chunks: Float32Array[] = []; private rate = 48000;
@@ -353,27 +377,9 @@ export class VoiceRecorder {
     this.proc?.disconnect(); this.src?.disconnect();
     this.stream?.getTracks().forEach(t => t.stop());
     await this.ctx?.close();
-    const len = this.chunks.reduce((a, c) => a + c.length, 0);
-    const all = new Float32Array(len); let o = 0;
-    for (const c of this.chunks) { all.set(c, o); o += c.length; }
+    const wav = encodeWav(this.chunks, this.rate);
     this.chunks = [];
-    // downsample to 16 kHz
-    const ratio = this.rate / 16000, n = Math.floor(all.length / ratio);
-    const pcm = new Int16Array(n);
-    for (let i = 0; i < n; i++) {
-      const a = Math.floor(i * ratio), b = Math.min(all.length, Math.floor((i + 1) * ratio));
-      let s = 0; for (let j = a; j < b; j++) s += all[j];
-      const v = Math.max(-1, Math.min(1, s / Math.max(1, b - a)));
-      pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
-    }
-    const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
-    const w = (p: number, s: string) => { for (let i = 0; i < s.length; i++) dv.setUint8(p + i, s.charCodeAt(i)); };
-    w(0, "RIFF"); dv.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
-    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true); dv.setUint32(24, 16000, true);
-    dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); w(36, "data");
-    dv.setUint32(40, pcm.length * 2, true);
-    new Int16Array(buf, 44).set(pcm);
-    return new Blob([buf], { type: "audio/wav" });
+    return wav;
   }
   cancel() { this.proc?.disconnect(); this.src?.disconnect(); this.stream?.getTracks().forEach(t => t.stop()); this.ctx?.close(); this.chunks = []; }
 }
