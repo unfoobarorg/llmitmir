@@ -25,7 +25,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   (auf dem Server gesprochen, damit sie auf iPad, im Browser und in der Android-App gleich klingt – dort gibt es
   keine brauchbare Stimme des Systems). Standard ist die **Roboterstimme**: eine neutrale, männliche deutsche
   Stimme, nicht so tief wie eine Erzählerstimme, mit einem leichten Maschinenklang (Ringmodulation, Bass weg,
-  Höhen betont). Wahlweise die **LLMitMir-Stimme** (dieselbe Stimme ohne Klangbearbeitung, tiefer und ruhiger)
+  Höhen betont). Wahlweise die **männliche Stimme** (dieselbe Stimme ohne Klangbearbeitung, tiefer und ruhiger)
   oder die **weibliche Stimme** (natürlich, ohne Klangbearbeitung).
   Ist die Stimme nicht erreichbar, liest die **Sprachausgabe von Home Assistant** (die Stimme des bevorzugten
   Sprachassistenten, z. B. Piper oder Home Assistant Cloud), sonst die Stimme des Browsers oder nur als Untertitel. Es ist ein ganz normaler Chat: Open-Weight-Modelle wie

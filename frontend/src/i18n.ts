@@ -57,10 +57,10 @@ const EN: Record<string, string> = {
   "Antwort unterbrechen": "Interrupt the answer", "Mikrofon einschalten": "Turn microphone on", "Mikrofon aus (Pause)": "Microphone off (pause)",
   "Tippen unterbricht die Antwort": "Tap to interrupt the answer", "Der Roboter von LLMitMir": "The LLMitMir robot",
   "Stimme": "Voice", "Automatisch": "Automatic", "Stimme des Browsers": "Browser voice", "nur Text": "text only", "Ohne Stimme (nur Text)": "No voice (text only)",
-  "LLMitMir-Stimme": "LLMitMir voice", "Roboterstimme": "Robot voice", "Stimme anhören": "Listen to the voice",
+  "Männliche Stimme": "Male voice", "Roboterstimme": "Robot voice", "Stimme anhören": "Listen to the voice",
   "Hallo! Ich bin LLMitMir. So klinge ich.": "Hello! I'm LLMitMir. This is how I sound.",
-  "„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die LLMitMir-Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.":
-    "“Automatic” uses the robot voice – it sounds the same on every device. You can also pick the LLMitMir voice (deeper, no machine effect) or a natural female voice.",
+  "„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die männliche Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.":
+    "“Automatic” uses the robot voice – it sounds the same on every device. You can also pick the male voice (deeper, no machine effect) or a natural female voice.",
   "Weibliche Stimme": "Female voice",
   "Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.":
     "The robot's voice is not set up; Home Assistant's text-to-speech or the browser will read instead.",

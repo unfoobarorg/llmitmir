@@ -452,7 +452,7 @@ export class Voice extends StoreElement {
             ${s?.browser ? html`<option value="browser" ?selected=${this.cfg.tts === "browser"}>${t("Stimme des Browsers")}</option>` : nothing}
             <option value="off" ?selected=${this.cfg.tts === "off"}>${t("Ohne Stimme (nur Text)")}</option></select>
           <span class="hint" style="font-weight:400">${s?.robot
-            ? t("„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die LLMitMir-Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.")
+            ? t("„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die männliche Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.")
             : t("Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.")}</span>
           <button class="btn" @click=${() => this.testVoice()}>${icon("play", 16)} ${t("Stimme anhören")}</button></label>
         <label class="f"><span>${t("Wie lange darf eine Sprechpause sein?")}</span>

@@ -9,7 +9,7 @@ Drei Stimmen stehen zur Wahl:
 - **Roboterstimme** (Standard): eine neutrale, männliche deutsche Stimme, nicht so tief wie eine Erzählerstimme,
   und im Browser mit einem leichten Maschinenklang versehen (Ringmodulation, etwas schlanker im Bass) – so klingt
   sie nach dem Roboter in der Ansicht „Sprechen“, bleibt aber gut verständlich.
-- **LLMitMir-Stimme (Conrad)**: die tiefe, ruhige Erzählerstimme, ohne Klangbearbeitung.
+- **Männliche Stimme (Conrad)**: die tiefe, ruhige Erzählerstimme, ohne Klangbearbeitung.
 - **Weibliche Stimme (Tanja)**: eine natürliche Frauenstimme, ohne Klangbearbeitung – für alle, die lieber mit
   einer Frau sprechen.
 
@@ -31,7 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 VOICES: dict[str, dict] = {
     "robot": {"voice": "de-DE-KillianNeural", "name": "Killian", "label": "Roboterstimme",
               "rate": "-3%", "pitch": "+12Hz", "effect": True},
-    "conrad": {"voice": "de-DE-ConradNeural", "name": "Conrad", "label": "LLMitMir-Stimme",
+    "conrad": {"voice": "de-DE-ConradNeural", "name": "Conrad", "label": "Männliche Stimme",
                "rate": "-6%", "pitch": "-8Hz", "effect": False},
     "tanja": {"voice": "de-DE-TanjaNeural", "name": "Tanja", "label": "Weibliche Stimme",
               "rate": "-2%", "pitch": "+0Hz", "effect": False},

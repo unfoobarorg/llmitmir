@@ -2689,7 +2689,7 @@ speech = load("speech")
 
 
 def test_speech_voices_are_german_and_fixed():
-    """Drei feste Stimmen: Roboterstimme als Standard, die tiefere LLMitMir-Stimme und eine weibliche."""
+    """Drei feste Stimmen: Roboterstimme als Standard, die tiefere maennliche Stimme und eine weibliche."""
     assert speech.DEFAULT_VOICE == "robot"
     assert set(speech.VOICES) == {"robot", "conrad", "tanja"}
     robot, conrad, tanja = speech.VOICES["robot"], speech.VOICES["conrad"], speech.VOICES["tanja"]
@@ -2698,6 +2698,7 @@ def test_speech_voices_are_german_and_fixed():
     # die weibliche Stimme klingt natuerlich: keine Klangbearbeitung
     assert tanja["voice"] == "de-DE-TanjaNeural" and tanja["effect"] is False
     assert tanja["label"] == "Weibliche Stimme"
+    assert conrad["label"] == "Männliche Stimme"
     # die Roboterstimme ist hoeher (neutraler) als die tiefe Erzaehlerstimme
     assert int(robot["pitch"].rstrip("Hz")) > int(conrad["pitch"].rstrip("Hz"))
     assert speech.supports("de") and speech.supports("de-DE") and speech.supports(None)
