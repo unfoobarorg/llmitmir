@@ -6,6 +6,7 @@ import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { modelById, modelName } from "./modelpick";
 import { offerCard, isExternal, externalCss } from "./external";
+import { openFileViewer } from "./viewer";
 import type { SendDetail } from "./composer";
 import "./composer";
 
@@ -350,9 +351,7 @@ export class ChatView extends LitElement {
   private stop() { store.api.ws("chat/stop", { chat_id: this.chatId }); }
   private retry() { store.api.ws("chat/retry", { chat_id: this.chatId }).then(r => { store.chats.set(this.chatId, r.chat); store.changed(); }).catch(e => store.notify(e.message)); }
 
-  private async openFile(name: string) {
-    try { window.open(await store.api.fileUrl("chat", this.chatId, name), "_blank"); } catch (e: any) { store.notify(e.message); }
-  }
+  private openFile(name: string) { openFileViewer("chat", this.chatId, name); }
 
   private stepRow(m: any) {
     const open = this.openSteps.has(m.id);

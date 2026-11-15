@@ -14,6 +14,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
   Folgende) schaltet jede Person unter *Einstellungen → Ansicht* frei; Admins legen unter *Admin → Ansicht* für alle oder
   je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
+- **Dateien ansehen statt nur herunterladen**: Erzeugte Dateien und Anhänge öffnen sich in einem eigenen Betrachter im
+  Panel – Bilder, PDFs (seitenweise, als Bild gerendert), Texte, Ton und Video. Das funktioniert im Browser und in den
+  mobilen Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter
+  nicht darstellen kann, lässt sich herunterladen.
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.

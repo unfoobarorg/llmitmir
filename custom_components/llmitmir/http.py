@@ -120,6 +120,63 @@ class FileView(_Base):
                                      "Cache-Control": "private, max-age=60"})
 
 
+def _preview(name: str, data: bytes, page: int) -> tuple[bytes, str, int]:
+    """Vorschau als JPEG: eine PDF-Seite oder ein Bildformat, das der Browser nicht selbst darstellt (HEIC, TIFF)."""
+    ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+    if ext == "pdf":
+        import pypdfium2 as pdfium
+
+        pdf = pdfium.PdfDocument(data)
+        pages = len(pdf)
+        page = max(1, min(page, pages))
+        p = pdf[page - 1]
+        w, h = p.get_size()
+        scale = min(1800 / max(w, h), 3.0)
+        pil = p.render(scale=scale).to_pil()
+        buf = io.BytesIO()
+        pil.convert("RGB").save(buf, "JPEG", quality=88)
+        return buf.getvalue(), "image/jpeg", pages
+    from PIL import Image
+
+    try:
+        import pillow_heif  # type: ignore
+
+        pillow_heif.register_heif_opener()
+    except ImportError:
+        pass
+    im = Image.open(io.BytesIO(data))
+    im.thumbnail((2400, 2400))
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "JPEG", quality=88)
+    return buf.getvalue(), "image/jpeg", 1
+
+
+class PreviewView(_Base):
+    """Vorschau fuer Dateien, die der Browser nicht selbst anzeigen kann: PDF-Seiten und HEIC/TIFF als JPEG.
+    Die mobilen Apps stellen PDFs nicht dar – deshalb rendert Home Assistant die Seite und liefert ein Bild."""
+
+    url = "/api/llmitmir/preview/{scope}/{owner}/{name:.+}"
+    name = "api:llmitmir:preview"
+
+    async def get(self, request, scope, owner, name):
+        hass, m, user, st = await self._user_store(request)
+        try:
+            data = await st.async_read_file(scope, owner, name)
+        except (FileNotFoundError, ValueError):
+            return self.json_message("Nicht gefunden", HTTPStatus.NOT_FOUND)
+        try:
+            page = max(1, int(request.query.get("page", "1")))
+        except ValueError:
+            page = 1
+        try:
+            body, ctype, pages = await hass.async_add_executor_job(_preview, name, data, page)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("LLMitMir: Vorschau fuer %s fehlgeschlagen: %s", name, e)
+            return self.json_message(f"Keine Vorschau möglich: {e}", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        return web.Response(body=body, content_type=ctype,
+                            headers={"Cache-Control": "private, max-age=300", "X-LLMitMir-Pages": str(pages)})
+
+
 class TranscribeView(_Base):
     url = "/api/llmitmir/transcribe"
     name = "api:llmitmir:transcribe"
@@ -465,5 +522,5 @@ async def import_file(hass, m, user, st, name: str, data: bytes) -> dict:
 
 
 def async_register(hass: HomeAssistant) -> None:
-    for view in (UploadView, FileView, TranscribeView, SpeakView, ImportView):
+    for view in (UploadView, FileView, PreviewView, TranscribeView, SpeakView, ImportView):
         hass.http.register_view(view())

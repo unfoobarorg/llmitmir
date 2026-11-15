@@ -8,6 +8,7 @@ import { defaultLabel } from "./modelpick";
 import { draftNew, draftProject, type SendDetail } from "./composer";
 import { explainer, explainerCss, more } from "./simple";
 import "./inbox";
+import { openFileViewer } from "./viewer";
 
 export async function startChat(d: SendDetail) {
   const kind = d.mode === "cowork" ? "cowork" : "chat";
@@ -247,7 +248,8 @@ export class ProjectPage extends StoreElement {
       <div class="side">
         <div class="card"><h3>${icon("file", 18)} ${t("Dateien")}</h3>
           ${this.files.map(f => html`<div class="row" style="padding:4px 0"><span class="grow ellipsis" style="font-size:13px">${f.name}</span>
-            <button class="iconbtn" @click=${async () => window.open(await store.api.fileUrl("project", p.id, f.name), "_blank")}>${icon("download", 16)}</button>
+            <button class="iconbtn" title="Ansehen" @click=${() => openFileViewer("project", p.id, f.name)}>${icon("eye", 16)}</button>
+            <button class="iconbtn" title="Herunterladen" @click=${async () => { const a = document.createElement("a"); a.href = await store.api.fileUrl("project", p.id, f.name); a.download = f.name.split("/").pop() || "datei"; document.body.appendChild(a); a.click(); a.remove(); }}>${icon("download", 16)}</button>
             <button class="iconbtn" @click=${async () => { this.files = await store.api.ws("file/delete", { scope: "project", owner: p.id, name: f.name }); }}>${icon("trash", 16)}</button></div>`)}
           <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${this.upload}></label>
           <div class="hint" style="margin-top:6px">${simple ? "LLMitMir schaut in diese Dateien, wenn sie für eine Frage wichtig sind." : "Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt)."}</div></div>

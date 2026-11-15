@@ -82,6 +82,8 @@ const EN: Record<string, string> = {
     "The microphone is blocked. Please allow access in the browser or app settings.",
   "Kein Mikrofon gefunden.": "No microphone found.", "Chat nicht gefunden": "Chat not found",
   "Dieser Browser kann hier keinen Ton aufnehmen oder abspielen.": "This browser cannot record or play sound here.",
+  "Herunterladen": "Download", "Seite": "Page",
+  "Diese Art von Datei kann der Betrachter nicht anzeigen.": "The viewer cannot display this kind of file.",
   "Für die Spracherkennung ist beim Anbieter kein Modell eingetragen, und dieser Browser hat keine eigene.":
     "No speech recognition model is configured at the provider, and this browser has none of its own.",
 };

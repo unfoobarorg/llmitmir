@@ -8,6 +8,7 @@ import { defaultLabel } from "./modelpick";
 import { taskUsageCard, taskUsageCss } from "./taskusage";
 import { explainer, explainerCss, more } from "./simple";
 import { ensureConsent, ext, fmtEur, isExternal, priceText } from "./external";
+import { openFileViewer } from "./viewer";
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   ${explainerCss}
@@ -382,7 +383,8 @@ export class SkillPage extends StoreElement {
           ${!(store.data?.credentials || []).length ? html`<span class="hint">Noch keine Zugänge.</span>` : nothing}</div></div>
         ${s.id ? html`<div class="card"><b>${t("Dateien")} (Skripte, Vorlagen, Referenzen)</b>
           ${this.files.map(f => html`<div class="row" style="padding:4px 0"><span class="grow ellipsis" style="font-size:13px">${f.name}</span>
-            <button class="iconbtn" @click=${async () => window.open(await store.api.fileUrl("skill", s.id, f.name), "_blank")}>${icon("download", 16)}</button>
+            <button class="iconbtn" title="Ansehen" @click=${() => openFileViewer("skill", s.id, f.name)}>${icon("eye", 16)}</button>
+            <button class="iconbtn" title="Herunterladen" @click=${async () => { const a = document.createElement("a"); a.href = await store.api.fileUrl("skill", s.id, f.name); a.download = f.name.split("/").pop() || "datei"; document.body.appendChild(a); a.click(); a.remove(); }}>${icon("download", 16)}</button>
             <button class="iconbtn" @click=${async () => { this.files = await store.api.ws("file/delete", { scope: "skill", owner: s.id, name: f.name }); }}>${icon("trash", 16)}</button></div>`)}
           <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${async (e: any) => {
             await store.api.upload("skill", s.id, e.target.files); this.files = await store.api.ws("files", { scope: "skill", owner: s.id }); e.target.value = ""; }}></label>

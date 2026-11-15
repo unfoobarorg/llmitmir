@@ -40,10 +40,23 @@ export class Api {
   uploadImport(file: File, onProgress?: (done: number, total: number) => void): Promise<any> {
     return this.sendFile("import", "import", file, onProgress);
   }
-  async fileUrl(scope: string, owner: string, name: string): Promise<string> {
-    const r = await this.hass.fetchWithAuth(`/api/llmitmir/file/${scope}/${owner}/${name.split("/").map(encodeURIComponent).join("/")}`);
+  private filePath(scope: string, owner: string, name: string): string {
+    return `/api/llmitmir/file/${scope}/${owner}/${name.split("/").map(encodeURIComponent).join("/")}`;
+  }
+  /** Datei als Blob samt Inhaltstyp – Grundlage für den Betrachter (Bild, PDF, Text, Ton, Video). */
+  async fileBlob(scope: string, owner: string, name: string): Promise<{ blob: Blob; type: string }> {
+    const r = await this.hass.fetchWithAuth(this.filePath(scope, owner, name));
+    if (!r.ok) throw new Error(r.status === 404 ? "Datei nicht gefunden" : `HTTP ${r.status}`);
+    return { blob: await r.blob(), type: (r.headers.get("content-type") || "").split(";")[0].trim() };
+  }
+  /** Vorschau einer PDF-Seite (oder eines HEIC/TIFF-Bildes) als JPEG – die mobilen Apps stellen PDFs nicht selbst dar. */
+  async preview(scope: string, owner: string, name: string, page = 1): Promise<{ url: string; pages: number }> {
+    const r = await this.hass.fetchWithAuth(`/api/llmitmir/preview/${scope}/${owner}/${name.split("/").map(encodeURIComponent).join("/")}?page=${page}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return URL.createObjectURL(await r.blob());
+    return { url: URL.createObjectURL(await r.blob()), pages: Number(r.headers.get("x-llmitmir-pages") || 1) || 1 };
+  }
+  async fileUrl(scope: string, owner: string, name: string): Promise<string> {
+    return URL.createObjectURL((await this.fileBlob(scope, owner, name)).blob);
   }
   async transcribe(wav: Blob): Promise<string> {
     const r = await this.hass.fetchWithAuth("/api/llmitmir/transcribe", { method: "POST", body: wav, headers: { "Content-Type": "audio/wav" } });
