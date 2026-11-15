@@ -29,7 +29,7 @@ import { confirmExternal, isExternal } from "./external";
 import { Robot3D, type RobotState } from "./robot3d";
 import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type TtsChoice, type TtsSetup } from "./voiceio";
 import { SentenceFeed, isNoise, resumeText } from "./voicetext";
-import { BRIDGE_PHRASES, Bridge, Director, endpoint, pauseFor, type Pose } from "./voiceflow";
+import { BRIDGE_PHRASES, Bridge, Director, addressed, endpoint, extractName, isStop, pauseFor, permAnswer, type Pose } from "./voiceflow";
 
 // Wer ist dran? „waiting“: LLMitMir ist dran, hat aber (noch) nichts zu sagen – das Mikrofon bleibt dabei offen.
 type Phase = "off" | "listening" | "waiting" | "speaking" | "paused" | "permission";
@@ -38,7 +38,7 @@ type Phase = "off" | "listening" | "waiting" | "speaking" | "paused" | "permissi
 const DOING: Record<string, string> = {
   web: "Ich suche im Internet …", ha: "Ich schaue im Zuhause nach …", dav: "Ich schaue in deiner Nextcloud nach …",
   ews: "Ich schaue in deinen Kalender …", mail: "Ich schaue in dein Postfach …", http: "Ich frage einen Dienst ab …",
-  files: "Ich lese Dateien …", skills: "Ich lese eine Anleitung …", werkbank: "Ich rechne …", notify: "Ich schicke eine Nachricht …",
+  files: "Ich lese Dateien …", skills: "Ich lese eine Anleitung …", werkbank: "Ich arbeite daran …", notify: "Ich schicke eine Nachricht …",
   llmitmir: "Ich schaue in LLMitMir nach …",
 };
 const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };
@@ -48,7 +48,11 @@ const LS = "llmitmir.voice";
 const DEFAULTS: Cfg = { tts: "auto", pause: 1200, bargeIn: false, bridge: true, captions: true, model: "" };
 function loadCfg(): Cfg { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { ...DEFAULTS }; } }
 
-const IDLE_PAUSE = 5 * 60 * 1000;   // so lange Stille, dann macht das Mikrofon von selbst Pause
+const GREET_AFTER = 4000;            // wer nach dem Start so lange nichts sagt, wird begrüßt – sonst gleich losreden
+const DIALOG_WINDOW = 20000;         // so lange nach dem letzten Wort gilt alles Gesagte LLMitMir; danach nur mit Rufnamen
+const CHECK_EVERY = 2500;            // Lauschen auf „Stopp“ oder den Rufnamen: höchstens so oft abschreiben
+const PERM_SETTLE = 600;             // eine Freigabe wird erst angesagt, wenn sie so lange offen ist (die Person war schneller)
+const DEFAULT_NAME = "Robo";
 const PEEK_EVERY = 1200;            // Zwischenabschriften höchstens so oft (schont das Kontingent beim Anbieter)
 
 @safeElement("lm-voice")
@@ -67,6 +71,8 @@ export class Voice extends StoreElement {
   @state() private doing = "";        // was gerade nachgeschlagen wird (bleibt stehen, bis geantwortet wird)
   @state() private pose: Pose = "hello";
   @state() private live = "";         // Zwischenabschrift, während die Person noch spricht
+  @state() private standby = false;   // Bereitschaft: reagiert nur noch auf den Rufnamen
+  @state() private naming = false;    // fragt gerade, wie er heißen soll
 
   private robot?: Robot3D;
   private ctx?: AudioContext;
@@ -86,6 +92,13 @@ export class Voice extends StoreElement {
   private sending = false;                     // die eigene Nachricht ist unterwegs
   private oldRun = "";                         // Lauf, der beim Senden noch lief (wird gerade beendet)
   private toolSeen = false; private modelSpoke = false; private adding = false;
+  private heardIn: { phase: Phase; standby: boolean } = { phase: "off", standby: false };   // wobei die Äußerung begann
+  private lastWord = 0;                        // wann zuletzt jemand etwas gesagt hat (Person oder LLMitMir)
+  private greetAt = 0;                         // dann begrüßen, falls bis dahin niemand etwas sagt
+  private checkAt = 0;                         // letzte Abschrift beim Lauschen (Stopp, Rufname)
+  private permSeen = new Map<string, number>(); private permAsked = ""; private permText = ""; private permTries = 0; private permCount = 0;
+  private toolIds = new Set<string>();         // Werkzeugschritte dieser Runde (für die Ansage „jetzt …“)
+  private askName = false;                     // nach dieser Runde (noch einmal) nach dem Namen fragen
   private mine = "";                           // Chat, den diese Ansicht selbst angelegt hat
   private resume = "";                         // letzte Antwort eines übernommenen Chats, einmal vorlesen
   private _sync = () => this.sync();
@@ -154,7 +167,7 @@ export class Voice extends StoreElement {
     try {
       if (!canvas || !Robot3D.supported()) throw new Error("kein WebGL");
       const r = this.robot = new Robot3D(canvas, this.isDark());
-      r.state = "hello";
+      r.state = "hello"; r.enter();
       r.onFrame = now => {
         this.speaker?.tick(now);
         r.voiceLevel = this.speaker?.level || 0;
@@ -162,7 +175,16 @@ export class Voice extends StoreElement {
       };
       r.start();
     } catch { this.flat = true; }
-    if (this.chatId) this.openChat(this.chatId);
+    this.arrive();
+  }
+
+  /** Die Ansicht wurde geöffnet (oder ein anderes Gespräch gewählt): Chat laden und gleich zuhören. Wer hier
+   *  ankommt, hat gerade irgendwo getippt – das genügt dem Browser meist, um Ton und Mikrofon freizugeben.
+   *  Wenn nicht, bleibt der Knopf „Gespräch beginnen“. */
+  private async arrive() {
+    const id = this.chatId;
+    if (id) await this.openChat(id);
+    if (this.isConnected && this.chatId === id && !this.active) this.begin(true);
   }
 
   updated(ch: Map<string, any>) {
@@ -170,7 +192,8 @@ export class Voice extends StoreElement {
       // anderes Gespräch gewählt (Seitenleiste, Zurück-Taste): das laufende endet
       this.endSession(); this.caption = this.heard = this.err = ""; this.resume = "";
       this.mine = this.chatId || "";
-      if (this.chatId) this.openChat(this.chatId);
+      this.robot?.enter();
+      this.arrive();
     }
     if (!this.robot) return;
     this.robot.setDark(this.isDark());
@@ -212,7 +235,11 @@ export class Voice extends StoreElement {
   private get locale(): string { return store.api?.hass?.language || "de"; }
 
   // ---------------------------------------------------------------- Gespräch beginnen und beenden
-  private async begin() {
+  private get name(): string { return String(store.data?.settings?.voice_name || ""); }
+
+  /** `auto`: ohne Tippen gestartet (beim Öffnen der Ansicht) – gibt der Browser den Ton nicht frei, bleibt es still
+   *  beim Knopf, ohne Fehlermeldung. */
+  private async begin(auto = false) {
     if (this.starting || this.active) return;
     this.starting = true; this.err = "";
     try {
@@ -220,8 +247,12 @@ export class Voice extends StoreElement {
       if (!AC) throw new Error(t("Dieser Browser kann hier keinen Ton aufnehmen oder abspielen."));
       this.ctx = this.ctx || new AC();
       // Safari gibt die Stimme des Browsers nur frei, wenn sie noch im Tippen selbst einmal benutzt wurde
-      try { if ("speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch { /* keine Browserstimme */ }
-      await this.ctx!.resume();
+      try { if (!auto && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch { /* keine Browserstimme */ }
+      const running = await Promise.race([this.ctx!.resume().then(() => true), new Promise<boolean>(r => setTimeout(() => r(false), auto ? 800 : 15000))]);
+      if (auto && (!running || this.ctx!.state !== "running")) {
+        try { this.ctx!.close(); } catch { /* schon zu */ } this.ctx = undefined; this.starting = false;
+        return;
+      }
       if (!this.tts) this.tts = await ttsSetup(store.api.hass, store.data?.speech);
       const sp = this.speaker = new Speaker(store.api.hass, this.ctx!);
       sp.lang = this.locale; sp.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
@@ -243,13 +274,18 @@ export class Voice extends StoreElement {
       this.active = true; this.muted = false; this.silenced = true; this.quietSince = performance.now();
       this.timer = setInterval(() => this.tick(), 250);
       try { this.wake = await (navigator as any).wakeLock?.request("screen"); } catch { /* Bildschirm darf ausgehen */ }
-      if (!this.chatId) sp.say(t("Hallo! Worüber möchtest du sprechen?"));
-      else if (this.resume) { sp.say(this.resume); this.resume = ""; }
+      const now = performance.now();
+      this.lastWord = now; this.standby = false; this.greetAt = 0; this.permSeen.clear(); this.permAsked = "";
+      const run = this.chatId ? store.runs[this.chatId] : undefined;
+      if (run) this.adopt(run);                        // der Chat arbeitet gerade: nahtlos übernehmen
+      else if (!this.name) this.askForName();          // allererstes Gespräch: einmal den Rufnamen klären
+      else this.greetAt = now + GREET_AFTER;           // sonst sofort zuhören; begrüßt wird nur, wer schweigt
       this.asides = new Set(BRIDGE_PHRASES.map(x => t(x)));
       if (this.cfg.bridge) sp.prefetch([...this.asides]);   // Überbrückungssätze liegen dann schon bereit
       this.sync();
     } catch (e: any) {
       const blocked = e?.name === "NotAllowedError" || e?.name === "SecurityError";
+      if (auto && blocked) { this.endSession(); this.starting = false; return; }   // erst nach einem Tippen fragen dürfen
       this.fail(blocked ? t("Das Mikrofon ist gesperrt. Bitte erlaube den Zugriff in den Einstellungen des Browsers oder der App.")
         : e?.name === "NotFoundError" ? t("Kein Mikrofon gefunden.") : String(e?.message || e));
       this.endSession();
@@ -265,6 +301,7 @@ export class Voice extends StoreElement {
     try { this.ctx?.close(); } catch { /* schon zu */ } this.ctx = undefined;
     this.active = false; this.pending = false; this.busy = false; this.sending = false; this.silenced = true; this.muted = false;
     this.doing = ""; this.live = ""; this.adding = false; this.toolSeen = false; this.interim.clear(); this.peeking = 0;
+    this.standby = false; this.naming = false; this.greetAt = 0; this.askName = false;
     this.phase = "off"; this.pose = this.director.update(performance.now(), this.scene());
   }
 
@@ -278,9 +315,44 @@ export class Voice extends StoreElement {
     if (!this.active) return;
     this.muted = !this.muted;
     this.mic?.setMuted(this.muted);
-    this.quietSince = performance.now();
+    this.quietSince = this.lastWord = performance.now(); this.standby = false;
     this.sync();
   }
+
+  /** Aus einem Chat hierher gewechselt, während er noch arbeitet: Das Gespräch übernimmt den Lauf – der Roboter
+   *  zeigt und sagt sofort, was gerade passiert, und liest vor, was ab jetzt an Antwort entsteht. */
+  private adopt(run: any) {
+    const chat = store.chats.get(this.chatId || "");
+    this.known = new Set(); this.feeds.clear(); this.toolIds.clear();
+    for (const m of chat?.messages || []) {
+      if (m.role === "assistant" && m.streaming) this.feeds.set(m.id, new SentenceFeed().startAt(String(m.content || "")));
+      else this.known.add(m.id);
+    }
+    this.silenced = false; this.pending = true; this.sawRun = true; this.oldRun = ""; this.pendingSince = performance.now();
+    this.toolSeen = run.status === "tool"; this.modelSpoke = false; this.resume = ""; this.heard = "";
+    this.bridge.begin(performance.now());
+  }
+
+  // ---------------------------------------------------------------- Rufname
+  /** Einmalig beim ersten Gespräch: Wie soll der Roboter heißen? Auf diesen Namen hört er später. */
+  private askForName() {
+    this.naming = true; this.askName = false;
+    this.speaker?.say(t("Hallo! Bevor wir loslegen: Wie möchtest du mich nennen?"));
+  }
+
+  private async setName(name: string, announce = true) {
+    this.naming = false;
+    try {
+      await store.api.ws("settings/save", { settings: { voice_name: name } });
+      if (store.data?.settings) store.data.settings.voice_name = name;
+    } catch (e: any) { this.fail(String(e?.message || e)); }
+    if (announce) this.speaker?.say(t("Alles klar, ich bin {n}. Sag einfach {m}, wenn du mich brauchst.", { n: name, m: name }));
+    this.lastWord = performance.now();
+    this.requestUpdate(); this.sync();
+  }
+
+  /** Kurz bestätigen (Stopp verstanden, Freigabe erteilt …) – ohne dass es als Antwort des Modells zählt. */
+  private ack(text: string) { this.speaker?.say(t(text)); this.lastWord = performance.now(); this.sync(); }
 
   /** Antwort abbrechen (Tippen auf den Roboter, Dazwischenreden). */
   private interrupt() {
@@ -300,9 +372,14 @@ export class Voice extends StoreElement {
 
   // ---------------------------------------------------------------- zuhören
   private onSpeechStart() {
-    this.quietSince = performance.now();
-    if (this.phase === "speaking") this.interrupt();   // Dazwischenreden
-    else if (this.phase === "waiting") {
+    const now = performance.now();
+    this.quietSince = now; this.greetAt = 0;
+    this.heardIn = { phase: this.phase, standby: this.standby };
+    if (this.phase === "speaking") {
+      // LLMitMir spricht gerade: Nur „Stopp“ oder der Rufname unterbrechen (das klärt die Abschrift gleich) –
+      // es sei denn, jedes Dazwischenreden soll unterbrechen (Einstellung, für Kopfhörer).
+      if (this.cfg.bargeIn) { this.interrupt(); this.heardIn = { phase: "listening", standby: false }; }
+    } else if (this.phase === "waiting") {
       // Nachschieben: LLMitMir überlegt noch. Was es inzwischen sagen wollte, wartet, bis klar ist, ob das
       // wirklich ein Nachsatz war (dann wird neu überlegt) oder nur ein Geräusch (dann geht es normal weiter).
       this.adding = true;
@@ -316,6 +393,9 @@ export class Voice extends StoreElement {
   private onSpeechPause(wav: Blob, id: number) {
     const now = performance.now();
     if (!this.active || now - this.peekAt < PEEK_EVERY) return;
+    // mitschreiben lohnt nur im Gespräch selbst – nicht beim Lauschen auf Stopp, Rufname oder Ja/Nein
+    const h = this.heardIn;
+    if (this.naming || h.standby || !(h.phase === "listening" || h.phase === "waiting")) return;
     this.peekAt = now; this.peeking++;
     const p = store.api.transcribe(wav).then(x => x.trim()).catch(() => "");
     this.interim.set(id, p);
@@ -335,16 +415,77 @@ export class Voice extends StoreElement {
     const pre = id ? this.interim.get(id) : undefined;
     this.interim.clear();
     if (!wav || !this.active) { this.notAdding(); return; }
-    this.busy = true; this.sync();
+    const h = this.heardIn, now = performance.now();
+    // Lauschen (Bereitschaft, während LLMitMir spricht): nicht jedes Geräusch abschreiben lassen
+    const checking = h.standby || h.phase === "speaking";
+    if (checking) {
+      if (now - this.checkAt < CHECK_EVERY) return;
+      this.checkAt = now;
+    } else { this.busy = true; this.sync(); }
     let txt = "";
     try {
       txt = pre ? await pre : "";                                   // die Abschrift aus der Pause gilt noch
       if (!txt) txt = (await store.api.transcribe(wav)).trim();
-    } catch (e: any) { this.fail(String(e?.message || e)); }
+    } catch (e: any) { if (!checking) this.fail(String(e?.message || e)); }
     this.busy = false;
     if (!this.active) return;
     if (!txt || isNoise(txt)) { this.notAdding(); return; }
-    await this.sendText(txt);
+    await this.route(txt, h);
+  }
+
+  /** Was mit dem Gesagten geschieht, hängt davon ab, wobei es fiel. */
+  private async route(text: string, h: { phase: Phase; standby: boolean }) {
+    const name = this.name;
+    const a = addressed(text, name);
+    // 1. Antwort auf „Wie möchtest du mich nennen?“
+    if (this.naming) {
+      const n = extractName(text);
+      if (n) return this.setName(n);
+      if (text.trim().split(/\s+/).length > 4) {      // das war schon eine Bitte: erst erledigen, dann noch einmal fragen
+        this.naming = false; this.askName = true;
+        return this.sendText(text);
+      }
+      return this.setName(DEFAULT_NAME);                // „egal“, „weiß nicht“: ein Vorschlag, in den Einstellungen änderbar
+    }
+    // 2. Antwort auf eine Freigabe-Frage
+    const perm = this.perm();
+    if (perm) {
+      const ans = permAnswer(a.hit ? a.rest : text);
+      this.notAdding();
+      if (!ans) {
+        if (this.permTries++ < 1) this.ack("Sag bitte Ja oder Nein.");
+        return;
+      }
+      const always = ans === "always" && !perm.change && !perm.steps;
+      this.permText = "";
+      store.api.ws("permission/answer", { permission_id: perm.id, decision: ans === "no" ? "deny" : always ? "always" : "once" })
+        .catch((e: any) => this.fail(String(e?.message || e)));
+      if (ans === "no") this.ack("Gut, dann nicht.");
+      else if (always) this.ack("Alles klar, das merke ich mir.");
+      return;
+    }
+    // 3. LLMitMir sprach gerade: nur Stopp oder die Anrede zählen, alles andere war nicht für es bestimmt
+    if (h.phase === "speaking") {
+      const stop = isStop(text) || (a.hit && (!a.rest || isStop(a.rest)));
+      if (!stop && !a.hit) return;
+      this.interrupt();
+      if (stop) return this.ack("Okay.");
+      return this.sendText(a.rest);
+    }
+    // 4. LLMitMir arbeitet still: Stopp bricht ab, alles andere ist ein Nachsatz
+    if (h.phase === "waiting" && (isStop(text) || (a.hit && isStop(a.rest)))) {
+      this.interrupt();
+      return this.ack("Okay, ich höre auf.");
+    }
+    // 5. Bereitschaft: nur wer den Namen sagt, meint LLMitMir
+    if (h.standby) {
+      if (!a.hit) return;
+      this.standby = false; this.lastWord = performance.now();
+      if (!a.rest) return this.ack("Ja?");
+      return this.sendText(a.rest);
+    }
+    if (isStop(text) && h.phase === "listening") { this.lastWord = performance.now(); return; }   // nichts zu stoppen
+    await this.sendText(a.hit && a.rest ? a.rest : text);
   }
 
   /** Doch kein Nachsatz (Geräusch): Was LLMitMir sagen wollte, kommt jetzt. */
@@ -368,7 +509,8 @@ export class Voice extends StoreElement {
     this.adding = false; this.live = "";
     this.sending = true; this.err = ""; this.caption = "";
     this.heard = amend && this.heard ? `${this.heard} ${text}` : text;
-    this.toolSeen = false; this.modelSpoke = false; this.doing = "";
+    this.toolSeen = false; this.modelSpoke = false; this.doing = ""; this.toolIds.clear();
+    this.standby = false; this.greetAt = 0; this.lastWord = performance.now();
     this.bridge.begin(performance.now());
     this.sync();
     try {
@@ -399,7 +541,7 @@ export class Voice extends StoreElement {
     const chat = store.chats.get(this.chatId);
     for (const m of chat?.messages || []) {
       if (this.known.has(m.id)) continue;
-      if (m.role === "tool") { this.toolSeen = true; continue; }
+      if (m.role === "tool") { this.toolSeen = true; this.toolIds.add(m.id); continue; }
       if (m.role !== "assistant") continue;
       let f = this.feeds.get(m.id);
       if (!f) this.feeds.set(m.id, f = new SentenceFeed());
@@ -421,7 +563,8 @@ export class Voice extends StoreElement {
     const aside = !!sp?.sounding && this.asides.has(this.caption) && !!this.ownRun();
     return { on: this.active, muted: this.muted, hearing: !!this.mic?.hearing && !!this.mic?.enabled,
       speaking: !!sp?.sounding && !aside, asking: !!this.perm() && !sp?.busy, aside,
-      waiting: this.phase === "waiting" || (this.phase === "speaking" && (!sp?.sounding || aside)), tool: this.toolSeen };
+      waiting: this.phase === "waiting" || (this.phase === "speaking" && (!sp?.sounding || aside)), tool: this.toolSeen,
+      standby: this.standby && this.phase === "listening" };
   }
 
   /** Aus dem Stand von Chat, Stimme und Mikrofon ableiten, wer dran ist. */
@@ -436,9 +579,11 @@ export class Voice extends StoreElement {
     if (run) this.sawRun = true;
     if (this.pending && !this.sending && !any && (this.sawRun || now - this.pendingSince > 20000)) this.pending = false;
     const perm = this.perm();
-    if (perm && this.spokePerm !== perm.id && !this.silenced) {
-      this.spokePerm = perm.id;
-      this.speaker?.say(t("Dafür brauche ich kurz deine Bestätigung auf dem Bildschirm."));
+    if (perm && !this.permSeen.has(perm.id)) this.permSeen.set(perm.id, now);
+    if (!perm && this.permText) {
+      // beantwortet (am Bildschirm oder per Stimme): Die Frage ist erledigt – nicht mehr stellen
+      if (this.speaker?.busy && (this.caption === this.permText || !this.speaker.sounding)) this.speaker.stop();
+      this.permText = "";
     }
     // Nachschlagen merken: Die Anzeige bleibt dabei, auch wenn das Modell zwischen zwei Werkzeugen kurz „denkt“
     if (run?.status === "tool") {
@@ -455,15 +600,20 @@ export class Voice extends StoreElement {
     else if (run || this.pending || this.sending || this.busy || this.adding) ph = "waiting";
     else ph = this.muted ? "paused" : "listening";
     if (ph !== this.phase) {
-      if (ph === "listening") { this.quietSince = now; this.doing = ""; this.toolSeen = false; }
+      if (ph === "listening") { this.quietSince = this.lastWord = now; this.doing = ""; this.toolSeen = false; }
       this.phase = ph;
     }
     if (this.mic) {
-      const barge = this.cfg.bargeIn && ph === "speaking" && this.mic instanceof Mic;
-      // offen beim Zuhören – und solange LLMitMir still überlegt (Nachschieben)
-      const open = ph === "listening" || (ph === "waiting" && !this.speaker?.busy);
-      this.mic.enabled = !this.muted && (barge || (open && now >= this.holdUntil));
-      if (this.mic instanceof Mic) this.mic.sensitivity = barge ? 2.6 : ph === "waiting" ? 1.5 : 1;
+      // Das Mikrofon ist immer offen, solange das Gespräch läuft – auch während LLMitMir spricht oder arbeitet
+      // (dann unempfindlicher und nur auf der Suche nach „Stopp“ oder dem Rufnamen). So lässt es sich jederzeit
+      // unterbrechen, ohne den Bildschirm zu berühren.
+      const m = this.mic, talking = ph === "speaking";
+      m.enabled = !this.muted && ph !== "paused" && (talking ? m instanceof Mic : now >= this.holdUntil);
+      if (m instanceof Mic && !m.hearing) {
+        m.sensitivity = talking ? 2.6 : ph === "waiting" ? 1.5 : this.standby ? 1.4 : ph === "permission" ? 1.2 : 1;
+        m.silenceMs = talking ? 500 : ph === "permission" || this.naming ? 800 : this.standby ? 900 : this.cfg.pause;
+        m.maxMs = talking ? 3000 : ph === "permission" ? 8000 : this.standby ? 15000 : 120000;
+      }
     }
     const pose = this.director.update(now, this.scene());
     if (pose !== this.pose) this.pose = pose;
@@ -472,18 +622,50 @@ export class Voice extends StoreElement {
   private tick() {
     if (!this.active) return;
     const now = performance.now();
-    // lange nichts gesagt: Pause, damit das Mikrofon nicht stundenlang offen bleibt
-    if (this.phase === "listening" && !this.mic?.hearing && now - this.quietSince > IDLE_PAUSE) this.toggleMute();
     this.sync();
-    // Stille überbrücken, wie man es im Gespräch tut: kurz sagen, dass es einen Moment dauert
-    if (!this.cfg.bridge || !this.speaker || this.silenced || this.adding || this.perm()) return;
+    const sp = this.speaker;
+    if (!sp) return;
+    const quietListening = this.phase === "listening" && !this.mic?.hearing && !sp.busy && !this.busy;
+    // Wer nach dem Start nichts sagt, wird begrüßt (oder hört, wo der übernommene Chat stand)
+    if (this.greetAt && now >= this.greetAt && quietListening && !this.naming) {
+      this.greetAt = 0;
+      this.ack(this.resume || "Hallo! Was kann ich für dich tun?"); this.resume = "";
+    }
+    // Die Bitte von eben ist erledigt: jetzt (noch einmal) nach dem Namen fragen
+    if (this.askName && quietListening && !this.name && now - this.lastWord > 1500) this.askForName();
+    // Gesprächspause: ab jetzt nur noch auf den Rufnamen hören, sonst einfach warten
+    if (!this.standby && quietListening && !this.naming && !this.greetAt && this.name && now - this.lastWord > DIALOG_WINDOW) {
+      this.standby = true; this.live = ""; this.sync();
+    }
+    // Freigabe: laut fragen – aber erst, wenn sie einen Moment offen ist (wer schon getippt hat, wird nicht mehr gefragt)
+    const perm = this.perm();
+    if (perm && !this.silenced && this.permAsked !== perm.id && now - (this.permSeen.get(perm.id) || now) >= PERM_SETTLE && !this.mic?.hearing) {
+      this.permAsked = perm.id; this.permTries = 0;
+      this.permText = this.permQuestion(perm);
+      sp.say(this.permText); this.sync();
+    }
+    // Stille überbrücken und bei längerer Arbeit sagen, was gerade geschieht – wer den Bildschirm nicht sieht,
+    // weiß so jederzeit Bescheid und kann mit „Stopp“ abbrechen
+    if (!this.cfg.bridge || this.silenced || this.adding || perm) return;
     const run = this.ownRun();
     const tool = run?.status === "tool" ? run.detail?.tool : undefined;
     const say = this.bridge.next(now, {
-      waiting: this.phase === "waiting" && !this.busy && !this.mic?.hearing, speaking: this.speaker.busy, modelSpoke: this.modelSpoke,
-      group: tool ? store.data?.tools?.[tool]?.group || "" : undefined,
+      waiting: this.phase === "waiting" && !this.busy && !this.mic?.hearing, speaking: sp.busy, modelSpoke: this.modelSpoke,
+      group: tool ? store.data?.tools?.[tool]?.group || "" : undefined, step: tool ? `${this.toolIds.size}` : undefined,
       congested: run?.status === "retry" || run?.status === "quota_wait" });
-    if (say) { this.speaker.say(t(say)); this.sync(); }
+    if (say) { sp.say(t(say)); this.sync(); }
+  }
+
+  /** Die Freigabe-Frage in Worten – was genau erlaubt werden soll und wie man antwortet. */
+  private permQuestion(p: any): string {
+    const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change?.aktion] || "ändern";
+    const what = p.change ? t("Soll ich {w} „{n}“ {v}?", { w: CHANGE_WHAT[p.change.art] || p.change.art, n: p.change.name, v: verb })
+      : p.steps || p.tool === "more_steps" ? t("Das waren schon viele Schritte. Soll ich weitermachen?")
+      : p.group ? t("Darf ich dafür {g} benutzen?", { g: p.group_label || p.group })
+      : t("Darf ich das tun: {l}?", { l: p.label || p.tool });
+    if (p.change || p.steps || p.tool === "more_steps") return `${what} ${t("Sag Ja oder Nein.")}`;
+    // die ersten Male erklären, was „immer“ bedeutet; danach genügt die kurze Form
+    return `${what} ${t(this.permCount++ < 2 ? "Sag Ja, Nein – oder Immer, dann frage ich in Gesprächen nicht mehr danach." : "Ja, Nein oder Immer?")}`;
   }
 
   // ---------------------------------------------------------------- Anzeige
@@ -494,6 +676,8 @@ export class Voice extends StoreElement {
     if (!this.active) return this.starting ? html`${t("Einen Moment")}<span class="dots"></span>` : nothing;
     if (this.phase === "paused") return t("Pause – tippe auf das Mikrofon, wenn es weitergehen soll");
     if (this.phase === "permission") return t("Ich warte auf deine Bestätigung");
+    if (this.naming) return t("Wie möchtest du mich nennen?");
+    if (this.phase === "listening" && this.standby) return t("Sag „{n}“, wenn du mich brauchst", { n: this.name });
     if (this.phase === "listening") return this.mic?.hearing || this.live ? t("Ich höre zu") : t("Ich höre zu – sprich einfach los");
     if (this.phase !== "waiting") return nothing;
     if (this.mic?.hearing && this.mic.enabled) return t("Ich höre zu");
@@ -513,8 +697,9 @@ export class Voice extends StoreElement {
         : p.group ? html`Darf ich dafür <b>${p.group_label || p.group}</b> benutzen?`
         : html`Darf ich das tun? <b>${p.label}</b>`}</div>
       ${p.group && p.label ? html`<div class="hint">${p.label}</div>` : nothing}
-      ${p.steps ? nothing : html`<div class="hint">${t("Einmal Ja genügt: Diese Erlaubnis gilt für den Rest des Gesprächs.")}</div>`}
+      ${p.steps ? nothing : html`<div class="hint">${t("Du kannst auch einfach antworten: Ja, Nein – oder Immer. Einmal Ja gilt für den Rest des Gesprächs.")}</div>`}
       <div class="brow"><button class="btn primary" @click=${() => answer("once")}>${icon("check", 16)} ${del ? "Ja, löschen" : "Ja"}</button>
+        ${p.change || p.steps ? nothing : html`<button class="btn" @click=${() => answer("always")}>${t("Immer")}</button>`}
         <button class="btn" @click=${() => answer("deny")}>Nein</button>
         <button class="btn ghost" @click=${() => { const id = this.chatId; this.endSession(); navigate(`/chat/${id}`); }}>${icon("eye", 16)} ${t("Im Chat ansehen")}</button></div></div>`;
   }
@@ -584,15 +769,18 @@ export class Voice extends StoreElement {
           <select @change=${(e: any) => this.save({ pause: Number(e.target.value) })}>
             ${[[800, t("Kurz – antwortet schnell")], [1200, t("Normal")], [2000, t("Lang – lässt Zeit zum Überlegen")]].map(([v, l]) =>
               html`<option value=${v} ?selected=${this.cfg.pause === v}>${l}</option>`)}</select></label>
+        <label class="f"><span>${t("Rufname")}</span>
+          <input .value=${this.name} maxlength="24" placeholder=${DEFAULT_NAME} @change=${(e: any) => { const n = extractName(e.target.value) || DEFAULT_NAME; e.target.value = n; this.setName(n, false); }}>
+          <span class="hint" style="font-weight:400">${t("Auf diesen Namen hört der Roboter. Nach einer Gesprächspause reagiert er nur noch, wenn du ihn so ansprichst – so kann das Gespräch lange nebenher laufen, etwa im Auto. „Stopp“ unterbricht ihn jederzeit.")}</span></label>
         <label class="chk"><input type="checkbox" .checked=${this.cfg.bargeIn} @change=${(e: any) => this.save({ bargeIn: e.target.checked })}>
-          <span>${t("Dazwischenreden unterbricht die Antwort")}<div class="hint">${t("Am besten mit Kopfhörern – sonst hört LLMitMir sich womöglich selbst. Tippen auf den Roboter unterbricht immer.")}</div></span></label>
+          <span>${t("Jedes Dazwischenreden unterbricht die Antwort")}<div class="hint">${t("Sonst unterbrechen nur „Stopp“ und der Rufname. Am besten mit Kopfhörern – sonst hört LLMitMir sich womöglich selbst.")}</div></span></label>
         <label class="chk"><input type="checkbox" .checked=${this.cfg.bridge} @change=${(e: any) => this.save({ bridge: e.target.checked })}>
           <span>${t("Wartezeiten mit einem kurzen Satz überbrücken")}<div class="hint">${t("Zum Beispiel „Ich schaue kurz nach.“ – statt still zu warten.")}</div></span></label>
         <label class="chk"><input type="checkbox" .checked=${this.cfg.captions} @change=${(e: any) => this.save({ captions: e.target.checked })}>
           <span>${t("Gesprochenes als Text mitlesen")}</span></label>
         ${isSimple() ? nothing : html`<label class="f"><span>${t("Modell")}</span>
           <select @change=${(e: any) => this.pickModel(e.target.value)}>
-            <option value="" ?selected=${!this.cfg.model}>${defaultLabel("chat")}</option>
+            <option value="" ?selected=${!this.cfg.model}>${t("Automatisch – das schnellste passende Modell")}${store.data?.defaults?.voice ? ` (${modelName(store.data.defaults.voice)})` : ""}</option>
             ${models.map((m: any) => html`<option value=${m.id} ?selected=${this.cfg.model === m.id}>${m.name}${m.external ? " · €" : ""}</option>`)}</select>
           <span class="hint" style="font-weight:400">${t("Gilt ab der nächsten Nachricht. Kostenpflichtige Modelle sind mit € markiert.")}</span></label>`}
         ${store.data?.transcription ? nothing : html`<div class="hint">${icon("info", 15)} ${t("Beim Anbieter ist kein Modell für die Spracherkennung eingetragen – deshalb hört der Browser zu.")}</div>`}

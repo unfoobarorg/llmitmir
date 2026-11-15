@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.31.0"
+VERSION = "0.32.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -88,6 +88,7 @@ TOOL_RESULT_MAX_CHARS = 24_000
 AUTO = "auto"                  # default model "automatic": best fit for the role right now (see models.py)
 MODEL_POLL_SECONDS = 180       # reload /models (status, demand, new releases); SAIA does not count this call
 SLOW_AFTER_INTERACTIVE = 20    # no output yet after this long in a chat/cowork: recommend a less loaded model
+SLOW_AFTER_VOICE = 7           # Gespräch: nach so vielen Sekunden ohne Ausgabe übernimmt das nächste schnelle Modell
 SLOW_AFTER_TASK = 180          # … in a scheduled task with an automatic model: switch to the alternative by itself
 SLOW_MEMORY = 600              # a model that hung counts as overloaded for this long (unless it answers quickly again)
 FAST_FIRST_TOKEN = 10          # first output within this many seconds clears that mark

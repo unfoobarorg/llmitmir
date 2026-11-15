@@ -44,6 +44,31 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   mit dem Roboter spricht, behält so eine übersichtliche Chatliste. Das Projekt lässt sich umbenennen, die Frist ändern
   oder löschen; beim nächsten Gespräch entsteht es neu. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
   das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
+  **Ein Assistent, der nebenher läuft** (Auto, Tablet) – bedienbar, ohne den Bildschirm zu sehen oder zu berühren:
+  *Sofort losreden:* Wer die Ansicht öffnet – von der Startseite, aus der Seitenleiste oder aus einem Chat –, wird
+  gleich gehört; begrüßt wird nur, wer vier Sekunden nichts sagt. Der Roboter kommt mit einem kurzen Auftritt ins
+  Bild (steigt auf und nickt, neigt den Kopf oder winkt – jedes Mal etwas anders).
+  *Rufname:* Beim ersten Gespräch fragt der Roboter, wie er heißen soll (später in den Einstellungen der Ansicht
+  änderbar). Zwanzig Sekunden nach dem letzten Wort geht er in Bereitschaft und reagiert nur noch auf Äußerungen mit
+  seinem Namen am Anfang oder Ende („Robo, wie spät ist es?“); alles andere – Radio, Mitfahrende – lässt er
+  vorbeiziehen. Der Name wird großzügig erkannt, weil die Spracherkennung ihn selten zweimal gleich schreibt.
+  *Jederzeit unterbrechen:* Das Mikrofon bleibt offen, auch während der Roboter spricht oder arbeitet. „Stopp“ (auch
+  „Halt“, „Warte“, „Hör auf“ …) oder der Rufname unterbrechen ihn; anderes Gesagtes gilt dann nicht ihm.
+  *Sagen, was er tut:* Bei längerer Arbeit sagt er jeden neuen Schritt an („Jetzt schaue ich in den Kalender.“) und
+  meldet sich, wenn ein Schritt dauert („Ich suche noch im Internet.“) – samt Hinweis, dass „Stopp“ abbricht.
+  *Freigaben per Stimme:* Er sagt, was er tun möchte („Darf ich das tun: Licht einschalten?“), und versteht Ja,
+  Nein und Immer. „Immer“ gilt dauerhaft für das Projekt des Gesprächs – bei neuen Gesprächen also für den ganzen
+  Ordner „Gespräche“. Wer am Bildschirm schneller war, wird nicht mehr gefragt.
+  *Tempo vor Tiefe:* Für gesprochene Runden wählt LLMitMir ein eigenes Modell – das schnellste, das Werkzeuge
+  zuverlässig bedient (`models.pick_voice`). Es misst dafür je Modell die Zeit bis zum ersten Ausgabezeichen und
+  stützt sich, solange nichts gemessen ist, auf die Bauart (wenige aktive Parameter, „Flash“). Modelle mit Denkphase
+  antworten im Gespräch ohne sie (`chat_template_kwargs.enable_thinking: false`, sofern der Anbieter den Schalter
+  kennt); kommt sieben Sekunden nichts, übernimmt das nächste schnelle Modell. Wird im selben Chat wieder getippt,
+  gilt wieder das Modell für Chats.
+  *Nahtlos aus dem Chat:* Arbeitet der Chat beim Wechsel noch, übernimmt das Gespräch den Lauf – der Roboter zeigt
+  und sagt sofort, was gerade passiert, und liest vor, was ab da an Antwort entsteht.
+  *Fehlende Skills:* Braucht eine alltägliche Bitte Herumprobieren oder Recherche, bietet der Roboter danach an,
+  den Weg als Skill festzuhalten, damit es beim nächsten Mal sofort klappt.
   **Gesprächsfluss statt Chat in Tonform** – mehrere Dinge laufen gleichzeitig:
   *Mitdenken beim Zuhören:* Schon in einer kurzen Sprechpause wird das bisher Gesagte abgeschrieben (als Text unter
   dem Roboter mitzulesen). Klingt der Satz fertig, genügt eine kurze Stille und die Nachricht geht mit fertiger
@@ -71,6 +96,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   gestikulieren). Tippen auf den Roboter unterbricht die Antwort, das Mikrofon lässt sich pausieren (nach fünf Minuten
   Stille von selbst), optional unterbricht auch Dazwischenreden. Der Bildschirm bleibt während des Gesprächs an.
   Voraussetzung fürs Mikrofon: HTTPS und kein `Permissions-Policy: microphone=()` am Webserver.
+- **Hinweis nach einem Update**: Eine offene Seite – vor allem die Home-Assistant-App, die ihre Ansicht tagelang
+  behält – arbeitet nach einem Update mit der alten Oberfläche weiter, bis sie vollständig neu geladen wird. Das Panel
+  vergleicht deshalb seine eigene Version mit der des Servers (beim Start und nach jedem Wiederverbinden) und bietet
+  oben *Neu laden* an.
 - **Entwurf je Chat und je Projekt**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel
   in einen anderen Chat erhalten und steht beim Zurückkommen wieder da – auch auf der Startseite und auf einer
   Projektseite, wo ein neuer Chat oder Cowork beginnt. Wer dort etwas tippt, kurz in einen Chat schaut und zurückkommt,

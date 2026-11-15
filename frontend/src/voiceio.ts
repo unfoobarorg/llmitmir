@@ -24,6 +24,9 @@ export class Mic {
   silenceMs = 1200;
   /** > 1: unempfindlicher (beim Dazwischenreden, während LLMitMir selbst spricht). */
   sensitivity = 1;
+  /** Spätestens nach so vielen Millisekunden endet eine Äußerung – kurz gestellt, solange nur auf ein „Stopp“
+   *  gelauscht wird (während LLMitMir selbst spricht, reißt die Stille im Raum sonst nie ab). */
+  maxMs = 120000;
   /** Nach so viel Stille gibt es schon einen Zwischenstand (`onPause`) – lange vor dem Ende der Äußerung. */
   peekMs = 450;
   onStart?: () => void;
@@ -102,7 +105,7 @@ export class Mic {
       this.peeked = true; this.fresh = 0; this.snap = ++this.seq;
       this.onPause(encodeWav(trimmed(300), this.rate), this.snap);
     }
-    if (this.silence >= (this.cut || this.silenceMs) || this.chunks.length * ms > 120000) {
+    if (this.silence >= (this.cut || this.silenceMs) || this.chunks.length * ms > this.maxMs) {
       const chunks = trimmed(350), enough = this.total >= 280;                // Stille am Ende kürzen
       const id = this.peeked && this.fresh === 0 ? this.snap : 0;
       this.reset();

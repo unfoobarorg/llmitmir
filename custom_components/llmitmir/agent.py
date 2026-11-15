@@ -31,7 +31,7 @@ from . import views as V
 from . import voice as VO
 from .claude_client import ClaudeClient
 from .claude_client import available as claude_available
-from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK,
+from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK, SLOW_AFTER_VOICE,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
                     MAX_STEPS_TASK_HEAVY,
@@ -108,6 +108,7 @@ class Manager:
         self._models_lock = asyncio.Lock()
         self._poll_key = ""  # last key that worked for a run (per-user keys: something to poll /models with)
         self.observed: dict[str, tuple[float, str]] = {}  # model -> (when, "slow" | "fast") as LLMitMir saw it
+        self.first_token: dict[str, tuple[float, int]] = {}  # model -> (seconds until first output, samples), EMA
         self.billing = BillingStore(hass)
         self.ews = EwsStore(hass)  # was über die EWS-Server gelernt wurde (Feld-Schreibweise)
         self._ext: dict[str, ClaudeClient] = {}
@@ -373,6 +374,15 @@ class Manager:
         if before[1] != self.observed[model][1] or time.time() - before[0] > SLOW_MEMORY:
             self.emit_models()
 
+    def note_first(self, model: str, waited: float) -> None:
+        """Zeit bis zum ersten Ausgabezeichen merken (gleitender Mittelwert) – danach wählt das Gespräch sein Modell."""
+        old, n = self.first_token.get(model, (waited, 0))
+        self.first_token[model] = (waited if not n else 0.65 * old + 0.35 * waited, min(n + 1, 50))
+
+    def voice_model(self, exclude: tuple[str, ...] = ()) -> str | None:
+        """Das Modell für Sprachgespräche: das schnellste, das gut genug ist (models.pick_voice)."""
+        return MS.pick_voice(self.live_models(), self.first_token, exclude)
+
     def live_models(self, enabled_only: bool = True) -> list[dict]:
         """Known models with LLMitMir's own observations (``slow`` or ``fast``) merged in."""
         mm = self.config.data.get("models") or {}
@@ -441,6 +451,7 @@ class Manager:
             out[r] = mid
             out[f"{r}_auto"] = auto
         out["auto"] = {r: MS.pick(self.live_models(), r) or "" for r in MS.ROLES}
+        out["voice"] = self.voice_model() or out["auto"].get("chat") or ""  # Gespräch: Tempo vor Tiefe
         # what applies without a personal choice ("Vorgabe" in the settings)
         out["base"] = {r: dict(zip(("model", "auto"), self._default(user_id, r, personal=False))) for r in ("chat", "agent")}
         return out
@@ -1027,6 +1038,15 @@ class Manager:
                 chat["model"], chat["model_auto"] = self.default_model(user.id, role), True
                 _LOGGER.info("Model %s is not available, run %s uses %s", old, run.id, chat["model"])
                 self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+            spoken = task is None and VO.is_voice_turn(chat.get("messages"))
+            if chat.get("model_auto") and not PV.is_external(chat.get("model") or "") and task is None:
+                # Gespräch: das schnellste taugliche Modell (Tempo vor Tiefe). Wird im selben Chat wieder getippt,
+                # gilt wieder das Modell, das für Chats bzw. Coworks am besten passt.
+                want = self.voice_model() if spoken else (self.default_model(user.id, role) if chat.get("model_voice") else None)
+                if want and want != chat.get("model"):
+                    chat["model"] = want
+                    self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+                chat["model_voice"] = spoken
             key, separate = self.run_key(user.id, st, task is not None)
             if may_fallback and not PV.is_external(chat["model"]) and not self.provider_usable(user.id, PV.MAIN, True)[0]:
                 fb = self._fallback_for(user.id, proj)
@@ -1122,6 +1142,13 @@ class Manager:
                         return False  # the key's own limit, another model would not help
                     model = chat["model"]
                     self.note_slow(model)
+                    if spoken and chat.get("model_auto"):
+                        # Gespräch: nicht warten und nicht fragen – das nächste schnelle Modell übernimmt
+                        nxt = self.voice_model(exclude=(model,))
+                        if nxt:
+                            _LOGGER.info("Run %s: %s gives no output after %ds, conversation moves to %s", run.id, model, waited, nxt)
+                            run.switch_to, run.switch_auto = nxt, True
+                            return True
                     try:
                         await asyncio.wait_for(self.refresh_models(key=key, max_age=30), 8)
                     except Exception:  # noqa: BLE001
@@ -1142,6 +1169,7 @@ class Manager:
                 async def on_first(waited: float) -> None:
                     if PV.is_external(chat["model"]):
                         return
+                    self.note_first(chat["model"], waited)
                     if waited <= FAST_FIRST_TOKEN:
                         self.note_slow(chat["model"], False)
                     elif waited >= SLOW_AFTER_INTERACTIVE:
@@ -1177,13 +1205,16 @@ class Manager:
                             body["tools"] = tools
                             if final:
                                 body["tool_choice"] = "none"
+                        if spoken:
+                            # Gespräch: ohne Denkphase antworten – das erste Wort zählt (provider.template_kwargs_ok)
+                            body["chat_template_kwargs"] = {"enable_thinking": False}
                         stream = self.provider.chat_stream(key, body, interactive=interactive, max_wait=max_wait,
                                                            on_status=on_status, cancel=run.cancel)
                     acc = StreamAccumulator()
                     last_emit, pend_c, pend_r = 0.0, "", ""
                     try:
                         async for chunk in guard_stream(stream, run.cancel, run.switch, on_slow=on_slow, on_first=on_first,
-                                                         first_timeout=SLOW_AFTER_INTERACTIVE if interactive else SLOW_AFTER_TASK):
+                                                         first_timeout=(SLOW_AFTER_VOICE if spoken else SLOW_AFTER_INTERACTIVE) if interactive else SLOW_AFTER_TASK):
                             c_d, r_d = acc.feed(chunk)
                             pend_c += c_d
                             pend_r += r_d
@@ -1581,7 +1612,8 @@ class ToolContext:
                 "Die Person sieht nur deine fertige Antwort.")
         if self.task is None and VO.is_voice_turn(self.chat.get("messages")):
             # gesprochen statt getippt: die Antwort wird vorgelesen – kurz, im Wechsel, ohne Markdown
-            parts.append(VO.VOICE_PROMPT + "\nDiese Regeln gehen den Regeln zu Markdown und Antwortlänge weiter oben "
+            parts.append(VO.voice_prompt(self.store.meta["settings"].get("voice_name"))
+                         + "\nDiese Regeln gehen den Regeln zu Markdown und Antwortlänge weiter oben "
                          "vor, solange das Gespräch gesprochen wird.")
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(

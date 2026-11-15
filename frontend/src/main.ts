@@ -22,6 +22,7 @@ export class LLMitMirPanel extends LitElement {
   @property({ type: Boolean, reflect: true }) dark = false;
   @state() private access: any = null;
   @state() private drawer = false;
+  @state() private later = "";     // Hinweis auf diese neue Version wurde auf später verschoben
   @state() private collapsed = false;
   @state() private small = false;
   private unsub?: () => Promise<void>;
@@ -92,6 +93,11 @@ export class LLMitMirPanel extends LitElement {
     .small nav.open { transform: none; }
     .toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--lm-text); color: var(--lm-bg);
       padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: fadeIn .2s; max-width: 90vw; }
+    .update { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 60; width: min(560px, calc(100% - 20px));
+      background: var(--lm-raise); color: var(--lm-text); border: 1px solid var(--lm-accent); border-radius: 14px; padding: 10px 12px;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); animation: fadeIn .2s; }
+    .update span { flex: 1 1 100%; }
+    .update .btn.primary { margin-left: auto; }
     .deny { display: grid; place-items: center; height: 100%; text-align: center; padding: 24px; }
     .deny .card { max-width: 440px; }
     /* Chats per Ziehen in ein Projekt verschieben */
@@ -492,6 +498,10 @@ export class LLMitMirPanel extends LitElement {
       ${this.moveSheet ? this.moveSheetView() : nothing}
       ${this.drag ? html`<div class="dragghost" style="left:${this.drag.x}px;top:${this.drag.y}px">${icon("chat", 15)}
         <span class="ellipsis">${this.drag.title}</span></div>` : nothing}
+      ${store.newVersion && store.newVersion !== this.later ? html`<div class="update" role="status">
+        <span>${t("LLMitMir wurde aktualisiert (Version {v}). Lade neu, damit du die neue Oberfläche bekommst.", { v: store.newVersion })}</span>
+        <button class="btn primary" @click=${() => location.reload()}>${icon("retry", 16)} ${t("Neu laden")}</button>
+        <button class="btn ghost" @click=${() => (this.later = store.newVersion)}>${t("Später")}</button></div>` : nothing}
       ${store.toast ? html`<div class="toast">${store.toast}</div>` : nothing}`;
   }
 }

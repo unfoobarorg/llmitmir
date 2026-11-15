@@ -49,7 +49,10 @@ recherchiert oder geantwortet wird. Aus jedem Chat und jedem Cowork führt ein K
 die drei Punkte in der Chatliste): Das Gespräch setzt den vorhandenen Verlauf fort, statt einen neuen Chat anzulegen, \
 und sagt zu Beginn die letzten Sätze der letzten Antwort an. Es läuft wie ein Gespräch, nicht wie ein vorgelesener \
 Chat: Die Ansicht schreibt schon in Sprechpausen mit, sendet, sobald ein Satz fertig klingt, verbindet einen \
-Nachsatz mit dem ersten Teil und überbrückt Wartezeiten selbst mit einem kurzen gesprochenen Satz. Getippt und gesprochen wechseln sich also im selben \
+Nachsatz mit dem ersten Teil und überbrückt Wartezeiten selbst mit einem kurzen gesprochenen Satz. Der Roboter \
+hört auf einen Rufnamen (beim ersten Gespräch festgelegt, in den Einstellungen des Gesprächs änderbar): Nach einer \
+Gesprächspause reagiert er nur noch, wenn er so angesprochen wird. „Stopp“ unterbricht ihn jederzeit, Freigaben \
+beantwortet die Person mit Ja, Nein oder Immer. Gesprochene Runden laufen auf dem schnellsten tauglichen Modell. Getippt und gesprochen wechseln sich also im selben \
 Chat ab; das Gespräch steht danach wie jeder Chat in der Liste und lässt sich dort weiterlesen und weiterschreiben. \
 Neue Gespräche landen von selbst im Projekt „Gespräche“, das LLMitMir beim ersten Gespräch anlegt: Es hat 14 Tage \
 Lebensdauer, damit eine lange Reihe von Gesprächen die Chatliste nicht füllt.
