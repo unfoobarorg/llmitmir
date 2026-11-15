@@ -41,6 +41,24 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Aktion erneut gefragt; sonst stockt der Gesprächsfluss. Getippt wird weiterhin jede Aktion einzeln bestätigt.
   Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
   das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
+  **Gesprächsfluss statt Chat in Tonform** – mehrere Dinge laufen gleichzeitig:
+  *Mitdenken beim Zuhören:* Schon in einer kurzen Sprechpause wird das bisher Gesagte abgeschrieben (als Text unter
+  dem Roboter mitzulesen). Klingt der Satz fertig, genügt eine kurze Stille und die Nachricht geht mit fertiger
+  Abschrift sofort hinaus; bricht er mitten im Gedanken ab („… und“, „… weil“), wartet LLMitMir länger.
+  *Nachschieben:* Solange LLMitMir still überlegt, bleibt das Mikrofon offen. Wer weiterspricht, bevor die Antwort
+  kommt, wird nicht übergangen – der Nachsatz wird mit dem ersten Teil zu einer Nachricht verbunden und neu überlegt
+  (solange noch kein Werkzeug lief; sonst hängt er sich an den Verlauf an).
+  *Sprechen, während weitergedacht wird:* Die Antwort beginnt mit dem ersten fertigen Satz. Dauert es, überbrückt
+  LLMitMir die Stille gesprochen statt mit einem Text am Bildschirm – „Hm, Moment.“ nach gut zweieinhalb Sekunden,
+  „Ich schaue kurz im Kalender nach.“ beim ersten Werkzeug, bei langem Nachschlagen ab und zu ein „Einen Moment
+  noch.“ (abschaltbar; die Sätze liegen vorab bereit und kommen ohne Verzögerung).
+  *Kurze Beiträge:* Das Modell antwortet im Wechsel – meist ein, zwei Sätze, das Wichtigste zuerst, den Rest als
+  Angebot („soll ich alle nennen?“) – und fragt bei Unklarem kurz zurück, statt alles abzuarbeiten.
+  *Ruhige Gesten:* Der Roboter folgt nicht jedem technischen Zwischenschritt. Kurze Wartezeiten zeigt er
+  **aufmerksam** (Blickkontakt, langsames Nicken) und ohne Text; die Denkerpose und „Ich überlege noch“ kommen erst
+  nach rund viereinhalb Sekunden stillen Wartens; wer einmal nachschlägt, bleibt beim Nachschlagen, bis er
+  antwortet, und jede Geste wird ausgespielt, bevor die nächste kommt. Denkt er nebenher (schreibt beim Zuhören
+  schon mit, arbeitet beim Sprechen noch weiter), pulsiert die Antenne.
   Den Bildschirm füllt der **Roboter aus dem LLMitMir-Icon in 3D** (eigenes kleines WebGL, keine 3D-Bibliothek): weiße
   Schale, grüne Gesichtsscheibe, leuchtende Augen, Antenne – menschenähnlich in Haltung und Gesten, in der Oberfläche
   klar eine Maschine. Er ist durchgehend in Bewegung und zeigt, was gerade passiert: **Zuhören** (beugt sich vor, Hand
@@ -251,7 +269,8 @@ npm run check      # TypeScript prüfen
 
 Das Frontend ist TypeScript mit [Lit](https://lit.dev), gebündelt mit esbuild; Markdown über `marked` + `DOMPurify`.
 Der 3D-Roboter des Sprachgesprächs (`frontend/src/robot3d.ts`) ist eigenes WebGL ohne weitere Abhängigkeit; Mikrofon und
-Vorlesen stehen in `voiceio.ts`, die Aufbereitung des Textes fürs Vorlesen in `voicetext.ts`, die Ansicht in `voice.ts`.
+Vorlesen stehen in `voiceio.ts`, die Aufbereitung des Textes fürs Vorlesen in `voicetext.ts`, die Regeln des Gesprächsflusses (Satzende, Gestenregie,
+gesprochene Überbrückung) in `voiceflow.ts`, die Ansicht in `voice.ts`.
 
 ## English
 

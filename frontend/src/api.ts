@@ -138,6 +138,12 @@ export class Store extends EventTarget {
         }
         break;
       }
+      case "messages": {
+        // der Verlauf wurde zurückgenommen (Sprachgespräch: Nachsatz mit der ersten Hälfte verbunden)
+        const c = this.chats.get(e.chat_id);
+        if (c) c.messages = e.messages || [];
+        break;
+      }
       case "delta": {
         const c = this.chats.get(e.chat_id);
         const m = c?.messages.find((x: any) => x.id === e.message_id);

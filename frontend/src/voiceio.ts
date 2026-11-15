@@ -24,9 +24,15 @@ export class Mic {
   silenceMs = 1200;
   /** > 1: unempfindlicher (beim Dazwischenreden, während LLMitMir selbst spricht). */
   sensitivity = 1;
+  /** Nach so viel Stille gibt es schon einen Zwischenstand (`onPause`) – lange vor dem Ende der Äußerung. */
+  peekMs = 450;
   onStart?: () => void;
-  /** Äußerung fertig; `null`, wenn es doch nur ein Geräusch war. */
-  onEnd?: (wav: Blob | null) => void;
+  /** Kurze Pause mitten in der Äußerung: das bisher Gesagte, damit schon mitgedacht werden kann.
+   *  `id` kennzeichnet den Zwischenstand; `onEnd` nennt ihn wieder, wenn danach nichts mehr gesagt wurde. */
+  onPause?: (wav: Blob, id: number) => void;
+  /** Äußerung fertig; `null`, wenn es doch nur ein Geräusch war. `id` > 0: Sie ist dieselbe wie der
+   *  Zwischenstand mit dieser Nummer (danach kam nur noch Stille) – dessen Abschrift gilt also weiter. */
+  onEnd?: (wav: Blob | null, id: number) => void;
 
   private stream?: MediaStream; private src?: MediaStreamAudioSourceNode; private proc?: ScriptProcessorNode;
   private rate = 48000;
@@ -34,6 +40,15 @@ export class Mic {
   private pre: Float32Array[] = [];
   private chunks: Float32Array[] = [];
   private voiced = 0; private silence = 0; private total = 0;
+  private fresh = 0;        // gesprochene Zeit seit dem letzten Zwischenstand
+  private peeked = false;   // für die laufende Pause gibt es schon einen Zwischenstand
+  private snap = 0; private seq = 0;
+  private cut = 0;          // für die laufende Pause gilt diese (kürzere oder längere) Wartezeit
+
+  /** Die Abschrift des Zwischenstands `id` ist da: Die laufende Pause endet nach `ms` Stille statt nach
+   *  `silenceMs` – kürzer, wenn der Satz fertig klingt, länger, wenn er mitten im Gedanken abbricht.
+   *  Gilt nur, solange seither nichts mehr gesagt wurde. */
+  endAfter(id: number, ms: number) { if (this.hearing && id === this.snap && this.fresh === 0) this.cut = ms; }
 
   static supported() { return typeof navigator.mediaDevices?.getUserMedia === "function"; }
 
@@ -56,7 +71,7 @@ export class Mic {
   /** Mikrofon stumm (Pause): das Betriebssystem zeigt dann auch keine Aufnahme mehr an. */
   setMuted(m: boolean) { this.stream?.getAudioTracks().forEach(t => (t.enabled = !m)); if (m) { this.reset(); this.level = 0; } }
 
-  private reset() { this.hearing = false; this.chunks = []; this.pre = []; this.voiced = 0; this.silence = 0; this.total = 0; }
+  private reset() { this.hearing = false; this.chunks = []; this.pre = []; this.voiced = 0; this.silence = 0; this.total = 0; this.fresh = 0; this.peeked = false; this.snap = 0; this.cut = 0; }
 
   private block(d: Float32Array) {
     let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] * d[i];
@@ -73,18 +88,25 @@ export class Mic {
       if (this.pre.length * ms > 500) this.pre.shift();     // eine halbe Sekunde Vorlauf, damit der Satzanfang nicht fehlt
       this.voiced = rms > thr ? this.voiced + ms : Math.max(0, this.voiced - ms * 0.6);
       if (this.voiced >= 140 * Math.min(2, this.sensitivity)) {
-        this.hearing = true; this.chunks = this.pre; this.pre = []; this.silence = 0; this.total = this.voiced;
+        this.hearing = true; this.chunks = this.pre; this.pre = []; this.silence = 0; this.total = this.fresh = this.voiced;
         this.onStart?.();
       }
       return;
     }
     this.chunks.push(copy);
-    if (rms > thr * 0.65) { this.silence = 0; this.total += ms; } else this.silence += ms;
-    if (this.silence >= this.silenceMs || this.chunks.length * ms > 120000) {
-      const keep = Math.max(1, this.chunks.length - Math.floor(Math.max(0, this.silence - 350) / ms));   // Stille am Ende kürzen
-      const chunks = this.chunks.slice(0, keep), enough = this.total >= 280;
+    if (rms > thr * 0.65) { this.silence = 0; this.total += ms; this.fresh += ms; this.peeked = false; this.cut = 0; }
+    else this.silence += ms;
+    const trimmed = (keepMs: number) => this.chunks.slice(0, Math.max(1, this.chunks.length - Math.floor(Math.max(0, this.silence - keepMs) / ms)));
+    // kurze Pause: Zwischenstand herausgeben, damit schon abgeschrieben und mitgedacht werden kann
+    if (!this.peeked && this.onPause && this.silence >= this.peekMs && this.fresh >= 250 && this.total >= 280) {
+      this.peeked = true; this.fresh = 0; this.snap = ++this.seq;
+      this.onPause(encodeWav(trimmed(300), this.rate), this.snap);
+    }
+    if (this.silence >= (this.cut || this.silenceMs) || this.chunks.length * ms > 120000) {
+      const chunks = trimmed(350), enough = this.total >= 280;                // Stille am Ende kürzen
+      const id = this.peeked && this.fresh === 0 ? this.snap : 0;
       this.reset();
-      this.onEnd?.(enough ? encodeWav(chunks, this.rate) : null);
+      this.onEnd?.(enough ? encodeWav(chunks, this.rate) : null, enough ? id : 0);
     }
   }
 }
@@ -205,6 +227,12 @@ export class Speaker {
   private buf: Uint8Array;
   private fake = 0;           // Stimme ohne messbaren Pegel (Browser): Mundbewegung nachahmen
   private failed = false;
+  private ready = new Map<string, Promise<AudioBuffer | null>>();   // vorab erzeugte Sätze (Überbrückung)
+  private _hold = false;
+  /** Die Stimme ist gerade zu hören (nicht nur vorgemerkt). */
+  sounding = false;
+  /** Wann zuletzt etwas zu hören war (performance.now()). */
+  lastSound = -1e9;
 
   constructor(private hass: Hass, private ctx: AudioContext) {
     this.analyser = ctx.createAnalyser(); this.analyser.fftSize = 512; this.analyser.smoothingTimeConstant = 0.3;
@@ -214,16 +242,35 @@ export class Speaker {
 
   get busy() { return this.playing || this.queue.length > 0; }
 
+  /** Anhalten, bevor der nächste Satz beginnt (die Person spricht gerade dazwischen); `false` setzt fort. */
+  set hold(v: boolean) { this._hold = v; if (!v) this.pump(); }
+  get hold() { return this._hold; }
+
+  /** Sätze vorab erzeugen (nacheinander, im Hintergrund), damit sie später ohne Verzögerung kommen. */
+  async prefetch(texts: string[]) {
+    const gen = this.gen, c = this.choice;
+    if (c.kind !== "ha" && c.kind !== "robot") return;
+    for (const text of texts) {
+      if (gen !== this.gen || this.choice !== c) return;
+      if (this.ready.has(text)) continue;
+      const p = this.synth(text, c).catch(() => null);
+      this.ready.set(text, p);
+      if (!(await p)) { this.ready.delete(text); return; }     // Stimme nicht erreichbar: nicht weiter anklopfen
+    }
+  }
+
   say(text: string) {
     if (!text.trim()) return;
     const item: Item = { text };
-    if (this.choice.kind === "ha" || this.choice.kind === "robot") item.audio = this.synth(text, this.choice).catch(() => null);
+    if (this.choice.kind === "ha" || this.choice.kind === "robot") item.audio = this.ready.get(text) || this.synth(text, this.choice).catch(() => null);
     this.queue.push(item);
     this.pump();
   }
 
   stop() {
-    this.gen++; this.queue = []; this.playing = false; this.fake = 0; this.level = 0;
+    this.gen++; this.queue = []; this.playing = false; this.fake = 0; this.level = 0; this._hold = false;
+    if (this.sounding) this.lastSound = performance.now();
+    this.sounding = false;
     try { this.node?.stop(); } catch { /* schon zu Ende */ }
     try { this.osc?.stop(); } catch { /* schon zu Ende */ }
     this.node = undefined; this.osc = undefined;
@@ -279,7 +326,7 @@ export class Speaker {
   }
 
   private async pump() {
-    if (this.playing) return;
+    if (this.playing || this._hold) return;
     const item = this.queue.shift();
     if (!item) { this.onSpeak?.(null); return; }
     const gen = this.gen;
@@ -288,7 +335,7 @@ export class Speaker {
       if (gen !== this.gen) return;
       try { this.osc?.stop(); } catch { /* schon zu Ende */ }
       this.osc = undefined;
-      this.playing = false; this.fake = 0; this.pump();
+      this.playing = false; this.fake = 0; this.sounding = false; this.lastSound = performance.now(); this.pump();
     };
     let buf: AudioBuffer | null = null;
     if (item.audio) {
@@ -305,6 +352,7 @@ export class Speaker {
         console.warn("LLMitMir: die Stimme ist nicht nutzbar – es liest die Sprachausgabe von Home Assistant oder der Browser.");
       }
     }
+    this.sounding = true;
     this.onSpeak?.(item.text);
     if (buf) {
       const n = this.node = this.ctx.createBufferSource();
