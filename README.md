@@ -42,7 +42,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Neue Gespräche landen von selbst im
   Projekt **„Gespräche“**, das LLMitMir beim ersten Gespräch anlegt und das eine Lebensdauer von 14 Tagen hat – wer oft
   mit dem Roboter spricht, behält so eine übersichtliche Chatliste. Das Projekt lässt sich umbenennen, die Frist ändern
-  oder löschen; beim nächsten Gespräch entsteht es neu. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
+  oder löschen; beim nächsten Gespräch entsteht es neu. **Kurzweg von außen:** Der Pfad `/llmitmir/voice/last` öffnet
+  das jüngste Gespräch und hört sofort zu – als Shortcut der Home-Assistant-App (Einstellungen → Companion App →
+  Shortcuts verwalten, Typ *Dashboard*, Pfad `/llmitmir/voice/last`) ist das Gespräch damit einen Tipp entfernt, etwa
+  auf dem Autoradio im Auto. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
   das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
   **Ein Assistent, der nebenher läuft** (Auto, Tablet) – bedienbar, ohne den Bildschirm zu sehen oder zu berühren:
   *Sofort losreden:* Wer die Ansicht öffnet – von der Startseite, aus der Seitenleiste oder aus einem Chat –, wird

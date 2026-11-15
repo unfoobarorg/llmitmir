@@ -457,11 +457,18 @@ export class LLMitMirPanel extends LitElement {
     </nav>`;
   }
 
+  /** Das jüngste Gespräch (Sprachgespräch) – Ziel des Kurzwegs `/voice/last`, etwa aus einem Shortcut der App.
+   *  Die Chatliste kommt bereits nach „zuletzt geändert“ sortiert; ohne Gespräch bleibt es beim leeren Start. */
+  private lastVoice(): string {
+    const c = (store.data?.chats || []).find((x: any) => x.voice && x.kind === "chat");
+    return c?.id || "";
+  }
+
   private view() {
     const [p, id] = this.path;
     switch (p) {
       case "chat": return html`<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
-      case "voice": return html`<lm-voice .chatId=${id}>${this.menuBtn()}</lm-voice>`;
+      case "voice": return html`<lm-voice .chatId=${id === "last" ? this.lastVoice() : id}>${this.menuBtn()}</lm-voice>`;
       case "cowork": return this.wrap(html`<lm-home initialMode=${isSimple() ? "chat" : "cowork"}></lm-home>`);
       case "chats": return this.wrap(html`<lm-chats></lm-chats>`);
       case "projects": return this.wrap(html`<lm-projects></lm-projects>`);

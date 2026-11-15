@@ -55,7 +55,10 @@ Gesprächspause reagiert er nur noch, wenn er so angesprochen wird. „Stopp“ 
 beantwortet die Person mit Ja, Nein oder Immer. Gesprochene Runden laufen auf dem schnellsten tauglichen Modell. Getippt und gesprochen wechseln sich also im selben \
 Chat ab; das Gespräch steht danach wie jeder Chat in der Liste und lässt sich dort weiterlesen und weiterschreiben. \
 Neue Gespräche landen von selbst im Projekt „Gespräche“, das LLMitMir beim ersten Gespräch anlegt: Es hat 14 Tage \
-Lebensdauer, damit eine lange Reihe von Gesprächen die Chatliste nicht füllt.
+Lebensdauer, damit eine lange Reihe von Gesprächen die Chatliste nicht füllt. Ein Kurzweg führt direkt hinein: Der \
+Pfad /llmitmir/voice/last öffnet das jüngste Gespräch und hört sofort zu – dafür lohnt sich ein Shortcut der \
+Home-Assistant-App (Einstellungen → Companion App → Shortcuts verwalten, Typ Dashboard, Pfad /llmitmir/voice/last), \
+etwa auf dem Autoradio im Auto.
 - **Externe Modelle** (optional, kostenpflichtig): Claude über Microsoft Foundry oder die Anthropic-API. Nie automatisch, \
 nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder eine geplante Aufgabe „im Notfall extern“ darf. \
 Zugänge müssen dafür einzeln freigegeben sein, Projekte lassen sich sperren; der Admin legt Anbieter-Reihenfolge, Modelle, Preise \
