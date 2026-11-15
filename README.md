@@ -39,7 +39,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Freigaben (als Karte zum Antippen) funktionieren wie dort – mit einem Unterschied: Was im Gespräch einmal erlaubt
   wurde (ein Werkzeug oder eine ganze Werkzeuggruppe), gilt für den Rest des Gesprächs und wird nicht bei jeder
   Aktion erneut gefragt; sonst stockt der Gesprächsfluss. Getippt wird weiterhin jede Aktion einzeln bestätigt.
-  Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
+  Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Neue Gespräche landen von selbst im
+  Projekt **„Gespräche“**, das LLMitMir beim ersten Gespräch anlegt und das eine Lebensdauer von 14 Tagen hat – wer oft
+  mit dem Roboter spricht, behält so eine übersichtliche Chatliste. Das Projekt lässt sich umbenennen, die Frist ändern
+  oder löschen; beim nächsten Gespräch entsteht es neu. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
   das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
   **Gesprächsfluss statt Chat in Tonform** – mehrere Dinge laufen gleichzeitig:
   *Mitdenken beim Zuhören:* Schon in einer kurzen Sprechpause wird das bisher Gesagte abgeschrieben (als Text unter
@@ -113,7 +116,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   alles außerhalb eines Projekts eine Frist in den Einstellungen der Person. Standardmäßig ist das aus; wer es
   einschaltet, bekommt 30 Tage vorgeschlagen, jede andere Zahl (bis 3650) geht auch. Gezählt ab der letzten Benutzung,
   geprüft stündlich und beim Start; gelöscht werden Chat, Anhänge, Arbeitsbereich und Sandbox. Angeheftete Chats und
-  die Läufe geplanter Aufgaben bleiben.
+  die Läufe geplanter Aufgaben bleiben. Das automatisch angelegte Projekt „Gespräche“ bringt seine Frist (14 Tage) mit.
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt.

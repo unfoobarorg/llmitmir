@@ -63,6 +63,22 @@ def test_describe():
     assert cron.describe({"type": "weekly", "days": [1, 3], "time": "19:30"}) == "Mo, Mi um 19:30"
 
 
+def test_voice_project_is_created_once_and_expires():
+    """Neue Gespräche landen im Projekt „Gespräche“ (14 Tage); es entsteht einmal und wird wiedergefunden."""
+    projects: dict = {}
+    assert retention.voice_project(projects) is None
+    rec = retention.voice_project_record("p1", 1000.0)
+    projects["p1"] = rec
+    assert retention.voice_project(projects)["id"] == "p1"
+    assert retention.project_days(rec) == 14
+    # ein Gespräch darin verschwindet nach 14 Tagen, ein angeheftetes bleibt
+    chats = {"c1": {"kind": "chat", "project_id": "p1", "updated": 1000.0},
+             "c2": {"kind": "chat", "project_id": "p1", "updated": 1000.0, "pinned": True}}
+    assert retention.expired(chats, projects, {}, 1000.0 + 14 * 86400) == ["c1"]
+    # ein von Hand angelegtes Projekt heißt nicht „Gespräche“
+    assert retention.voice_project({"p2": {"id": "p2", "name": "Gespräche"}}) is None
+
+
 def test_credentials_placeholders_and_scrub():
     store = {"k1": {"id": "k1", "name": "Hof Nextcloud", "type": "webdav",
                     "fields": {"url": "https://files.example.org", "username": "hof", "password": "geheim-123"}},

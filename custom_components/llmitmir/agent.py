@@ -736,10 +736,30 @@ class Manager:
                 _LOGGER.exception("subscriber failed")
 
     # ------------------------------------------------------------- chats
+    async def voice_project_id(self, st: UserStore) -> str:
+        """Das Projekt „Gespräche“ – beim ersten Gespräch angelegt, danach wiederverwendet.
+
+        Wer oft mit dem Roboter spricht, hat schnell eine lange Chatliste. Neue Gespräche landen deshalb von
+        selbst in einem eigenen Projekt mit 14 Tagen Lebensdauer (retention.voice_project). Löscht die Person
+        das Projekt, entsteht es beim nächsten Gespräch neu.
+        """
+        proj = RT.voice_project(st.meta["projects"])
+        if proj:
+            return proj["id"]
+        pid = new_id("p")
+        st.meta["projects"][pid] = RT.voice_project_record(pid, now())
+        await st.async_save_meta()
+        self.emit(st.user_id, {"type": "meta", "section": "projects"})
+        return pid
+
     async def create_chat(self, user_id: str, kind: str, project_id: str | None = None, model: str | None = None,
                           title: str = "", task_id: str | None = None, tools: list[str] | None = None,
                           voice: bool = False) -> dict:
         st = await self.user_store(user_id)
+        if voice and kind == KIND_CHAT and not project_id:
+            # Ein neues Gespräch ohne eigenes Projekt gehört ins Projekt „Gespräche“ (14 Tage Lebensdauer).
+            # Ein Gespräch, das einen vorhandenen Chat fortsetzt, kommt hier gar nicht vorbei.
+            project_id = await self.voice_project_id(st)
         if project_id and project_id not in st.meta["projects"]:
             raise ValueError("Projekt unbekannt")
         proj = st.meta["projects"].get(project_id or "", {})

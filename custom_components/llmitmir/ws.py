@@ -441,6 +441,10 @@ async def ws_project_save(hass, conn, msg, m, user, st):
         if PV.is_external(p.get(k) or ""):
             raise ValueError("Externe Modelle lassen sich nicht als Standard eines Projekts festlegen – nur im Chat auswählen.")
     proj = dict(old, **{k: p[k] for k in keep if k in p}, id=pid, updated=now())
+    # Das Kennzeichen „von LLMitMir angelegt“ (Projekt „Gespräche“) bleibt, auch wenn die Person das Projekt
+    # umbenennt oder die Frist ändert – daran findet LLMitMir es beim nächsten Gespräch wieder.
+    if old.get("auto"):
+        proj["auto"] = old["auto"]
     if not str(proj.get("name") or "").strip():
         raise ValueError("Name fehlt")
     # Lebensdauer der Chats und Coworks dieses Projekts (0 = unbegrenzt, ohne Angabe 7 Tage)

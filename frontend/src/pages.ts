@@ -152,6 +152,7 @@ export class Projects extends StoreElement {
         <div class="row">${icon("project")}<b class="grow ellipsis">${p.name}</b></div>
         <div class="hint" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.description || (p.instructions || "").slice(0, 160) || "Noch keine Anweisungen."}</div>
         <div class="row" style="margin-top:auto"><span class="chip">${count(p.id)} Chats</span>
+          ${p.auto ? html`<span class="chip" title="Von LLMitMir angelegt – neue Gespräche landen hier von selbst">${icon("sparkle", 13)} ${t("automatisch")}</span>` : nothing}
           ${Number(p.retention_days) > 0 ? html`<span class="chip" title="Chats und Coworks dieses Projekts werden danach gelöscht">${icon("hourglass", 13)} ${daysText(p.retention_days)}</span>` : nothing}${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
           ${(p.skills || []).length ? html`<span class="chip">${icon("skill", 13)} ${(p.skills || []).length}</span>` : nothing}</div></div>`)}
         <div class="item pc new" @click=${this.create}>${icon("plus")} ${t("Neues Projekt")}</div></div></div>`;
@@ -228,6 +229,7 @@ export class ProjectPage extends StoreElement {
         <label class="tw"><input class="title" placeholder="Name des Projekts" aria-label="Name des Projekts" .value=${p.name}
           @input=${(e: any) => this.set("name", e.target.value)}><span class="pen">${icon("edit", 18)}</span></label></div>
       <input style="margin:4px 0 18px" placeholder="Kurzbeschreibung" .value=${p.description || ""} @input=${(e: any) => this.set("description", e.target.value)}>
+      ${p.auto ? html`<div class="hint" style="margin:-10px 0 16px">${icon("sparkle", 14)} ${t("Dieses Projekt hat LLMitMir selbst angelegt: Jedes neue Gespräch mit dem Roboter landet hier, damit die Chatliste übersichtlich bleibt. Die Lebensdauer unten gilt ab der letzten Benutzung – du kannst sie ändern oder das Projekt löschen; beim nächsten Gespräch entsteht es neu.")}</div>` : nothing}
       ${!p.id ? html`<div class="lock">${icon("project", 26)}<b>Neues Projekt</b><span class="hint">Gib einen Namen ein und speichere – danach kannst du Dateien hochladen und Chats und Coworks in diesem Projekt starten.</span>
         <div class="row" style="justify-content:center;margin-top:6px"><button class="btn" @click=${() => navigate("/projects")}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save} ?disabled=${!String(p.name || "").trim()}>${icon("check", 16)} Projekt anlegen</button></div></div>

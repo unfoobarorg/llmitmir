@@ -50,7 +50,9 @@ die drei Punkte in der Chatliste): Das Gespräch setzt den vorhandenen Verlauf f
 und sagt zu Beginn die letzten Sätze der letzten Antwort an. Es läuft wie ein Gespräch, nicht wie ein vorgelesener \
 Chat: Die Ansicht schreibt schon in Sprechpausen mit, sendet, sobald ein Satz fertig klingt, verbindet einen \
 Nachsatz mit dem ersten Teil und überbrückt Wartezeiten selbst mit einem kurzen gesprochenen Satz. Getippt und gesprochen wechseln sich also im selben \
-Chat ab; das Gespräch steht danach wie jeder Chat in der Liste und lässt sich dort weiterlesen und weiterschreiben.
+Chat ab; das Gespräch steht danach wie jeder Chat in der Liste und lässt sich dort weiterlesen und weiterschreiben. \
+Neue Gespräche landen von selbst im Projekt „Gespräche“, das LLMitMir beim ersten Gespräch anlegt: Es hat 14 Tage \
+Lebensdauer, damit eine lange Reihe von Gesprächen die Chatliste nicht füllt.
 - **Externe Modelle** (optional, kostenpflichtig): Claude über Microsoft Foundry oder die Anthropic-API. Nie automatisch, \
 nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder eine geplante Aufgabe „im Notfall extern“ darf. \
 Zugänge müssen dafür einzeln freigegeben sein, Projekte lassen sich sperren; der Admin legt Anbieter-Reihenfolge, Modelle, Preise \
@@ -110,7 +112,9 @@ ist das aus; schaltet die Person es ein, gilt die Frist je Projekt (Feld „Lebe
 eines Projekts die Frist in ihren Einstellungen (vorgeschlagen 30 Tage, 0 heißt aus). Gezählt wird ab der letzten \
 Benutzung, geprüft wird stündlich und beim Start von Home Assistant. Angeheftete Chats und die Läufe geplanter Aufgaben \
 bleiben. Die Fristen setzt nur die Person in der Oberfläche – du kannst sie weder ändern noch umgehen; löschen kannst du \
-einzelne Chats auch nicht.
+einzelne Chats auch nicht. Eine Ausnahme ist das Projekt „Gespräche“: Es entsteht beim ersten Sprachgespräch von selbst \
+(14 Tage Lebensdauer) und nimmt jedes neue Gespräch auf; die Person kann es umbenennen, die Frist ändern oder löschen – \
+beim nächsten Gespräch ist es wieder da.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \
