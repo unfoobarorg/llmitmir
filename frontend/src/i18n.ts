@@ -132,6 +132,8 @@ const EN: Record<string, string> = {
   "Ich bin noch im Haus zugange.": "Still busy in the house.", "Ich bin noch im Kalender.": "Still in the calendar.", "Ich lese noch in den Mails.": "Still reading the mail.",
   "Ich bin noch in der Nextcloud.": "Still in Nextcloud.", "Ich lese noch.": "Still reading.", "Der Dienst antwortet noch nicht.": "The service hasn't answered yet.",
   "Ich arbeite noch daran.": "Still working on it.", "Ich überlege noch.": "Still thinking.", "Sag Stopp, wenn ich abbrechen soll.": "Say stop if you want me to cancel.",
+  "LLMitMir wurde aktualisiert (Version {v}). Lade neu, damit du die neue Oberfläche bekommst.": "LLMitMir has been updated (version {v}). Reload to get the new interface.",
+  "Neu laden": "Reload", "Später": "Later",
 };
 
 let lang = "de";

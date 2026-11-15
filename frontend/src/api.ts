@@ -1,4 +1,9 @@
 // Websocket/HTTP access and the shared client-side state.
+import { builtVersion, isStale } from "./version";
+
+// Version, mit der dieses Skript geladen wurde (aus seiner eigenen Adresse)
+const BUILT = builtVersion(import.meta.url);
+
 export type Hass = any;
 
 export class Api {
@@ -86,8 +91,14 @@ export class Store extends EventTarget {
     this.toast = msg; this.changed();
     clearTimeout(this._t); this._t = setTimeout(() => { this.toast = ""; this.changed(); }, 4500);
   }
+  /** Auf dem Server läuft inzwischen eine andere Version als in diesem Fenster (version.ts): diese Version. */
+  newVersion = "";
+  private firstVersion = "";
   async load() {
     this.data = await this.api.ws("bootstrap");
+    const server = String(this.data?.version || "");
+    this.firstVersion = this.firstVersion || server;
+    this.newVersion = isStale(BUILT, this.firstVersion, server) ? server : "";
     this.runs = this.data.runs || {};
     this.permissions = this.data.permissions || [];
     this.inbox = this.data.inbox || [];

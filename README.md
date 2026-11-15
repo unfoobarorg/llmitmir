@@ -96,6 +96,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   gestikulieren). Tippen auf den Roboter unterbricht die Antwort, das Mikrofon lässt sich pausieren (nach fünf Minuten
   Stille von selbst), optional unterbricht auch Dazwischenreden. Der Bildschirm bleibt während des Gesprächs an.
   Voraussetzung fürs Mikrofon: HTTPS und kein `Permissions-Policy: microphone=()` am Webserver.
+- **Hinweis nach einem Update**: Eine offene Seite – vor allem die Home-Assistant-App, die ihre Ansicht tagelang
+  behält – arbeitet nach einem Update mit der alten Oberfläche weiter, bis sie vollständig neu geladen wird. Das Panel
+  vergleicht deshalb seine eigene Version mit der des Servers (beim Start und nach jedem Wiederverbinden) und bietet
+  oben *Neu laden* an.
 - **Entwurf je Chat und je Projekt**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel
   in einen anderen Chat erhalten und steht beim Zurückkommen wieder da – auch auf der Startseite und auf einer
   Projektseite, wo ein neuer Chat oder Cowork beginnt. Wer dort etwas tippt, kurz in einen Chat schaut und zurückkommt,
