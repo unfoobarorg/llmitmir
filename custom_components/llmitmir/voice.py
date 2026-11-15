@@ -63,9 +63,28 @@ VOICE_PROMPT = (
 )
 
 
+# Was keine Namen sind: Füllwörter und Floskeln, mit denen eine Antwort auf „Wie möchtest du mich nennen?“ beginnt
+# oder ganz ausfällt. Sie werden abgeschnitten, damit aus „Nenn mich einfach Kalle“ auch „Kalle“ wird.
+_NAME_FILLER = re.compile(
+    r"^(?:(?:ich\s+(?:nenne|nenn|w(?:ü|ue)rde)|nenn(?:e)?|sag(?:e)?|ruf(?:e)?|du\s+hei(?:ß|ss)t|dein\s+name\s+ist|"
+    r"du\s+bist|sagen\s+wir|wie\s+w(?:ä|ae)re\s+es\s+mit|vielleicht|einfach|halt|jetzt|ab\s+sofort|okay|ok|hm+|(?:ä|ae)h+m*|also|"
+    r"na\s+gut|gut|dann|mal|bitte|i(?:'ll)?\s+call\s+you|your\s+name\s+is|call\s+you|let'?s\s+say)"
+    r"(?:\s+(?:mich|dich|du|mir))?[\s,:–-]+)+", re.IGNORECASE)
+_NAME_NONE = re.compile(
+    r"^(?:egal|wei(?:ß|ss)\s+(?:ich\s+)?nicht|keine\s+ahnung|keinen?|nichts|such\s+dir|such(?:e)?\s+du|mir\s+egal|"
+    r"wie\s+du\s+willst|i\s+don'?t\s+(?:know|care)|whatever)\b", re.IGNORECASE)
+
+
 def clean_name(name) -> str:
-    """Rufname: ein bis zwei Wörter, ohne Satzzeichen (leer = keiner festgelegt)."""
-    words = re.findall(r"[^\W\d_][\w'’-]*", str(name or ""), flags=re.UNICODE)[:2]
+    """Rufname: ein bis zwei Wörter, ohne Satzzeichen und ohne Floskeln (leer = keiner festgelegt).
+
+    Dieselbe Aufbereitung gilt für den Namen aus dem Gespräch und für den aus den Einstellungen – sonst hieße der
+    Roboter je nach Weg anders („Nenn mich Kalle“ statt „Kalle“)."""
+    s = str(name or "").strip().strip("\"'„“”»«.!?…,;: ").strip()
+    if not s or _NAME_NONE.match(s):
+        return ""
+    s = _NAME_FILLER.sub("", s)
+    words = re.findall(r"[^\W\d_][\w'’-]*", s, flags=re.UNICODE)[:2]
     return " ".join(words)[:24]
 
 

@@ -99,6 +99,8 @@ export class Voice extends StoreElement {
   private permSeen = new Map<string, number>(); private permAsked = ""; private permText = ""; private permTries = 0; private permCount = 0;
   private toolIds = new Set<string>();         // Werkzeugschritte dieser Runde (für die Ansage „jetzt …“)
   private askName = false;                     // nach dieser Runde (noch einmal) nach dem Namen fragen
+  private nameAskedAt = 0;                     // wann zuletzt nach dem Namen gefragt wurde (nicht zweimal im selben Atemzug)
+  private nameTries = 0;                       // wie oft nachgefragt wurde, weil die Antwort unbrauchbar war
   private mine = "";                           // Chat, den diese Ansicht selbst angelegt hat
   private resume = "";                         // letzte Antwort eines übernommenen Chats, einmal vorlesen
   private _sync = () => this.sync();
@@ -268,7 +270,9 @@ export class Voice extends StoreElement {
       } else if (BrowserListener.supported()) {
         const l = this.mic = new BrowserListener();
         l.onStart = () => this.onSpeechStart();
-        l.onText = txt => { this.sendText(txt); };
+        // Auch ohne Spracherkennung beim Anbieter gilt dieselbe Weiche: Rufname, Stopp und Freigaben werden
+        // verstanden – sonst landet die Antwort auf „Wie möchtest du mich nennen?“ als Chatnachricht.
+        l.onText = txt => { void this.route(txt, { phase: this.phase, standby: this.standby }); };
         l.start(this.locale);
       } else throw new Error(t("Für die Spracherkennung ist beim Anbieter kein Modell eingetragen, und dieser Browser hat keine eigene."));
       this.active = true; this.muted = false; this.silenced = true; this.quietSince = performance.now();
@@ -336,16 +340,19 @@ export class Voice extends StoreElement {
   // ---------------------------------------------------------------- Rufname
   /** Einmalig beim ersten Gespräch: Wie soll der Roboter heißen? Auf diesen Namen hört er später. */
   private askForName() {
-    this.naming = true; this.askName = false;
+    this.naming = true; this.askName = false; this.nameAskedAt = performance.now();
     this.speaker?.say(t("Hallo! Bevor wir loslegen: Wie möchtest du mich nennen?"));
   }
 
   private async setName(name: string, announce = true) {
-    this.naming = false;
+    this.naming = false; this.nameTries = 0;
     try {
       await store.api.ws("settings/save", { settings: { voice_name: name } });
       if (store.data?.settings) store.data.settings.voice_name = name;
     } catch (e: any) { this.fail(String(e?.message || e)); }
+    // Erst wenn der Name wirklich angekommen ist, gilt das Fragen als erledigt – sonst fragt die Ansicht gleich
+    // wieder (das war der Fehler beim ersten Gespräch: gesagt, aber nicht gespeichert).
+    if (!this.name) { this.askName = true; this.nameAskedAt = performance.now(); }
     if (announce) this.speaker?.say(t("Alles klar, ich bin {n}. Sag einfach {m}, wenn du mich brauchst.", { n: name, m: name }));
     this.lastWord = performance.now();
     this.requestUpdate(); this.sync();
@@ -445,7 +452,15 @@ export class Voice extends StoreElement {
         this.naming = false; this.askName = true;
         return this.sendText(text);
       }
-      return this.setName(DEFAULT_NAME);                // „egal“, „weiß nicht“: ein Vorschlag, in den Einstellungen änderbar
+      // „egal“, „weiß nicht“: ein Vorschlag, in den Einstellungen änderbar – aber nicht, wenn die Abschrift nur
+      // verhört war („Kalle“ → „Keller“). Dann lieber einmal nachfragen, statt den Namen zu verschlucken.
+      if (this.nameTries < 2 && !/^(?:egal|wei(?:ß|ss)\s+(?:ich\s+)?nicht|keine\s+ahnung|keinen?|nichts|mir\s+egal|wie\s+du\s+willst)\b/i.test(text.trim())) {
+        this.nameTries++; this.askName = true; this.nameAskedAt = performance.now();
+        this.speaker?.say(t("Wie soll ich heißen? Sag einfach nur den Namen."));
+        this.lastWord = performance.now(); this.sync();
+        return;
+      }
+      return this.setName(DEFAULT_NAME);
     }
     // 2. Antwort auf eine Freigabe-Frage
     const perm = this.perm();
@@ -632,7 +647,8 @@ export class Voice extends StoreElement {
       this.ack(this.resume || "Hallo! Was kann ich für dich tun?"); this.resume = "";
     }
     // Die Bitte von eben ist erledigt: jetzt (noch einmal) nach dem Namen fragen
-    if (this.askName && quietListening && !this.name && now - this.lastWord > 1500) this.askForName();
+    if (this.askName && quietListening && !this.name && now - this.lastWord > 1500
+        && now - this.nameAskedAt > 4000) this.askForName();   // nicht zweimal im selben Atemzug fragen
     // Gesprächspause: ab jetzt nur noch auf den Rufnamen hören, sonst einfach warten
     if (!this.standby && quietListening && !this.naming && !this.greetAt && this.name && now - this.lastWord > DIALOG_WINDOW) {
       this.standby = true; this.live = ""; this.sync();

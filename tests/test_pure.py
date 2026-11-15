@@ -2788,6 +2788,12 @@ def test_voice_name_and_prompt():
     assert voice.clean_name("  Robo! ") == "Robo"
     assert voice.clean_name("Herr Schmidt der Dritte") == "Herr Schmidt"
     assert voice.clean_name("123") == "" and voice.clean_name(None) == ""
+    # Floskeln gehoeren nicht zum Namen – sonst hiesse der Roboter je nach Weg anders
+    assert voice.clean_name("Nenn mich einfach Kalle") == "Kalle"
+    assert voice.clean_name("Ich nenne dich Kalle.") == "Kalle"
+    assert voice.clean_name("Du heißt jetzt Kalle") == "Kalle"
+    assert voice.clean_name("Sag einfach Kalle") == "Kalle"
+    assert voice.clean_name("egal") == "" and voice.clean_name("Weiß nicht") == ""
     assert voice.voice_prompt("") == voice.VOICE_PROMPT
     assert "„Robo“" in voice.voice_prompt("Robo") and voice.voice_prompt("Robo").startswith(voice.VOICE_PROMPT)
 

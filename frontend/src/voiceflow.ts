@@ -254,11 +254,13 @@ function soundsLike(word: string, name: string): boolean {
   return Math.abs(word.length - name.length) <= slack && word[0] === name[0] && distance(word, name) <= slack;
 }
 
-const LEAD_IN = /^(?:(?:ich\s+(?:nenne|nenn)\s+dich|nenn(?:e)?\s+dich|du\s+hei(?:ß|ss)t|dein\s+name\s+ist|du\s+bist|sagen\s+wir|ich\s+w(?:ü|ue)rde\s+sagen|wie\s+w(?:ä|ae)re\s+es\s+mit|vielleicht|einfach|okay|ok|hm+|(?:ä|ae)h+m*|also|na\s+gut|gut|dann|mal|i(?:'ll)?\s+call\s+you|your\s+name\s+is|call\s+you|let'?s\s+say)[\s,:–-]+)+/i;
+// Floskeln, mit denen eine Antwort auf „Wie möchtest du mich nennen?“ beginnt („Nenn mich einfach Kalle“)
+const LEAD_IN = /^(?:(?:ich\s+(?:nenne|nenn|w(?:ü|ue)rde)|nenn(?:e)?|sag(?:e)?|ruf(?:e)?|du\s+hei(?:ß|ss)t|dein\s+name\s+ist|du\s+bist|sagen\s+wir|wie\s+w(?:ä|ae)re\s+es\s+mit|vielleicht|einfach|halt|jetzt|ab\s+sofort|okay|ok|hm+|(?:ä|ae)h+m*|also|na\s+gut|gut|dann|mal|bitte|i(?:'ll)?\s+call\s+you|your\s+name\s+is|call\s+you|let'?s\s+say)(?:\s+(?:mich|dich|du|mir))?[\s,:–-]+)+/i;
 const NO_NAME = /^(?:egal|wei(?:ß|ss)\s+(?:ich\s+)?nicht|keine\s+ahnung|keinen?|nichts|such\s+dir|such(?:e)?\s+du|mir\s+egal|wie\s+du\s+willst|i\s+don'?t\s+(?:know|care)|whatever)\b/i;
 
 /** Aus der Antwort auf „Wie möchtest du mich nennen?“ den Namen holen („Ich nenne dich Robo.“ → „Robo“).
- *  Leer: Die Person hat keinen genannt – dann gilt ein Vorschlag. */
+ *  Leer: Die Person hat keinen genannt – dann gilt ein Vorschlag. Dieselbe Aufbereitung wie `clean_name` auf dem
+ *  Server (voice.py), damit der Name nicht je nach Weg anders lautet. */
 export function extractName(text: string): string {
   let s = (text || "").trim().replace(/^["„“'»«]+|["”“'»«.!?…]+$/g, "").trim();
   if (!s || NO_NAME.test(s)) return "";
