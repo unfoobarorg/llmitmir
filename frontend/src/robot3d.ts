@@ -15,6 +15,7 @@ export type RobotState = "hello" | "idle" | "listening" | "attentive" | "thinkin
 /** So lange nach einem Zustandswechsel mischt der Roboter die alte in die neue Haltung –
  *  dadurch gehen Nachdenken und Recherchieren weich ineinander ueber statt abrupt zu wechseln. */
 const TRANSITION_S = 0.7;
+const INTRO_S = 1.7;        // Dauer des Auftritts
 
 type M4 = Float32Array;
 type V3 = [number, number, number];
@@ -291,8 +292,8 @@ export class Robot3D {
   }
 
   /** Ein einzelnes Bild zu einem festen Zeitpunkt (Tests, Standbild bei „Bewegung reduzieren“). */
-  renderAt(seconds: number, settle = true) {
-    this.t = seconds; this.since = seconds;
+  renderAt(seconds: number, settle = true, intro = INTRO_S) {
+    this.t = seconds; this.since = seconds; this.intro = intro;
     if (settle) { this.pose = this.target(); this.mouth = this.voiceLevel; this.mic = this.micLevel; }
     this.draw();
   }
@@ -303,8 +304,45 @@ export class Robot3D {
     if (w !== this.w || h !== this.h) { this.canvas.width = this.w = w; this.canvas.height = this.h = h; }
   }
 
+  // ---------------------------------------------------------------- Auftritt
+  // Der Roboter kommt ins Bild, statt mitten in einer Bewegung zu erscheinen: Er steigt in gut einer halben
+  // Sekunde von unten auf und begrüßt mit einer kleinen Geste – jedes Mal eine andere (nicken, den Kopf neigen,
+  // kurz winken). Die Geste liegt über der Haltung des jeweiligen Zustands, deshalb bleibt sie ruhig, auch wenn
+  // das Gespräch in dieser Zeit schon beginnt.
+  private intro = 0;                       // Sekunden seit dem Auftritt (ab INTRO_S ist er vorbei)
+  private introKind = 0;                   // 0 nicken, 1 Kopf neigen, 2 winken
+
+  /** Auftritt neu spielen (beim Öffnen der Ansicht). `kind` nur für Tests, sonst zufällig. */
+  enter(kind?: number) {
+    this.intro = 0; this.introKind = kind ?? Math.floor(Math.random() * 3);
+    this.pose = this.target();             // gleich in der Haltung des Zustands, nichts „fährt“ erst dorthin
+    this.prevPose = { ...this.pose }; this.since = TRANSITION_S;
+    this.ant = this.antV = this.antX = this.antXV = 0; this.prevHeadRz = this.pose.headRz; this.prevHeadRx = this.pose.headRx;
+    this.blink = 0; this.blinkAt = 1.1;
+  }
+
+  /** Die Haltung, wie sie gezeichnet wird: während des Auftritts mit Aufsteigen und Begrüßungsgeste. */
+  private shown(): Pose {
+    const x = this.intro;
+    if (x >= INTRO_S) return this.pose;
+    const p = { ...this.pose };
+    const ease = (v: number) => { const c = Math.min(1, Math.max(0, v)); return 1 - Math.pow(1 - c, 3); };
+    const bump = (from: number, to: number) => { const c = (x - from) / (to - from); return c <= 0 || c >= 1 ? 0 : Math.sin(Math.PI * c) ** 2; };
+    p.bodyY += -1.15 * (1 - ease(x / 0.65));                    // von unten ins Bild
+    p.bodyRx += 0.07 * (1 - ease(x / 0.8));                      // richtet sich dabei auf
+    if (this.introKind === 0) { p.headRx += 0.2 * bump(0.45, 1.25); p.eyeOpen += 0.1 * bump(0.45, 1.25); }
+    else if (this.introKind === 1) { p.headRz += 0.17 * bump(0.4, 1.4); p.headRy -= 0.08 * bump(0.4, 1.4); }
+    else {
+      const up = bump(0.3, INTRO_S);                              // Arm hebt und senkt sich weich, dazwischen zwei ruhige Schwünge
+      p.bp += (1.5 - p.bp) * up; p.be += (1.6 - p.be) * up; p.bt += (-0.4 - p.bt) * up;
+      p.br += (0.32 + 0.2 * Math.sin((x - 0.3) * 2 * Math.PI * 1.5) - p.br) * up;
+      p.headRz += 0.08 * up;
+    }
+    return p;
+  }
+
   private frame(dt: number) {
-    this.t += dt;
+    this.t += dt; this.intro += dt;
     if (this.state !== this.prevState) { this.prevState = this.state; this.since = 0; this.prevPose = { ...this.pose }; }
     this.since += dt;
     // Blinzeln in unregelmäßigen Abständen
@@ -354,13 +392,12 @@ export class Robot3D {
     o.core = 0.5 + 0.2 * sin(t * 1.7);
     o.ae += 0.03 * sin(t * 1.7 + 1); o.be += 0.03 * sin(t * 1.7 + 2);
     switch (this.state) {
-      case "hello": {   // winkt zur Begrüßung, schaut freundlich
-        const wave = (s % 5.5) < 2.6 ? 1 : 0;
-        o.headRz = 0.1 + 0.03 * sin(t * 1.1); o.headRy = -0.06; o.eyeOpen = 1.1;
-        o.bp = 0.05 + wave * 1.5; o.br = 0.13 + wave * (0.3 + 0.28 * sin(t * 8.5)); o.bt = -0.4 * wave; o.be = 0.25 + wave * 1.6;
+      case "hello":     // wartet freundlich auf den Beginn: Kopf leicht schräg, Blick zur Person, ruhiges Wiegen
+        o.headRz = 0.09 + 0.03 * sin(t * 0.9); o.headRy = 0.05 * sin(t * 0.55); o.headRx = 0.02 * sin(t * 1.3);
+        o.eyeOpen = 1.1; o.eyeY = 0.05;
+        o.ap = 0.2; o.ae = 0.6; o.at = 0.25; o.bp = 0.2; o.be = 0.6; o.bt = 0.25;
         o.lamp = 0.7 + 0.25 * sin(t * 2.2); o.bodyRy = 0.05 * sin(t * 0.5);
         break;
-      }
       case "idle":      // wartet: schaut sich um, wiegt sich leicht
         o.bodyRy = 0.07 * sin(t * 0.37); o.headRy = this.gaze[0] * 0.22 + 0.04 * sin(t * 0.5);
         o.headRx = -this.gaze[1] * 0.12; o.headRz = 0.05 * sin(t * 0.23);
@@ -457,7 +494,7 @@ export class Robot3D {
 
   private draw() {
     this.resize();
-    const gl = this.gl, c = this.col, p = this.pose, t = this.t;
+    const gl = this.gl, c = this.col, p = this.shown(), t = this.t;
     gl.viewport(0, 0, this.w, this.h);
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
@@ -523,7 +560,7 @@ export class Robot3D {
     }
     // Augen: runde Leuchtflächen auf der Gesichtsscheibe; Blick verschiebt sie, Blinzeln staucht sie
     const open = Math.max(0.08, p.eyeOpen * (this.blink > 0 ? 0.1 + 0.9 * Math.abs(this.blink - 0.08) / 0.08 : 1));
-    const smile = this.state === "speaking" || this.state === "hello" ? 1 : 0;
+    const smile = this.state === "speaking" || this.state === "hello" || this.intro < INTRO_S ? 1 : 0;
     for (const side of [-1, 1]) {
       const ex = side * 0.3 + p.eyeX * 0.085, ey = 0.07 + p.eyeY * 0.06;
       const e = trans(head, ex, ey, 0.7 - 0.05 * ex * ex - 0.03 * ey * ey);

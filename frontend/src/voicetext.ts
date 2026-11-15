@@ -34,6 +34,15 @@ export class SentenceFeed {
   private first = true;
   closed = false;
 
+  /** Erst ab hier vorlesen: Was davor steht, ist schon gelesen (ein laufender Chat wird ins Gespräch übernommen).
+   *  Beginnt am nächsten Satzanfang, damit nicht mitten im Satz eingesetzt wird. */
+  startAt(text: string): this {
+    const tail = text.search(/[.!?…]\s+\S*$/);
+    this.offset = tail >= 0 ? tail + 1 : text.length;
+    this.first = false;
+    return this;
+  }
+
   push(text: string, final: boolean): string[] {
     if (this.closed) return [];
     const out: string[] = [];

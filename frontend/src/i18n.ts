@@ -101,6 +101,37 @@ const EN: Record<string, string> = {
   "Ich sehe mir das kurz an.": "Let me take a look.", "Ich rechne das kurz aus.": "Let me work that out.", "Moment, ich rechne.": "One moment, calculating.",
   "Einen Moment noch.": "One more moment.", "Ich bin gleich so weit.": "Almost there.", "Das dauert noch einen kleinen Moment.": "This will take another moment.",
   "Gleich habe ich es.": "I'll have it in a second.", "Gerade ist viel los, einen Moment bitte.": "It's busy right now, one moment please.",
+  // Gespräch als Assistent: Rufname, Bereitschaft, Stopp, gesprochene Freigaben
+  "Hallo! Was kann ich für dich tun?": "Hello! What can I do for you?",
+  "Hallo! Bevor wir loslegen: Wie möchtest du mich nennen?": "Hello! Before we start: what would you like to call me?",
+  "Alles klar, ich bin {n}. Sag einfach {m}, wenn du mich brauchst.": "All right, I'm {n}. Just say {m} when you need me.",
+  "Wie möchtest du mich nennen?": "What would you like to call me?", "Sag „{n}“, wenn du mich brauchst": "Say “{n}” when you need me",
+  "Okay.": "Okay.", "Okay, ich höre auf.": "Okay, I'll stop.", "Ja?": "Yes?", "Gut, dann nicht.": "All right, I won't.",
+  "Alles klar, das merke ich mir.": "All right, I'll remember that.", "Sag bitte Ja oder Nein.": "Please say yes or no.", "Sag Ja oder Nein.": "Say yes or no.",
+  "Soll ich {w} „{n}“ {v}?": "Shall I {v} {w} “{n}”?", "Das waren schon viele Schritte. Soll ich weitermachen?": "That was a lot of steps already. Shall I continue?",
+  "Darf ich dafür {g} benutzen?": "May I use {g} for this?", "Darf ich das tun: {l}?": "May I do this: {l}?",
+  "Sag Ja, Nein – oder Immer, dann frage ich in Gesprächen nicht mehr danach.": "Say yes, no – or always, then I won't ask again in conversations.",
+  "Ja, Nein oder Immer?": "Yes, no or always?", "Immer": "Always",
+  "Du kannst auch einfach antworten: Ja, Nein – oder Immer. Einmal Ja gilt für den Rest des Gesprächs.": "You can simply answer: yes, no – or always. One yes covers the rest of the conversation.",
+  "Rufname": "Name to call", "Jedes Dazwischenreden unterbricht die Antwort": "Any speech interrupts the answer",
+  "Auf diesen Namen hört der Roboter. Nach einer Gesprächspause reagiert er nur noch, wenn du ihn so ansprichst – so kann das Gespräch lange nebenher laufen, etwa im Auto. „Stopp“ unterbricht ihn jederzeit.":
+    "The robot answers to this name. After a pause it only reacts when you address it like this – so the conversation can keep running alongside, for example in the car. “Stop” interrupts it at any time.",
+  "Sonst unterbrechen nur „Stopp“ und der Rufname. Am besten mit Kopfhörern – sonst hört LLMitMir sich womöglich selbst.":
+    "Otherwise only “stop” and the name interrupt. Best with headphones – otherwise LLMitMir may hear itself.",
+  "Automatisch – das schnellste passende Modell": "Automatic – the fastest suitable model",
+  "Ich arbeite daran …": "Working on it …", "Ich arbeite das kurz aus.": "Let me work that out.", "Moment, das arbeite ich aus.": "One moment, I'll work that out.",
+  "Ich frage das kurz bei dem Dienst ab.": "Let me query that service.", "Ich lese kurz nach, wie das geht.": "Let me read up on how that works.",
+  "Ich schaue kurz bei mir selbst nach.": "Let me check my own records.", "Ich schicke die Nachricht.": "Sending the message.",
+  "Jetzt der nächste Schritt.": "Now the next step.", "Jetzt suche ich im Internet.": "Now I'm searching the web.", "Ich suche noch etwas im Netz.": "Searching a bit more online.",
+  "Jetzt schaue ich im Haus nach.": "Now I'm checking the house.", "Jetzt schaue ich in den Kalender.": "Now I'm checking the calendar.",
+  "Jetzt schaue ich in die Mails.": "Now I'm checking the mail.", "Jetzt schaue ich in die Nextcloud.": "Now I'm checking Nextcloud.",
+  "Jetzt sehe ich mir die Datei an.": "Now I'm looking at the file.", "Jetzt frage ich den Dienst ab.": "Now I'm querying the service.",
+  "Jetzt lese ich die Anleitung.": "Now I'm reading the instructions.", "Jetzt schaue ich bei mir selbst nach.": "Now I'm checking my own records.",
+  "Jetzt schicke ich die Nachricht.": "Now I'm sending the message.", "Jetzt arbeite ich das aus.": "Now I'm working that out.",
+  "Ich bin noch dabei.": "Still on it.", "Das läuft noch.": "Still running.", "Ich suche noch im Internet.": "Still searching the web.", "Die Suche läuft noch.": "The search is still running.",
+  "Ich bin noch im Haus zugange.": "Still busy in the house.", "Ich bin noch im Kalender.": "Still in the calendar.", "Ich lese noch in den Mails.": "Still reading the mail.",
+  "Ich bin noch in der Nextcloud.": "Still in Nextcloud.", "Ich lese noch.": "Still reading.", "Der Dienst antwortet noch nicht.": "The service hasn't answered yet.",
+  "Ich arbeite noch daran.": "Still working on it.", "Ich überlege noch.": "Still thinking.", "Sag Stopp, wenn ich abbrechen soll.": "Say stop if you want me to cancel.",
 };
 
 let lang = "de";
