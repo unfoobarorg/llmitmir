@@ -360,10 +360,11 @@ async def ws_chat_delete_many(hass, conn, msg, m, user, st):
 
 @command(_t("chat/send") | {vol.Required("chat_id"): str, vol.Required("text"): str,
                              vol.Optional("attachments"): [str], vol.Optional("model"): str,
-                             vol.Optional("tools"): vol.Any([str], None), vol.Optional("voice", default=False): bool})
+                             vol.Optional("tools"): vol.Any([str], None), vol.Optional("voice", default=False): bool,
+                             vol.Optional("amend", default=False): bool})
 async def ws_chat_send(hass, conn, msg, m, user, st):
     run_id = await m.send(user, msg["chat_id"], msg["text"], msg.get("attachments"), msg.get("model"), msg.get("tools"),
-                          voice=msg["voice"])
+                          voice=msg["voice"], amend=msg["amend"])
     return {"run_id": run_id}
 
 
