@@ -819,11 +819,14 @@ class Manager:
         return None
 
     async def send(self, user, chat_id: str, text: str, attachments: list[str] | None = None,
-                   model: str | None = None, tools: list[str] | None = None, voice: bool = False) -> str:
+                   model: str | None = None, tools: list[str] | None = None, voice: bool = False,
+                   amend: bool = False) -> str:
         st = await self.user_store(user.id)
         chat = await st.async_get_chat(chat_id)
         if not chat:
             raise ValueError("Chat nicht gefunden")
+        if amend and voice:
+            text = await self._amend(user, st, chat, text)
         msg = {"id": new_id("m"), "role": "user", "content": text, "created": now(), "attachments": attachments or []}
         if voice:
             msg["voice"] = True  # gesprochen statt getippt: die Antwort wird vorgelesen (voice.py)
@@ -859,6 +862,29 @@ class Manager:
         self.emit(user.id, {"type": "message", "chat_id": chat_id, "message": msg})
         self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
         return self.start_run(user, chat)
+
+    async def _amend(self, user, st: UserStore, chat: dict, text: str) -> str:
+        """Sprachgespräch: Die Person hat weitergesprochen, bevor sie eine Antwort gehört hat.
+
+        Die Ansicht sendet früh (sobald ein Satz rund klingt), damit LLMitMir schon nachdenken kann. Kommt doch
+        noch etwas nach, wird der laufende Lauf beendet und – solange noch kein Werkzeug benutzt wurde – die
+        erste Hälfte zurückgenommen: Aus beiden Teilen wird eine Nachricht, auf die neu geantwortet wird.
+        Liefert den Text, der jetzt gesendet wird."""
+        run = self.active_run(chat["id"])
+        if run:
+            self.stop(user.id, run.id)
+            if run.task:
+                await asyncio.wait({run.task}, timeout=8)
+            if self.active_run(chat["id"]):
+                return text  # lässt sich nicht beenden: der Nachsatz stellt sich wie getippt hinten an
+        cut = VO.amend_cut(chat.get("messages"))
+        if cut is not None:
+            text = VO.merge(str(chat["messages"][cut].get("content") or ""), text)
+            del chat["messages"][cut:]
+        await st.async_save_chat(chat, keep_updated=True)
+        # die Ansichten übernehmen den Verlauf, wie er jetzt ist (ohne erste Hälfte und angefangene Antwort)
+        self.emit(user.id, {"type": "messages", "chat_id": chat["id"], "messages": chat["messages"]})
+        return text
 
     async def unqueue(self, user_id: str, chat_id: str, message_id: str) -> list[dict]:
         """Eine Nachricht zurücknehmen, die noch auf das Ende des Laufs wartet."""
@@ -1534,10 +1560,9 @@ class ToolContext:
                 "- Vor und zwischen Werkzeugaufrufen keinen Text schreiben (keine Ankündigungen wie „Ich schaue kurz nach“): "
                 "Die Person sieht nur deine fertige Antwort.")
         if self.task is None and VO.is_voice_turn(self.chat.get("messages")):
-            # gesprochen statt getippt: die Antwort wird vorgelesen (gilt vor der Markdown-Regel oben und
-            # erlaubt – anders als die einfache Ansicht – einen kurzen Satz vor einem Werkzeugaufruf)
-            parts.append(VO.VOICE_PROMPT + "\nDiese Regeln gehen der Markdown-Formatierung und dem Verbot von Text vor "
-                         "Werkzeugaufrufen vor, solange das Gespräch gesprochen wird.")
+            # gesprochen statt getippt: die Antwort wird vorgelesen – kurz, im Wechsel, ohne Markdown
+            parts.append(VO.VOICE_PROMPT + "\nDiese Regeln gehen den Regeln zu Markdown und Antwortlänge weiter oben "
+                         "vor, solange das Gespräch gesprochen wird.")
         if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "

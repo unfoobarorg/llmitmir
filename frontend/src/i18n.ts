@@ -86,6 +86,21 @@ const EN: Record<string, string> = {
   "Diese Art von Datei kann der Betrachter nicht anzeigen.": "The viewer cannot display this kind of file.",
   "Für die Spracherkennung ist beim Anbieter kein Modell eingetragen, und dieser Browser hat keine eigene.":
     "No speech recognition model is configured at the provider, and this browser has none of its own.",
+  // Gesprächsfluss
+  "Ich überlege noch": "Still thinking", "Wartezeiten mit einem kurzen Satz überbrücken": "Bridge waiting times with a short sentence",
+  "Zum Beispiel „Ich schaue kurz nach.“ – statt still zu warten.": "For example “Let me check.” – instead of waiting in silence.",
+  "Klingt ein Satz fertig, antwortet LLMitMir schon früher; bricht er mitten im Gedanken ab, wartet es etwas länger.":
+    "If a sentence sounds finished, LLMitMir answers sooner; if it breaks off mid-thought, it waits a little longer.",
+  "Hm, Moment.": "Hm, one moment.", "Lass mich kurz überlegen.": "Let me think for a second.", "Mhm, einen Augenblick.": "Mhm, just a second.",
+  "Okay, Moment.": "Okay, one moment.", "Ich schaue kurz nach.": "Let me check.", "Moment, ich sehe nach.": "One moment, I'll have a look.",
+  "Das schaue ich kurz nach.": "I'll look that up.", "Ich suche das kurz im Internet.": "I'll look that up online.",
+  "Moment, ich schaue im Netz nach.": "One moment, I'll check the web.", "Ich schaue kurz im Haus nach.": "Let me check the house.",
+  "Moment, ich sehe im Haus nach.": "One moment, I'll check the house.", "Ich schaue kurz in deinen Kalender.": "Let me check your calendar.",
+  "Moment, ich sehe im Kalender nach.": "One moment, I'll check the calendar.", "Ich schaue kurz in dein Postfach.": "Let me check your mailbox.",
+  "Moment, ich sehe in deinen Mails nach.": "One moment, I'll check your mail.", "Ich schaue kurz in deiner Nextcloud nach.": "Let me check your Nextcloud.",
+  "Ich sehe mir das kurz an.": "Let me take a look.", "Ich rechne das kurz aus.": "Let me work that out.", "Moment, ich rechne.": "One moment, calculating.",
+  "Einen Moment noch.": "One more moment.", "Ich bin gleich so weit.": "Almost there.", "Das dauert noch einen kleinen Moment.": "This will take another moment.",
+  "Gleich habe ich es.": "I'll have it in a second.", "Gerade ist viel los, einen Moment bitte.": "It's busy right now, one moment please.",
 };
 
 let lang = "de";

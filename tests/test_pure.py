@@ -2677,7 +2677,8 @@ def test_voice_remembers_permission_for_the_conversation():
 def test_voice_prompt_asks_for_speakable_answers():
     p = voice.VOICE_PROMPT
     assert p.startswith("## Sprachgespräch")
-    for word in ("vorgelesen", "Kein Markdown", "Tabellen", "Links", "Hörfehler", "Freigabe"):
+    for word in ("vorgelesen", "Kein Markdown", "Tabellen", "Links", "Hörfehler", "Freigabe", "ohne Ankündigung",
+                 "vierzig", "frag kurz zurück"):
         assert word in p, word
 
 
@@ -2738,3 +2739,30 @@ def test_speech_rejects_empty_and_foreign_language():
         asyncio.run(speech.synthesize("   "))
     with _pytest.raises(ValueError):
         asyncio.run(speech.synthesize("Hello", "en"))
+
+
+def test_voice_amend_takes_back_only_what_nobody_heard():
+    """Nachsatz im Sprachgespraech: erste Haelfte zuruecknehmen, solange noch kein Werkzeug lief."""
+    typed = {"role": "user", "content": "Hallo"}
+    spoken = {"role": "user", "content": "Wie wird das Wetter morgen?", "voice": True}
+    answer = {"role": "assistant", "content": "Sonnig."}
+    # direkt nach der gesprochenen Nachricht, auch mit angefangenem Antworttext
+    assert voice.amend_cut([typed, answer, spoken]) == 2
+    assert voice.amend_cut([typed, answer, spoken, {"role": "assistant", "content": "Morgen wird"}]) == 2
+    # ein Werkzeug wurde schon benutzt: nichts zuruecknehmen, der Nachsatz wird eine eigene Nachricht
+    assert voice.amend_cut([spoken, {"role": "assistant", "content": "", "tool_calls": [{"id": "t"}]},
+                            {"role": "tool", "content": "sonnig"}]) is None
+    assert voice.amend_cut([spoken, {"role": "assistant", "content": "", "error": "kaputt"}]) is None
+    # getippte Nachrichten und solche mit Anhang bleiben, wie sie sind
+    assert voice.amend_cut([typed]) is None
+    assert voice.amend_cut([dict(spoken, attachments=["a.pdf"])]) is None
+    assert voice.amend_cut([]) is None and voice.amend_cut(None) is None
+
+
+def test_voice_merge_joins_both_halves():
+    assert voice.merge("Wie wird das Wetter morgen?", "Und übermorgen?") == "Wie wird das Wetter morgen? Und übermorgen?"
+    # mitten im Satz abgebrochen: das Abbruchzeichen faellt weg, Gross- und Kleinschreibung bleibt (Nomen!)
+    assert voice.merge("Schalte das Licht im…", "Wohnzimmer aus.") == "Schalte das Licht im Wohnzimmer aus."
+    assert voice.merge("Ich brauche einen Termin am,", "Dienstag um zehn.") == "Ich brauche einen Termin am Dienstag um zehn."
+    assert voice.merge("Erinnere mich an...", "den Zahnarzt") == "Erinnere mich an den Zahnarzt"
+    assert voice.merge("", "Hallo") == "Hallo" and voice.merge("Hallo", " ") == "Hallo"

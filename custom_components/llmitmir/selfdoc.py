@@ -47,7 +47,9 @@ deine Antwort wird vorgelesen – mit der festen Stimme des Roboters, die LLMitM
 deutsch, mit leichtem Maschinenklang, auf jedem Gerät gleich); ein Roboter zeigt, ob gerade zugehört, nachgedacht, \
 recherchiert oder geantwortet wird. Aus jedem Chat und jedem Cowork führt ein Knopf „Gespräch“ hierher (auch über \
 die drei Punkte in der Chatliste): Das Gespräch setzt den vorhandenen Verlauf fort, statt einen neuen Chat anzulegen, \
-und sagt zu Beginn die letzten Sätze der letzten Antwort an. Getippt und gesprochen wechseln sich also im selben \
+und sagt zu Beginn die letzten Sätze der letzten Antwort an. Es läuft wie ein Gespräch, nicht wie ein vorgelesener \
+Chat: Die Ansicht schreibt schon in Sprechpausen mit, sendet, sobald ein Satz fertig klingt, verbindet einen \
+Nachsatz mit dem ersten Teil und überbrückt Wartezeiten selbst mit einem kurzen gesprochenen Satz. Getippt und gesprochen wechseln sich also im selben \
 Chat ab; das Gespräch steht danach wie jeder Chat in der Liste und lässt sich dort weiterlesen und weiterschreiben.
 - **Externe Modelle** (optional, kostenpflichtig): Claude über Microsoft Foundry oder die Anthropic-API. Nie automatisch, \
 nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder eine geplante Aufgabe „im Notfall extern“ darf. \

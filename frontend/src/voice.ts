@@ -1,13 +1,20 @@
 // Sprachgespräch („Gespräch“): eine eigene Ansicht, in der man mit LLMitMir redet wie am Telefon.
 //
-// Ablauf einer Runde: zuhören (Mikrofon offen, Sprechpause beendet die Äußerung) → abschreiben → als normale
-// Nachricht in den Chat stellen (mit dem Kennzeichen `voice`, damit die Antwort vorlesbar ausfällt) → die
-// Antwort Satz für Satz vorlesen, noch während sie entsteht → wieder zuhören. Das Gespräch ist ein ganz
-// normaler Chat: Verlauf, Werkzeuge, Freigaben und Modelle funktionieren wie dort, und man kann es später
-// im Chat nachlesen oder dort weiterschreiben.
+// Das Gespräch ist ein ganz normaler Chat (Verlauf, Werkzeuge, Freigaben und Modelle wie dort; später im Chat
+// nachzulesen) – aber kein Chat in Tonform. Damit es sich wie ein Gespräch anfühlt, laufen mehrere Dinge
+// gleichzeitig (voiceflow.ts beschreibt die Regeln):
 //
-// Der Roboter (robot3d.ts) zeigt durchgehend, was gerade passiert: zuhören, warten, nachdenken,
-// recherchieren, antworten.
+// - **Mitdenken beim Zuhören:** Schon in einer kurzen Pause wird das bisher Gesagte abgeschrieben. Klingt der
+//   Satz fertig, genügt eine kurze Stille, und die Nachricht geht mit fertiger Abschrift sofort hinaus; bricht
+//   er mitten im Gedanken ab, wartet LLMitMir länger.
+// - **Nachschieben erlaubt:** Solange LLMitMir noch überlegt, bleibt das Mikrofon offen. Spricht die Person
+//   weiter, wird der Nachsatz mit dem ersten Teil verbunden und neu überlegt (`amend`).
+// - **Sprechen, während weitergedacht wird:** Die Antwort wird Satz für Satz gesprochen, sobald der erste Satz
+//   steht. Dauert es, überbrückt LLMitMir die Stille mit einem gesprochenen „Ich schaue kurz nach.“ statt mit
+//   einem Text am Bildschirm.
+// - **Ruhige Gesten:** Der Roboter folgt nicht jedem technischen Zwischenschritt. Kurze Wartezeiten sind
+//   „aufmerksam“, die Denkerpose kommt erst nach langem Überlegen, und wer nachschlägt, bleibt dabei, bis er
+//   antwortet.
 //
 // Aus jedem Chat und jedem Cowork führt ein Knopf hierher (`/voice/<chat-id>`): Das Gespräch setzt den
 // vorhandenen Verlauf fort, statt einen neuen Chat anzulegen – die Person kann also tippen, dann
@@ -22,11 +29,10 @@ import { confirmExternal, isExternal } from "./external";
 import { Robot3D, type RobotState } from "./robot3d";
 import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type TtsChoice, type TtsSetup } from "./voiceio";
 import { SentenceFeed, isNoise, resumeText } from "./voicetext";
+import { BRIDGE_PHRASES, Bridge, Director, endpoint, pauseFor, type Pose } from "./voiceflow";
 
-type Phase = "off" | "listening" | "understanding" | "thinking" | "researching" | "speaking" | "paused" | "permission";
-
-const ROBOT: Record<Phase, RobotState> = { off: "hello", listening: "listening", understanding: "thinking", thinking: "thinking",
-  researching: "researching", speaking: "speaking", paused: "idle", permission: "asking" };
+// Wer ist dran? „waiting“: LLMitMir ist dran, hat aber (noch) nichts zu sagen – das Mikrofon bleibt dabei offen.
+type Phase = "off" | "listening" | "waiting" | "speaking" | "paused" | "permission";
 
 // Was LLMitMir gerade nachschlägt – in Worten, die man auch ohne Technikwissen versteht
 const DOING: Record<string, string> = {
@@ -37,17 +43,13 @@ const DOING: Record<string, string> = {
 };
 const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };
 
-interface Cfg { tts: string; pause: number; bargeIn: boolean; captions: boolean; model: string; }
+interface Cfg { tts: string; pause: number; bargeIn: boolean; bridge: boolean; captions: boolean; model: string; }
 const LS = "llmitmir.voice";
-const DEFAULTS: Cfg = { tts: "auto", pause: 1200, bargeIn: false, captions: true, model: "" };
+const DEFAULTS: Cfg = { tts: "auto", pause: 1200, bargeIn: false, bridge: true, captions: true, model: "" };
 function loadCfg(): Cfg { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { ...DEFAULTS }; } }
 
 const IDLE_PAUSE = 5 * 60 * 1000;   // so lange Stille, dann macht das Mikrofon von selbst Pause
-const KEEP_ALIVE_MS = 9000;         // spaetestens so oft meldet sich der Roboter mit einem Lebenszeichen
-const KEEP_ALIVE: string[] = [       // kurze Lebenszeichen, waehrend nichts Neues passiert (abwechselnd)
-  "Ich bin noch dran …", "Einen Moment noch …", "Ich arbeite daran …", "Gleich habe ich es …",
-  "Noch kurz …", "Ich schaue weiter …",
-];
+const PEEK_EVERY = 1200;            // Zwischenabschriften höchstens so oft (schont das Kontingent beim Anbieter)
 
 @safeElement("lm-voice")
 export class Voice extends StoreElement {
@@ -62,7 +64,9 @@ export class Voice extends StoreElement {
   @state() private cfg: Cfg = loadCfg();
   @state() private tts?: TtsSetup;
   @state() private flat = false;      // kein WebGL: der Roboter erscheint als Zeichnung
-  @state() private doing = "";
+  @state() private doing = "";        // was gerade nachgeschlagen wird (bleibt stehen, bis geantwortet wird)
+  @state() private pose: Pose = "hello";
+  @state() private live = "";         // Zwischenabschrift, während die Person noch spricht
 
   private robot?: Robot3D;
   private ctx?: AudioContext;
@@ -76,7 +80,12 @@ export class Voice extends StoreElement {
   private pending = false; private sawRun = false; private pendingSince = 0;
   private holdUntil = 0; private quietSince = 0;
   private timer: any; private wake: any; private spokePerm = "";
-  private keepAlive = 0; private lastFeedAt = 0; private lastPhase = "";
+  private director = new Director(); private bridge = new Bridge();
+  private asides = new Set<string>();          // die Überbrückungssätze in der Sprache der Oberfläche
+  private interim = new Map<number, Promise<string>>(); private peekAt = 0; private peeking = 0;
+  private sending = false;                     // die eigene Nachricht ist unterwegs
+  private oldRun = "";                         // Lauf, der beim Senden noch lief (wird gerade beendet)
+  private toolSeen = false; private modelSpoke = false; private adding = false;
   private mine = "";                           // Chat, den diese Ansicht selbst angelegt hat
   private resume = "";                         // letzte Antwort eines übernommenen Chats, einmal vorlesen
   private _sync = () => this.sync();
@@ -149,7 +158,7 @@ export class Voice extends StoreElement {
       r.onFrame = now => {
         this.speaker?.tick(now);
         r.voiceLevel = this.speaker?.level || 0;
-        r.micLevel = this.phase === "listening" ? this.mic?.level || 0 : 0;
+        r.micLevel = this.mic?.enabled ? this.mic.level || 0 : 0;
       };
       r.start();
     } catch { this.flat = true; }
@@ -166,7 +175,9 @@ export class Voice extends StoreElement {
     if (!this.robot) return;
     this.robot.setDark(this.isDark());
     const calm = this.phase === "listening" || this.phase === "paused" || this.phase === "off";
-    this.robot.state = this.err && calm && this.errShown() ? "error" : ROBOT[this.phase];
+    this.robot.state = this.err && calm && this.errShown() ? "error" : this.pose;
+    // denkt nebenher: schreibt schon mit, während zugehört wird – oder arbeitet weiter, während gesprochen wird
+    this.robot.working = this.peeking > 0 || (this.phase === "speaking" && !!this.ownRun());
   }
 
   /** Dunkles Erscheinungsbild? Das Panel trägt es als Attribut (und merkt es im Store). */
@@ -220,7 +231,8 @@ export class Voice extends StoreElement {
         const mic = this.mic = new Mic();
         mic.silenceMs = this.cfg.pause;
         mic.onStart = () => this.onSpeechStart();
-        mic.onEnd = wav => this.onSpeechEnd(wav);
+        mic.onPause = (wav, id) => this.onSpeechPause(wav, id);
+        mic.onEnd = (wav, id) => this.onSpeechEnd(wav, id);
         await mic.start(this.ctx!);
       } else if (BrowserListener.supported()) {
         const l = this.mic = new BrowserListener();
@@ -229,10 +241,12 @@ export class Voice extends StoreElement {
         l.start(this.locale);
       } else throw new Error(t("Für die Spracherkennung ist beim Anbieter kein Modell eingetragen, und dieser Browser hat keine eigene."));
       this.active = true; this.muted = false; this.silenced = true; this.quietSince = performance.now();
-      this.timer = setInterval(() => this.tick(), 1000);
+      this.timer = setInterval(() => this.tick(), 250);
       try { this.wake = await (navigator as any).wakeLock?.request("screen"); } catch { /* Bildschirm darf ausgehen */ }
       if (!this.chatId) sp.say(t("Hallo! Worüber möchtest du sprechen?"));
       else if (this.resume) { sp.say(this.resume); this.resume = ""; }
+      this.asides = new Set(BRIDGE_PHRASES.map(x => t(x)));
+      if (this.cfg.bridge) sp.prefetch([...this.asides]);   // Überbrückungssätze liegen dann schon bereit
       this.sync();
     } catch (e: any) {
       const blocked = e?.name === "NotAllowedError" || e?.name === "SecurityError";
@@ -249,8 +263,9 @@ export class Voice extends StoreElement {
     this.speaker?.stop(); this.speaker = undefined;
     try { this.wake?.release(); } catch { /* schon frei */ } this.wake = undefined;
     try { this.ctx?.close(); } catch { /* schon zu */ } this.ctx = undefined;
-    this.active = false; this.pending = false; this.busy = false; this.silenced = true; this.muted = false; this.doing = "";
-    this.phase = "off";
+    this.active = false; this.pending = false; this.busy = false; this.sending = false; this.silenced = true; this.muted = false;
+    this.doing = ""; this.live = ""; this.adding = false; this.toolSeen = false; this.interim.clear(); this.peeking = 0;
+    this.phase = "off"; this.pose = this.director.update(performance.now(), this.scene());
   }
 
   private hangUp() {
@@ -271,7 +286,7 @@ export class Voice extends StoreElement {
   private interrupt() {
     if (!this.active) return;
     this.speaker?.stop();
-    this.silenced = true; this.pending = false;
+    this.silenced = true; this.pending = false; this.adding = false; this.doing = ""; this.toolSeen = false;
     if (this.chatId && store.runs[this.chatId]) store.api.ws("chat/stop", { chat_id: this.chatId }).catch(() => undefined);
     this.holdUntil = performance.now() + 200;
     this.sync();
@@ -279,7 +294,7 @@ export class Voice extends StoreElement {
 
   private tapRobot() {
     if (!this.active) { this.begin(); return; }
-    if (this.phase === "speaking" || this.phase === "thinking" || this.phase === "researching") this.interrupt();
+    if (this.phase === "speaking" || this.phase === "waiting") this.interrupt();
     else if (this.phase === "paused") this.toggleMute();
   }
 
@@ -287,24 +302,75 @@ export class Voice extends StoreElement {
   private onSpeechStart() {
     this.quietSince = performance.now();
     if (this.phase === "speaking") this.interrupt();   // Dazwischenreden
+    else if (this.phase === "waiting") {
+      // Nachschieben: LLMitMir überlegt noch. Was es inzwischen sagen wollte, wartet, bis klar ist, ob das
+      // wirklich ein Nachsatz war (dann wird neu überlegt) oder nur ein Geräusch (dann geht es normal weiter).
+      this.adding = true;
+      if (this.speaker) this.speaker.hold = true;
+    }
+    this.sync();
     this.requestUpdate();
   }
 
-  private async onSpeechEnd(wav: Blob | null) {
-    if (!wav || !this.active) { this.sync(); return; }
+  /** Kurze Pause mitten im Sprechen: schon abschreiben. Klingt der Satz fertig, endet die Äußerung früher. */
+  private onSpeechPause(wav: Blob, id: number) {
+    const now = performance.now();
+    if (!this.active || now - this.peekAt < PEEK_EVERY) return;
+    this.peekAt = now; this.peeking++;
+    const p = store.api.transcribe(wav).then(x => x.trim()).catch(() => "");
+    this.interim.set(id, p);
+    p.then(txt => {
+      this.peeking = Math.max(0, this.peeking - 1);
+      if (!this.active || this.interim.get(id) !== p) return;
+      if (txt && !isNoise(txt)) {
+        this.live = txt;
+        if (this.mic instanceof Mic) this.mic.endAfter(id, pauseFor(endpoint(txt), this.cfg.pause));
+      }
+      this.requestUpdate();
+    });
+    this.requestUpdate();
+  }
+
+  private async onSpeechEnd(wav: Blob | null, id = 0) {
+    const pre = id ? this.interim.get(id) : undefined;
+    this.interim.clear();
+    if (!wav || !this.active) { this.notAdding(); return; }
     this.busy = true; this.sync();
     let txt = "";
-    try { txt = (await store.api.transcribe(wav)).trim(); }
-    catch (e: any) { this.fail(String(e?.message || e)); }
+    try {
+      txt = pre ? await pre : "";                                   // die Abschrift aus der Pause gilt noch
+      if (!txt) txt = (await store.api.transcribe(wav)).trim();
+    } catch (e: any) { this.fail(String(e?.message || e)); }
     this.busy = false;
     if (!this.active) return;
-    if (!txt || isNoise(txt)) { this.sync(); return; }
+    if (!txt || isNoise(txt)) { this.notAdding(); return; }
     await this.sendText(txt);
+  }
+
+  /** Doch kein Nachsatz (Geräusch): Was LLMitMir sagen wollte, kommt jetzt. */
+  private notAdding() {
+    this.adding = false; this.live = "";
+    if (this.speaker) this.speaker.hold = false;
+    this.sync();
+  }
+
+  /** Der Lauf dieser Runde (nicht ein älterer, der gerade beendet wird). */
+  private ownRun() {
+    const run = this.chatId ? store.runs[this.chatId] : undefined;
+    return run && !this.silenced && run.run_id !== this.oldRun ? run : undefined;
   }
 
   private async sendText(text: string) {
     if (!this.active) return;
-    this.busy = true; this.err = ""; this.heard = text; this.caption = ""; this.sync();
+    // Nachsatz: LLMitMir ist noch dran – der erste Teil wird zurückgenommen und beides zusammen neu überlegt
+    const amend = !!this.chatId && !this.silenced && (this.pending || this.sending || !!store.runs[this.chatId]);
+    this.speaker?.stop();                         // was noch nicht gesagt ist, gilt nicht mehr
+    this.adding = false; this.live = "";
+    this.sending = true; this.err = ""; this.caption = "";
+    this.heard = amend && this.heard ? `${this.heard} ${text}` : text;
+    this.toolSeen = false; this.modelSpoke = false; this.doing = "";
+    this.bridge.begin(performance.now());
+    this.sync();
     try {
       const model = isSimple() ? undefined : this.cfg.model || undefined;
       if (!this.chatId) {
@@ -317,10 +383,12 @@ export class Voice extends StoreElement {
       const chat = store.chats.get(this.chatId!) || await store.loadChat(this.chatId!);
       this.known = new Set((chat?.messages || []).map((m: any) => m.id));
       this.feeds.clear(); this.silenced = false;
-      this.pending = true; this.sawRun = !!store.runs[this.chatId!]; this.pendingSince = performance.now();
-      await store.api.ws("chat/send", { chat_id: this.chatId, text, voice: true, ...(model && model !== chat?.model ? { model } : {}) });
+      this.oldRun = store.runs[this.chatId!]?.run_id || "";
+      this.pending = true; this.sawRun = false; this.pendingSince = performance.now();
+      await store.api.ws("chat/send", { chat_id: this.chatId, text, voice: true, ...(amend ? { amend: true } : {}),
+        ...(model && model !== chat?.model ? { model } : {}) });
     } catch (e: any) { this.pending = false; this.fail(String(e?.message || e)); }
-    this.busy = false; this.quietSince = performance.now();
+    this.sending = false; this.quietSince = performance.now();
     this.sync();
   }
 
@@ -330,96 +398,109 @@ export class Voice extends StoreElement {
     if (this.silenced || !this.chatId || !this.speaker) return;
     const chat = store.chats.get(this.chatId);
     for (const m of chat?.messages || []) {
-      if (m.role !== "assistant" || this.known.has(m.id)) continue;
+      if (this.known.has(m.id)) continue;
+      if (m.role === "tool") { this.toolSeen = true; continue; }
+      if (m.role !== "assistant") continue;
       let f = this.feeds.get(m.id);
       if (!f) this.feeds.set(m.id, f = new SentenceFeed());
       if (m.error) {
         if (!f.closed) { f.closed = true; this.fail(String(m.error)); this.speaker.say(t("Das hat gerade leider nicht geklappt.")); }
         continue;
       }
-      for (const piece of f.push(m.content || "", !m.streaming)) this.speaker.say(piece);
+      for (const piece of f.push(m.content || "", !m.streaming)) { this.modelSpoke = true; this.speaker.say(piece); }
     }
   }
 
   private perm() { return this.chatId ? store.permissions.find(p => p.chat_id === this.chatId) : undefined; }
 
-  /** Aus dem Stand von Chat, Stimme und Mikrofon ableiten, was gerade passiert. */
+  /** Was die Gestenregie wissen muss. */
+  private scene() {
+    const sp = this.speaker;
+    // Ein Überbrückungssatz ist nur eine Bemerkung nebenbei: Der Roboter bleibt bei dem, was er gerade tut
+    // (nachschlagen, überlegen) und bewegt nur den Mund – er spricht, während er weiterarbeitet.
+    const aside = !!sp?.sounding && this.asides.has(this.caption) && !!this.ownRun();
+    return { on: this.active, muted: this.muted, hearing: !!this.mic?.hearing && !!this.mic?.enabled,
+      speaking: !!sp?.sounding && !aside, asking: !!this.perm() && !sp?.busy, aside,
+      waiting: this.phase === "waiting" || (this.phase === "speaking" && (!sp?.sounding || aside)), tool: this.toolSeen };
+  }
+
+  /** Aus dem Stand von Chat, Stimme und Mikrofon ableiten, wer dran ist. */
   private sync() {
     if (!this.active) return;
-    const run = this.chatId ? store.runs[this.chatId] : undefined;
+    const now = performance.now();
+    // Nachsatz ohne Ende (das Mikrofon wurde mittendrin geschlossen): Was LLMitMir sagen wollte, kommt jetzt
+    if (this.adding && !this.mic?.hearing && !this.busy && !this.sending) { this.adding = false; this.live = ""; if (this.speaker) this.speaker.hold = false; }
     this.feed();
+    const any = this.chatId ? store.runs[this.chatId] : undefined;
+    const run = this.ownRun();
     if (run) this.sawRun = true;
-    if (this.pending && !run && (this.sawRun || performance.now() - this.pendingSince > 20000)) this.pending = false;
+    if (this.pending && !this.sending && !any && (this.sawRun || now - this.pendingSince > 20000)) this.pending = false;
     const perm = this.perm();
     if (perm && this.spokePerm !== perm.id && !this.silenced) {
       this.spokePerm = perm.id;
       this.speaker?.say(t("Dafür brauche ich kurz deine Bestätigung auf dem Bildschirm."));
     }
+    // Nachschlagen merken: Die Anzeige bleibt dabei, auch wenn das Modell zwischen zwei Werkzeugen kurz „denkt“
+    if (run?.status === "tool") {
+      this.toolSeen = true;
+      const d: any = run.detail || {};
+      const prog = store.chats.get(this.chatId || "")?.progress || [];
+      const step = prog.find((p: any) => p.status === "laeuft");
+      this.doing = step?.text ? `${step.text} …`
+        : DOING[d.tool ? store.data?.tools?.[d.tool]?.group : ""] || (isSimple() || !d.label ? "Ich schaue nach …" : `${d.label} …`);
+    }
     let ph: Phase;
-    if (this.speaker?.busy) ph = "speaking";
+    if (this.speaker?.busy && !this.speaker.hold) ph = "speaking";
     else if (perm) ph = "permission";
-    else if (run && !this.silenced) ph = run.status === "tool" ? "researching" : "thinking";
-    else if (this.busy && !this.pending) ph = "understanding";
-    else if (this.pending || this.busy) ph = "thinking";
+    else if (run || this.pending || this.sending || this.busy || this.adding) ph = "waiting";
     else ph = this.muted ? "paused" : "listening";
-    const d: any = run?.detail || {};
-    if (ph === "researching") {
-      this.doing = DOING[d.tool ? store.data?.tools?.[d.tool]?.group : ""] || (isSimple() || !d.label ? "Ich schaue nach …" : `${d.label} …`);
-      this.lastFeedAt = performance.now();
-    } else if (ph === "thinking" || ph === "understanding") {
-      // Lebenszeichen-Uhr mitlaufen lassen, solange regelmaessig Status kommt; sonst greift tick()
-      this.doing = this.keepAliveText();
-      if (run && (run.status !== this.lastPhase)) this.lastFeedAt = performance.now();
-    } else this.doing = "";
-    if (ph !== this.phase) { if (ph === "listening") this.quietSince = performance.now(); this.phase = ph; this.lastPhase = ph; this.lastFeedAt = performance.now(); }
+    if (ph !== this.phase) {
+      if (ph === "listening") { this.quietSince = now; this.doing = ""; this.toolSeen = false; }
+      this.phase = ph;
+    }
     if (this.mic) {
       const barge = this.cfg.bargeIn && ph === "speaking" && this.mic instanceof Mic;
-      this.mic.enabled = !this.muted && (barge || (ph === "listening" && performance.now() >= this.holdUntil));
-      if (this.mic instanceof Mic) this.mic.sensitivity = barge ? 2.6 : 1;
+      // offen beim Zuhören – und solange LLMitMir still überlegt (Nachschieben)
+      const open = ph === "listening" || (ph === "waiting" && !this.speaker?.busy);
+      this.mic.enabled = !this.muted && (barge || (open && now >= this.holdUntil));
+      if (this.mic instanceof Mic) this.mic.sensitivity = barge ? 2.6 : ph === "waiting" ? 1.5 : 1;
     }
+    const pose = this.director.update(now, this.scene());
+    if (pose !== this.pose) this.pose = pose;
   }
 
   private tick() {
     if (!this.active) return;
-    // lange nichts gesagt: Pause, damit das Mikrofon nicht stundenlang offen bleibt
-    if (this.phase === "listening" && !this.mic?.hearing && performance.now() - this.quietSince > IDLE_PAUSE) this.toggleMute();
-    this.sync();
-    // Lebenszeichen: spaetestens alle KEEP_ALIVE_MS meldet sich der Roboter kurz, solange er arbeitet
     const now = performance.now();
-    const working = this.phase === "thinking" || this.phase === "researching" || this.phase === "understanding";
-    if (working && now - this.lastFeedAt >= KEEP_ALIVE_MS) {
-      this.lastFeedAt = now;
-      this.doing = this.keepAliveText();
-      this.keepAlive++;
-      this.requestUpdate();
-    }
-  }
-
-  /** Abwechselnd kurze Lebenszeichen, damit es nicht repetitiv wirkt. */
-  private keepAliveText(): string {
-    const run = this.chatId ? store.runs[this.chatId] : undefined;
-    const prog = store.chats.get(this.chatId || "")?.progress || [];
-    const live = prog.find((p: any) => p.status === "laeuft") || prog.find((p: any) => p.status === "offen");
-    if (live?.text) return `${live.text} …`;
-    const d: any = run?.detail || {};
-    if (run?.status === "tool" && d.label && !isSimple()) return `${d.label} …`;
-    return t(KEEP_ALIVE[this.keepAlive % KEEP_ALIVE.length]);
+    // lange nichts gesagt: Pause, damit das Mikrofon nicht stundenlang offen bleibt
+    if (this.phase === "listening" && !this.mic?.hearing && now - this.quietSince > IDLE_PAUSE) this.toggleMute();
+    this.sync();
+    // Stille überbrücken, wie man es im Gespräch tut: kurz sagen, dass es einen Moment dauert
+    if (!this.cfg.bridge || !this.speaker || this.silenced || this.adding || this.perm()) return;
+    const run = this.ownRun();
+    const tool = run?.status === "tool" ? run.detail?.tool : undefined;
+    const say = this.bridge.next(now, {
+      waiting: this.phase === "waiting" && !this.busy && !this.mic?.hearing, speaking: this.speaker.busy, modelSpoke: this.modelSpoke,
+      group: tool ? store.data?.tools?.[tool]?.group || "" : undefined,
+      congested: run?.status === "retry" || run?.status === "quota_wait" });
+    if (say) { this.speaker.say(t(say)); this.sync(); }
   }
 
   // ---------------------------------------------------------------- Anzeige
+  /** Die Zeile unter dem Roboter. Sie folgt der Geste, nicht jedem Zwischenschritt – kurze Wartezeiten
+   *  bleiben ohne Text, „Ich überlege“ erscheint erst, wenn es wirklich dauert. */
   private statusText(): any {
-    const run = this.chatId ? store.runs[this.chatId] : undefined;
-    switch (this.phase) {
-      case "off": return this.starting ? html`${t("Einen Moment")}<span class="dots"></span>` : nothing;
-      case "listening": return this.mic?.hearing ? t("Ich höre zu") : html`${t("Ich höre zu – sprich einfach los")}`;
-      case "thinking": return run?.status === "retry" || run?.status === "quota_wait" ? html`${t("Gerade ist viel los – einen Moment")}<span class="dots"></span>`
-        : this.doing ? t(this.doing) : html`${t("Ich denke nach")}<span class="dots"></span>`;
-      case "understanding": return this.doing ? t(this.doing) : html`${t("Ich verstehe")}<span class="dots"></span>`;
-      case "researching": return t(this.doing);
-      case "speaking": return nothing;
-      case "paused": return t("Pause – tippe auf das Mikrofon, wenn es weitergehen soll");
-      case "permission": return t("Ich warte auf deine Bestätigung");
-    }
+    const run = this.ownRun();
+    if (!this.active) return this.starting ? html`${t("Einen Moment")}<span class="dots"></span>` : nothing;
+    if (this.phase === "paused") return t("Pause – tippe auf das Mikrofon, wenn es weitergehen soll");
+    if (this.phase === "permission") return t("Ich warte auf deine Bestätigung");
+    if (this.phase === "listening") return this.mic?.hearing || this.live ? t("Ich höre zu") : t("Ich höre zu – sprich einfach los");
+    if (this.phase !== "waiting") return nothing;
+    if (this.mic?.hearing && this.mic.enabled) return t("Ich höre zu");
+    if (run?.status === "retry" || run?.status === "quota_wait") return html`${t("Gerade ist viel los – einen Moment")}<span class="dots"></span>`;
+    if (this.pose === "researching") return t(this.doing || "Ich schaue nach …");
+    if (this.pose === "thinking") return html`${t("Ich überlege noch")}<span class="dots"></span>`;
+    return nothing;
   }
 
   private permCard() {
@@ -499,11 +580,14 @@ export class Voice extends StoreElement {
             : t("Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.")}</span>
           <button class="btn" @click=${() => this.testVoice()}>${icon("play", 16)} ${t("Stimme anhören")}</button></label>
         <label class="f"><span>${t("Wie lange darf eine Sprechpause sein?")}</span>
+          <span class="hint" style="font-weight:400">${t("Klingt ein Satz fertig, antwortet LLMitMir schon früher; bricht er mitten im Gedanken ab, wartet es etwas länger.")}</span>
           <select @change=${(e: any) => this.save({ pause: Number(e.target.value) })}>
             ${[[800, t("Kurz – antwortet schnell")], [1200, t("Normal")], [2000, t("Lang – lässt Zeit zum Überlegen")]].map(([v, l]) =>
               html`<option value=${v} ?selected=${this.cfg.pause === v}>${l}</option>`)}</select></label>
         <label class="chk"><input type="checkbox" .checked=${this.cfg.bargeIn} @change=${(e: any) => this.save({ bargeIn: e.target.checked })}>
           <span>${t("Dazwischenreden unterbricht die Antwort")}<div class="hint">${t("Am besten mit Kopfhörern – sonst hört LLMitMir sich womöglich selbst. Tippen auf den Roboter unterbricht immer.")}</div></span></label>
+        <label class="chk"><input type="checkbox" .checked=${this.cfg.bridge} @change=${(e: any) => this.save({ bridge: e.target.checked })}>
+          <span>${t("Wartezeiten mit einem kurzen Satz überbrücken")}<div class="hint">${t("Zum Beispiel „Ich schaue kurz nach.“ – statt still zu warten.")}</div></span></label>
         <label class="chk"><input type="checkbox" .checked=${this.cfg.captions} @change=${(e: any) => this.save({ captions: e.target.checked })}>
           <span>${t("Gesprochenes als Text mitlesen")}</span></label>
         ${isSimple() ? nothing : html`<label class="f"><span>${t("Modell")}</span>
@@ -532,7 +616,8 @@ export class Voice extends StoreElement {
       ${this.permCard()}
       <div class="say" role="status" aria-live="polite">
         ${this.err ? html`<div class="errline">${icon("alert", 16)}<span>${this.err}</span></div>` : nothing}
-        ${on && this.cfg.captions && this.heard && this.phase !== "speaking" && this.phase !== "listening" ? html`<div class="heard">„${this.heard}“</div>` : nothing}
+        ${on && this.cfg.captions && this.live && (this.phase === "listening" || this.adding) ? html`<div class="heard">„${this.live} …“</div>`
+          : on && this.cfg.captions && this.heard && this.phase === "waiting" ? html`<div class="heard">„${this.heard}“</div>` : nothing}
         ${on && this.cfg.captions && this.caption && (this.phase === "speaking" || this.phase === "listening")
           ? html`<div class="cap ${this.phase === "speaking" ? "" : "old"}">${this.caption}</div>` : nothing}
         <div class="status">${this.statusText()}</div>
@@ -542,7 +627,7 @@ export class Voice extends StoreElement {
       </div>
       <div class="ctl">
         ${on ? html`
-          <button class="rb" title=${t("Antwort unterbrechen")} ?disabled=${!(this.phase === "speaking" || this.phase === "thinking" || this.phase === "researching")}
+          <button class="rb" title=${t("Antwort unterbrechen")} ?disabled=${!(this.phase === "speaking" || this.phase === "waiting")}
             @click=${() => this.interrupt()}>${icon("stop", 24)}</button>
           <button class="rb main ${this.muted ? "off" : ""}" title=${this.muted ? t("Mikrofon einschalten") : t("Mikrofon aus (Pause)")} aria-pressed=${this.muted}
             @click=${() => this.toggleMute()}>${icon(this.muted ? "micOff" : "mic", 30)}</button>

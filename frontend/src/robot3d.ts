@@ -10,7 +10,7 @@
 // Kugel, Ohrblöcke. Dazu ein Mund aus fünf Leuchtsegmenten (bewegt sich mit der Lautstärke der Stimme),
 // Rumpf und Arme – menschenähnlich in der Haltung, in der Oberfläche klar eine Maschine.
 
-export type RobotState = "hello" | "idle" | "listening" | "thinking" | "researching" | "speaking" | "asking" | "error";
+export type RobotState = "hello" | "idle" | "listening" | "attentive" | "thinking" | "researching" | "speaking" | "asking" | "error";
 
 /** So lange nach einem Zustandswechsel mischt der Roboter die alte in die neue Haltung –
  *  dadurch gehen Nachdenken und Recherchieren weich ineinander ueber statt abrupt zu wechseln. */
@@ -178,6 +178,8 @@ export class Robot3D {
   micLevel = 0;
   /** Lautstärke der eigenen Stimme (0..1) – bewegt den Mund. */
   voiceLevel = 0;
+  /** Denkt nebenher (beim Zuhören schon mit, beim Sprechen noch weiter): die Antenne pulsiert dazu. */
+  working = false;
   /** Vor jedem Bild: Gelegenheit, die Pegel zu aktualisieren. */
   onFrame?: (now: number) => void;
   private gl: WebGLRenderingContext;
@@ -373,6 +375,15 @@ export class Robot3D {
         o.ap = 0.3; o.ae = 0.75; o.at = 0.25;
         o.bp = 2.05; o.br = -0.2; o.bt = -0.1; o.be = 1.5 + 0.03 * sin(t * 1.3);   // Hand hinters Ohr
         break;
+      case "attentive": { // ist dran, überlegt kurz: Blickkontakt, nickt langsam, Hände locker vor dem Körper
+        const nod = Math.max(0, sin(t * 2.1)) * Math.max(0, sin(t * 0.7));
+        o.bodyRx = 0.04; o.headRz = 0.06 * sin(t * 0.45); o.headRy = 0.05 * sin(t * 0.6); o.headRx = 0.02 + 0.07 * nod;
+        o.eyeOpen = 1.08; o.eyeX = 0.12 * sin(t * 0.8); o.eyeY = 0.06 + 0.1 * Math.max(0, sin(t * 0.33));
+        o.ap = 0.34 + 0.03 * sin(t * 0.9); o.at = 0.42; o.ar = 0.04; o.ae = 0.95 + 0.04 * sin(t * 1.1);
+        o.bp = 0.34 + 0.03 * sin(t * 0.9 + 1); o.bt = 0.42; o.br = 0.04; o.be = 0.95 + 0.04 * sin(t * 1.1 + 2);
+        o.lamp = 0.7 + 0.3 * sin(t * 3.4); o.ear = 0.25;
+        break;
+      }
       case "thinking": { // Hand ans Kinn, Blick nach oben, Antenne pulsiert
         const side = Math.max(-1, Math.min(1, sin(t * 0.55) * 1.4));   // weich von einer Seite zur anderen
         o.headRz = 0.16; o.headRy = -0.2 * side; o.headRx = -0.13 + 0.02 * sin(t * 1.3);
@@ -408,6 +419,8 @@ export class Robot3D {
         o.ar = 0.06; o.br = 0.06; o.ae = 0.1; o.be = 0.1; o.lamp = 0.6;
         break;
     }
+    // denkt nebenher: die Antenne pulsiert, auch während zugehört oder gesprochen wird
+    if (this.working && (this.state === "listening" || this.state === "speaking")) o.lamp = Math.max(o.lamp, 0.85 + 0.45 * sin(t * 6));
     return o;
   }
 
