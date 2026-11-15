@@ -103,6 +103,9 @@ class Provider:
         self.session = session
         self.base_url = base_url.rstrip("/")
         self.keys: dict[str, KeyState] = {}
+        # Sprachgespräch: Modelle mit Denkphase sollen sofort antworten (chat_template_kwargs.enable_thinking).
+        # Lehnt der Anbieter den Schalter ab, wird er für den Rest der Laufzeit nicht mehr gesendet.
+        self.template_kwargs_ok = True
 
     def key_state(self, key: str) -> KeyState:
         return self.keys.setdefault(key, KeyState())
@@ -187,6 +190,8 @@ class Provider:
     ) -> AsyncIterator[dict]:
         """Yield parsed SSE chunks. Retries with backoff until max_wait is used up."""
         body = dict(body, stream=True, stream_options={"include_usage": True})
+        if not self.template_kwargs_ok:
+            body.pop("chat_template_kwargs", None)
         started = time.time()
         attempt = 0
         while True:
@@ -204,6 +209,11 @@ class Provider:
                         st.updated = time.time()
                     if r.status != 200:
                         text = (await r.text())[:400]
+                        if r.status in (400, 422) and "chat_template_kwargs" in body:
+                            # der Anbieter kennt den Schalter „ohne Denkphase“ nicht: ohne ihn weiter, nicht mehr senden
+                            self.template_kwargs_ok = False
+                            body.pop("chat_template_kwargs", None)
+                            continue
                         if r.status in RETRY_STATUS:
                             raise _Retry(f"HTTP {r.status}: {text}", _retry_after(r.headers, r.status))
                         if r.status in (401, 402, 403):

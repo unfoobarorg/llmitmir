@@ -12,6 +12,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
+from . import voice as VO
 from . import credcheck as CK
 from . import credentials as C
 from . import inbox as IB
@@ -661,6 +662,9 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
+    if "voice_name" in s:
+        # Rufname im Gespräch: darauf hört der Roboter, wenn länger nichts gesagt wurde
+        cur["voice_name"] = VO.clean_name(s["voice_name"])
     if "retention_days" in s:
         # Lebensdauer der Chats und Coworks außerhalb von Projekten (0 = unbegrenzt)
         cur["retention_days"] = RT.clean_days(s["retention_days"])

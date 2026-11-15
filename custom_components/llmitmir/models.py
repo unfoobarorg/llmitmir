@@ -172,6 +172,71 @@ def score(info: dict, role: str) -> float:
     return q - demand_penalty(effective_demand(info)) + min(float(info.get("created") or 0), 4e9) / 1e12
 
 
+# ------------------------------------------------------------------ Gespräch: Tempo vor Tiefe
+# Im Sprachgespräch zählt, wie schnell das erste Wort kommt – die Aufgaben sind meist klein („Licht aus“, „Wie wird
+# das Wetter?“), eine lange Denkpause stört mehr als eine etwas schlichtere Antwort. Die Wahl stützt sich auf drei
+# Dinge: (1) was LLMitMir selbst gemessen hat (Zeit bis zum ersten Ausgabezeichen je Modell, gleitender Mittelwert),
+# (2) solange nichts gemessen ist, eine Schätzung aus der Bauart (wenige aktive Parameter und „Flash“ sind schnell,
+# Modelle mit sichtbarem Denken brauchen vor dem ersten Wort länger) und (3) die Güte – das Modell muss Werkzeuge
+# zuverlässig bedienen, sonst nützt das Tempo nichts.
+VOICE_MIN_AGENT = 50          # darunter sind Werkzeugaufrufe zu unzuverlässig für ein Gespräch
+VOICE_SPEED_WEIGHT = 0.6      # Anteil des Tempos an der Wertung (Rest: Güte als Gesprächspartner)
+_TTFT_POINTS = ((0.6, 100), (1.2, 90), (2.0, 78), (3.5, 60), (6.0, 38), (10.0, 18), (20.0, 5))
+
+
+def speed_estimate(info: dict) -> int:
+    """Geschätztes Tempo (0–100) aus der Bauart, solange keine Messung vorliegt."""
+    p = parse(info.get("id", ""))
+    size = p["active_b"] or p["total_b"]
+    base = 55 if not size else max(20, min(95, round(100 - 22 * math.log10(max(size, 1)))))
+    if p["light"]:
+        base += 8
+    if "thought" in (info.get("output") or []):
+        base -= 12  # denkt sichtbar, bevor es antwortet
+    return int(max(5, min(100, base)))
+
+
+def speed_measured(ttft: float) -> int:
+    """Tempo (0–100) aus der gemessenen Zeit bis zum ersten Ausgabezeichen in Sekunden."""
+    prev_t, prev_v = 0.0, 100
+    for t, v in _TTFT_POINTS:
+        if ttft <= t:
+            return round(prev_v + (v - prev_v) * (ttft - prev_t) / (t - prev_t)) if t > prev_t else v
+        prev_t, prev_v = t, v
+    return 2
+
+
+def speed(info: dict, ttft: float | None = None, samples: int = 0) -> int:
+    """Tempo eines Modells: die Messung zählt umso mehr, je öfter gemessen wurde (ab 4 Messungen fast allein)."""
+    est = speed_estimate(info)
+    if ttft is None or samples <= 0:
+        return est
+    w = min(0.9, 0.35 + 0.15 * samples)
+    return round(w * speed_measured(ttft) + (1 - w) * est)
+
+
+def voice_score(info: dict, ttft: float | None = None, samples: int = 0) -> float:
+    q = quality(info["id"], "chat", info)
+    return ((1 - VOICE_SPEED_WEIGHT) * q + VOICE_SPEED_WEIGHT * speed(info, ttft, samples)
+            - demand_penalty(effective_demand(info)) + min(float(info.get("created") or 0), 4e9) / 1e12)
+
+
+def voice_candidates(models: Iterable[dict]) -> list[dict]:
+    return [m for m in candidates(models, "chat") if quality(m["id"], "agent", m) >= VOICE_MIN_AGENT]
+
+
+def pick_voice(models: Iterable[dict], measured: dict[str, tuple[float, int]] | None = None,
+               exclude: Iterable[str] = ()) -> str | None:
+    """Das Modell für ein Sprachgespräch: das schnellste, das gut genug ist. ``measured``: Modell -> (Sekunden bis
+    zum ersten Ausgabezeichen, Anzahl Messungen)."""
+    measured = measured or {}
+    skip = set(exclude)
+    cand = [m for m in voice_candidates(models) if m["id"] not in skip]
+    if not cand:
+        return None
+    return max(cand, key=lambda m: voice_score(m, *measured.get(m["id"], (None, 0))))["id"]
+
+
 def candidates(models: Iterable[dict], role: str) -> list[dict]:
     return [m for m in models if usable(m) and _can(m, role) and quality(m["id"], role, m) > 0]
 

@@ -2694,7 +2694,7 @@ def test_voice_prompt_asks_for_speakable_answers():
     p = voice.VOICE_PROMPT
     assert p.startswith("## Sprachgespräch")
     for word in ("vorgelesen", "Kein Markdown", "Tabellen", "Links", "Hörfehler", "Freigabe", "ohne Ankündigung",
-                 "vierzig", "frag kurz zurück"):
+                 "vierzig", "frag kurz zurück", "skill_save", "Stopp", "kürzesten Weg"):
         assert word in p, word
 
 
@@ -2782,3 +2782,33 @@ def test_voice_merge_joins_both_halves():
     assert voice.merge("Ich brauche einen Termin am,", "Dienstag um zehn.") == "Ich brauche einen Termin am Dienstag um zehn."
     assert voice.merge("Erinnere mich an...", "den Zahnarzt") == "Erinnere mich an den Zahnarzt"
     assert voice.merge("", "Hallo") == "Hallo" and voice.merge("Hallo", " ") == "Hallo"
+
+
+def test_voice_name_and_prompt():
+    assert voice.clean_name("  Robo! ") == "Robo"
+    assert voice.clean_name("Herr Schmidt der Dritte") == "Herr Schmidt"
+    assert voice.clean_name("123") == "" and voice.clean_name(None) == ""
+    assert voice.voice_prompt("") == voice.VOICE_PROMPT
+    assert "„Robo“" in voice.voice_prompt("Robo") and voice.voice_prompt("Robo").startswith(voice.VOICE_PROMPT)
+
+
+def test_voice_model_prefers_fast_models_that_can_use_tools():
+    """Gespraech: Tempo vor Tiefe – aber nur Modelle, die Werkzeuge zuverlaessig bedienen."""
+    ids = ["glm-5.3", "qwen3.6-35b-a3b", "meta-llama-3.1-8b-instruct", "qwen3.5-397b-a17b", "glm-5.3-flash"]
+    lst = [{"id": i, "status": "ready", "demand": 0} for i in ids]
+    # ohne Messung: kleine aktive Groesse schlaegt das grosse Modell; das 8B-Modell faellt wegen der Werkzeuge raus
+    first = ms.pick_voice(lst)
+    assert first in ("qwen3.6-35b-a3b", "glm-5.3-flash", "qwen3.5-397b-a17b") and first != "glm-5.3"
+    assert "meta-llama-3.1-8b-instruct" not in [m["id"] for m in ms.voice_candidates(lst)]
+    # Messungen entscheiden: ein Modell, das erst nach 9 s antwortet, verliert gegen eines mit 0,8 s
+    slow_fast = {first: (9.0, 5), "glm-5.3": (0.8, 5)}
+    assert ms.pick_voice(lst, slow_fast) != first
+    # ausgeschlossene Modelle (gerade haengengeblieben) werden uebersprungen
+    assert ms.pick_voice(lst, exclude=[first]) != first
+    # Tempo aus der Messung faellt mit der Wartezeit; eine Denkphase kostet in der Schaetzung
+    assert ms.speed_measured(0.5) > ms.speed_measured(2) > ms.speed_measured(8) > ms.speed_measured(30)
+    plain = {"id": "qwen3.6-35b-a3b", "output": ["text"]}
+    assert ms.speed_estimate(plain) > ms.speed_estimate(dict(plain, output=["text", "thought"]))
+    # ueberlastet: ein sonst schnelles Modell faellt zurueck
+    busy = [dict(m, demand=5) if m["id"] == first else m for m in lst]
+    assert ms.pick_voice(busy) != first
