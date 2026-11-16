@@ -69,16 +69,26 @@ def _check(out: dict, what: str) -> dict:
     return out
 
 
-async def folders(ctx, cred: dict) -> dict:
+async def folders(ctx, cred: dict, baum: bool = False, tiefe: int | None = None) -> dict:
+    """Alle Ordner mit vollem Pfad (aus der Elternkette), Trennzeichen, ID und Zählern."""
     out = _check(await call(ctx, cred, E.find_folders()), "Ordner lesen")
-    return {"ordner": [{"name": f["name"], "art": f.get("art") or None, "anzahl": f.get("anzahl", 0),
-                        "ungelesen": f.get("ungelesen", 0)} for f in E.parse_folders(out.get("raw") or "")]}
+    return MB.folder_out(E.folder_paths(E.parse_folders(out.get("raw") or "")), baum=baum, tiefe=tiefe)
+
+
+async def _folder_list(ctx, cred: dict) -> list[dict]:
+    """Ordner mit vollem Pfad – Grundlage für jede Namensauflösung."""
+    out = await call(ctx, cred, E.find_folders())
+    if not out.get("ok"):
+        return []
+    return E.folder_paths(E.parse_folders(out.get("raw") or ""))
 
 
 async def list_messages(ctx, cred: dict, a: dict) -> dict:
     ordner = str(a.get("ordner") or "inbox")
     anzahl = max(1, min(int(a.get("anzahl") or 20), 100))
-    folder_id = await _folder_id(ctx, cred, ordner)
+    if a.get("alle_ordner"):
+        return await _list_all(ctx, cred, a, anzahl)
+    folder_id = await _folder_id(ctx, cred, ordner, a.get("ordner_id"))
     fields = await _mail_fields(ctx, cred)
     out = _check(await call(ctx, cred, E.find_messages(
         folder_id, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl,
@@ -148,22 +158,56 @@ async def _update_fields(ctx, cred: dict, uid: str, change_key: str) -> dict[str
     return chosen
 
 
-async def _folder_id(ctx, cred: dict, ziel: str) -> str:
-    """Ordnername in eine FolderId auflösen.
+async def _folder_id(ctx, cred: dict, ziel: str, ordner_id: str | None = None) -> str:
+    """Ordner in eine FolderId auflösen – über die ID, den vollen Pfad oder ein eindeutiges letztes Segment.
 
     Exchange kennt nur wenige Standardordner (Posteingang, Gesendet, Papierkorb …). Alle anderen – etwa
-    „Archiv“ – haben eine eigene FolderId; der Name allein führt zu „Id is malformed“. Deshalb wird der
-    Ordner über die Ordnerliste gesucht.
+    „Archiv“ oder „Microsoft 365/MPG“ – haben eine eigene FolderId; der Name allein führt zu „Id is malformed“.
+    Deshalb wird der Ordner über die Ordnerliste gesucht, und zwar über den ganzen Baum: Ein Ordner, der unter
+    „Microsoft 365“ hängt, ist über seinen Namen allein nicht eindeutig.
     """
+    if str(ordner_id or "").strip():
+        return str(ordner_id).strip()
     if ziel.casefold() in E.DISTINGUISHED:
         return ziel
-    out = await call(ctx, cred, E.find_folders())
-    if not out.get("ok"):
+    folders = await _folder_list(ctx, cred)
+    if not folders:
         return ziel
-    for folder in E.parse_folders(out.get("raw") or ""):
-        if str(folder.get("name") or "").casefold() == ziel.casefold():
-            return str(folder.get("id") or ziel)
-    raise MailEwsError(f"Ordner „{ziel}“ nicht gefunden – die Namen stehen in mail_folders")
+    try:
+        found = MB.resolve_folder(ziel, folders)
+    except MB.FolderNotFound as e:
+        raise MailEwsError(e.text()) from e
+    return str(found.get("id") or ziel)
+
+
+async def _list_all(ctx, cred: dict, a: dict, anzahl: int) -> dict:
+    """Suche über alle Ordner: je Ordner eine Anfrage, Treffer mit Ordnerpfad.
+
+    Robuster als jede Pfadauflösung – greift auch, wenn die Mail inzwischen woanders einsortiert ist. Kalender,
+    Kontakte und Aufgaben bleiben außen vor; nicht lesbare Ordner werden übersprungen.
+    """
+    # Nur Mail-Ordner: Kalender, Kontakte und Aufgaben tragen eine eigene FolderClass (IPF.Appointment …)
+    folders = [f for f in await _folder_list(ctx, cred)
+               if str(f.get("art") or "IPF.Note") in ("", "IPF.Note")]
+    fields = await _mail_fields(ctx, cred)
+    who = str(a.get("absender") or "").strip().casefold()
+    rows, total = [], 0
+    for folder in folders[:80]:
+        try:
+            out = await call(ctx, cred, E.find_messages(
+                str(folder.get("id") or ""), a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")),
+                anzahl, fields=fields))
+        except (MailEwsError, E.EwsError):
+            continue
+        if not out.get("ok"):
+            continue
+        found = E.parse_messages(out.get("raw") or "")
+        if who:
+            found = [r for r in found if who in f"{r.get('von', '')} {r.get('von_name', '')}".casefold()]
+        total += int(out.get("total") or len(found))
+        rows += [{**r, "ordner": folder.get("pfad") or folder.get("name")} for r in found]
+    rows.sort(key=lambda r: str(r.get("datum") or ""), reverse=True)
+    return {"ordner": "*", "treffer": total, "gezeigt": len(rows[:anzahl]), "nachrichten": rows[:anzahl]}
 
 
 async def _change_key(ctx, cred: dict, uid: str) -> str:
@@ -194,9 +238,9 @@ async def change_messages(ctx, cred: dict, a: dict, uids: list[str]) -> dict:
         return {"ok": True, "aktion": aktion, "uids": uids}
     if aktion == "verschieben":
         ziel = str(a.get("ziel") or "").strip()
-        if not ziel:
+        if not ziel and not str(a.get("ziel_id") or "").strip():
             raise MailEwsError("ziel (Ordnername aus mail_folders) fehlt")
-        folder_id = await _folder_id(ctx, cred, ziel)
+        folder_id = await _folder_id(ctx, cred, ziel, a.get("ziel_id"))
         _check(await call(ctx, cred, E.move_items(uids, folder_id)), "Verschieben")
         return {"ok": True, "aktion": "verschoben", "ziel": ziel, "uids": uids}
     if aktion == "loeschen":  # in den Papierkorb, nicht endgültig

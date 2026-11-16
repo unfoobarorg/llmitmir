@@ -7,6 +7,7 @@ markiert) und lehnt STORE, MOVE, COPY, EXPUNGE und APPEND ab, bevor etwas an den
 from __future__ import annotations
 
 import base64
+import difflib
 import email
 import html
 import imaplib
@@ -83,7 +84,11 @@ LIST_RE = re.compile(r'^\((?P<flags>[^)]*)\)\s+(?P<delim>"(?:[^"\\]|\\.)*"|NIL)\
 
 
 def parse_list(data: list) -> list[dict]:
-    """Antwort von LIST → [{"name": "Gesendete Elemente", "flags": ["\\Sent", …]}]."""
+    """Antwort von LIST → [{"name", "flags", "trennzeichen", "tiefe"}].
+
+    ``name`` ist der volle Pfad, wie ihn der Server fuehrt – bei ``LIST "" "*"`` also auch verschachtelte
+    Ordner ("Microsoft 365/MPG"). ``trennzeichen`` ist das Hierarchiezeichen des Postfachs (bei NIL leer).
+    """
     out = []
     for item in data or []:
         if item is None:
@@ -99,7 +104,14 @@ def parse_list(data: list) -> list[dict]:
         name = m.group("name").strip()
         if name.startswith('"') and name.endswith('"'):
             name = name[1:-1].replace('\\"', '"').replace("\\\\", "\\")
-        out.append({"name": mutf7_decode(name), "flags": m.group("flags").split()})
+        delim = m.group("delim")
+        if delim.startswith('"'):
+            delim = delim[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        else:
+            delim = ""  # NIL: flache Hierarchie
+        name = mutf7_decode(name)
+        out.append({"name": name, "flags": m.group("flags").split(), "trennzeichen": delim,
+                    "tiefe": name.count(delim) if delim else 0})
     return out
 
 
@@ -108,9 +120,124 @@ def find_special(folders: list[dict], flag: str, names: tuple[str, ...]) -> str 
         if flag.lower() in (x.lower() for x in f["flags"]):
             return f["name"]
     for f in folders:
-        if f["name"].rsplit("/", 1)[-1].casefold() in names:
+        delim = f.get("trennzeichen") or "/"
+        if f["name"].rsplit(delim, 1)[-1].casefold() in names:
             return f["name"]
     return None
+
+
+# ------------------------------------------------------------------ Ordnerbaum und Auflösung
+class FolderNotFound(LookupError):
+    """Ordner nicht gefunden oder mehrdeutig – mit Kandidaten, damit die Antwort brauchbar ist."""
+
+    def __init__(self, name: str, kandidaten: list[str] | None = None, mehrdeutig: list[str] | None = None):
+        self.name = name
+        self.kandidaten = kandidaten or []
+        self.mehrdeutig = mehrdeutig or []
+        super().__init__(self.text())
+
+    def text(self) -> str:
+        if self.mehrdeutig:
+            return (f"Ordner „{self.name}“ ist mehrdeutig – gemeint ist vermutlich "
+                    + " oder ".join(f"„{x}“" for x in self.mehrdeutig[:4])
+                    + ". Bitte den vollen Pfad oder die Ordner-ID angeben.")
+        msg = f"Ordner „{self.name}“ nicht gefunden."
+        if self.kandidaten:
+            msg += " Ähnliche Pfade: " + ", ".join(f"„{x}“" for x in self.kandidaten) + "."
+        return msg + " Verschachtelte Ordner brauchen den vollen Pfad (Trennzeichen wie in mail_folders)."
+
+
+def delimiter_of(folders: list[dict]) -> str:
+    """Das Hierarchie-Trennzeichen des Postfachs (aus der Ordnerliste, sonst „/“)."""
+    for f in folders:
+        if f.get("trennzeichen"):
+            return f["trennzeichen"]
+    return "/"
+
+
+def _forms(name: str, delimiter: str) -> list[str]:
+    """Schreibweisen eines Ordnernamens: roh und mit normalisierten Trennzeichen.
+
+    Menschen schreiben „Microsoft 365 > MPG“, „Microsoft 365/MPG“ oder „Microsoft 365 :: MPG“ – gemeint ist
+    derselbe Pfad. Jede Folge von Trennzeichen (``/ \\ : >``) samt umgebenden Leerzeichen wird deshalb durch
+    das Trennzeichen des Postfachs ersetzt. Der rohe Name bleibt die erste Variante, damit ein Ordnername, der
+    selbst ein solches Zeichen enthält, weiter exakt gefunden wird.
+    """
+    raw = str(name or "").strip().strip('"')
+    forms = [raw]
+    if delimiter:
+        norm = re.sub(r"\s*[/\\:>]+\s*", delimiter, raw).strip(delimiter) if raw else raw
+        if norm and norm not in forms:
+            forms.append(norm)
+    return forms
+
+
+def _suffix(path: str, form: str, delimiter: str) -> bool:
+    """Endet der Pfad auf dieses Segment? („Microsoft 365/MPG“ auf „MPG“)"""
+    return bool(delimiter) and path.casefold().endswith(delimiter + form.casefold())
+
+
+def resolve_folder(name: str, folders: list[dict], delimiter: str = "/") -> dict:
+    """Ordnername → Ordner: über ID, vollen Pfad oder ein eindeutiges letztes Segment.
+
+    Mehrdeutigkeit wird nicht stillschweigend aufgelöst: Gibt es „MPG“ sowohl oben als auch unter
+    „Microsoft 365“, kommt ein ``FolderNotFound`` mit beiden Pfaden zurück – dann muss der Pfad oder die ID
+    genannt werden, statt im falschen Ordner zu suchen.
+    """
+    raw = str(name or "").strip()
+    if not raw:
+        raise FolderNotFound(raw)
+    for f in folders:  # 1. Ordner-ID
+        if f.get("id") and raw == str(f["id"]):
+            return f
+    for form in _forms(raw, delimiter):  # 2./3. voller Pfad, Schreibweise normalisiert
+        hits = [f for f in folders if f["name"].casefold() == form.casefold()]
+        if len(hits) > 1:
+            raise FolderNotFound(raw, mehrdeutig=[f["name"] for f in hits])
+        if hits:
+            nested = [f["name"] for f in folders if f is not hits[0] and _suffix(f["name"], form, delimiter)]
+            if nested:
+                raise FolderNotFound(raw, mehrdeutig=[hits[0]["name"], *nested])
+            return hits[0]
+    for form in _forms(raw, delimiter):  # 4. eindeutiges letztes Segment
+        hits = [f for f in folders if _suffix(f["name"], form, delimiter)]
+        if len(hits) > 1:
+            raise FolderNotFound(raw, mehrdeutig=[f["name"] for f in hits])
+        if hits:
+            return hits[0]
+    # 5. nichts gefunden: die nächsten ähnlichen Pfade vorschlagen
+    raise FolderNotFound(raw, kandidaten=difflib.get_close_matches(
+        raw, [f["name"] for f in folders], n=5, cutoff=0.4))
+
+
+def folder_out(folders: list[dict], baum: bool = False, tiefe: int | None = None) -> dict:
+    """Ordnerliste für mail_folders: voller Pfad, Trennzeichen, ID, Zähler – optional als eingerückter Baum."""
+    delim = delimiter_of(folders)
+    out, lines = [], []
+    for f in folders:
+        path = f.get("pfad") or f.get("name") or ""
+        depth = f.get("tiefe")
+        if depth is None:
+            depth = path.count(delim) if delim else 0
+        if tiefe is not None and depth > int(tiefe):
+            continue
+        entry = {"name": path, "trennzeichen": delim, "tiefe": depth}
+        if f.get("id"):
+            entry["id"] = f["id"]
+        for key in ("anzahl", "ungelesen"):
+            if key in f:
+                entry[key] = f[key]
+        art = f.get("art") or " ".join(x for x in f.get("flags") or [] if x.lower() in (
+            "\\sent", "\\trash", "\\drafts", "\\junk", "\\archive", "\\inbox"))
+        if art and not str(art).startswith("IPF."):  # FolderClass von Exchange sagt dem Modell nichts
+            entry["art"] = art
+        out.append(entry)
+        if baum:
+            lines.append("  " * depth + (path.rsplit(delim, 1)[-1] if delim else path))
+    result = {"ordner": out, "trennzeichen": delim, "anzahl": len(out)}
+    if baum:
+        result["baum"] = lines
+    return result
 
 
 # ------------------------------------------------------------------ Suche
@@ -319,7 +446,8 @@ class Mailbox:
         self._ok(*self.M.select(mailbox_arg(folder), readonly=not write), f"Ordner „{folder}“ nicht gefunden")
 
     def folders(self) -> list[dict]:
-        return parse_list(self._ok(*self.M.list(), "Ordnerliste"))
+        """Alle Ordner mit vollem Pfad (LIST "" "*"), nicht nur die oberste Ebene."""
+        return parse_list(self._ok(*self.M.list('""', "*"), "Ordnerliste"))
 
     def search(self, folder: str, crit: list[str], literal: bytes | None, limit: int) -> tuple[int, list[dict]]:
         self.open(folder)
@@ -339,6 +467,26 @@ class Mailbox:
                          "markiert": "\\Flagged" in r["flags"], "groesse": r["size"]})
         rows.sort(key=lambda x: int(x["uid"]), reverse=True)
         return len(uids), rows
+
+    def search_all(self, folders: list[dict], crit: list[str], literal: bytes | None,
+                   limit: int) -> tuple[int, list[dict]]:
+        """Suche über den ganzen Baum: je Ordner eine Suche, Treffer mit Ordnerpfad, neueste zuerst.
+
+        Nicht wählbare Ordner (\\Noselect) und Ordner, die der Server nicht öffnet, werden übersprungen –
+        eine Suche soll nicht an einem einzelnen Ordner scheitern.
+        """
+        total, rows = 0, []
+        for f in folders:
+            if "\\noselect" in (x.lower() for x in f.get("flags") or []):
+                continue
+            try:
+                n, found = self.search(f["name"], crit, literal, limit)
+            except (imaplib.IMAP4.error, OSError):
+                continue
+            total += n
+            rows += [{**r, "ordner": f["name"]} for r in found]
+        rows.sort(key=lambda r: str(r.get("datum") or ""), reverse=True)
+        return total, rows[:max(1, limit)]
 
     def fetch(self, folder: str, uid: str) -> bytes:
         self.open(folder)

@@ -718,7 +718,11 @@ def parse(xml: str | bytes) -> dict:
 
 
 def parse_folders(xml: str | bytes) -> list[dict]:
-    """Ordner aus FindFolder: {"name", "id", "anzahl", "ungelesen", "art"}."""
+    """Ordner aus FindFolder: {"name", "id", "parent", "anzahl", "ungelesen", "art"}.
+
+    ``parent`` ist die FolderId des Elternordners – daraus baut ``folder_paths`` den vollen Pfad. Ohne ihn
+    wäre „MPG“ unter „Microsoft 365“ von „MPG“ auf oberster Ebene nicht zu unterscheiden.
+    """
     out: list[dict] = []
     try:
         root = ET.fromstring(xml)
@@ -731,13 +735,39 @@ def parse_folders(xml: str | bytes) -> list[dict]:
         name = _text(el, "DisplayName")
         if fid is None or not fid.get("Id") or not name:
             continue
-        entry = {"name": name, "id": fid.get("Id") or "", "art": _text(el, "FolderClass")}
+        parent = _kid(el, "ParentFolderId")
+        entry = {"name": name, "id": fid.get("Id") or "", "parent": (parent.get("Id") if parent is not None else "") or "",
+                 "art": _text(el, "FolderClass")}
         for key, tag in (("anzahl", "TotalCount"), ("ungelesen", "UnreadCount")):
             try:
                 entry[key] = int(_text(el, tag) or 0)
             except ValueError:
                 entry[key] = 0
         out.append(entry)
+    return out
+
+
+def folder_paths(folders: list[dict], delimiter: str = "/") -> list[dict]:
+    """Volle Pfade aus der Elternkette: „Microsoft 365/MPG“ statt nur „MPG“.
+
+    Die Wurzel (msgfolderroot) selbst zählt nicht als Pfadbestandteil – ihre Kinder stehen oben. Kennt ein
+    Ordner seinen Elternordner nicht (abgeschnittene Antwort), bleibt sein Name der Pfad.
+    """
+    by_id = {f["id"]: f for f in folders if f.get("id")}
+    out = []
+    for f in folders:
+        parts, seen, cur = [], set(), f
+        while cur is not None and cur.get("id") not in seen:
+            seen.add(cur["id"])
+            parts.append(str(cur.get("name") or ""))
+            parent = by_id.get(cur.get("parent") or "")
+            if parent is None or parent.get("parent") in ("", cur.get("id")):
+                break
+            cur = parent
+        parts.reverse()
+        # Die oberste Ebene (Eltern = msgfolderroot, nicht in der Liste) ist der Pfadanfang
+        path = delimiter.join(p for p in parts if p)
+        out.append({**f, "pfad": path, "tiefe": max(0, len(parts) - 1)})
     return out
 
 

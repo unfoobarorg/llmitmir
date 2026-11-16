@@ -1134,7 +1134,8 @@ class FakeIMAP:
         self.calls.append(("EXAMINE" if readonly else "SELECT", mb))
         return "OK", [b"3"]
 
-    def list(self):
+    def list(self, *args):
+        self.calls.append(("LIST", *args))
         return "OK", [b'(\\HasNoChildren) "/" INBOX', b'(\\HasNoChildren \\Sent) "/" "Gesendete Elemente"',
                       b'(\\HasNoChildren \\Trash) "/" "Gel&APY-schte Elemente"']
 
@@ -1152,6 +1153,16 @@ class FakeIMAP:
         return "OK", [b"ok"]
 
 
+class NestedIMAP(FakeIMAP):
+    """Postfach mit zwei Ordnern namens „MPG“ – einer oben, einer unter „Microsoft 365“."""
+
+    def list(self, *args):
+        self.calls.append(("LIST", *args))
+        return "OK", [*FakeIMAP.list(self)[1],
+                      b'(\\HasChildren) "/" "Microsoft 365"',
+                      b'(\\HasNoChildren) "/" "Microsoft 365/MPG"', b'(\\HasNoChildren) "/" MPG']
+
+
 def test_mailbox_names_and_search():
     MB = load("mailbox")
     assert MB.mutf7_encode("Gelöschte Elemente") == "Gel&APY-schte Elemente"
@@ -1167,6 +1178,35 @@ def test_mailbox_names_and_search():
     assert crit == ["CHARSET", "UTF-8", "FROM", '"anna"', "TEXT"] and lit == "Grüße".encode()
     with pytest.raises(ValueError):
         MB.search_criteria(suche="Grüße", absender="Jürgen")
+
+
+def test_folder_tree_and_resolution():
+    """Verschachtelte Ordner: voller Pfad, Trennzeichen, Auflösung – und Mehrdeutigkeit als Fehler."""
+    MB = load("mailbox")
+    folders = MB.parse_list(NestedIMAP().list('""', "*")[1])
+    assert [f["name"] for f in folders] == ["INBOX", "Gesendete Elemente", "Gelöschte Elemente", "Microsoft 365",
+                                            "Microsoft 365/MPG", "MPG"]
+    assert MB.delimiter_of(folders) == "/"
+    assert folders[4]["tiefe"] == 1 and folders[5]["tiefe"] == 0
+    # voller Pfad, Schreibweise mit anderen Trennzeichen, eindeutiges letztes Segment
+    assert MB.resolve_folder("Microsoft 365/MPG", folders)["name"] == "Microsoft 365/MPG"
+    assert MB.resolve_folder("Microsoft 365 > MPG", folders)["name"] == "Microsoft 365/MPG"
+    assert MB.resolve_folder("microsoft 365/mpg", folders)["name"] == "Microsoft 365/MPG"
+    assert MB.resolve_folder("Gesendete Elemente", folders)["name"] == "Gesendete Elemente"
+    assert MB.resolve_folder("Microsoft 365", folders)["name"] == "Microsoft 365"
+    # „MPG“ gibt es zweimal – das darf nicht stillschweigend aufgelöst werden
+    with pytest.raises(MB.FolderNotFound) as e:
+        MB.resolve_folder("MPG", folders)
+    assert "mehrdeutig" in str(e.value) and "Microsoft 365/MPG" in str(e.value)
+    # unbekannt: Kandidaten statt nur „nicht gefunden“
+    with pytest.raises(MB.FolderNotFound) as e:
+        MB.resolve_folder("Gesendete Element", folders)
+    assert "nicht gefunden" in str(e.value) and "vollen Pfad" in str(e.value)
+    # Baumansicht und Tiefenbegrenzung
+    out = MB.folder_out(folders, baum=True)
+    assert out["baum"][4] == "  MPG" and out["ordner"][4]["tiefe"] == 1
+    assert [f["name"] for f in MB.folder_out(folders, tiefe=0)["ordner"]] == [
+        "INBOX", "Gesendete Elemente", "Gelöschte Elemente", "Microsoft 365", "MPG"]
 
 
 def test_mailbox_message_parsing():
@@ -2048,7 +2088,7 @@ def test_mail_tools_use_ews_for_exchange():
     EW = _pkg("tools.mail_ews")
     calls = []
 
-    async def fake_folders(ctx, cred):
+    async def fake_folders(ctx, cred, baum=False, tiefe=None):
         calls.append(("folders", cred["name"]))
         return {"ordner": [{"name": "Posteingang", "anzahl": 3, "ungelesen": 1}]}
 

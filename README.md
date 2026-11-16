@@ -189,6 +189,15 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der
   MIME-Inhalt kommt als base64 und geht durch denselben Parser, Text und Anhänge verhalten sich also gleich. Gmail,
   Posteo und Co. bleiben bei IMAP/SMTP.
+- **Ordner über den ganzen Baum:** `mail_folders` listet jeden Ordner mit vollem Pfad, Trennzeichen, Ordner-ID und
+  Zählern – bei IMAP über `LIST "" "*"`, bei Exchange aus der `ParentFolderId`-Kette. Optional `baum: true` für eine
+  eingerückte Ansicht, `tiefe` begrenzt die Ausgabe. `mail_list`, `mail_read` und `mail_change` lösen den Ordnernamen
+  über den ganzen Baum auf: Ordner-ID, voller Pfad oder ein eindeutiges letztes Segment, unabhängig von der
+  Schreibweise der Trennzeichen („Microsoft 365 > MPG“ = „Microsoft 365/MPG“). Gibt es denselben Namen zweimal (etwa
+  „MPG“ oben und unter „Microsoft 365“), wird **nicht** stillschweigend geraten: Die Meldung nennt beide Pfade und
+  verlangt Pfad oder ID. Ist nichts zu finden, schlägt sie die nächsten ähnlichen Pfade vor. Mit `alle_ordner: true`
+  durchsucht `mail_list` den ganzen Baum und gibt zu jedem Treffer den Ordnerpfad aus – das greift auch, wenn eine
+  Mail inzwischen woanders einsortiert ist.
 - **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste): GWDG-E-Mail-Adresse und Passwort eintragen (ohne @
   wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender und/oder Kontakte**.
   Postfach, Kalender und Kontakte laufen über EWS. Geprüft wird jeder angehakte Dienst einzeln (EWS-`GetFolder` auf

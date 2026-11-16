@@ -113,15 +113,27 @@ def _uids(a: dict, ews: bool = False) -> list[str]:
 
 async def mail_folders(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""))
+    baum = bool(a.get("baum"))
+    tiefe = a.get("tiefe")
     if acc["ews"]:
-        return await _ews(lambda: EW.folders(ctx, acc["cred"]))
+        return await _ews(lambda: EW.folders(ctx, acc["cred"], baum=baum, tiefe=tiefe))
 
     def work():
         with _box(acc) as box:
-            return {"ordner": [{"name": f["name"], "art": " ".join(x for x in f["flags"] if x.lower() in (
-                "\\sent", "\\trash", "\\drafts", "\\junk", "\\archive", "\\inbox")) or None} for f in box.folders()]}
+            return MB.folder_out(box.folders(), baum=baum, tiefe=tiefe)
 
     return await _run(work)
+
+
+def _resolve(box: MB.Mailbox, name: str, ordner_id: str | None = None) -> str:
+    """Ordnernamen über den ganzen Baum auflösen (Pfad, letztes Segment, ID) – oder Klartext mit Kandidaten."""
+    folders = box.folders()
+    if str(ordner_id or "").strip():
+        return str(ordner_id).strip()
+    try:
+        return MB.resolve_folder(name, folders, MB.delimiter_of(folders))["name"]
+    except MB.FolderNotFound as e:
+        raise MailError(e.text()) from e
 
 
 async def mail_list(ctx, a: dict):
@@ -138,8 +150,13 @@ async def mail_list(ctx, a: dict):
         crit, literal = MB.search_criteria(a.get("suche"), a.get("absender"), a.get("von"), a.get("bis"),
                                            bool(a.get("ungelesen")))
         with _box(acc) as box:
-            total, rows = box.search(ordner, crit, literal, anzahl)
-        return {"ordner": ordner, "treffer": total, "gezeigt": len(rows), "nachrichten": rows,
+            if a.get("alle_ordner"):
+                total, rows = box.search_all(box.folders(), crit, literal, anzahl)
+                return {"ordner": "*", "treffer": total, "gezeigt": len(rows), "nachrichten": rows,
+                        "recht": C.ACCESS_LABELS["write" if acc["writable"] else "read"]}
+            ziel = _resolve(box, ordner, a.get("ordner_id"))
+            total, rows = box.search(ziel, crit, literal, anzahl)
+        return {"ordner": ziel, "treffer": total, "gezeigt": len(rows), "nachrichten": rows,
                 "recht": C.ACCESS_LABELS["write" if acc["writable"] else "read"]}
 
     return await _run(work)
@@ -154,11 +171,13 @@ async def mail_read(ctx, a: dict):
 
     def work():
         with _box(acc) as box:
-            return box.fetch(ordner, uid)
+            ziel = _resolve(box, ordner, a.get("ordner_id"))
+            return ziel, box.fetch(ziel, uid)
 
     raw = await _run(work)
     if isinstance(raw, str):
         return raw
+    ordner, raw = raw
     out = MB.parse_message(raw)
     out.update(uid=uid, ordner=ordner)
     if a.get("anhaenge_speichern"):
@@ -234,19 +253,21 @@ async def mail_change(ctx, a: dict):
 
     def work():
         with _box(acc) as box:
+            quelle = _resolve(box, ordner, a.get("ordner_id"))
             if aktion in ACTIONS:
-                box.store(ordner, uids, *ACTIONS[aktion])
+                box.store(quelle, uids, *ACTIONS[aktion])
                 return {"ok": True, "aktion": aktion, "uids": uids}
             if aktion == "verschieben":
                 ziel = str(a.get("ziel") or "").strip()
-                if not ziel:
+                if not ziel and not str(a.get("ziel_id") or "").strip():
                     raise MailError("ziel (Ordnername aus mail_folders) fehlt")
-                return {"ok": True, "aktion": box.move(ordner, uids, ziel), "ziel": ziel, "uids": uids}
+                ziel = _resolve(box, ziel, a.get("ziel_id"))
+                return {"ok": True, "aktion": box.move(quelle, uids, ziel), "ziel": ziel, "uids": uids}
             if aktion == "loeschen":  # in den Papierkorb, nicht endgültig
                 trash = MB.find_special(box.folders(), "\\Trash", MB.TRASH_NAMES)
                 if not trash:
                     raise MailError("Kein Papierkorb-Ordner gefunden – mit verschieben und ziel arbeiten")
-                return {"ok": True, "aktion": f"in den Papierkorb „{trash}“ " + box.move(ordner, uids, trash),
+                return {"ok": True, "aktion": f"in den Papierkorb „{trash}“ " + box.move(quelle, uids, trash),
                         "uids": uids}
             raise MailError(f"Unbekannte aktion „{aktion}“")
 
@@ -254,19 +275,29 @@ async def mail_change(ctx, a: dict):
 
 
 Z = {"type": "string", "description": "Name des Zugangs (E-Mail- oder Exchange-Zugang mit Postfach)"}
-O = {"type": "string", "description": "Ordner, Standard INBOX (Namen aus mail_folders)"}
-register(Tool("mail_folders", "mail", "Listet die Ordner eines E-Mail-Postfachs.", obj({"zugang": Z}, ["zugang"]),
+O = {"type": "string", "description": "Ordner: voller Pfad aus mail_folders (z. B. „Microsoft 365/MPG“), "
+                                      "ein eindeutiger Ordnername oder eine Ordner-ID; Standard INBOX"}
+OID = {"type": "string", "description": "Ordner-ID aus mail_folders – stabile Adresse, unabhängig vom Namen"}
+register(Tool("mail_folders", "mail",
+              "Listet die Ordner eines E-Mail-Postfachs mit vollem Pfad, Trennzeichen, ID und Zählern – auch verschachtelte.",
+              obj({"zugang": Z, "baum": {"type": "boolean", "description": "zusätzlich eingerückte Baumansicht"},
+                   "tiefe": {"type": "integer", "description": "nur Ordner bis zu dieser Tiefe (0 = oberste Ebene)"}},
+                  ["zugang"]),
               _safe(mail_folders), label="Mail-Ordner", icon="mdi:folder-outline"))
 register(Tool("mail_list", "mail",
-              "Sucht Nachrichten in einem Ordner (neueste zuerst; ändert nichts, markiert nichts als gelesen).",
-              obj({"zugang": Z, "ordner": O, "suche": {"type": "string", "description": "Text in Betreff/Inhalt"},
+              "Sucht Nachrichten in einem Ordner (neueste zuerst; ändert nichts, markiert nichts als gelesen). "
+              "Mit alle_ordner über den ganzen Ordnerbaum.",
+              obj({"zugang": Z, "ordner": O, "ordner_id": OID,
+                   "alle_ordner": {"type": "boolean", "description": "alle Ordner durchsuchen, Treffer mit Ordnerpfad"},
+                   "suche": {"type": "string", "description": "Text in Betreff/Inhalt"},
                    "absender": {"type": "string"}, "von": {"type": "string", "description": "ab JJJJ-MM-TT"},
                    "bis": {"type": "string", "description": "vor JJJJ-MM-TT"}, "ungelesen": {"type": "boolean"},
                    "anzahl": {"type": "integer", "description": "1–100, Standard 20"}}, ["zugang"]),
               _safe(mail_list), label="Mails suchen", icon="mdi:email-search-outline"))
 register(Tool("mail_read", "mail",
               "Liest eine Nachricht (Kopf, Text, Anhänge) – ohne sie als gelesen zu markieren. Anhänge auf Wunsch in den Arbeitsbereich.",
-              obj({"zugang": Z, "ordner": O, "uid": {"type": "string", "description": "UID bzw. Kennung aus mail_list"},
+              obj({"zugang": Z, "ordner": O, "ordner_id": OID,
+                   "uid": {"type": "string", "description": "UID bzw. Kennung aus mail_list"},
                    "anhaenge_speichern": {"type": "boolean"}}, ["zugang", "uid"]),
               _safe(mail_read), label="Mail lesen", icon="mdi:email-open-outline"))
 register(Tool("mail_send", "mail",
@@ -281,7 +312,9 @@ register(Tool("mail_send", "mail",
 register(Tool("mail_change", "mail",
               "Ändert Nachrichten (nur bei „lesen und schreiben“): gelesen/ungelesen, markieren/entmarkieren, verschieben, "
               "loeschen (= in den Papierkorb).",
-              obj({"zugang": Z, "ordner": O, "uids": {"type": "array", "items": {"type": "string"}},
+              obj({"zugang": Z, "ordner": O, "ordner_id": OID, "uids": {"type": "array", "items": {"type": "string"}},
                    "aktion": {"type": "string", "enum": [*ACTIONS, "verschieben", "loeschen"]},
-                   "ziel": {"type": "string", "description": "Zielordner bei verschieben"}}, ["zugang", "uids", "aktion"]),
+                   "ziel": {"type": "string", "description": "Zielordner bei verschieben (Pfad oder Name)"},
+                   "ziel_id": {"type": "string", "description": "Ordner-ID des Ziels bei verschieben"}},
+                  ["zugang", "uids", "aktion"]),
               _safe(mail_change), write=True, label="Mails ändern", icon="mdi:email-edit-outline"))
