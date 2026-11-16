@@ -461,17 +461,21 @@ def _restriction(suche: str | None = None, von: str | None = None, bis: str | No
 
 def find_messages(folder: str | None = "inbox", suche: str | None = None, von: str | None = None,
                   bis: str | None = None, ungelesen: bool = False, max_entries: int = 20,
-                  fields: dict[str, str] | None = None) -> str:
+                  fields: dict[str, str] | None = None, props: bool = True) -> str:
     """Nachrichten eines Ordners, neueste zuerst. Der Server filtert und sortiert; der Text bleibt draußen.
 
     ``fields`` ist das Ergebnis der Aushandlung (negotiate_mail_fields) – ohne Angabe gilt die Vorgabe.
+    ``props=False`` fragt ohne Zusatzfelder an: BaseShape=Default allein liefert Betreff, Datum, Absender,
+    Empfänger, Lesestatus, Anhänge und Größe. Das ist der Rückfallweg, wenn ein Server die Zusatzfelder zwar
+    annimmt, die Liste damit aber leer zurückkommt (Treffer gemeldet, keine Nachricht geliefert).
     """
-    props = "".join(_field(f) for f in mail_fields(fields))
+    props_xml = (f"<t:AdditionalProperties>{''.join(_field(f) for f in mail_fields(fields))}"
+                 "</t:AdditionalProperties>") if props else ""
     return envelope(
         '<m:FindItem Traversal="Shallow">'
         # BaseShape=Default, nicht IdOnly: IsRead, From und die Empfängerlisten gibt es bei IdOnly nicht,
         # Exchange lehnt die Anfrage dann mit HTTP 500 („The request is invalid“) ab.
-        f"<m:ItemShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties>{props}</t:AdditionalProperties></m:ItemShape>"
+        f"<m:ItemShape><t:BaseShape>Default</t:BaseShape>{props_xml}</m:ItemShape>"
         f'<m:IndexedPageItemView MaxEntriesReturned="{max(1, min(int(max_entries or 20), MAX_ENTRIES))}" '
         'Offset="0" BasePoint="Beginning"/>'
         '<m:SortOrder><t:FieldOrder Order="Descending"><t:FieldURI FieldURI="item:DateTimeReceived"/>'
@@ -772,14 +776,19 @@ def folder_paths(folders: list[dict], delimiter: str = "/") -> list[dict]:
 
 
 def parse_messages(xml: str | bytes) -> list[dict]:
-    """Nachrichten aus FindItem: {"uid" (= ItemId), "betreff", "von", "datum", "ungelesen", "anhaenge", "groesse"}."""
+    """Nachrichten aus FindItem: {"uid" (= ItemId), "betreff", "von", "datum", "ungelesen", "anhaenge", "groesse"}.
+
+    Gelesen wird jedes Element aus ``ITEM_TAGS``, nicht nur ``Message``: Eine Termineinladung oder ein
+    Unzustellbarkeitsbericht steht im Postfach als ``MeetingRequest`` bzw. ``MeetingCancellation`` und wäre
+    sonst ein Treffer, den die Liste verschweigt („1 Treffer, 0 gezeigt“). ``art`` nennt die Art.
+    """
     out: list[dict] = []
     try:
         root = ET.fromstring(xml)
     except ET.ParseError:
         return out
     for el in root.iter():
-        if _local(el.tag) != "Message":
+        if _local(el.tag) not in ITEM_TAGS:
             continue
         iid = _kid(el, "ItemId")
         if iid is None or not iid.get("Id"):
@@ -803,6 +812,8 @@ def parse_messages(xml: str | bytes) -> list[dict]:
         flag = _kid(el, "Flag")
         if flag is not None and _text(flag, "FlagStatus") == "Flagged":
             entry["markiert"] = True
+        if _local(el.tag) != "Message":  # Termineinladung, Absage, Aufgabenanfrage – nicht verschweigen
+            entry["art"] = _local(el.tag)
         out.append(entry)
     return out
 

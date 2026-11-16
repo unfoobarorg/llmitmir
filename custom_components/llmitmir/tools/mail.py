@@ -136,6 +136,21 @@ def _resolve(box: MB.Mailbox, name: str, ordner_id: str | None = None) -> str:
         raise MailError(e.text()) from e
 
 
+def _listed(ordner: str, total: int, rows: list[dict], acc: dict) -> dict:
+    """Antwort für das Modell: Trefferzahl, gezeigte Nachrichten und ein Hinweis, wenn nichts ankommt.
+
+    „1 Treffer, 0 gezeigt“ ist keine brauchbare Auskunft: Es gibt dann keine Kennung, mit der sich die
+    Nachricht öffnen ließe. Bleibt die Liste trotz Treffern leer, sagt die Antwort deshalb, woran es liegt.
+    """
+    out = {"ordner": ordner, "treffer": total, "gezeigt": len(rows), "nachrichten": rows,
+           "recht": C.ACCESS_LABELS["write" if acc["writable"] else "read"]}
+    if total and not rows:
+        out["hinweis"] = ("Der Server meldet Treffer, liefert aber keine Nachricht dazu – meist eine "
+                          "Termineinladung oder ein Unzustellbarkeitsbericht. Mit alle_ordner oder einem "
+                          "anderen Zeitfenster erneut suchen.")
+    return out
+
+
 async def mail_list(ctx, a: dict):
     acc = _account(ctx, a.get("zugang", ""))
     ordner = str(a.get("ordner") or "INBOX")
@@ -152,12 +167,10 @@ async def mail_list(ctx, a: dict):
         with _box(acc) as box:
             if a.get("alle_ordner"):
                 total, rows = box.search_all(box.folders(), crit, literal, anzahl)
-                return {"ordner": "*", "treffer": total, "gezeigt": len(rows), "nachrichten": rows,
-                        "recht": C.ACCESS_LABELS["write" if acc["writable"] else "read"]}
+                return _listed("*", total, rows, acc)
             ziel = _resolve(box, ordner, a.get("ordner_id"))
             total, rows = box.search(ziel, crit, literal, anzahl)
-        return {"ordner": ziel, "treffer": total, "gezeigt": len(rows), "nachrichten": rows,
-                "recht": C.ACCESS_LABELS["write" if acc["writable"] else "read"]}
+        return _listed(ziel, total, rows, acc)
 
     return await _run(work)
 

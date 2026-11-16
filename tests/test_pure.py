@@ -2136,6 +2136,90 @@ def test_mail_tools_use_ews_for_exchange():
     assert len(calls) == before
 
 
+def test_ews_mail_list_never_reports_hits_without_messages():
+    """„1 Treffer, 0 gezeigt“ darf nicht mehr entstehen: Trefferzahl ehrlich, Rückfall ohne Zusatzfelder."""
+    import asyncio
+    import types
+
+    E = _pkg("ews")
+    EW = _pkg("tools.mail_ews")
+
+    # Eine Termineinladung ist ein Treffer im Postfach – sie muss in der Liste stehen, nicht verschwinden
+    xml = """<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"><s:Body>
+      <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
+      <m:RootFolder TotalItemsInView="1"><t:Items>
+      <t:MeetingRequest><t:ItemId Id="MR1" ChangeKey="C1"/><t:Subject>Einladung</t:Subject>
+      <t:DateTimeReceived>2026-11-16T09:00:00Z</t:DateTimeReceived><t:IsRead>false</t:IsRead>
+      </t:MeetingRequest></t:Items></m:RootFolder></m:FindItemResponseMessage></m:ResponseMessages>
+      </m:FindItemResponse></s:Body></s:Envelope>"""
+    rows = E.parse_messages(xml)
+    assert [r["uid"] for r in rows] == ["MR1"] and rows[0]["art"] == "MeetingRequest"
+    assert "art" not in E.parse_messages(xml.replace("MeetingRequest", "Message"))[0]
+
+    # Ohne Zusatzfelder: BaseShape=Default allein
+    plain = E.find_messages("inbox", props=False)
+    assert "AdditionalProperties" not in plain and "<t:BaseShape>Default</t:BaseShape>" in plain
+    assert "AdditionalProperties" in E.find_messages("inbox")
+
+    # Der Server meldet einen Treffer und liefert nichts: der zweite Versuch ohne Zusatzfelder greift
+    bodies = []
+
+    async def fake_call(ctx, cred, body):
+        bodies.append(body)
+        if "AdditionalProperties" in body:
+            return {"ok": True, "total": 1, "raw": "<x/>"}
+        return {"ok": True, "total": 1, "raw": xml}
+
+    original = EW.call
+    EW.call = fake_call
+    try:
+        ctx = types.SimpleNamespace()
+        out, found = asyncio.run(EW._find(ctx, {}, "inbox", {}, 20, {}))
+        assert [r["uid"] for r in found] == ["MR1"] and len(bodies) == 2
+    finally:
+        EW.call = original
+
+    # Bleibt es leer, sagt die Antwort warum – und zählt keine Treffer, die sie nicht zeigt
+    result = EW._result("inbox", {"total": 1}, [], "")
+    assert result["treffer"] == 1 and result["gezeigt"] == 0 and "hinweis" in result
+    # Absenderfilter: nur was übrig bleibt, zählt
+    kept = EW._result("inbox", {"total": 5}, [{"von": "anna@example.org", "von_name": "Anna"}], "anna")
+    assert kept["treffer"] == 1 and kept["gezeigt"] == 1 and "hinweis" not in kept
+    dropped = EW._result("inbox", {"total": 5}, [{"von": "bob@example.org", "von_name": "Bob"}], "anna")
+    assert dropped["treffer"] == 0 and dropped["gezeigt"] == 0 and "hinweis" not in dropped
+
+
+def test_imap_mail_list_explains_empty_result():
+    """Auch über IMAP: Treffer ohne Nachricht bekommen einen Hinweis statt einer leeren Liste."""
+    import asyncio
+    import types
+
+    M = _pkg("tools.mail")
+
+    class EmptyIMAP(FakeIMAP):
+        def uid(self, cmd, *args):
+            self.calls.append(("UID", cmd, *args))
+            if cmd == "SEARCH":
+                return "OK", [b"7"]  # ein Treffer …
+            return "OK", []  # … aber FETCH liefert nichts
+
+    cred = {"id": "k", "name": "Gmail", "type": "imap", "services": ["mail"], "access": {"mail": "read"},
+            "fields": {"username": "a@example.org", "password": "pw", "imap_host": "imap.example.org:993"}}
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None)
+    original = M._CONNECT.get("imap")
+    M._CONNECT["imap"] = lambda h, p: EmptyIMAP()
+    try:
+        reg = _pkg("tools").REGISTRY
+        out = asyncio.run(reg["mail_list"].handler(ctx, {"zugang": "Gmail"}))
+        assert out["treffer"] == 1 and out["gezeigt"] == 0 and "hinweis" in out
+    finally:
+        M._CONNECT.pop("imap", None)
+        if original:
+            M._CONNECT["imap"] = original
+
+
 # ---------------------------------------------------------------- NTLM (GWDG-Exchange)
 def test_ntlm_matches_the_specification():
     """MD4, NT-Hash und NTLMv2-Beweis gegen die Testvektoren aus MS-NLMP – ohne Fremdbibliothek."""

@@ -83,6 +83,44 @@ async def _folder_list(ctx, cred: dict) -> list[dict]:
     return E.folder_paths(E.parse_folders(out.get("raw") or ""))
 
 
+async def _find(ctx, cred: dict, folder_id: str, a: dict, anzahl: int, fields: dict[str, str]) -> tuple[dict, list]:
+    """FindItem mit Rückfallweg: Meldet der Server Treffer, liefert aber keine Nachricht, ohne Zusatzfelder fragen.
+
+    Der GWDG-Exchange nimmt die ausgehandelten Zusatzfelder an und antwortet trotzdem mit einer leeren Liste –
+    dann steht in der Antwort „1 Treffer“, aber keine Kennung, und ``mail_read`` hat nichts zum Öffnen. Ohne
+    Zusatzfelder (BaseShape=Default) kommen Betreff, Datum, Absender, Lesestatus und Größe von selbst mit.
+    """
+    args = (a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl)
+    out = _check(await call(ctx, cred, E.find_messages(folder_id, *args, fields=fields)), "Nachrichten lesen")
+    rows = E.parse_messages(out.get("raw") or "")
+    if rows or not int(out.get("total") or 0):
+        return out, rows
+    retry = await call(ctx, cred, E.find_messages(folder_id, *args, props=False))
+    if retry.get("ok"):
+        again = E.parse_messages(retry.get("raw") or "")
+        if again:
+            return retry, again
+    return out, rows
+
+
+def _result(ordner: str, out: dict, rows: list[dict], who: str) -> dict:
+    """Antwort für das Modell: Trefferzahl ehrlich, und ein Hinweis, wenn Treffer ohne Nachricht bleiben.
+
+    ``treffer`` ist die Zahl der Nachrichten, die tatsächlich in der Antwort stehen – nicht die Zahl, die der
+    Server zählt. Sonst entsteht „1 Treffer, 0 gezeigt“: eine Zahl ohne Kennung, mit der sich nichts anfangen
+    lässt. Filtert der Client nach Absender, zählt ebenfalls nur, was übrig bleibt.
+    """
+    if who:
+        rows = [r for r in rows if who in f"{r.get('von', '')} {r.get('von_name', '')}".casefold()]
+    treffer = len(rows) if who else max(int(out.get("total") or 0), len(rows))
+    result = {"ordner": ordner, "treffer": treffer, "gezeigt": len(rows), "nachrichten": rows}
+    if treffer and not rows:
+        result["hinweis"] = ("Exchange meldet Treffer, liefert aber keine Nachricht dazu – meist eine "
+                            "Termineinladung oder ein Unzustellbarkeitsbericht. Mit alle_ordner oder einem "
+                            "anderen Zeitfenster erneut suchen.")
+    return result
+
+
 async def list_messages(ctx, cred: dict, a: dict) -> dict:
     ordner = str(a.get("ordner") or "inbox")
     anzahl = max(1, min(int(a.get("anzahl") or 20), 100))
@@ -90,15 +128,9 @@ async def list_messages(ctx, cred: dict, a: dict) -> dict:
         return await _list_all(ctx, cred, a, anzahl)
     folder_id = await _folder_id(ctx, cred, ordner, a.get("ordner_id"))
     fields = await _mail_fields(ctx, cred)
-    out = _check(await call(ctx, cred, E.find_messages(
-        folder_id, a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")), anzahl,
-        fields=fields)), "Nachrichten lesen")
-    rows = E.parse_messages(out.get("raw") or "")
+    out, rows = await _find(ctx, cred, folder_id, a, anzahl, fields)
     # Absender filtert der Client: EWS kann „From“ nicht zuverlässig serverseitig durchsuchen
-    who = str(a.get("absender") or "").strip().casefold()
-    if who:
-        rows = [r for r in rows if who in f"{r.get('von', '')} {r.get('von_name', '')}".casefold()]
-    return {"ordner": ordner, "treffer": out.get("total") or len(rows), "gezeigt": len(rows), "nachrichten": rows}
+    return _result(ordner, out, rows, str(a.get("absender") or "").strip().casefold())
 
 
 async def read_message(ctx, cred: dict, a: dict) -> dict:
@@ -191,23 +223,19 @@ async def _list_all(ctx, cred: dict, a: dict, anzahl: int) -> dict:
                if str(f.get("art") or "IPF.Note") in ("", "IPF.Note")]
     fields = await _mail_fields(ctx, cred)
     who = str(a.get("absender") or "").strip().casefold()
-    rows, total = [], 0
+    rows = []
     for folder in folders[:80]:
         try:
-            out = await call(ctx, cred, E.find_messages(
-                str(folder.get("id") or ""), a.get("suche"), a.get("von"), a.get("bis"), bool(a.get("ungelesen")),
-                anzahl, fields=fields))
+            out, found = await _find(ctx, cred, str(folder.get("id") or ""), a, anzahl, fields)
         except (MailEwsError, E.EwsError):
             continue
         if not out.get("ok"):
             continue
-        found = E.parse_messages(out.get("raw") or "")
         if who:
             found = [r for r in found if who in f"{r.get('von', '')} {r.get('von_name', '')}".casefold()]
-        total += int(out.get("total") or len(found))
         rows += [{**r, "ordner": folder.get("pfad") or folder.get("name")} for r in found]
     rows.sort(key=lambda r: str(r.get("datum") or ""), reverse=True)
-    return {"ordner": "*", "treffer": total, "gezeigt": len(rows[:anzahl]), "nachrichten": rows[:anzahl]}
+    return {"ordner": "*", "treffer": len(rows), "gezeigt": len(rows[:anzahl]), "nachrichten": rows[:anzahl]}
 
 
 async def _change_key(ctx, cred: dict, uid: str) -> str:
