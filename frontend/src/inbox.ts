@@ -2,6 +2,7 @@
 // Kurz tippen öffnet den Quellchat, lange drücken schaltet den Quellchat stumm, „×“ oder Wischen entfernt die Karte.
 import { LitElement, css, html, nothing } from "lit";
 import { state } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
 import { StoreElement, base, icon, fmtTime, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
@@ -36,6 +37,7 @@ function tone() {
 export class Inbox extends StoreElement {
   @state() private menu: any = null;      // Long-Touch-Menü zu einer Karte
   @state() private drag: any = null;      // laufende Wischgeste
+  @state() private removing = new Set<string>();   // Karten, die gerade weggewischt werden
   private timer: any = null;
   private press: any = null;
   private pressTimer: any = null;
@@ -108,6 +110,13 @@ export class Inbox extends StoreElement {
       if (fresh.length && document.visibilityState === "visible") tone();
     }
     for (const e of (store as any).inbox || []) this.seen.add(e.id);
+    // Weggewischte Karten, die nicht mehr in der Liste stehen, aus der Ausblendliste nehmen – sonst wüchse sie
+    // unbegrenzt, und eine später neu erscheinende Karte mit derselben Kennung bliebe unsichtbar.
+    if (this.removing.size) {
+      const ids = new Set(((store as any).inbox || []).map((e: any) => e.id));
+      const keep = [...this.removing].filter((id) => ids.has(id));
+      if (keep.length !== this.removing.size) this.removing = new Set(keep);
+    }
   }
 
   private items(): any[] {
@@ -117,13 +126,19 @@ export class Inbox extends StoreElement {
   }
 
   private async dismiss(e: any) {
-    const el = this.renderRoot.querySelector(`[data-id="${e.id}"]`) as HTMLElement | null;
-    el?.classList.add("gone");
+    // Ausblenden über den Zustand, nicht über classList am DOM-Element: Lit verwendet die Knoten der Liste
+    // wieder. Eine direkt gesetzte Klasse „gone“ blieb deshalb am Knoten hängen und gehörte nach dem Entfernen
+    // der Karte zur nächsten – die rückte unsichtbar nach und verschwand beim nächsten Wischen gleich mit.
+    this.removing = new Set(this.removing).add(e.id);
     // Erst wegblenden, dann serverseitig entfernen. Klappt das nicht, kommt die Karte zurück – und die Person
     // erfährt, warum, statt dass die Nachricht beim nächsten Laden wieder auftaucht.
     setTimeout(async () => {
       try { await store.api.ws("inbox/dismiss", { entry_id: e.id }); }
-      catch (err: any) { store.notify(err.message || t("Konnte nicht entfernt werden")); await store.load(); }
+      catch (err: any) {
+        this.removing = new Set([...this.removing].filter((id) => id !== e.id));
+        store.notify(err.message || t("Konnte nicht entfernt werden"));
+        await store.load();
+      }
     }, 160);
   }
   private async muteChat(e: any) {
@@ -178,8 +193,9 @@ export class Inbox extends StoreElement {
     if (!items.length) return nothing;
     return html`
       <div class="stack" role="log" aria-live="polite">
-        ${items.map((e: any) => html`
-          <div class="card-n ${e.status && e.status !== "done" ? "warn" : ""}" data-id=${e.id} role="button" tabindex="0"
+        ${repeat(items, (e: any) => e.id, (e: any) => html`
+          <div class="card-n ${e.status && e.status !== "done" ? "warn" : ""} ${this.removing.has(e.id) ? "gone" : ""}"
+            data-id=${e.id} role="button" tabindex="0"
             aria-label=${`${e.task || t("Geplante Aufgabe")}: ${e.title || ""}`}
             style=${this.drag?.id === e.id ? `transform: translateX(${this.drag.dx}px)` : ""}
             @pointerdown=${(ev: PointerEvent) => this.down(ev, e)}
