@@ -177,13 +177,14 @@ def _suffix(path: str, form: str, delimiter: str) -> bool:
     return bool(delimiter) and path.casefold().endswith(delimiter + form.casefold())
 
 
-def resolve_folder(name: str, folders: list[dict], delimiter: str = "/") -> dict:
+def resolve_folder(name: str, folders: list[dict], delimiter: str | None = None) -> dict:
     """Ordnername → Ordner: über ID, vollen Pfad oder ein eindeutiges letztes Segment.
 
     Mehrdeutigkeit wird nicht stillschweigend aufgelöst: Gibt es „MPG“ sowohl oben als auch unter
     „Microsoft 365“, kommt ein ``FolderNotFound`` mit beiden Pfaden zurück – dann muss der Pfad oder die ID
-    genannt werden, statt im falschen Ordner zu suchen.
+    genannt werden, statt im falschen Ordner zu suchen. Ohne ``delimiter`` gilt das Trennzeichen des Postfachs.
     """
+    delimiter = delimiter or delimiter_of(folders)
     raw = str(name or "").strip()
     if not raw:
         raise FolderNotFound(raw)
