@@ -94,6 +94,9 @@ class Manager:
         self.config = ConfigStore(hass)
         self.users: dict[str, UserStore] = {}
         self.subscribers: dict[str, set[Callable[[dict], None]]] = {}
+        # Abos je Websocket-Verbindung (id(conn) -> {user_id: {...}}), damit dieselbe Seite sich
+        # nicht zweimal anmeldet und jedes Ereignis doppelt bekommt
+        self._conn_subs: dict[int, dict[str, dict]] = {}
         self.runs: dict[str, Run] = {}
         self.permissions: dict[str, tuple[str, asyncio.Future, dict]] = {}
         self._provider: Provider | None = None
@@ -730,6 +733,16 @@ class Manager:
 
     # ------------------------------------------------------------- events
     @callback
+    def conn_subs(self, conn: Any) -> dict[str, dict]:
+        """Die Abos einer Websocket-Verbindung (je Person eines)."""
+        return self._conn_subs.setdefault(id(conn), {})
+
+    @callback
+    def drop_conn_subs(self, conn: Any) -> None:
+        """Verbindung ist fertig: ihren Eintrag vergessen (sonst wüchse die Liste)."""
+        self._conn_subs.pop(id(conn), None)
+
+    @callback
     def subscribe(self, user_id: str, cb: Callable[[dict], None]) -> Callable[[], None]:
         self.subscribers.setdefault(user_id, set()).add(cb)
 
@@ -1116,6 +1129,9 @@ class Manager:
                 amsg = {"id": new_id("m"), "role": "assistant", "content": "", "reasoning": "", "created": now(),
                         "model": chat["model"], "streaming": True}
                 self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": amsg})
+                # Laufende Nummer der Textstücke dieser Nachricht: Kommt dasselbe Stück zweimal an
+                # (zwei Abos derselben Person, Neuverbindung), zählt die Oberfläche es nur einmal.
+                dseq = 0
 
                 async def on_status(kind: str, info: dict) -> None:
                     await self._status(run, kind, info)
@@ -1223,8 +1239,9 @@ class Manager:
                             if (pend_c or pend_r) and (time.monotonic() - last_emit > 0.08):
                                 if run.status != "streaming":
                                     await self._status(run, "streaming", {"step": step + 1})
+                                dseq += 1
                                 self.emit(user.id, {"type": "delta", "chat_id": chat["id"], "message_id": amsg["id"],
-                                                    "content": pend_c, "reasoning": pend_r})
+                                                    "seq": dseq, "content": pend_c, "reasoning": pend_r})
                                 pend_c = pend_r = ""
                                 last_emit = time.monotonic()
                     except ModelSwitch:
@@ -1243,8 +1260,9 @@ class Manager:
                 if not ext:
                     self._poll_key = key
                 if pend_c or pend_r:
+                    dseq += 1
                     self.emit(user.id, {"type": "delta", "chat_id": chat["id"], "message_id": amsg["id"],
-                                        "content": pend_c, "reasoning": pend_r})
+                                        "seq": dseq, "content": pend_c, "reasoning": pend_r})
                 usage = acc.usage or {}
                 self.record_usage(st, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0),
                                   task=task is not None, key="" if ext else key, separate=separate, external=ext)

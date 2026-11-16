@@ -222,23 +222,41 @@ HANDLERS.append(ws_access)
 
 @command(_t("subscribe"))
 async def ws_subscribe(hass, conn, msg, m, user, st):
-    @callback
-    def forward(event: dict) -> None:
-        conn.send_message(websocket_api.event_message(msg["id"], event))
+    """Ereignisse an dieses Fenster – je Verbindung und Person genau einmal.
 
-    conn.subscriptions[msg["id"]] = m.subscribe(user.id, forward)
+    Vorher legte jeder Aufruf ein eigenes Abo an. Meldete sich dieselbe Seite ein zweites Mal an
+    (Panel neu eingehängt, Einstellungen gespeichert, Neuverbindung), bekam sie jedes Textstück
+    doppelt, dreifach oder achtfach: Die halbe Antwort stand mehrfach im Chat, bis die fertige
+    Nachricht sie wieder zusammenzog."""
+    subs = m.conn_subs(conn)
+    entry = subs.get(user.id)
+    if entry is None:
+        entry = {"msg_ids": []}
+
+        @callback
+        def forward(event: dict) -> None:
+            # die jüngste noch offene Anmeldung dieses Fensters bekommt die Ereignisse
+            if entry["msg_ids"]:
+                conn.send_message(websocket_api.event_message(entry["msg_ids"][-1], event))
+
+        entry["unsub"] = m.subscribe(user.id, forward)
+        subs[user.id] = entry
+    entry["msg_ids"].append(msg["id"])
+
+    @callback
+    def drop() -> None:
+        if msg["id"] in entry["msg_ids"]:
+            entry["msg_ids"].remove(msg["id"])
+        if not entry["msg_ids"] and subs.get(user.id) is entry:
+            subs.pop(user.id, None)
+            entry["unsub"]()
+            m.drop_conn_subs(conn)
+
+    conn.subscriptions[msg["id"]] = drop
     conn.send_result(msg["id"])
     return _NO_RESULT
 
 
-# ---------------------------------------------------------------- Benachrichtigungen auf der Startseite
-def _inbox_view(st) -> list[dict]:
-    return IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"]))
-
-
-# Achtung: „id“ und „type“ gehören dem WebSocket-Protokoll (Home Assistant setzt dort die Befehlsnummer bzw. den
-# Befehlsnamen). Ein eigenes Feld darf nie „id“ heißen – sonst scheitert die Validierung, weil die Nummer keine
-# Zeichenkette ist. Deshalb heißt die Kennung einer Karte hier „entry_id“.
 @command(_t("inbox/dismiss") | {vol.Optional("entry_id"): str, vol.Optional("chat_id"): str})
 async def ws_inbox_dismiss(hass, conn, msg, m, user, st):
     """Eine Karte entfernen (Wischen bzw. „×“) – oder alle eines Chats."""

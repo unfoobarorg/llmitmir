@@ -164,7 +164,17 @@ export class Store extends EventTarget {
       case "delta": {
         const c = this.chats.get(e.chat_id);
         const m = c?.messages.find((x: any) => x.id === e.message_id);
-        if (m) { m.content = (m.content || "") + (e.content || ""); m.reasoning = (m.reasoning || "") + (e.reasoning || ""); }
+        if (m) {
+          // Textstücke sind je Nachricht fortlaufend nummeriert. Kommt eines zweimal an (zwei Abos
+          // derselben Person, Neuverbindung), wird es nur einmal angehängt – sonst stünde die
+          // halbe Antwort mehrfach im Chat, bis die fertige Nachricht sie wieder zusammenzieht.
+          if (typeof e.seq === "number") {
+            if (typeof m.dseq === "number" && e.seq <= m.dseq) break;
+            m.dseq = e.seq;
+          }
+          m.content = (m.content || "") + (e.content || "");
+          m.reasoning = (m.reasoning || "") + (e.reasoning || "");
+        }
         break;
       }
       case "run":

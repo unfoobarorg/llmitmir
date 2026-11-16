@@ -26,7 +26,11 @@ export class LLMitMirPanel extends LitElement {
   @state() private collapsed = false;
   @state() private small = false;
   private unsub?: () => Promise<void>;
+  private subbing?: Promise<void>;
+  private subGen = 0;
+  private readyOn?: any;
   private inited = false;
+  private initing = false;
   private _onChange = () => this.requestUpdate();
   private _mq = matchMedia("(max-width: 870px)");
   private _onMq = () => { this.small = this._mq.matches; };
@@ -132,7 +136,10 @@ export class LLMitMirPanel extends LitElement {
     window.removeEventListener("location-changed", this._onLoc);
     window.removeEventListener("llmitmir-admin-saved", this._onAdmin);
     this._mq.removeEventListener("change", this._onMq);
-    this.unsub?.(); this.unsub = undefined; this.inited = false;
+    this.subGen++;  // ein noch laufendes Abo darf sich nicht mehr festsetzen
+    const unsub = this.unsub; this.unsub = undefined; unsub?.();
+    this.inited = false;
+    this.readyOn?.removeEventListener("ready", this._onReady); this.readyOn = undefined;
     this.detachDrag(); this.drag = null; this.dragFrom = null;
   }
 
@@ -148,6 +155,8 @@ export class LLMitMirPanel extends LitElement {
   }
 
   private async init() {
+    if (this.initing) return;
+    this.initing = true;
     this.inited = true;
     setLang(this.hass.language);
     store.api = new Api(this.hass);
@@ -156,12 +165,43 @@ export class LLMitMirPanel extends LitElement {
       if (!this.access.allowed) return;
       await store.load();
       await this.subscribe();
-      this.hass.connection.addEventListener("ready", async () => { await store.load(); await this.subscribe(); });
+      this.listenReady();
     } catch (e: any) { store.error = String(e?.message || e); this.requestUpdate(); }
+    finally { this.initing = false; }
   }
-  private async subscribe() {
-    try { await this.unsub?.(); } catch { /* connection gone */ }
-    this.unsub = await store.api.subscribe((e: any) => store.handle(e));
+
+  /** Nach einem Verbindungsabbruch lädt das Panel den Zustand neu. Das Abo selbst erneuert
+   *  `subscribeMessage` von allein – deshalb wird hier NICHT neu abonniert (siehe subscribe()). */
+  private _onReady = async () => {
+    try { await store.load(); } catch { /* connection gone */ }
+  };
+
+  /** Den Zuhörer genau einmal anmelden: ein zweiter würde bei jedem Verbindungsaufbau ein
+   *  weiteres Abo anlegen, und jedes Ereignis käme dann mehrfach an. */
+  private listenReady() {
+    const conn = this.hass?.connection;
+    if (!conn || conn === this.readyOn) return;
+    this.readyOn?.removeEventListener("ready", this._onReady);
+    conn.addEventListener("ready", this._onReady);
+    this.readyOn = conn;
+  }
+
+  /** Genau ein Abo, nie zwei. Vorher konnte ein zweiter Aufruf (erneutes init nach dem Speichern
+   *  der Einstellungen, Panel neu eingehängt) ein weiteres Abo anlegen, ohne das erste zu lösen:
+   *  Jedes Delta kam dann doppelt an, die Antwort stand zwei-, drei- oder achtmal im Chat und
+   *  schnurrte beim Eintreffen der fertigen Nachricht wieder auf eine Fassung zusammen. */
+  private subscribe(): Promise<void> {
+    if (this.unsub) return Promise.resolve();
+    if (this.subbing) return this.subbing;
+    const gen = this.subGen;
+    this.subbing = (async () => {
+      try {
+        const unsub = await store.api.subscribe((e: any) => store.handle(e));
+        if (gen !== this.subGen) { unsub?.(); return; }  // inzwischen abgehängt: gleich wieder lösen
+        this.unsub = unsub;
+      } finally { this.subbing = undefined; }
+    })();
+    return this.subbing;
   }
 
   private get path(): string[] { return (this.route?.path || "/").split("/").filter(Boolean); }
