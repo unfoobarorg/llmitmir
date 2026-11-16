@@ -40,6 +40,8 @@ export class Composer extends LitElement {
   @property({ type: Boolean }) history = false;
   /** Wo dieser Entwurf hingehört (Chat-Kennung, Startseite, Projektseite) – leer heißt: nichts merken. */
   @property() draftKey = "";
+  /** „Schnell antworten“: ohne Denkphase – eine Eigenschaft des Chats, nicht der Installation. */
+  @property({ type: Boolean }) noThinking = false;
   @state() private text = "";
   @state() private files: File[] = [];
   @state() private rec: VoiceRecorder | null = null;
@@ -353,6 +355,11 @@ export class Composer extends LitElement {
       ${paid.length ? html`<div class="msep"></div><div class="mh">Kostenpflichtig (extern)</div>${paid.map(row)}
         <div class="hint" style="padding:2px 10px 6px">${fmtEur(ext().month_eur)} von ${fmtEur(ext().limit_eur)} diesen Monat verbraucht. Externe Modelle laufen bei
           einem anderen Anbieter – keine sensiblen Daten eingeben. ${paid.some(m => m.locked) ? "„Nur im Notfall“ heißt: erst wählbar, wenn die Anbieter davor gerade nicht nutzbar sind." : ""}</div>` : nothing}
+      <div class="msep"></div>
+      <button class="mi" @click=${() => { this.noThinking = !this.noThinking;
+        this.dispatchEvent(new CustomEvent("nothinking", { detail: this.noThinking })); this.requestUpdate(); }}>
+        ${icon("gauge", 18)}<span class="grow">${t("Schnell antworten")}</span>${this.noThinking ? icon("check", 18) : nothing}</button>
+      <div class="hint" style="padding:2px 10px 6px">${t("Ohne Denkphase – das erste Wort zählt. Gut für kurze Fragen, schwächer bei schwierigen.")}</div>
       <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Der Punkt zeigt die aktuelle Auslastung beim Anbieter (grün frei, gelb etwas, rot stark).
         „Standard“ wählt automatisch das passendste Modell, das gerade nicht überlastet ist.</div>`;
   }

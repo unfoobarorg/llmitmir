@@ -111,16 +111,44 @@ export class Home extends StoreElement {
 export class Chats extends StoreElement {
   @state() private q = "";
   @state() private filter = "all";
+  @state() private deep = false;              // auch in Nachrichten suchen
+  @state() private found: any[] = [];         // Treffer aus chat/search
+  @state() private searching = false;
+  private timer: any = null;
   static styles = [base, css`:host { display: block; height: 100%; overflow-y: auto; }
     .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 16px; }
     .tabs button { border: 1px solid var(--lm-line); background: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
-    .tabs button.on { background: var(--lm-text); color: var(--lm-bg); border-color: var(--lm-text); }`];
+    .tabs button.on { background: var(--lm-text); color: var(--lm-bg); border-color: var(--lm-text); }
+    .deep { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--lm-muted); margin: -6px 0 10px; }
+    .hit { font-size: 12.5px; color: var(--lm-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hit b { color: var(--lm-text); font-weight: 600; }`];
+
+  /** Sucht im Inhalt (entprellt), sobald „auch in Nachrichten“ an ist. */
+  private queueSearch() {
+    clearTimeout(this.timer);
+    const q = this.q.trim();
+    if (!this.deep || q.length < 2) { this.found = []; this.searching = false; return; }
+    this.searching = true;
+    this.timer = setTimeout(async () => {
+      try {
+        const r = await store.api.ws("chat/search", { text: q, limit: 20 });
+        if (this.q.trim() === q) this.found = r.chats || [];
+      } catch { this.found = []; } finally { this.searching = false; }
+    }, 300);
+  }
+
   render() {
     const chats = (store.data?.chats || []).filter((c: any) =>
       (this.filter === "all" || c.kind === this.filter) && (!this.q || (c.title || "").toLowerCase().includes(this.q.toLowerCase())));
     const proj = (id: string) => (store.data?.projects || []).find((p: any) => p.id === id)?.name;
+    // Treffer im Inhalt, die nicht schon über den Titel in der Liste stehen
+    const extra = this.deep ? this.found.filter((f: any) => !chats.some((c: any) => c.id === f.chat_id)) : [];
     return html`<div class="page"><h1>${t("Chats")}</h1>
-      <input placeholder=${t("Suchen …")} .value=${this.q} @input=${(e: any) => (this.q = e.target.value)}>
+      <input placeholder=${t("Suchen …")} .value=${this.q}
+        @input=${(e: any) => { this.q = e.target.value; this.queueSearch(); }}>
+      <label class="deep"><input type="checkbox" style="width:auto" .checked=${this.deep}
+        @change=${(e: any) => { this.deep = e.target.checked; this.queueSearch(); }}>
+        ${t("Auch in Nachrichten suchen")}${this.searching ? html` <lm-spark size="14"></lm-spark>` : nothing}</label>
       <div class="tabs">${(isSimple() ? [["all", t("Alle")], ["task_run", "Ergebnisse geplanter Aufgaben"]]
         : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")]]).map(([k, l]) =>
         html`<button class=${this.filter === k ? "on" : ""} @click=${() => (this.filter = k)}>${l}</button>`)}</div>
@@ -129,7 +157,15 @@ export class Chats extends StoreElement {
         <div class="grow"><div class="ellipsis">${c.title || t("Neuer Chat")}</div>
           <div class="hint">${fmtTime(c.updated)} · ${c.messages} Nachrichten${c.project_id ? ` · ${proj(c.project_id) || ""}` : ""}</div></div>
         ${c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : c.status === "error" ? html`<span class="chip err">Fehler</span>` : nothing}
-        ${c.pinned ? icon("pin", 16) : nothing}</div>`) : html`<div class="hint">${t("Keine Chats")}</div>`}</div></div>`;
+        ${c.pinned ? icon("pin", 16) : nothing}</div>`) : html`<div class="hint">${t("Keine Chats")}</div>`}</div>
+      ${this.deep && this.q.trim().length >= 2 ? html`<h2 style="margin-top:22px">${t("In Nachrichten")}</h2>
+        <div class="list">${extra.length ? extra.map((f: any) => html`<div class="item" @click=${() => navigate(`/chat/${f.chat_id}`)}>
+          ${icon(f.kind === "chat" ? "chat" : f.kind === "cowork" ? "cowork" : "task")}
+          <div class="grow" style="min-width:0"><div class="ellipsis">${f.title || t("Neuer Chat")}</div>
+            ${(f.hits || []).slice(0, 2).map((h: any) => html`<div class="hit">${h.snippet}</div>`)}
+            <div class="hint">${fmtTime(f.updated)} · ${(f.hits || []).length} Treffer</div></div></div>`)
+          : html`<div class="hint">${this.searching ? t("Wird gesucht …") : t("Keine Treffer in Nachrichten")}</div>`}</div>` : nothing}
+      </div>`;
   }
 }
 

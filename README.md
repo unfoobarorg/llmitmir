@@ -15,12 +15,16 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Folgende) schaltet jede Person unter *Einstellungen → Ansicht* frei; Admins legen unter *Admin → Ansicht* für alle oder
   je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
 - **Dateien ansehen statt nur herunterladen**: Erzeugte Dateien und Anhänge öffnen sich in einem eigenen Betrachter im
-  Panel – Bilder, PDFs (seitenweise, als Bild gerendert), Texte, Ton und Video. Das funktioniert im Browser und in den
-  mobilen Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter
-  nicht darstellen kann, lässt sich herunterladen.
-- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte) und **Spracheingabe**
+  Panel – Bilder, PDFs (seitenweise, als Bild gerendert), Texte, Ton, Video sowie **Word- und Excel-Dateien** (Absätze
+  und Tabellen als lesbarer Ausschnitt, ohne Makros und ohne Formeln). Das funktioniert im Browser und in den mobilen
+  Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter nicht
+  darstellen kann, lässt sich herunterladen.
+- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
+  sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
+  Die Suche über der Liste findet auf Wunsch **auch in den Nachrichten** („Auch in Nachrichten suchen“) und zeigt je
+  Treffer einen Ausschnitt – so lässt sich eine Zahl oder ein Name wiederfinden, ohne sich an den Chat-Titel zu erinnern.
 - **Gespräch (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite, aus der Seitenleiste und aus
   jedem Chat und Cowork über den Knopf *Gespräch* –, in der man mit LLMitMir redet wie am Telefon, beliebig lange und
   über viele Runden. Aus einem Chat heraus setzt das Gespräch dessen Verlauf fort (die letzte Antwort wird einmal
@@ -68,6 +72,8 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   antworten im Gespräch ohne sie (`chat_template_kwargs.enable_thinking: false`, sofern der Anbieter den Schalter
   kennt); kommt sieben Sekunden nichts, übernimmt das nächste schnelle Modell. Wird im selben Chat wieder getippt,
   gilt wieder das Modell für Chats.
+  *Schnell antworten:* Derselbe Schalter lässt sich im Chat selbst setzen (Modellmenü → *Schnell antworten*). Er gilt
+  je Chat und ab der nächsten Nachricht – gut für kurze Fragen, schwächer bei schwierigen.
   *Nahtlos aus dem Chat:* Arbeitet der Chat beim Wechsel noch, übernimmt das Gespräch den Lauf – der Roboter zeigt
   und sagt sofort, was gerade passiert, und liest vor, was ab da an Antwort entsteht.
   *Fehlende Skills:* Braucht eine alltägliche Bitte Herumprobieren oder Recherche, bietet der Roboter danach an,
@@ -208,6 +214,9 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
 - **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60
   Minuten *ohne diese Aktion weitermacht* – sie auslässt, den Rest erledigt und im Ergebnis nennt, was fehlt.
+- **Freigaben aufs Handy**: Wartet eine Freigabe und ist gerade kein Panel offen, kommt eine Push-Nachricht mit Chat,
+  Werkzeug und – bei einem Befehl – dessen ersten Zeilen. Wer zusieht, bekommt keine zusätzliche Meldung; abschaltbar
+  in den Einstellungen.
 - **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
   Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
   noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*

@@ -60,6 +60,12 @@ export class Api {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return { url: URL.createObjectURL(await r.blob()), pages: Number(r.headers.get("x-llmitmir-pages") || 1) || 1 };
   }
+  /** Word- und Excel-Dateien als fertig maskiertes HTML (docpreview.py) – für den Betrachter. */
+  async docHtml(scope: string, owner: string, name: string): Promise<string> {
+    const r = await this.hass.fetchWithAuth(`/api/llmitmir/doc/${scope}/${owner}/${name.split("/").map(encodeURIComponent).join("/")}`);
+    if (!r.ok) throw new Error(r.status === 415 ? "Keine Vorschau möglich" : `HTTP ${r.status}`);
+    return await r.text();
+  }
   async fileUrl(scope: string, owner: string, name: string): Promise<string> {
     return URL.createObjectURL((await this.fileBlob(scope, owner, name)).blob);
   }

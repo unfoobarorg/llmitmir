@@ -15,6 +15,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from . import credentials as C
+from . import docpreview as DP
 from . import speech as SP
 from .const import DOMAIN, KIND_CHAT
 from .storage import new_id, now, safe_name
@@ -175,6 +176,31 @@ class PreviewView(_Base):
             return self.json_message(f"Keine Vorschau möglich: {e}", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
         return web.Response(body=body, content_type=ctype,
                             headers={"Cache-Control": "private, max-age=300", "X-LLMitMir-Pages": str(pages)})
+
+
+class DocView(_Base):
+    """Word- und Excel-Dateien als lesbares HTML – der Betrachter zeigt sie damit im Panel an,
+    ohne dass die Person sie herunterladen und außerhalb von Home Assistant öffnen muss."""
+
+    url = "/api/llmitmir/doc/{scope}/{owner}/{name:.+}"
+    name = "api:llmitmir:doc"
+
+    async def get(self, request, scope, owner, name):
+        hass, m, user, st = await self._user_store(request)
+        try:
+            data = await st.async_read_file(scope, owner, name)
+        except (FileNotFoundError, ValueError):
+            return self.json_message("Nicht gefunden", HTTPStatus.NOT_FOUND)
+        try:
+            body = await hass.async_add_executor_job(DP.to_html, name, data)
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("LLMitMir: Vorschau fuer %s fehlgeschlagen: %s", name, e)
+            return self.json_message(f"Keine Vorschau möglich: {e}", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        if body is None:
+            return self.json_message("Für diesen Dateityp gibt es keine Vorschau", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        # Der Ausschnitt ist reiner Text aus der Datei, bereits maskiert (docpreview) – kein Markup aus der Datei.
+        return web.Response(text=body, content_type="text/html", charset="utf-8",
+                            headers={"Cache-Control": "private, max-age=300"})
 
 
 class TranscribeView(_Base):
@@ -522,5 +548,5 @@ async def import_file(hass, m, user, st, name: str, data: bytes) -> dict:
 
 
 def async_register(hass: HomeAssistant) -> None:
-    for view in (UploadView, FileView, PreviewView, TranscribeView, SpeakView, ImportView):
+    for view in (UploadView, FileView, PreviewView, DocView, TranscribeView, SpeakView, ImportView):
         hass.http.register_view(view())

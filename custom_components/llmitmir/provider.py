@@ -17,6 +17,17 @@ BLOCK_AUTH = 15 * 60  # a refused key counts as unusable for this long
 BLOCK_RATE = 15 * 60  # … and one that kept answering 429
 
 
+AUDIO_TYPES = {"mp3": "audio/mpeg", "m4a": "audio/mp4", "mp4": "audio/mp4", "aac": "audio/aac",
+               "ogg": "audio/ogg", "oga": "audio/ogg", "opus": "audio/opus", "flac": "audio/flac",
+               "webm": "audio/webm", "amr": "audio/amr", "3gp": "audio/3gpp", "wav": "audio/wav"}
+
+
+def audio_type(filename: str) -> str:
+    """Der Typ, den die Spracherkennung erwartet – aus der Endung, nicht pauschal WAV."""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    return AUDIO_TYPES.get(ext, "audio/wav")
+
+
 class ProviderError(Exception):
     """Non-retryable provider error."""
 
@@ -164,7 +175,7 @@ class Provider:
     async def transcribe(self, key: str, audio: bytes, filename: str, model: str, language: str | None) -> str:
         await self._throttle(key, True)
         form = aiohttp.FormData()
-        form.add_field("file", audio, filename=filename, content_type="audio/wav")
+        form.add_field("file", audio, filename=filename, content_type=audio_type(filename))
         form.add_field("model", model)
         if language:
             form.add_field("language", language[:2])

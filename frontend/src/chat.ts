@@ -349,6 +349,16 @@ export class ChatView extends LitElement {
   }
 
   private stop() { store.api.ws("chat/stop", { chat_id: this.chatId }); }
+
+  /** „Schnell antworten“ gilt ab der nächsten Nachricht und bleibt für diesen Chat gespeichert. */
+  private async setNoThinking(e: CustomEvent<boolean>) {
+    const chat = this.chat; if (!chat) return;
+    const on = !!e.detail;
+    chat.no_thinking = on;
+    this.requestUpdate();
+    try { await store.api.ws("chat/update", { chat_id: chat.id, no_thinking: on }); }
+    catch (err: any) { store.notify(String(err.message || err)); }
+  }
   private retry() { store.api.ws("chat/retry", { chat_id: this.chatId }).then(r => { store.chats.set(this.chatId, r.chat); store.changed(); }).catch(e => store.notify(e.message)); }
 
   private openFile(name: string) { openFileViewer("chat", this.chatId, name); }
@@ -700,9 +710,9 @@ export class ChatView extends LitElement {
         ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} Nach unten</button></div>`}
         <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .draftKey=${chat.id}
-          .tools=${chat.tools ?? null} .projectId=${chat.project_id}
+          .tools=${chat.tools ?? null} .projectId=${chat.project_id} .noThinking=${!!chat.no_thinking}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
-          @send=${this.send} @stop=${this.stop}></lm-composer>
+          @send=${this.send} @stop=${this.stop} @nothinking=${this.setNoThinking}></lm-composer>
         <div class="note">${isExternal(chat.model) ? `Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"} – bitte keine sensiblen Daten eingeben.`
           : chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter." : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
       </div>

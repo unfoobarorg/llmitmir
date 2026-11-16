@@ -24,6 +24,9 @@ tk = load("taskkeys")
 views = load("views")
 retention = load("retention")
 inbox = load("inbox")
+permnote = load("permissionnotify")
+chatsearch = load("chatsearch")
+docpreview = load("docpreview")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -2818,3 +2821,131 @@ def test_voice_model_prefers_fast_models_that_can_use_tools():
     # ueberlastet: ein sonst schnelles Modell faellt zurueck
     busy = [dict(m, demand=5) if m["id"] == first else m for m in lst]
     assert ms.pick_voice(busy) != first
+
+
+# ---------------------------------------------------------------- Freigabe aufs Handy (F6)
+def test_permission_push_only_when_nobody_watches():
+    """Eine wartende Freigabe meldet sich nur, wenn kein Panel offen ist und die Person es will."""
+    info = {"tool": "shell", "label": "Befehl ausführen", "args": {"befehl": "ls -la"}}
+    assert permnote.should_notify({}, False, info) is True          # Standard: an
+    assert permnote.should_notify({}, True, info) is False          # jemand sieht zu
+    assert permnote.should_notify({"permission_push": False}, False, info) is False
+    assert permnote.should_notify({}, False, None) is False         # nichts zu melden
+
+
+def test_permission_push_text_names_the_command():
+    """Der Text nennt Chat und Befehl – ohne Öffnen des Chats entscheidbar."""
+    info = {"tool": "shell", "label": "Befehl ausführen", "args": {"befehl": "cd /workspace\nrm -rf alt"}}
+    title, text = permnote.message(info, "Nebenkosten")
+    assert title == "Nebenkosten"
+    assert "Befehl ausführen" in text and "cd /workspace" in text and "rm -rf alt" in text
+    # einfache Ansicht: ein Satz in Alltagssprache
+    _, simple = permnote.message(info, "Nebenkosten", simple=True)
+    assert simple.startswith("Ich brauche deine Erlaubnis") and "cd /workspace" in simple
+    # ohne Chat-Titel bleibt ein sprechender Titel
+    assert permnote.message(info, "")[0] == permnote.TITLE
+    # ein Dienst wird als domain.service genannt, wenn kein Argument passt
+    _, svc = permnote.message({"label": "Dienst", "args": {"domain": "light", "service": "turn_on"}}, "Licht")
+    assert "light.turn_on" in svc
+    # Kennung je Chat: eine neue Freigabe ersetzt die alte Meldung
+    assert permnote.tag("abc") == permnote.tag("abc") != permnote.tag("xyz")
+
+
+# ---------------------------------------------------------------- Volltextsuche (F8)
+def test_chat_search_finds_content_not_only_titles():
+    """Gesucht wird im Inhalt, mit Ausschnitt – nicht nur im Titel."""
+    chats = [
+        {"id": "a", "title": "Nebenkosten", "updated": 5, "kind": "chat", "messages": [
+            {"role": "user", "content": "Wie hoch war die Rechnung?", "created": 1},
+            {"role": "tool", "content": "Rechnung Nr. 4711 über 412,80 € vom 03.11.2026", "created": 2,
+             "args": {"pfad": "Belege/2026.pdf"}}]},
+        {"id": "b", "title": "Licht", "updated": 9, "kind": "chat",
+         "messages": [{"role": "user", "content": "mach Licht an", "created": 3}]},
+    ]
+    hits = chatsearch.rank(chats, "412,80")
+    assert [h["chat_id"] for h in hits] == ["a"]
+    assert "412,80" in hits[0]["hits"][0]["snippet"]
+    # Werkzeug-Eingaben zählen mit (Dateiname), Groß-/Kleinschreibung egal
+    assert chatsearch.rank(chats, "belege/2026")[0]["chat_id"] == "a"
+    assert chatsearch.rank(chats, "XYZ") == []
+    # leere Suche liefert nichts, Titel-Treffer werden erkannt
+    assert chatsearch.rank(chats, "  ") == []
+    assert chatsearch.title_match("Nebenkosten", "neben") and not chatsearch.title_match("Licht", "neben")
+    # höchstens drei Treffer je Chat, der jüngste Chat zuerst
+    many = {"id": "c", "title": "viel", "updated": 99, "messages":
+            [{"role": "user", "content": "Treffer " + str(i), "created": i} for i in range(10)]}
+    assert len(chatsearch.search_chat(many, "Treffer")) == chatsearch.PER_CHAT
+    assert chatsearch.rank(chats + [many], "Treffer")[0]["chat_id"] == "c"
+
+
+def test_chat_search_snippet_marks_cut_ends():
+    """Ein Ausschnitt zeigt die Umgebung und markiert abgeschnittene Enden."""
+    text = "x" * 200 + " gesucht " + "y" * 200
+    out = chatsearch.snippet(text, "gesucht", width=10)
+    assert "gesucht" in out and out.startswith("…") and out.endswith("…")
+    assert chatsearch.snippet("nichts", "gesucht") == ""
+
+
+# ---------------------------------------------------------------- Word und Excel im Betrachter (F10)
+def _docx(paragraphs, table=None):
+    import io
+    import zipfile
+    W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+    body = "".join(f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs)
+    if table:
+        rows = "".join("<w:tr>" + "".join(f"<w:tc><w:p><w:r><w:t>{c}</w:t></w:r></w:p></w:tc>" for c in row) + "</w:tr>"
+                       for row in table)
+        body += f"<w:tbl>{rows}</w:tbl>"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", f'<?xml version="1.0"?><w:document {W}><w:body>{body}</w:body></w:document>')
+    return buf.getvalue()
+
+
+def _xlsx(rows, shared):
+    import io
+    import zipfile
+    S = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    wb = f'<workbook {S} {R}><sheets><sheet name="Belege" sheetId="1" r:id="rId1"/></sheets></workbook>'
+    rels = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>')
+    sst = f'<sst {S}>' + "".join(f"<si><t>{t}</t></si>" for t in shared) + "</sst>"
+    # Zeichenketten sind Verweise in die Tabelle der geteilten Zeichenketten, Zahlen stehen direkt in der Zelle
+    cells = "".join(f'<row r="{i + 1}">' + "".join(
+        f'<c r="{chr(65 + j)}{i + 1}"' + (' t="s"' if isinstance(v, str) else "") +
+        f'><v>{shared.index(v) if isinstance(v, str) else v}</v></c>'
+        for j, v in enumerate(row)) + "</row>" for i, row in enumerate(rows))
+    sh = f'<worksheet {S}><sheetData>{cells}</sheetData></worksheet>'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("xl/workbook.xml", wb)
+        z.writestr("xl/_rels/workbook.xml.rels", rels)
+        z.writestr("xl/sharedStrings.xml", sst)
+        z.writestr("xl/worksheets/sheet1.xml", sh)
+    return buf.getvalue()
+
+
+def test_docx_preview_keeps_text_and_tables():
+    """Word: Absätze und Tabellen werden lesbar, Markup aus der Datei wird maskiert."""
+    html = docpreview.docx_html(_docx(["Anschreiben", "Betrag: 412,80 &amp; mehr"], [["Menge", "Preis"], ["2", "9,90"]]))
+    assert "<p>Anschreiben</p>" in html and "412,80 &amp; mehr" in html
+    assert "<table>" in html and "<td>Menge</td>" in html and "<td>9,90</td>" in html
+    # ein Skript in der Datei wird zu Text, nicht zu Markup
+    evil = docpreview.docx_html(_docx(["&lt;script&gt;alert(1)&lt;/script&gt;"]))
+    assert "<script>" not in evil and "&lt;script&gt;" in evil
+
+
+def test_xlsx_preview_reads_shared_strings_and_numbers():
+    """Excel: geteilte Zeichenketten und Zahlen landen in der Tabelle, Blattname als Überschrift."""
+    html = docpreview.xlsx_html(_xlsx([["Datum", "Betrag"], [45123, 412.8]], ["Datum", "Betrag"]))
+    assert "<h3>Belege</h3>" in html
+    assert "<td>Datum</td>" in html and "<td>Betrag</td>" in html
+    assert "<td>45123</td>" in html and "<td>412.8</td>" in html
+
+
+def test_doc_preview_only_for_word_and_excel():
+    """Andere Dateitypen bleiben beim Herunterladen."""
+    assert docpreview.to_html("a.pdf", b"x") is None
+    assert docpreview.to_html("a.txt", b"x") is None
+    assert docpreview.to_html("a.docx", _docx(["hallo"])) is not None

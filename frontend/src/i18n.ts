@@ -11,6 +11,11 @@ const EN: Record<string, string> = {
   "Gedanken": "Thoughts", "Schritte": "Steps", "Fortschritt": "Progress", "Dateien": "Files",
   "Einmal erlauben": "Allow once", "Immer erlauben": "Always allow", "Ablehnen": "Deny", "Übernehmen": "Apply",
   "Für diesen Chat einschalten": "Turn on for this chat",
+  "Schnell antworten": "Answer quickly",
+  "Ohne Denkphase – das erste Wort zählt. Gut für kurze Fragen, schwächer bei schwierigen.":
+    "Without a thinking phase – the first word counts. Good for short questions, weaker for hard ones.",
+  "Auch in Nachrichten suchen": "Search messages too", "In Nachrichten": "In messages",
+  "Keine Treffer in Nachrichten": "No matches in messages", "Wird gesucht …": "Searching …",
   "Kopieren": "Copy", "Kopiert": "Copied", "Erneut versuchen": "Retry", "Löschen": "Delete", "Umbenennen": "Rename",
   "Anheften": "Pin", "Lösen": "Unpin", "Speichern": "Save", "Abbrechen": "Cancel", "Schließen": "Close",
   "Gespeichert": "Saved", "Name": "Name", "Beschreibung": "Description", "Anweisungen": "Instructions",

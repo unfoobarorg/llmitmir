@@ -21,6 +21,7 @@ from . import claude_convert as CC
 from . import credcheck as CK
 from . import credentials as C
 from . import models as MS
+from . import permissionnotify as PN
 from . import pricing as PR
 from . import retention as RT
 from . import providers as PV
@@ -1205,8 +1206,9 @@ class Manager:
                             body["tools"] = tools
                             if final:
                                 body["tool_choice"] = "none"
-                        if spoken:
-                            # Gespräch: ohne Denkphase antworten – das erste Wort zählt (provider.template_kwargs_ok)
+                        if spoken or chat.get("no_thinking"):
+                            # Gespräch oder „Schnell antworten“: ohne Denkphase – das erste Wort zählt
+                            # (provider.template_kwargs_ok). Im Chat ist das eine Eigenschaft des Chats.
                             body["chat_template_kwargs"] = {"enable_thinking": False}
                         stream = self.provider.chat_stream(key, body, interactive=interactive, max_wait=max_wait,
                                                            on_status=on_status, cancel=run.cancel)
@@ -1438,6 +1440,32 @@ class Manager:
         return re.sub(r"<think>.*?</think>", "", acc.content, flags=re.S).strip()
 
     # ------------------------------------------------------------- permissions
+    async def _permission_push(self, run: Run, info: dict) -> None:
+        """Eine wartende Freigabe aufs Handy melden – nur wenn niemand zusieht (permissionnotify).
+
+        Wer das Panel offen hat, sieht die Frage selbst; dann bleibt es still. Ein Fehler beim Senden darf
+        die Freigabe nie verhindern.
+        """
+        st = self.users.get(run.user_id)
+        if not st:
+            return
+        watching = bool(self.subscribers.get(run.user_id))
+        if not PN.should_notify(st.meta["settings"], watching, info):
+            return
+        try:
+            from . import notifydevices as ND
+
+            devices = ND.apply_links(await ND.async_devices(self.hass), self.config.data.get("notify_devices"))
+            device = ND.resolve(ND.for_user(devices, run.user_id), run.user_id, st.meta["settings"])
+            if not device:
+                return
+            chat = await st.async_get_chat(run.chat_id) or {}
+            title, text = PN.message(info, chat.get("title") or "", self.simple(run.user_id))
+            await ND.async_send(self.hass, device, title, text, url=f"/llmitmir/chat/{run.chat_id}",
+                                tag=PN.tag(run.chat_id))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("LLMitMir: Push für wartende Freigabe fehlgeschlagen", exc_info=True)
+
     async def ask_permission(self, run: Run, info: dict) -> str:
         pid = new_id("p")
         fut = self.hass.loop.create_future()
@@ -1445,6 +1473,7 @@ class Manager:
         self.permissions[pid] = (run.user_id, fut, info)
         await self._status(run, "waiting_permission", {"permission": info})
         self.emit(run.user_id, {"type": "permission", "permission": info})
+        await self._permission_push(run, info)
         # Ohne Antwort läuft die Frage nach einer Stunde aus. Wer in den Einstellungen eine kürzere
         # Wartezeit wählt, bekommt statt einer Ablehnung ein "ohne diese Aktion weitermachen".
         wait = 3600

@@ -3,6 +3,7 @@
 // öffnet keine neuen Fenster) – deshalb ein eigener Betrachter im Panel selbst.
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
+import DOMPurify from "dompurify";
 import { tokens, base, icon, safeElement } from "./ui";
 import { store } from "./api";
 import { t } from "./i18n";
@@ -11,6 +12,7 @@ const TEXT_TYPES = /^(text\/|application\/(json|xml|x-yaml|yaml|javascript|x-sh)
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|xml|ya?ml|log|ini|toml|py|js|ts|sh|html?|css|ics|vcf|eml)$/i;
 const IMAGE_EXT = /\.(png|jpe?g|webp|gif|bmp|avif|svg|heic|heif|tiff?)$/i;
 const PDF_EXT = /\.pdf$/i;
+const DOC_EXT = /\.(docx|xlsx)$/i;
 
 /** Öffnet den Betrachter für eine Datei aus Chat, Projekt oder Skill. */
 export function openFileViewer(scope: string, owner: string, name: string) {
@@ -26,9 +28,10 @@ export class Viewer extends LitElement {
   @property() owner = "";
   @property() name = "";
   @property({ type: Boolean, reflect: true }) dark = false;
-  @state() private kind: "loading" | "image" | "pdf" | "text" | "audio" | "video" | "other" | "error" = "loading";
+  @state() private kind: "loading" | "image" | "pdf" | "text" | "audio" | "video" | "doc" | "other" | "error" = "loading";
   @state() private url = "";
   @state() private text = "";
+  @state() private html = "";   // Word/Excel als fertiger Ausschnitt
   @state() private error = "";
   @state() private page = 1;
   @state() private pages = 1;
@@ -49,6 +52,12 @@ export class Viewer extends LitElement {
     pre { margin: 0; width: 100%; height: 100%; overflow: auto; background: var(--lm-panel); color: var(--lm-text);
       border-radius: 12px; padding: 14px; font-family: var(--lm-mono); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
     audio, video { width: min(560px, 100%); }
+    .doc { width: 100%; height: 100%; overflow: auto; background: var(--lm-panel); color: var(--lm-text);
+      border-radius: 12px; padding: 16px; font-size: 13.5px; line-height: 1.55; }
+    .doc :is(h3) { font-size: 14px; margin: 14px 0 6px; }
+    .doc p { margin: 0 0 8px; }
+    .doc table { border-collapse: collapse; margin: 0 0 12px; font-size: 12.5px; }
+    .doc td { border: 1px solid var(--lm-line); padding: 3px 7px; vertical-align: top; }
     .msg { color: #fff; text-align: center; display: grid; gap: 12px; justify-items: center; font-size: 14px; max-width: 420px; }
     .msg .btn { background: rgba(255, 255, 255, .16); border-color: transparent; color: #fff; }
     .pager { display: flex; align-items: center; gap: 10px; color: #fff; font-size: 13px; padding: 8px 0 0; }
@@ -92,6 +101,12 @@ export class Viewer extends LitElement {
       } else if (type.startsWith("video/")) {
         this.url = this.track(URL.createObjectURL(blob));
         this.kind = "video";
+      } else if (DOC_EXT.test(this.name)) {
+        // Word und Excel: Home Assistant wandelt in einen lesbaren Ausschnitt um (docpreview.py)
+        // Der Ausschnitt kommt bereits maskiert aus docpreview.py; hier ein zweites Netz für den Browser.
+        this.html = DOMPurify.sanitize(await store.api.docHtml(this.scope, this.owner, this.name),
+          { FORBID_TAGS: ["style", "form", "input", "script"], FORBID_ATTR: ["style"] });
+        this.kind = "doc";
       } else if (TEXT_TYPES.test(type) || TEXT_EXT.test(this.name)) {
         this.text = (await blob.text()).slice(0, 400_000);
         this.kind = "text";
@@ -148,6 +163,7 @@ export class Viewer extends LitElement {
             <span>${t("Seite")} ${this.page} / ${this.pages}</span>
             <button ?disabled=${this.page >= this.pages} @click=${() => this.loadPage(this.page + 1)}>${icon("right", 18)}</button></div>` : nothing}</div>` : nothing}
         ${k === "text" ? html`<pre>${this.text}</pre>` : nothing}
+        ${k === "doc" ? html`<div class="doc" .innerHTML=${this.html}></div>` : nothing}
         ${k === "audio" ? html`<audio controls autoplay src=${this.url}></audio>` : nothing}
         ${k === "video" ? html`<video controls src=${this.url}></video>` : nothing}
         ${k === "other" ? html`<div class="msg">${icon("file", 28)}<span>${t("Diese Art von Datei kann der Betrachter nicht anzeigen.")}</span>

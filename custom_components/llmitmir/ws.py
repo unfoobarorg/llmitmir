@@ -13,6 +13,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from . import voice as VO
+from . import chatsearch as CS
 from . import credcheck as CK
 from . import credentials as C
 from . import inbox as IB
@@ -311,12 +312,12 @@ async def ws_chat_create(hass, conn, msg, m, user, st):
 
 @command(_t("chat/update") | {vol.Required("chat_id"): str, vol.Optional("title"): str, vol.Optional("pinned"): bool,
                                vol.Optional("project_id"): vol.Any(str, None), vol.Optional("model"): str,
-                               vol.Optional("tools"): vol.Any([str], None)})
+                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("no_thinking"): bool})
 async def ws_chat_update(hass, conn, msg, m, user, st):
     chat = await st.async_get_chat(msg["chat_id"])
     if not chat:
         raise ValueError("Chat nicht gefunden")
-    for k in ("title", "pinned", "project_id", "model", "tools"):
+    for k in ("title", "pinned", "project_id", "model", "tools", "no_thinking"):
         if k in msg:
             chat[k] = msg[k][:120] if k == "title" else msg[k]
     await st.async_save_chat(chat, keep_updated=True)  # moving/renaming does not make a chat "new"
@@ -357,6 +358,26 @@ async def ws_chat_delete_many(hass, conn, msg, m, user, st):
         await _delete_chat(m, user, st, chat_id)
         deleted.append(chat_id)
     return {"ok": True, "deleted": deleted}
+
+
+@command(_t("chat/search") | {vol.Required("text"): str, vol.Optional("limit", default=20): int})
+async def ws_chat_search(hass, conn, msg, m, user, st):
+    """Volltextsuche über die eigenen Chatnachrichten (Titel und Inhalt).
+
+    Durchsucht werden die jüngsten Chats, höchstens ``chatsearch.MAX_CHATS``. Je Chat kommen höchstens
+    drei Treffer mit einem Ausschnitt zurück – genug, um die Stelle wiederzuerkennen.
+    """
+    q = CS.clean_query(msg["text"])
+    if len(q) < 2:
+        return {"query": q, "chats": []}
+    limit = max(1, min(int(msg.get("limit") or 20), 50))
+    metas = sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True)
+    loaded = []
+    for meta in metas[:CS.MAX_CHATS]:
+        chat = await st.async_get_chat(meta["id"])
+        if chat:
+            loaded.append(chat)
+    return {"query": q, "chats": CS.rank(loaded, q)[:limit]}
 
 
 @command(_t("chat/send") | {vol.Required("chat_id"): str, vol.Required("text"): str,
@@ -668,6 +689,9 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     if "retention_days" in s:
         # Lebensdauer der Chats und Coworks außerhalb von Projekten (0 = unbegrenzt)
         cur["retention_days"] = RT.clean_days(s["retention_days"])
+    if "permission_push" in s:
+        # Wartende Freigaben aufs Handy melden, wenn kein Panel verbunden ist (Standard: an)
+        cur["permission_push"] = bool(s["permission_push"])
     if "permission_timeout_min" in s:
         # 0 = ohne Antwort eine Stunde warten und dann ablehnen; sonst nach so vielen Minuten ohne die Aktion weitermachen
         try:

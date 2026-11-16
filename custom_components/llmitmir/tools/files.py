@@ -12,6 +12,8 @@ _LOGGER = logging.getLogger(__name__)
 TEXT_EXT = {"txt", "md", "csv", "json", "xml", "html", "htm", "yaml", "yml", "ics", "vcf", "log", "py", "js", "ts",
             "sh", "ini", "toml", "eml"}
 IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "heic"}
+AUDIO_EXT = {"mp3", "m4a", "mp4", "aac", "ogg", "oga", "opus", "flac", "webm", "amr", "3gp", "wav"}
+AUDIO_MAX = 25 * 1024 * 1024   # wie bei der Spracheingabe (TranscribeView)
 
 READ_PROMPT = """Transkribiere dieses Dokument vollständig und genau so, wie es dasteht – du bist nur das Auge, bewerte nichts.
 Reihenfolge: Absender/Aussteller und Empfänger; alle Nummern MIT ihrer Bezeichnung (z. B. „Rechnungs-Nr.“, „Bon-Nr.“, „Trace-Nr.“);
@@ -68,6 +70,34 @@ async def vision_read(ctx, images: list[bytes], hint: str = "") -> str:
     return f"[Abschrift durch Bildmodell {model}]\n{text}"
 
 
+async def transcribe_audio(ctx, name: str, data: bytes) -> str:
+    """Eine Tonaufnahme in Text wandeln – mit derselben Spracherkennung wie die Spracheingabe.
+
+    Damit lassen sich Sprachnotizen und Aufnahmen aus Terminen als Anhang lesen, ohne sie vorher
+    abzutippen. Die Aufnahme geht dabei an den Anbieter der Spracherkennung.
+    """
+    if len(data) > AUDIO_MAX:
+        return (f"Fehler: Die Tonaufnahme ist zu groß ({len(data) // (1024 * 1024)} MB). "
+                f"Höchstens {AUDIO_MAX // (1024 * 1024)} MB lassen sich transkribieren.")
+    model = (ctx.manager.config.data.get("provider") or {}).get("transcription_model") or ""
+    if not model:
+        return ("Fehler: Für diesen Anbieter ist keine Spracherkennung eingerichtet – die Tonaufnahme lässt sich "
+                "deshalb nicht in Text wandeln (Admin → Anbieter).")
+    key = ctx.manager.key_for(ctx.user_id, ctx.store)
+    if not key:
+        return "Fehler: Kein Schlüssel für die Spracherkennung vorhanden."
+    try:
+        text = await ctx.manager.provider.transcribe(key, data, name, model, ctx.hass.config.language)
+    except Exception as e:  # noqa: BLE001
+        return f"Fehler: Spracherkennung fehlgeschlagen ({e})"
+    ctx.store.add_usage(0, 0)
+    ctx.manager.emit(ctx.user_id, {"type": "usage", "usage": ctx.manager.usage_snapshot(ctx.user_id)})
+    if not text:
+        return "[Abschrift der Tonaufnahme: keine Sprache erkannt]"
+    return (f"[Abschrift der Tonaufnahme „{name}“ durch {model} – die Aufnahme wurde dafür an den Anbieter "
+            f"übertragen]\n{text}")
+
+
 async def extract_document(ctx, name: str, data: bytes, ctype: str = "", frage: str | None = None,
                            bild: bool | None = None) -> str:
     ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
@@ -91,6 +121,8 @@ async def extract_document(ctx, name: str, data: bytes, ctype: str = "", frage: 
         except Exception as e:  # noqa: BLE001
             return f"Fehler: Bild nicht lesbar ({e})"
         return await vision_read(ctx, [jpg], frage or "")
+    if ext in AUDIO_EXT or ctype.startswith("audio/"):
+        return await transcribe_audio(ctx, name, data)
     if ext == "docx":
         import re
         import zipfile
