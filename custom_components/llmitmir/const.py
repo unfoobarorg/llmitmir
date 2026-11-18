@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.37.0"
+VERSION = "0.41.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -77,6 +77,9 @@ MAX_STEPS_CHAT = 30         # expert view: before the limit the person is asked 
 MAX_STEPS_CHAT_SIMPLE = 40  # simple view: nobody is asked, so the limit is higher from the start
 MAX_STEPS_COWORK = 60
 MAX_STEPS_TASK_HEAVY = 150  # geplante Aufgabe, die als besonders aufwaendig markiert ist
+MAX_STEPS_SUB = 40          # Teilaufgabe (Unterchat): ein klar umrissener Auftrag
+SUB_PARALLEL = 3            # so viele Teilaufgaben laufen je Person gleichzeitig (SAIA antwortet sonst schnell mit 429)
+SUB_PER_RUN = 8             # so viele Teilaufgaben darf ein Lauf des Hauptchats starten
 MAX_STEPS_MORE = 15         # steps added each time the person (expert view) allows a little more
 MAX_STEPS_MORE_LOTS = 100   # … or a lot more, when the person does not want to be asked again soon
 MORE_STEPS = {"once": MAX_STEPS_MORE, "lots": MAX_STEPS_MORE_LOTS}  # answer to "more steps?" -> steps added (deny: none)

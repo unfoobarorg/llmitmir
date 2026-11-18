@@ -569,7 +569,8 @@ export class Voice extends StoreElement {
     }
   }
 
-  private perm() { return this.chatId ? store.permissions.find(p => p.chat_id === this.chatId) : undefined; }
+  // auch Freigaben aus Teilaufgaben: im Gespräch mit dem Hauptchat beantworten
+  private perm() { return this.chatId ? store.permissions.find(p => p.chat_id === this.chatId || p.root_chat_id === this.chatId) : undefined; }
 
   /** Was die Gestenregie wissen muss. */
   private scene() {

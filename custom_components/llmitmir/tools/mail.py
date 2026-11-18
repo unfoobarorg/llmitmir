@@ -202,7 +202,7 @@ async def mail_read(ctx, a: dict):
             if len(att["data"]) > MAX_ATTACH:
                 saved.append({"name": att["name"], "fehler": "größer als 25 MB"})
                 continue
-            saved.append(await ctx.store.async_write_file("chat", ctx.chat_id, att["name"], att["data"]))
+            saved.append(await ctx.store.async_write_file("chat", ctx.files_id, att["name"], att["data"]))
         await ctx.emit_files()
         out["gespeichert"] = saved
     return out
@@ -217,7 +217,7 @@ async def mail_send(ctx, a: dict):
         return "Fehler: Empfänger (an) fehlt"
     files = []
     for name in a.get("anhaenge") or []:
-        files.append((str(name).rsplit("/", 1)[-1], await ctx.store.async_read_file("chat", ctx.chat_id, str(name))))
+        files.append((str(name).rsplit("/", 1)[-1], await ctx.store.async_read_file("chat", ctx.files_id, str(name))))
     reply = a.get("antwort_auf") if isinstance(a.get("antwort_auf"), dict) else None
     if acc["ews"]:  # Exchange: senden über EWS, die Kopie legt der Server in „Gesendete Elemente“ ab
         return await _ews(lambda: EW.send_message(ctx, acc["cred"], a, files, reply))

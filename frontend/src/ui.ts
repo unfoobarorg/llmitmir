@@ -30,6 +30,7 @@ const MAP: Record<string, string> = {
   lock: mdi.mdiLockOutline, gauge: mdi.mdiGauge, bell: mdi.mdiBellOutline, bellOff: mdi.mdiBellOffOutline, list: mdi.mdiFormatListChecks, user: mdi.mdiAccountOutline,
   import: mdi.mdiDatabaseImportOutline, panel: mdi.mdiDockRight, sparkle: mdi.mdiCreationOutline, hourglass: mdi.mdiTimerSandComplete,
   cloud: mdi.mdiCloudOutline, wait: mdi.mdiProgressClock, external: mdi.mdiOpenInNew,
+  subtask: mdi.mdiSubdirectoryArrowRight, back: mdi.mdiArrowLeft,
   calendarEdit: mdi.mdiCalendarEdit, calendarPlus: mdi.mdiCalendarPlus, contact: mdi.mdiAccountBoxOutline,
   up: mdi.mdiArrowUp, arrowDown: mdi.mdiArrowDown, euro: mdi.mdiCurrencyEur, shield: mdi.mdiShieldAlertOutline,
   share: mdi.mdiShareVariantOutline, dashboard: mdi.mdiViewDashboardOutline, voice: mdi.mdiAccountVoice, micOff: mdi.mdiMicrophoneOff, hangup: mdi.mdiPhoneHangup,

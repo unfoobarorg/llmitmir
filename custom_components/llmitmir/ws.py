@@ -23,6 +23,7 @@ from . import models as MS
 from . import notifydevices as ND
 from . import pricing as PR
 from . import retention as RT
+from . import subchats as SC
 from . import providers as PV
 from . import sharing as SH
 from . import speech as SP
@@ -156,6 +157,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
     s["inbox_mode"] = IB.clean_mode(st.meta["settings"].get("inbox_mode"))
     s["inbox_minutes"] = IB.minutes(st.meta["settings"])
     s["inbox_muted"] = IB.muted(st.meta["settings"])
+    # Teilaufgaben: was gerade gilt (auch ohne eigene Wahl)
+    s["sub_mode_effective"] = m.sub_mode(user.id)
     # The device this person actually uses (own choice, else their only device) – the panel shows its name
     devices = ND.apply_links(await ND.async_devices(hass), m.config.data.get("notify_devices"))
     device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
@@ -264,6 +267,11 @@ async def ws_subscribe(hass, conn, msg, m, user, st):
     return _NO_RESULT
 
 
+def _inbox_view(st) -> list[dict]:
+    """Die Karten, die die Startseite gerade zeigt (innerhalb der Anzeigedauer der Person)."""
+    return IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"]))
+
+
 @command(_t("inbox/dismiss") | {vol.Optional("entry_id"): str, vol.Optional("chat_id"): str})
 async def ws_inbox_dismiss(hass, conn, msg, m, user, st):
     """Eine Karte entfernen (Wischen bzw. „×“) – oder alle eines Chats."""
@@ -322,8 +330,30 @@ async def _chat_for(m, user, chat_id: str) -> tuple[Any, dict]:
 @command(_t("chat/get") | {vol.Required("chat_id"): str})
 async def ws_chat_get(hass, conn, msg, m, user, st):
     cst, chat = await _chat_for(m, user, msg["chat_id"])
-    files = await cst.async_list_files("chat", chat["id"])
+    # eine Teilaufgabe zeigt die Dateien ihres Hauptchats (gemeinsamer Arbeitsbereich)
+    files = await cst.async_list_files("chat", SC.root_id(chat))
     return {"chat": chat, "files": files}
+
+
+@command(_t("chat/sub_report") | {vol.Required("chat_id"): str})
+async def ws_chat_sub_report(hass, conn, msg, m, user, st):
+    """„Jetzt melden“: die aktuelle Zusammenfassung einer Teilaufgabe sofort an den Hauptchat schicken."""
+    return await m.report_sub(user.id, msg["chat_id"])
+
+
+@command(_t("chat/branch") | {vol.Required("chat_id"): str, vol.Required("message_id"): str})
+async def ws_chat_branch(hass, conn, msg, m, user, st):
+    """„Als Teilaufgabe weiterarbeiten“: aus einer Nachricht eine Teilaufgabe des Chats machen."""
+    chat = await st.async_get_chat(msg["chat_id"])
+    if not chat:
+        raise ValueError("Chat nicht gefunden")
+    root = await st.async_get_chat(SC.root_id(chat)) or chat
+    src = next((x for x in chat.get("messages") or [] if x.get("id") == msg["message_id"]), None)
+    text = SC.message_text(src).strip()
+    if not text:
+        raise ValueError("Diese Nachricht hat keinen Text")
+    sub = await m.create_sub(user.id, root["id"], text, von=SC.VON_PERSON)
+    return st.chat_summary(sub)
 
 
 @command(_t("chat/create") | {vol.Optional("kind", default=KIND_CHAT): vol.In([KIND_CHAT, KIND_COWORK]),
@@ -337,16 +367,29 @@ async def ws_chat_create(hass, conn, msg, m, user, st):
 
 @command(_t("chat/update") | {vol.Required("chat_id"): str, vol.Optional("title"): str, vol.Optional("pinned"): bool,
                                vol.Optional("project_id"): vol.Any(str, None), vol.Optional("model"): str,
-                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("no_thinking"): bool})
+                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("no_thinking"): bool,
+                               vol.Optional("sub_melden"): bool})
 async def ws_chat_update(hass, conn, msg, m, user, st):
     chat = await st.async_get_chat(msg["chat_id"])
     if not chat:
         raise ValueError("Chat nicht gefunden")
+    if SC.is_sub(chat) and ("pinned" in msg or "project_id" in msg):
+        raise ValueError("Eine Teilaufgabe gehört zu ihrem Hauptchat – anheften oder verschieben lässt sich nur der Hauptchat")
     for k in ("title", "pinned", "project_id", "model", "tools", "no_thinking"):
         if k in msg:
             chat[k] = msg[k][:120] if k == "title" else msg[k]
+    if "sub_melden" in msg and chat.get("sub") is not None:
+        chat["sub"]["melden"] = bool(msg["sub_melden"])  # „Ergebnisse an den Hauptchat melden“
     await st.async_save_chat(chat, keep_updated=True)  # moving/renaming does not make a chat "new"
     m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+    if "project_id" in msg:
+        # die Teilaufgaben ziehen mit ihrem Hauptchat um
+        for sub_id in SC.children(st.meta["chats"], chat["id"]):
+            sub = await st.async_get_chat(sub_id)
+            if sub and sub.get("project_id") != chat.get("project_id"):
+                sub["project_id"] = chat.get("project_id")
+                await st.async_save_chat(sub, keep_updated=True)
+                m.emit(user.id, {"type": "chat", "chat": st.chat_summary(sub)})
     return st.chat_summary(chat)
 
 
@@ -824,10 +867,10 @@ async def ws_task_preview(hass, conn, msg, m, user, st):
 async def ws_settings_save(hass, conn, msg, m, user, st):
     s = msg["settings"]
     cur = st.meta["settings"]
-    for k in ("model_chat", "model_agent"):
+    for k in ("model_chat", "model_agent", "model_sub"):
         if PV.is_external(s.get(k) or ""):
             raise ValueError("Externe Modelle lassen sich nicht als Standard festlegen – nur im Chat oder bei einer Aufgabe auswählen.")
-    for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
+    for k in ("model_chat", "model_agent", "model_sub", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
     if "voice_name" in s:
@@ -836,6 +879,11 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     if "retention_days" in s:
         # Lebensdauer der Chats und Coworks außerhalb von Projekten (0 = unbegrenzt)
         cur["retention_days"] = RT.clean_days(s["retention_days"])
+    if "sub_mode" in s:
+        # Teilaufgaben: aus, nur auf Wunsch oder automatisch (leer = Standard der Ansicht)
+        if s["sub_mode"] not in (None, "", *SC.MODES):
+            raise ValueError("Ungültige Einstellung für Teilaufgaben")
+        cur["sub_mode"] = s["sub_mode"] or None
     if "permission_push" in s:
         # Wartende Freigaben aufs Handy melden, wenn kein Panel verbunden ist (Standard: an)
         cur["permission_push"] = bool(s["permission_push"])

@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
+from . import subchats as SC
 from .const import (BILLING_STORE_KEY, CONFIG_STORE_KEY, EWS_STORE_KEY, KEY_SHARED, STORAGE_VERSION,
                     TASK_KEY_SAME, TILE_PARALLEL, TILE_RUN_BUDGET)
 
@@ -225,7 +226,7 @@ class UserStore:
     def chat_summary(self, chat: dict) -> dict:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",
                                         "updated", "pinned", "status", "usage", "tools", "last_seen", "voice",
-                                        "no_thinking", "tile_id")} | {
+                                        "no_thinking", "tile_id")} | SC.summary_fields(chat) | {
             "messages": len(chat.get("messages") or []), "queued": len(chat.get("queued") or [])}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:

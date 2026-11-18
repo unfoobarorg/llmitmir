@@ -27,6 +27,7 @@ inbox = load("inbox")
 permnote = load("permissionnotify")
 chatsearch = load("chatsearch")
 docpreview = load("docpreview")
+subchats = load("subchats")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -1265,7 +1266,7 @@ def _mail_ctx(access):
         return None
 
     store = types.SimpleNamespace(async_write_file=write_file)
-    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit), saved
+    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", files_id="c", emit_files=emit), saved
 
 
 def test_mail_tools_follow_access():
@@ -1765,7 +1766,7 @@ def test_dav_request_speichern_als_writes_to_workspace():
 
     ctx = _dav_ctx(207, b"<multistatus/>" * 100)
     ctx.store = Store()
-    ctx.chat_id = "c1"
+    ctx.chat_id = ctx.files_id = "c1"
     emitted = []
 
     async def emit():
@@ -2116,7 +2117,7 @@ def test_mail_tools_use_ews_for_exchange():
     async def emit():
         return None
 
-    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit)
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", files_id="c", emit_files=emit)
     reg = _pkg("tools").REGISTRY
     run = lambda name, a: asyncio.run(reg[name].handler(ctx, a))  # noqa: E731
 
@@ -3073,6 +3074,211 @@ def test_doc_preview_only_for_word_and_excel():
     assert docpreview.to_html("a.pdf", b"x") is None
     assert docpreview.to_html("a.txt", b"x") is None
     assert docpreview.to_html("a.docx", _docx(["hallo"])) is not None
+
+
+# ---------------------------------------------------------------- Teilaufgaben (Unterchats)
+def _tree_index():
+    return {
+        "h": {"id": "h", "kind": "chat", "created": 10, "updated": 100},
+        "s2": {"id": "s2", "kind": "chat", "parent_id": "h", "created": 30, "updated": 400},
+        "s1": {"id": "s1", "kind": "chat", "parent_id": "h", "created": 20, "updated": 150},
+        "x": {"id": "x", "kind": "cowork", "created": 5, "updated": 50},
+    }
+
+
+def test_subchats_tree_and_order():
+    idx = _tree_index()
+    assert subchats.children(idx, "h") == ["s1", "s2"]
+    assert subchats.children(idx, "x") == []
+    # Unterchats zuerst, damit beim Löschen nichts verwaist
+    assert subchats.tree(idx, "h") == ["s1", "s2", "h"]
+    assert subchats.last_used(idx, "h") == 400
+    assert subchats.root_id(idx["s1"]) == "h" and subchats.root_id(idx["h"]) == "h"
+    assert subchats.is_sub(idx["s1"]) and not subchats.is_sub(idx["h"])
+    assert subchats.ordered(["a", "b", "c"], ["c", "a"]) == ["c", "a", "b"]
+
+
+def test_subchats_retention_follows_main_chat():
+    idx = _tree_index()
+    day = 86400
+    settings = {"retention_days": 1}
+    # Hauptchat selbst seit langem unbenutzt, aber in einer Teilaufgabe wurde gerade gearbeitet: bleibt
+    assert retention.expired(idx, {}, settings, 400 + day - 1) == ["x"]
+    # alles alt: nur Hauptchats werden genannt, die Teilaufgaben gehen mit ihnen (delete_chat)
+    assert retention.expired(idx, {}, settings, 400 + day + 1) == ["x", "h"]
+
+
+def test_subchats_result_and_api_text():
+    res = subchats.result("x" * 9000, ["/workspace/sub-a/b.csv", "b.csv", "", "c.md"], subchats.GRENZE, "Schrittgrenze")
+    assert len(res["zusammenfassung"]) <= subchats.RESULT_MAX_CHARS + 2
+    assert res["dateien"] == ["sub-a/b.csv", "b.csv", "c.md"]
+    assert res["stand"] == "grenze" and res["grund"] == "Schrittgrenze"
+    msg = subchats.result_message({"id": "s1", "title": "Recherche"}, res, "m1", 5.0, nachtrag=True)
+    assert msg["role"] == "sub_result" and msg["sub_id"] == "s1" and msg["nachtrag"]
+    text = subchats.api_text(msg)
+    assert text.startswith("[LLMitMir] Nachtrag aus Unterchat ›Recherche‹ (id s1, Stand: Grenze erreicht)")
+    assert "Grund: Schrittgrenze" in text and "sub-a/b.csv" in text
+    assert subchats.clean_files("a.txt, b.txt\na.txt") == ["a.txt", "b.txt"]
+
+
+def test_subchats_summary_fields_and_new_sub():
+    sub = subchats.new_sub("Finde X", subchats.VON_PERSON, call_id="call1")
+    assert sub["von"] == "person" and sub["melden"] is True and sub["status"] == "neu" and sub["call_id"] == "call1"
+    f = subchats.summary_fields({"id": "s", "parent_id": "h", "sub": sub})
+    assert f == {"parent_id": "h", "sub_status": "neu", "sub_call": "call1", "sub_von": "person", "sub_wait": None}
+    assert subchats.summary_fields({"id": "h"})["sub_status"] is None
+    assert subchats.message_text({"role": "assistant", "content": "Antwort"}) == "Antwort"
+    assert subchats.message_text({"role": "sub_result", "summary": "S"}) == "S"
+    assert subchats.title_from("## **Plan** für den Umzug") == "Plan für den Umzug"
+
+
+
+def test_subchats_pick_model():
+    ext = lambda m: m.startswith("ext:")  # noqa: E731
+    ok = lambda m: m in ("a", "b", "ext:claude")  # noqa: E731
+    pick = subchats.pick_model
+    assert pick("sparsam", "big", True, "small", "strong", ext, ok) == ("small", True, "")
+    assert pick(None, "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert pick("stark", "big", True, "small", "strong", ext, ok)[:2] == ("strong", True)
+    assert pick("wie_hauptchat", "big", False, "small", "strong", ext, ok)[:2] == ("big", False)
+    assert pick("a", "big", True, "small", "strong", ext, ok)[:2] == ("a", False)
+    model, auto, note = pick("gibtsnicht", "big", True, "small", "strong", ext, ok)
+    assert model == "small" and auto and "nicht verfügbar" in note
+    # externe Modelle nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat
+    assert pick("ext:claude", "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert pick("wie_hauptchat", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
+    assert pick("ext:claude", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
+
+
+def test_subchats_final_status_and_tool_result():
+    fs = subchats.final_status
+    assert fs("done") == "fertig"
+    assert fs("done", limit_hit=True) == "grenze"
+    assert fs("error", "Tageskontingent erreicht", limit_error=True) == "grenze"
+    assert fs("error", "KeyError: x") == "fehler"
+    assert fs("stopped") == "abgebrochen"
+    res = subchats.result("Teil fertig", ["a.csv"], "grenze", "Höchstzahl von 40 Schritten erreicht")
+    out = subchats.tool_result({"id": "s1", "title": "Recherche", "messages": [{"content": "geheim"}]}, res, "Hinweis")
+    assert out["stand"] == "grenze" and "unterchat_nachricht" in out["hinweis"] and out["hinweis_modell"] == "Hinweis"
+    assert "geheim" not in str(out)  # nie der Verlauf
+    assert "hinweis" not in subchats.tool_result({"id": "s"}, subchats.result("ok"))
+    assert subchats.last_answer([{"role": "assistant", "content": "A"}, {"role": "assistant", "content": "", "error": "x"}]) == "A"
+    assert subchats.clean_groups(["web", "nix", "web", "files"], {"web", "files"}) == ["web", "files"]
+    assert subchats.clean_groups([], {"web"}) is None
+
+
+def test_subchats_slots_queue_and_cancel():
+    import asyncio
+
+    async def main():
+        slots = subchats.Slots(3)
+        got = [await slots.acquire("u") for _ in range(3)]
+        assert got == [True, True, True] and slots.busy("u") == 3
+        assert await slots.acquire("andere")  # je Person gezählt
+        waited = []
+
+        async def on_wait():
+            waited.append(1)
+
+        fourth = asyncio.ensure_future(slots.acquire("u", on_wait=on_wait))
+        await asyncio.sleep(0)
+        assert waited == [1] and slots.waiting("u") == 1 and not fourth.done()
+        slots.release("u")  # der Platz geht direkt an die wartende Teilaufgabe
+        assert await fourth is True and slots.busy("u") == 3
+        cancel = asyncio.Event()
+        fifth = asyncio.ensure_future(slots.acquire("u", cancel))
+        await asyncio.sleep(0)
+        cancel.set()  # Stopp im Hauptchat: wartet nicht weiter
+        assert await fifth is False and slots.waiting("u") == 0
+        for _ in range(3):
+            slots.release("u")
+        assert slots.busy("u") == 0
+
+    asyncio.run(main())
+
+
+def test_models_sub_role_prefers_fast_reliable_models():
+    known = [{"id": m, "status": "ready", "input": ["text"], "output": ["text"]}
+             for m in ("glm-5.3", "deepseek-v4.1-flash-1017", "mistral-large-4-1t-a52b", "eurollm-22b-instruct-2512")]
+    assert ms.pick(known, "sub") == "deepseek-v4.1-flash-1017"
+    assert ms.quality("mistral-large-4-1t-a52b", "sub") < ms.quality("mistral-large-4-1t-a52b", "agent")
+    assert ms.quality("eurollm-22b-instruct-2512", "sub") < 10  # Werkzeuge zu unzuverlässig
+    assert "sub" in ms.ROLES
+
+
+def test_sub_tools_registered_but_not_in_tool_menu():
+    import re
+
+    text = (BASE / "tools" / "sub.py").read_text()
+    names = re.findall(r'register\(Tool\(\s*"(\w+)"', text)
+    assert names == ["unterchat_starten", "unterchat_nachricht", "unterchat_ergebnis", "ergebnis_melden"]
+    init = (BASE / "tools" / "__init__.py").read_text()
+    assert '"unterchat"' not in init and '"teilergebnis"' not in init  # keine Auswahl im Werkzeug-Menü
+
+
+
+def test_permission_push_from_subtask_names_subtask_and_main_chat():
+    base = {"root_chat_id": "h1", "sub_title": "Mails sichten", "root_title": "Wochenplanung"}
+    title, text = permnote.message(dict(base, label="Befehl ausführen", args={"befehl": "ls -la"}), "Mails sichten")
+    assert title == "LLMitMir: Teilaufgabe braucht dich"
+    assert text.startswith("Teilaufgabe ›Mails sichten‹ im Chat ›Wochenplanung‹") and "ls -la" in text
+    assert "ohne die Aktion weiter" in text
+    # Änderungskarte und „mehr Schritte?“ laufen über denselben Weg
+    title, text = permnote.message(dict(base, label="Aufgabe speichern", change={"art": "aufgabe"}), "")
+    assert title.endswith("Teilaufgabe braucht dich") and "Änderung: Aufgabe speichern" in text
+    title, text = permnote.message(dict(base, tool="more_steps", label="15 weitere Schritte"), "", simple=True)
+    assert "Weitere Schritte verwenden?" in text and text.startswith("Teilaufgabe ›Mails sichten‹")
+    # ohne Teilaufgabe bleibt alles wie bisher
+    assert permnote.message({"label": "x"}, "Chat")[0] == "Chat"
+    assert permnote.tag("h1") == "llmitmir-permission-h1"
+
+
+
+def test_subtask_permissions_are_central_but_scoped():
+    info = subchats.with_origin({"id": "p1", "chat_id": "s1", "tool": "shell"}, "h1", "Mails sichten", "Woche")
+    assert info["root_chat_id"] == "h1" and info["sub_title"] == "Mails sichten" and info["chat_id"] == "s1"
+    # die Karte erscheint im Hauptchat und in der Teilaufgabe, nirgends sonst
+    assert subchats.belongs_to(info, "h1") and subchats.belongs_to(info, "s1") and not subchats.belongs_to(info, "s2")
+    # ohne Antwort: die Teilaufgabe macht ohne die Aktion weiter
+    assert subchats.timeout_answer(False, True) == "skip"
+    assert subchats.timeout_answer(False, False) == "deny" and subchats.timeout_answer(True, False) == "skip"
+    # „Immer erlauben“ wirkt nur in der eigenen Teilaufgabe
+    s1, s2, main = {"id": "s1", "parent_id": "h1"}, {"id": "s2", "parent_id": "h1"}, {"id": "h1"}
+    assert subchats.remember_allow(s1, "shell") is True
+    assert subchats.sub_allows(s1, "shell") and not subchats.sub_allows(s2, "shell") and not subchats.sub_allows(main, "shell")
+    assert subchats.remember_allow(main, "shell") is False and "permissions" not in main
+
+
+
+def test_subtask_mode_prompt_and_context_threshold():
+    assert subchats.mode(None, simple=False) == "auto" and subchats.mode("", simple=True) == "ask"
+    assert subchats.mode("off", simple=False) == "off" and subchats.mode("quatsch", simple=False) == "auto"
+    assert subchats.prompt("off") == ""
+    assert "ausdrücklich" in subchats.prompt("ask")
+    auto = subchats.prompt("auto", {"context": 1000}, 100_000)
+    assert "Nicht aufteilen bei kurzen Fragen" in auto and "Kontext fast halb voll" not in auto
+    assert "Kontext fast halb voll" in subchats.prompt("auto", {"context": 60_000}, 100_000)
+    assert not subchats.context_full({"context": 50_000}, 100_000) and subchats.context_full({"context": 50_001}, 100_000)
+
+
+def test_subtask_usage_sum_over_tree():
+    idx = {"h": {"usage": {"prompt": 100, "completion": 10, "requests": 2}},
+           "s1": {"parent_id": "h", "created": 1, "usage": {"prompt": 50, "completion": 5, "requests": 1}},
+           "s2": {"parent_id": "h", "created": 2, "usage": {}}, "x": {"usage": {"prompt": 999}}}
+    assert subchats.tree_usage(idx, "h") == {"prompt": 150, "completion": 15, "requests": 3, "subs": 2}
+
+
+
+def test_ws_private_helpers_are_defined():
+    """Jede private Hilfsfunktion, die ws.py aufruft, muss dort auch definiert sein (inbox/dismiss und inbox/mute
+    scheiterten, weil _inbox_view versehentlich entfernt worden war)."""
+    import re
+
+    text = (BASE / "ws.py").read_text()
+    called = set(re.findall(r"(?<![\w.])(_[a-z]\w*)\(", text))
+    defined = set(re.findall(r"^(?:async )?def (_\w+)\(", text, re.M)) | set(re.findall(r"^(_\w+) = ", text, re.M))
+    assert "_inbox_view" in called
+    assert called - defined == set()
 
 
 # ---------------------------------------------------------------- dashboards: rights (access.py)

@@ -109,4 +109,4 @@ async def read_body(resp, limit: int) -> tuple[bytes, bool]:
 
 def load_all() -> None:
     # import modules for their side effect of registering tools
-    from . import dashboards, dav, ews, files, ha, http, mail, manage, misc, web, werkbank  # noqa: F401
+    from . import dashboards, dav, ews, files, ha, http, mail, manage, misc, sub, web, werkbank  # noqa: F401

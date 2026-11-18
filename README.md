@@ -25,6 +25,25 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
   Die Suche über der Liste findet auf Wunsch **auch in den Nachrichten** („Auch in Nachrichten suchen“) und zeigt je
   Treffer einen Ausschnitt – so lässt sich eine Zahl oder ein Name wiederfinden, ohne sich an den Chat-Titel zu erinnern.
+- **Teilaufgaben (Unterchats)**: Ein Chat oder Cowork kann Teilaufgaben haben – eigene Chats mit eigenem Verlauf, die in
+  der Seitenleiste leicht eingerückt unter ihrem Hauptchat stehen, mit Symbol und Status-Punkt (läuft, wartet, fertig,
+  Fehler); ein Pfeil am Hauptchat klappt sie ein und aus. Unter jeder Antwort legt *Als Teilaufgabe weiterarbeiten* eine
+  an, mit der Antwort als Ausgangspunkt. Teilaufgaben teilen Dateien und Sandbox mit ihrem Hauptchat, ziehen mit ihm in
+  ein anderes Projekt und werden mit ihm gelöscht (auch über die Lebensdauer). Der Hauptchat sieht nur ihre
+  Zusammenfassungen, nie ihren Verlauf – so bleibt er kurz und aufgeräumt. Auch das Modell selbst verteilt Arbeit:
+  Mit `unterchat_starten` startet es Teilaufgaben mit eigenem Kontext und eigenem Modell (Standard *sparsam*, eine eigene
+  Rolle der automatischen Modellwahl, einstellbar unter *Einstellungen → Modelle* und *Admin → Modelle*), mehrere im
+  selben Schritt parallel, und wartet auf ihre Zusammenfassungen. Im Hauptchat erscheint je Teilaufgabe eine Karte mit
+  Modell, Stand (auch „wartet auf einen freien Platz“ und „Grenze erreicht“), Laufzeit, Verbrauch und *Öffnen*.
+  Grenzen: 3 gleichzeitig je Person, 8 je Lauf, 40 Schritte je Teilaufgabe; jede erreichte Grenze meldet sofort ein
+  Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Freigaben, Änderungskarten und die Frage nach mehr
+  Schritten aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
+  ist – als Push „Teilaufgabe braucht dich“ mit Link auf den Hauptchat; „Immer erlauben“ gilt dabei nur für die eine
+  Teilaufgabe. Unter *Einstellungen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
+  feste Regeln im Systemprompt, ab halb vollem Kontext ein Hinweis), *nur auf Wunsch* (Standard in der einfachen
+  Ansicht) oder *aus*. Wer selbst in einer Teilaufgabe weiterarbeitet, bekommt das neue Ergebnis als Nachtrag im
+  Hauptchat (abschaltbar, *Jetzt melden* schickt es sofort). In der einfachen Ansicht laufen Teilaufgaben unsichtbar
+  im Hintergrund („Arbeitet an 3 Teilaufgaben …“). Die Kopfzeile des Hauptchats zeigt den Verbrauch samt Teilaufgaben. Details: [docs/TEILAUFGABEN.md](docs/TEILAUFGABEN.md).
 - **Gespräch (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite, aus der Seitenleiste und aus
   jedem Chat und Cowork über den Knopf *Gespräch* –, in der man mit LLMitMir redet wie am Telefon, beliebig lange und
   über viele Runden. Aus einem Chat heraus setzt das Gespräch dessen Verlauf fort (die letzte Antwort wird einmal
@@ -298,6 +317,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |
 | LLMitMir (immer an) | `llmitmir_info`, `dashboard_list`, `dashboard_get`; mit Bestätigung jeder einzelnen Änderung: `skill_save`, `skill_delete`, `task_save`, `task_delete`, `credential_save`, `credential_delete`, `dashboard_save`, `dashboard_delete`, `tile_save`, `tile_delete`; `dashboard_update`* (im Kachel-Lauf ohne Rückfrage, nur in die eigene Kachel) |
 | Werkbank (optional) | `shell`*, `werkbank_files`, `werkbank_fetch`, `werkbank_push` |
+| Teilaufgaben | `unterchat_starten`, `unterchat_nachricht`, `unterchat_ergebnis` (nicht in Teilaufgaben und geplanten Aufgaben); in einer Teilaufgabe `ergebnis_melden` |
 
 \* schreibend – braucht eine Freigabe (bei geplanten Aufgaben beim Anlegen festgelegt).
 
@@ -371,6 +391,9 @@ admin sets a monthly euro limit per person.
 The default model is chosen automatically per role from the provider's live model list (refreshed every three minutes,
 including load and new releases); when a model is overloaded or hangs, the chat recommends a free model of similar quality
 and can switch mid-run, and scheduled tasks switch on their own.
+Chats and coworks can have subtasks: the model splits larger work into sub-chats with their own context and model (an
+economical one by default), runs several in parallel and only ever reads their summaries; approvals from subtasks show up
+centrally in the main chat. Subtasks appear indented below their main chat; people can also branch one off by hand.
 A Claude import prompt moves skills (with credentials extracted), scheduled tasks, projects and memory; chat history is
 imported from the official claude.ai data export.
 

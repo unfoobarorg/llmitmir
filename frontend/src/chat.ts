@@ -12,7 +12,7 @@ import "./composer";
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "In der Warteschlange …", thinking: "Denkt nach …", streaming: "Schreibt …", tool: "Arbeitet …",
-  waiting_permission: "Wartet auf Freigabe", retry: "Modell ausgelastet – neuer Versuch", quota_wait: "Limit erreicht – wartet",
+  waiting_permission: "Wartet auf Freigabe", waiting_sub_permission: "Eine Teilaufgabe wartet auf dich", retry: "Modell ausgelastet – neuer Versuch", quota_wait: "Limit erreicht – wartet",
 };
 
 // Proposed / applied changes to skills, scheduled tasks and credentials (change sets from changes.py).
@@ -28,6 +28,7 @@ const DOING: Record<string, string> = {
   ews: "Schaut in deinen Exchange-Kalender …", http: "Fragt einen Dienst ab …",
   files: "Liest Dateien …", skills: "Liest eine Anleitung …", werkbank: "Rechnet und erstellt Dateien …", notify: "Schickt eine Nachricht …",
   progress: "Plant die nächsten Schritte …", llmitmir: "Schaut in LLMitMir nach …", model: "Schaut sich den Anhang an …",
+  unterchat: "Verteilt die Arbeit …", teilergebnis: "Fasst das Ergebnis zusammen …",
 };
 const GROUP_PLAIN: Record<string, string> = {
   web: "das Internet", dav: "deine Nextcloud", ews: "dein Exchange-Kalender", http: "Abfragen bei anderen Diensten",
@@ -286,6 +287,31 @@ export class ChatView extends LitElement {
     @keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-5px); opacity: 1; } }
     @keyframes bin { from { opacity: 0; transform: translateY(6px) scale(.98); } }
     @media (prefers-reduced-motion: reduce) { .dots i, .bubble { animation: none; } .dots i { opacity: .7; } }
+    /* Teilaufgaben: Leiste oben mit dem Weg zurück, Rückmeldungen als kleine Karte im Hauptchat */
+    .subbar { display: grid; gap: 4px; padding: 0 16px 6px; max-width: 812px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+    .subbar > .btn { justify-self: start; font-size: 13px; padding: 4px 10px; min-height: 30px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .auftrag { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 10px; padding: 6px 10px; }
+    .auftrag summary { cursor: pointer; display: flex; gap: 6px; align-items: center; list-style: none; }
+    .auftrag summary::-webkit-details-marker { display: none; }
+    .auftrag .md { max-height: 260px; overflow-y: auto; margin-top: 6px; color: var(--lm-text); }
+    .subres { border: 1px solid var(--lm-line); border-left: 3px solid var(--lm-ok); border-radius: 12px; background: var(--lm-panel);
+      padding: 8px 12px; display: grid; gap: 6px; font-size: 13.5px; }
+    .subres.limit { border-left-color: var(--lm-warn); } .subres.bad { border-left-color: var(--lm-err); }
+    .subres details summary { cursor: pointer; color: var(--lm-muted); font-size: 13px; }
+    .subres .md { margin-top: 6px; max-height: 360px; overflow-y: auto; }
+    .att.left { justify-content: flex-start; margin: 0; }
+    .subctl { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--lm-muted); padding: 0 4px; }
+    .pfrom { font-size: 12.5px; color: var(--lm-muted); display: flex; align-items: center; gap: 5px; }
+    .subcard { display: grid; gap: 6px; padding: 10px 12px; font-size: 13.5px; border-left: 3px solid var(--lm-accent); }
+    .subcard + .step, .step + .subcard, .subcard + .subcard, .detail + .subcard { border-top: 1px solid var(--lm-line); }
+    .subcard.fertig { border-left-color: var(--lm-ok); } .subcard.grenze, .subcard.platz, .subcard.dich { border-left-color: var(--lm-warn); }
+    .subcard.fehler, .subcard.abgebrochen { border-left-color: var(--lm-err); }
+    .subcard .srow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .subcard .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+    .subcard .st { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--lm-muted); font-size: 12px; flex: none; }
+    .subinfo { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; color: var(--lm-faint); font-size: 12px; padding-left: 28px; }
+    .subsum { padding-left: 28px; max-height: 420px; overflow-y: auto; }
+    .btn.tiny { padding: 2px 9px; font-size: 12px; border-radius: 8px; min-height: 26px; }
     .taskinfo { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 12px; padding: 10px 12px; display: flex; gap: 8px; }
     /* Gespräch: der Weg vom getippten Chat zur Sprachansicht – zurückhaltend, aber immer da */
     .btn.talk { color: var(--lm-accent); }
@@ -343,7 +369,7 @@ export class ChatView extends LitElement {
     const d = e.detail; const chat = this.chat; if (!chat) return;
     try {
       let names: string[] = [];
-      if (d.files.length) names = (await store.api.upload("chat", chat.id, d.files)).files.map((f: any) => f.name);
+      if (d.files.length) names = (await store.api.upload("chat", this.fileOwner, d.files)).files.map((f: any) => f.name);
       this.stick = true;
       await store.api.ws("chat/send", { chat_id: chat.id, text: d.text || "(siehe Anhang)", attachments: names, model: d.model,
         ...(chat.kind === "chat" ? { tools: d.tools } : {}) });
@@ -363,9 +389,114 @@ export class ChatView extends LitElement {
   }
   private retry() { store.api.ws("chat/retry", { chat_id: this.chatId }).then(r => { store.chats.set(this.chatId, r.chat); store.changed(); }).catch(e => store.notify(e.message)); }
 
-  private openFile(name: string) { openFileViewer("chat", this.chatId, name); }
+  /** Teilaufgaben teilen Dateien und Sandbox mit ihrem Hauptchat. */
+  private get fileOwner(): string { return this.chat?.parent_id || this.chatId; }
+  private openFile(name: string) { openFileViewer("chat", this.fileOwner, name); }
+
+  /** „Als Teilaufgabe weiterarbeiten“: aus dieser Nachricht eine eigene Teilaufgabe machen und sie öffnen. */
+  private async branch(m: any) {
+    try {
+      const sub = await store.api.ws("chat/branch", { chat_id: this.chatId, message_id: m.id });
+      navigate(`/chat/${sub.id}`);
+    } catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  /** Kopfleiste einer Teilaufgabe: zurück zum Hauptchat, darunter (eingeklappt) der Auftrag. */
+  private subBar(chat: any) {
+    if (!chat.parent_id) return nothing;
+    const parent = (store.data?.chats || []).find((c: any) => c.id === chat.parent_id);
+    const sub = chat.sub || {};
+    return html`<div class="subbar">
+      <button class="btn ghost" @click=${() => navigate(`/chat/${chat.parent_id}`)}>${icon("back", 16)} ${t("Hauptchat")}: ›${parent?.title || t("Neuer Chat")}‹</button>
+      <div class="subctl">
+        <label class="row" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${sub.melden !== false}
+          @change=${(e: any) => this.setMelden(e.target.checked)}> ${t("Ergebnisse an den Hauptchat melden")}</label>
+        <button class="btn ghost tiny" ?disabled=${!!store.runs[chat.id]} @click=${() => this.reportNow()}>${icon("send", 14)} ${t("Jetzt melden")}</button>
+      </div>
+      ${sub.auftrag ? html`<details class="auftrag"><summary>${icon("subtask", 15)} ${sub.von === "person" ? t("Ausgangspunkt") : t("Auftrag")}</summary>
+        <div class="md">${md(sub.auftrag)}</div></details>` : nothing}
+    </div>`;
+  }
+
+  private async setMelden(on: boolean) {
+    const c = this.chat; if (!c?.sub) return;
+    c.sub.melden = on; this.requestUpdate();
+    try { await store.api.ws("chat/update", { chat_id: c.id, sub_melden: on }); } catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  private async reportNow() {
+    try { await store.api.ws("chat/sub_report", { chat_id: this.chatId }); store.notify(t("An den Hauptchat gemeldet")); }
+    catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  /** Teilaufgaben dieses Chats (für Summe und den Hinweis in der einfachen Ansicht). */
+  private subsOf(chat: any): any[] { return (store.data?.chats || []).filter((c: any) => c.parent_id === chat.id); }
+
+  /** Kopfzeile des Hauptchats: wie viele Teilaufgaben, und was sie zusammen mit ihm verbraucht haben. */
+  private treeChip(chat: any) {
+    const subs = this.subsOf(chat);
+    if (!subs.length || chat.parent_id) return nothing;
+    const tok = (u: any) => (u?.prompt || 0) + (u?.completion || 0);
+    const total = tok(chat.usage) + subs.reduce((n: number, c: any) => n + tok(c.usage), 0);
+    const active = subs.filter((c: any) => store.runs[c.id] || c.sub_status === "wartet").length;
+    return html`<span class="chip" title=${t("Verbrauch mit Teilaufgaben: {n} Tokens", { n: fmtNum(total) })}>${icon("subtask", 14)}
+      ${active ? t("{a} von {n} aktiv", { a: active, n: subs.length }) : subs.length}${this.narrow ? "" : ` · ${fmtNum(total)} Tokens`}</span>`;
+  }
+
+  /** Rückmeldung einer Teilaufgabe im Hauptchat (Nachtrag nach eigener Arbeit darin). */
+  private subResult(m: any) {
+    const bad = m.status === "fehler" || m.status === "abgebrochen", limit = m.status === "grenze";
+    return html`<div class="subres ${bad ? "bad" : limit ? "limit" : ""}">
+      <div class="row">${icon("subtask", 16)}<b class="grow ellipsis">${m.nachtrag ? t("Nachtrag aus Teilaufgabe") : t("Ergebnis aus Teilaufgabe")} ›${m.title}‹</b>
+        <button class="btn ghost tiny" @click=${() => navigate(`/chat/${m.sub_id}`)}>${t("Öffnen")}</button></div>
+      <details><summary>${t("Zusammenfassung")}</summary><div class="md">${md(m.summary || "")}</div>
+        ${m.reason ? html`<div class="hint">${t("Grund")}: ${m.reason}</div>` : nothing}</details>
+      ${m.files?.length ? html`<div class="att left">${m.files.map((f: string) => html`<button @click=${() => this.openFile(f)}>${icon("file", 15)}${f}</button>`)}</div>` : nothing}
+    </div>`;
+  }
+
+  /** Karte für eine Teilaufgabe, die der Hauptchat gestartet hat (statt einer Werkzeugzeile). */
+  private subCard(m: any) {
+    const chat = this.chat;
+    const chats = store.data?.chats || [];
+    const sub = m.name === "unterchat_nachricht" ? chats.find((c: any) => c.id === m.args?.id)
+      : chats.find((c: any) => c.parent_id === chat?.id && c.sub_call === m.tool_call_id);
+    let res: any = null;
+    if (m.status !== "running" && m.content) { try { res = JSON.parse(m.content); } catch { res = null; } }
+    const live = sub ? store.runs[sub.id] : null;
+    const asks = sub && store.permissions.some((p: any) => p.chat_id === sub.id);
+    const st = m.status === "running"
+      ? (asks ? "dich" : sub?.sub_wait === "platz" ? "platz" : live ? "laeuft" : sub?.sub_status === "wartet" ? "platz" : "laeuft")
+      : m.status === "error" && !res ? "fehler" : res?.stand || sub?.sub_status || "fertig";
+    const label: Record<string, string> = { laeuft: t("Läuft"), platz: t("Wartet auf einen freien Platz"), dich: t("Wartet auf deine Freigabe"),
+      fertig: t("Fertig"), grenze: t("Grenze erreicht"), fehler: t("Fehler"), abgebrochen: t("Abgebrochen") };
+    const secs = live ? this.now / 1000 - (live.started || this.now / 1000) : (m.ms || 0) / 1000;
+    const u = sub?.usage || {};
+    const tokens = (u.prompt || 0) + (u.completion || 0);
+    const open = this.openSteps.has(m.id);
+    const toggle = () => { const s = new Set(this.openSteps); open ? s.delete(m.id) : s.add(m.id); this.openSteps = s; };
+    return html`<div class="subcard ${st}">
+      <div class="srow">${icon("subtask", 18)}<b class="lbl">${sub?.title || m.args?.titel || t("Teilaufgabe")}</b>
+        ${m.name === "unterchat_nachricht" ? html`<span class="muted" style="font-size:12px">· ${t("Folgeauftrag")}</span>` : nothing}
+        <span class="st">${st === "laeuft" ? html`<span class="spin"></span>` : st === "fertig" ? html`<span class="ok">${icon("check", 16)}</span>`
+          : st === "fehler" || st === "abgebrochen" ? html`<span class="err">${icon("alert", 16)}</span>` : html`<span class="den">${icon("clock", 16)}</span>`}
+          ${label[st] || st}</span></div>
+      <div class="subinfo">
+        ${sub ? html`<span>${modelName(sub.model)}</span>` : nothing}
+        ${secs >= 1 ? html`<span>${fmtDuration(secs)}</span>` : nothing}
+        ${tokens ? html`<span>${fmtNum(tokens)} Tokens</span>` : nothing}
+        <span class="grow"></span>
+        ${res?.zusammenfassung || (m.content && !res && m.status !== "running") ? html`<button class="btn ghost tiny" @click=${toggle}>${open ? t("Zusammenfassung ausblenden") : t("Zusammenfassung")}</button>` : nothing}
+        ${sub ? html`<button class="btn tiny" @click=${() => navigate(`/chat/${sub.id}`)}>${t("Öffnen")}</button>` : nothing}
+      </div>
+      ${res?.grund && st !== "fertig" ? html`<div class="hint">${t("Grund")}: ${res.grund}</div>` : nothing}
+      ${open ? html`<div class="md subsum">${res ? md(res.zusammenfassung || "") : m.content}</div>
+        ${res?.dateien?.length ? html`<div class="att left">${res.dateien.map((f: string) => html`<button @click=${() => this.openFile(f)}>${icon("file", 15)}${f}</button>`)}</div>` : nothing}` : nothing}
+    </div>`;
+  }
 
   private stepRow(m: any) {
+    if (m.name === "unterchat_starten" || m.name === "unterchat_nachricht") return this.subCard(m);
     const open = this.openSteps.has(m.id);
     const a = m.args || {};
     const argText = a.anfrage || a.url || a.pfad || a.name || a.entity_id || a.filter || a.typ || (a.domain ? `${a.domain}.${a.service}` : "") || "";
@@ -396,6 +527,7 @@ export class ChatView extends LitElement {
           <div class="user">${m.content}</div>`);
         i++; continue;
       }
+      if (m.role === "sub_result") { out.push(this.subResult(m)); i++; continue; }
       if (m.role === "tool") {
         const group: any[] = [];
         while (i < msgs.length && msgs[i].role === "tool") { group.push(msgs[i]); i++; }
@@ -415,6 +547,7 @@ export class ChatView extends LitElement {
         ${(m.content || m.error) && !streaming ? html`<div class="meta">
           ${m.content ? html`<button class="iconbtn" title=${t("Kopieren")} @click=${() => copyText(m.content)}>${icon("copy", 16)}</button>` : nothing}
           ${last && !run ? html`<button class="iconbtn" title=${t("Erneut versuchen")} @click=${() => this.retry()}>${icon("retry", 16)}</button>` : nothing}
+          ${m.content && chat.kind !== "task_run" ? html`<button class="iconbtn" title=${t("Als Teilaufgabe weiterarbeiten")} @click=${() => this.branch(m)}>${icon("subtask", 16)}</button>` : nothing}
           <span>${(store.data?.models || []).find((x: any) => x.id === m.model)?.name || m.model || ""}${isExternal(m.model) ? " · extern" : ""}${m.usage?.completion ? ` · ${fmtNum(m.usage.completion)} Tokens` : ""} · ${fmtTime(m.created)}</span></div>` : nothing}
       </div>`);
       i++;
@@ -449,9 +582,12 @@ export class ChatView extends LitElement {
     const lastMsg = chat.messages[chat.messages.length - 1];
     if (run.status === "streaming" && lastMsg?.streaming && lastMsg?.content) return nothing;
     if (run.status === "waiting_permission") return nothing;
+    if (run.status === "waiting_sub_permission") return html`<div class="running"><span class="den">${icon("clock", 18)}</span>
+      <span>${t("Teilaufgabe ›{t}‹ wartet auf dich", { t: run.detail?.sub_title || "" })}</span></div>`;
     const d = run.detail || {};
     let text = STATUS_TEXT[run.status] || "Arbeitet …";
     if (run.status === "tool") text = (d.label || "Werkzeug") + " …";
+    if (run.status === "tool" && String(d.tool || "").startsWith("unterchat_")) text = t("Wartet auf Teilaufgaben …");
     if (run.status === "retry") text = `Modell ausgelastet – neuer Versuch in ${d.seconds} s (Versuch ${d.attempt})`;
     if (run.status === "quota_wait") text = `Limit des Schlüssels erreicht – geht in ${fmtDuration(d.seconds)} weiter`;
     if (run.status === "thinking" && d.switched_from) text = isExternal(chat.model) && d.auto
@@ -487,9 +623,20 @@ export class ChatView extends LitElement {
     store.api.ws("chat/switch_model", { chat_id: this.chatId, model }).catch(e => store.notify(String(e.message || e)));
   }
 
+  /** Freigaben dieses Chats – im Hauptchat auch die seiner Teilaufgaben (zentral beantworten). */
+  private myPerms(): any[] {
+    return store.permissions.filter(p => p.chat_id === this.chatId || p.root_chat_id === this.chatId);
+  }
+
+  /** Oben auf einer Karte aus einer Teilaufgabe: woher sie kommt, mit Link. */
+  private permFrom(p: any) {
+    if (!p.root_chat_id || p.chat_id === this.chatId) return nothing;
+    return html`<div class="pfrom">${icon("subtask", 15)} ${t("aus Teilaufgabe")} <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/chat/${p.chat_id}`); }}>›${p.sub_title || t("Teilaufgabe")}‹</a></div>`;
+  }
+
   private permCards() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => p.steps ? html`<div class="perm">
+    return this.myPerms().map(p => p.steps ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("list")}<b class="grow">LLMitMir ist noch nicht fertig – weitere ${p.steps.more} Schritte verwenden?</b></div>
       <div class="hint">${p.steps.used} von ${p.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${p.steps.limit - p.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.${p.steps.lots ? ` Mit ${p.steps.lots} weiteren Schritten wird die Frage so schnell nicht wieder fällig.` : ""}</div>
       <div class="row">
@@ -497,7 +644,7 @@ export class ChatView extends LitElement {
         ${p.steps.lots ? html`<button class="btn" @click=${() => answer(p, "lots")}>${icon("check", 16)} ${p.steps.lots} weitere Schritte</button>` : nothing}
         <button class="btn ghost" @click=${() => answer(p, "deny")}>Zum Ende kommen</button>
       </div></div>`
-    : p.change ? html`<div class="perm">
+    : p.change ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("edit")}<b class="grow">LLMitMir schlägt diese Änderung vor</b></div>
       ${changeView(p.change)}
       <div class="row">
@@ -505,7 +652,7 @@ export class ChatView extends LitElement {
         <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Änderung weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
-    : p.group ? html`<div class="perm">
+    : p.group ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte „${p.group_label}“ nutzen: ${p.label}</b></div>
       <div class="hint">Diese Werkzeuge sind ${this.chat?.project_id ? "in diesem Chat oder Projekt" : "in diesem Chat"} nicht eingeschaltet.</div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
@@ -514,8 +661,8 @@ export class ChatView extends LitElement {
         <button class="btn" @click=${() => answer(p, "always")}>${t("Für diesen Chat einschalten")}</button>
         <button class="btn ghost danger" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne dieses Werkzeug weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne es weitermachen")}</button>
-      </div><div class="hint">„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.</div></div>`
-    : html`<div class="perm">
+      </div><div class="hint">${p.root_chat_id ? t("„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.") : html`„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.`}</div></div>`
+    : html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte: ${p.label}</b></div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
@@ -523,7 +670,8 @@ export class ChatView extends LitElement {
         <button class="btn" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "always" })}>${t("Immer erlauben")}</button>
         <button class="btn ghost danger" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "deny" })}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Aktion weiterarbeiten")} @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "skip" })}>${t("Ohne sie weitermachen")}</button>
-      </div><div class="hint">„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.</div></div>`);
+      </div><div class="hint">${p.root_chat_id ? t("„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.")
+        : `„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.`}</div></div>`);
   }
 
   // ---------------------------------------------------------------- simple view (Laien-Ansicht)
@@ -579,7 +727,7 @@ export class ChatView extends LitElement {
 
   /** Waiting animation: typing dots and, in plain words, what is happening right now. */
   private typing(run: any, chat: any) {
-    if (!run || run.status === "waiting_permission") return nothing;
+    if (!run || run.status === "waiting_permission" || run.status === "waiting_sub_permission") return nothing;
     const last = chat.messages[chat.messages.length - 1];
     if (last?.role === "assistant" && (last.content || last.error) && !last.tool_calls?.length && !heldBack(last)) return nothing;  // the answer is there
     const el = this.now / 1000 - (run.started || this.now / 1000);
@@ -589,6 +737,9 @@ export class ChatView extends LitElement {
     else if (run.status === "retry") text = "Gerade ist viel los – gleich geht's weiter …";
     else if (run.status === "quota_wait") text = `Tageslimit erreicht – weiter in ${fmtDuration(d.seconds)}`;
     else if (run.status === "tool") text = DOING[d.tool ? store.data?.tools?.[d.tool]?.group : d.model ? "model" : ""] || "Arbeitet daran …";
+    // Teilaufgaben laufen im Hintergrund: nur eine Zeile, wie viele es sind
+    const busy = this.subsOf(chat).filter((c: any) => store.runs[c.id] || c.sub_status === "laeuft" || c.sub_status === "wartet").length;
+    if (busy && (run.status === "tool" || run.status === "waiting_sub_permission")) text = busy === 1 ? t("Arbeitet an einer Teilaufgabe …") : t("Arbeitet an {n} Teilaufgaben …", { n: busy });
     else if (d.switched_from) text = "Wechselt zu einer weniger ausgelasteten KI …";
     else {
       const verbs = (d.step || 1) > 1 ? ["Wertet aus", "Denkt nach", "Fasst zusammen"] : ["Denkt nach", "Überlegt", "Formuliert eine Antwort"];
@@ -604,7 +755,7 @@ export class ChatView extends LitElement {
   /** Questions from the assistant as plain yes/no messages; the details stay one tap away. */
   private simplePerms() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => {
+    return this.myPerms().map(p => {
       if (p.change) {
         const del = p.change.aktion === "loeschen";
         const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change.aktion] || p.change.aktion;
@@ -632,7 +783,7 @@ export class ChatView extends LitElement {
   }
 
   private side(chat: any) {
-    const files = store.chatFiles.get(chat.id) || [];
+    const files = store.chatFiles.get(chat.parent_id || chat.id) || [];
     const prog = chat.progress || [];
     // a finished run must not keep spinning: without a live run, a step marked "laeuft" is shown as done
     const live = !!store.runs[chat.id] || chat.status === "running";
@@ -654,6 +805,7 @@ export class ChatView extends LitElement {
         ${proj ? html`<span>${t("Projekte")}: <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/project/${proj.id}`); }}>${proj.name}</a></span>` : nothing}
         <span>${t("Modell")}: ${modelName(chat.model)}${chat.model_auto ? " (automatisch gewählt)" : ""}</span>
         <span>Anfragen: ${u.requests || 0} · Tokens: ${fmtNum((u.prompt || 0) + (u.completion || 0))}</span>
+        ${this.subsOf(chat).length ? html`<span>${t("Mit Teilaufgaben")}: ${fmtNum(this.subsOf(chat).reduce((n: number, c: any) => n + (c.usage?.prompt || 0) + (c.usage?.completion || 0), (u.prompt || 0) + (u.completion || 0)))} Tokens</span>` : nothing}
         <span>Erstellt: ${fmtTime(chat.created)}</span></div></div>
     </aside>`;
   }
@@ -671,14 +823,16 @@ export class ChatView extends LitElement {
     const task = chat.task_id ? (store.data?.tasks || []).find((x: any) => x.id === chat.task_id) : null;
     const proj = (store.data?.projects || []).find((p: any) => p.id === chat.project_id);
     const simple = isSimple();
-    const files = simple ? store.chatFiles.get(chat.id) || [] : [];
+    const files = simple ? store.chatFiles.get(chat.parent_id || chat.id) || [] : [];
     return html`<div class="main">
       <header>
         <slot name="menu"></slot>
         ${this.editTitle ? html`<input .value=${chat.title || ""} @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") this.rename((e.target as HTMLInputElement).value); if (e.key === "Escape") this.editTitle = false; }}
             @blur=${(e: any) => this.rename(e.target.value)} autofocus>`
           : html`<span class="title ellipsis" @click=${() => (this.editTitle = true)}>${chat.title || t("Neuer Chat")}</span>`}
-        ${isWork && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
+        ${chat.parent_id ? html`<span class="chip accent">${icon("subtask", 14)} ${t("Teilaufgabe")}</span>` : nothing}
+        ${isWork && !chat.parent_id && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
+        ${simple ? nothing : this.treeChip(chat)}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
         ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon("euro", 14)} ${simple ? "Ersatz-KI" : "extern"}</span>` : nothing}
         <span class="grow"></span>
@@ -691,14 +845,15 @@ export class ChatView extends LitElement {
         <lm-menu direction="down" align="right"><button slot="trigger" class="iconbtn">${icon("dots")}</button>
           ${chat.kind !== "task_run" ? html`<button class="mi" data-close @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)} ${t("Im Gespräch sprechen")}</button>` : nothing}
           <button class="mi" data-close @click=${() => (this.editTitle = true)}>${icon("edit", 18)} ${t("Umbenennen")}</button>
-          <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
+          ${chat.parent_id ? nothing : html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
           <div class="mh">In Projekt verschieben</div>
           <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: null })}>${icon("chat", 18)} Ohne Projekt</button>
-          ${(store.data?.projects || []).map((p: any) => html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: p.id })}>${icon("project", 18)} ${p.name}</button>`)}
+          ${(store.data?.projects || []).map((p: any) => html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: p.id })}>${icon("project", 18)} ${p.name}</button>`)}`}
           <div class="msep"></div>
-          <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog("Diesen Chat endgültig löschen?")) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
+          <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog("Diesen Chat endgültig löschen?")) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate(chat.parent_id ? `/chat/${chat.parent_id}` : "/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
         </lm-menu>
       </header>
+      ${this.subBar(chat)}
       <div class="scroll" @scroll=${this.onScroll}><div class="thread ${simple ? "simple" : ""}">
         ${task ? html`<div class="taskinfo">${icon("task", 18)}<span>${simple ? "Ergebnis" : "Lauf"} der geplanten Aufgabe <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/task/${task.id}`); }}>${task.name}</a>.
           ${simple ? "Sie läuft von selbst nach Zeitplan." : "Open-Weight-Modelle können verzögert starten und länger laufen."}</span></div>` : nothing}
