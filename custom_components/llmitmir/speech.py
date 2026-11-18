@@ -103,13 +103,18 @@ async def synthesize(text: str, lang: str | None = "de", voice: str | None = Non
         _cache.move_to_end(key)
         return hit
     lock = _locks.setdefault(key, asyncio.Lock())
-    async with lock:
-        hit = _cache.get(key)
-        if hit:
-            return hit
-        audio = await _speak(text, vid)
-        _remember(key, audio)
-        return audio
+    try:
+        async with lock:
+            hit = _cache.get(key)
+            if hit:
+                return hit
+            audio = await _speak(text, vid)
+            _remember(key, audio)
+            return audio
+    finally:
+        # die Sperre je Satz nur, solange daran gearbeitet wird – sonst bliebe für jeden je gesprochenen Satz eine liegen
+        if not lock.locked() and _locks.get(key) is lock:
+            _locks.pop(key, None)
 
 
 async def _speak(text: str, vid: str) -> bytes:

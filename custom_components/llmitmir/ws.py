@@ -51,7 +51,10 @@ def command(schema: dict, admin: bool = False):
         @websocket_api.async_response
         @functools.wraps(func)
         async def handler(hass, connection, msg):
-            m = _mgr(hass)
+            m = hass.data.get(DOMAIN, {}).get("manager")
+            if m is None:  # Eintrag entladen (Neuladen, Fehler beim Einrichten): klare Meldung statt KeyError
+                connection.send_error(msg["id"], "not_loaded", "LLMitMir ist gerade nicht geladen")
+                return
             user = connection.user
             if admin and not user.is_admin:
                 connection.send_error(msg["id"], "unauthorized", "Nur für Admins")
@@ -228,7 +231,10 @@ async def ws_bootstrap(hass, conn, msg, m, user, st):
 @websocket_api.websocket_command(_t("access"))
 @callback
 def ws_access(hass, conn, msg):
-    m = _mgr(hass)
+    m = hass.data.get(DOMAIN, {}).get("manager")
+    if m is None:
+        conn.send_result(msg["id"], {"allowed": False, "is_admin": conn.user.is_admin, "configured": False})
+        return
     conn.send_result(msg["id"], {"allowed": m.allowed(conn.user), "is_admin": conn.user.is_admin,
                                  "configured": bool(m.config.data.get("provider", {}).get("base_url"))})
 

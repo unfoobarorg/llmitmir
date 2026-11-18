@@ -28,7 +28,10 @@ EXPORT_TOTAL = 2 * 1024 * 1024 * 1024
 
 
 def _mgr(hass):
-    return hass.data[DOMAIN]["manager"]
+    m = hass.data.get(DOMAIN, {}).get("manager")
+    if m is None:  # Eintrag entladen: 503 statt Serverfehler
+        raise web.HTTPServiceUnavailable(text="LLMitMir ist gerade nicht geladen")
+    return m
 
 
 class _Base(HomeAssistantView):

@@ -49,13 +49,6 @@ def fake_panel_dependencies(hass):
 
 
 @pytest.fixture
-def expected_lingering_timers() -> bool:
-    """T3: UserStore.schedule_save legt eigene call_later-Timer an, die beim Entladen liegen bleiben (und beim
-    Herunterfahren nicht mehr feuern). Bis das behoben ist, hier ausdrücklich erlaubt."""
-    return True
-
-
-@pytest.fixture
 async def llmitmir(hass, hass_admin_user):
     """LLMitMir eingerichtet wie nach dem Einrichtungsdialog (SAIA, ein gemeinsamer Schlüssel, noch keiner gesetzt).
 

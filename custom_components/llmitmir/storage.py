@@ -166,6 +166,9 @@ class UserStore:
         self._chat_cache: dict[str, dict] = {}
         self._tile_cache: dict[str, dict] = {}
         self._save_handle: asyncio.TimerHandle | None = None
+        # Schreibvorgänge dieser Person nacheinander: Der Stand wird erst unter der Sperre erfasst, so kann ein älterer
+        # Stand nie nach einem neueren auf der Platte landen (zwei Executor-Jobs liefen sonst gleichzeitig).
+        self._write_lock = asyncio.Lock()
 
     # ---------------------------------------------------------------- meta
     async def async_load(self) -> None:
@@ -192,14 +195,23 @@ class UserStore:
         write_utf8_file_atomic(path, json.dumps(data, ensure_ascii=False), private=True)
 
     async def async_save_meta(self) -> None:
-        data = json.loads(json.dumps(self.meta))
-        await self.hass.async_add_executor_job(self._write, "meta.json", data)
+        if self._save_handle:  # eine verzögerte Speicherung ist hiermit erledigt
+            self._save_handle.cancel()
+            self._save_handle = None
+        async with self._write_lock:
+            data = json.loads(json.dumps(self.meta))
+            await self.hass.async_add_executor_job(self._write, "meta.json", data)
 
     def schedule_save(self, delay: float = 2.0) -> None:
         if self._save_handle:
             self._save_handle.cancel()
         self._save_handle = self.hass.loop.call_later(
             delay, lambda: self.hass.async_create_task(self.async_save_meta()))
+
+    async def async_flush(self) -> None:
+        """Eine noch verzögerte Speicherung sofort ausführen (Entladen, Herunterfahren) – danach liegt kein Timer mehr."""
+        if self._save_handle:
+            await self.async_save_meta()
 
     # ---------------------------------------------------------------- chats
     async def async_get_chat(self, chat_id: str) -> dict | None:
@@ -234,8 +246,9 @@ class UserStore:
             chat["updated"] = now()
         self._chat_cache[chat["id"]] = chat
         self.meta["chats"][chat["id"]] = self.chat_summary(chat)
-        data = json.loads(json.dumps(chat))
-        await self.hass.async_add_executor_job(self._write, f"chats/{chat['id']}.json", data)
+        async with self._write_lock:
+            data = json.loads(json.dumps(chat))
+            await self.hass.async_add_executor_job(self._write, f"chats/{chat['id']}.json", data)
         self.schedule_save(0.5)
 
     async def async_delete_chat(self, chat_id: str) -> None:

@@ -331,3 +331,37 @@ async def test_workspace_html_is_never_served_as_a_page(hass, llmitmir, hass_ws_
     assert resp.status == HTTPStatus.OK
     assert resp.headers["Content-Disposition"].startswith("attachment")
     assert resp.headers["X-Content-Type-Options"] == "nosniff" and "sandbox" in resp.headers["Content-Security-Policy"]
+
+
+async def test_after_unload_the_panel_gets_a_clear_answer(hass, llmitmir, hass_ws_client, hass_client):
+    """T7: Ohne geladenen Eintrag antworten Websocket und HTTP verständlich statt mit einem Serverfehler."""
+    entry: MockConfigEntry = llmitmir["entry"]
+    admin = await hass_ws_client(hass)
+    client = await hass_client()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert (await _ok(admin, "access"))["allowed"] is False
+    msg = await _ws(admin, "bootstrap")
+    assert not msg["success"] and msg["error"]["code"] == "not_loaded"
+    assert (await client.get("/api/llmitmir/file/chat/c1/x.txt")).status == HTTPStatus.SERVICE_UNAVAILABLE
+    with patch("homeassistant.components.panel_custom.async_register_panel"), \
+            patch("homeassistant.components.frontend.async_remove_panel"):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_the_api_key_from_setup_moves_into_the_admin_config(hass, hass_admin_user):
+    """P3: Der Schlüssel aus dem Einrichtungsdialog bleibt nicht im Config Entry liegen."""
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "http", {})
+    entry = MockConfigEntry(domain=DOMAIN, data={"preset": "saia", "base_url": "https://chat-ai.academiccloud.de/v1",
+                                                 "key_mode": "shared", "api_key": KEY})
+    entry.add_to_hass(hass)
+    with patch("homeassistant.components.panel_custom.async_register_panel"), \
+            patch("homeassistant.components.frontend.async_remove_panel"), \
+            patch("custom_components.llmitmir.agent.Manager.refresh_models", return_value=True):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.data["api_key"] == ""
+        assert hass.data[DOMAIN]["manager"].config.data["shared_key"] == KEY
+        assert await hass.config_entries.async_unload(entry.entry_id)
