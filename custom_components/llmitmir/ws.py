@@ -260,6 +260,11 @@ async def ws_subscribe(hass, conn, msg, m, user, st):
     return _NO_RESULT
 
 
+def _inbox_view(st) -> list[dict]:
+    """Die Karten, die die Startseite gerade zeigt (innerhalb der Anzeigedauer der Person)."""
+    return IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"]))
+
+
 @command(_t("inbox/dismiss") | {vol.Optional("entry_id"): str, vol.Optional("chat_id"): str})
 async def ws_inbox_dismiss(hass, conn, msg, m, user, st):
     """Eine Karte entfernen (Wischen bzw. „×“) – oder alle eines Chats."""

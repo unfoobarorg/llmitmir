@@ -3266,3 +3266,16 @@ def test_subtask_usage_sum_over_tree():
            "s1": {"parent_id": "h", "created": 1, "usage": {"prompt": 50, "completion": 5, "requests": 1}},
            "s2": {"parent_id": "h", "created": 2, "usage": {}}, "x": {"usage": {"prompt": 999}}}
     assert subchats.tree_usage(idx, "h") == {"prompt": 150, "completion": 15, "requests": 3, "subs": 2}
+
+
+
+def test_ws_private_helpers_are_defined():
+    """Jede private Hilfsfunktion, die ws.py aufruft, muss dort auch definiert sein (inbox/dismiss und inbox/mute
+    scheiterten, weil _inbox_view versehentlich entfernt worden war)."""
+    import re
+
+    text = (BASE / "ws.py").read_text()
+    called = set(re.findall(r"(?<![\w.])(_[a-z]\w*)\(", text))
+    defined = set(re.findall(r"^(?:async )?def (_\w+)\(", text, re.M)) | set(re.findall(r"^(_\w+) = ", text, re.M))
+    assert "_inbox_view" in called
+    assert called - defined == set()
