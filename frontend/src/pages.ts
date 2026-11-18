@@ -139,7 +139,7 @@ export class Chats extends StoreElement {
 
   render() {
     const chats = (store.data?.chats || []).filter((c: any) =>
-      (this.filter === "all" || c.kind === this.filter) && (!this.q || (c.title || "").toLowerCase().includes(this.q.toLowerCase())));
+      (this.filter === "all" ? !c.tile_id : this.filter === "tile_run" ? !!c.tile_id : c.kind === this.filter && !c.tile_id) && (!this.q || (c.title || "").toLowerCase().includes(this.q.toLowerCase())));
     const proj = (id: string) => (store.data?.projects || []).find((p: any) => p.id === id)?.name;
     // Treffer im Inhalt, die nicht schon über den Titel in der Liste stehen
     const extra = this.deep ? this.found.filter((f: any) => !chats.some((c: any) => c.id === f.chat_id)) : [];
@@ -150,7 +150,8 @@ export class Chats extends StoreElement {
         @change=${(e: any) => { this.deep = e.target.checked; this.queueSearch(); }}>
         ${t("Auch in Nachrichten suchen")}${this.searching ? html` <lm-spark size="14"></lm-spark>` : nothing}</label>
       <div class="tabs">${(isSimple() ? [["all", t("Alle")], ["task_run", "Ergebnisse geplanter Aufgaben"]]
-        : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")]]).map(([k, l]) =>
+        : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")],
+          ...((store.data?.chats || []).some((c: any) => c.tile_id) ? [["tile_run", t("Kachel-Läufe")]] : [])]).map(([k, l]) =>
         html`<button class=${this.filter === k ? "on" : ""} @click=${() => (this.filter = k)}>${l}</button>`)}</div>
       <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
         ${icon(c.kind === "chat" ? "chat" : c.kind === "cowork" ? "cowork" : "task")}

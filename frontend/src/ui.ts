@@ -32,7 +32,7 @@ const MAP: Record<string, string> = {
   cloud: mdi.mdiCloudOutline, wait: mdi.mdiProgressClock, external: mdi.mdiOpenInNew,
   calendarEdit: mdi.mdiCalendarEdit, calendarPlus: mdi.mdiCalendarPlus, contact: mdi.mdiAccountBoxOutline,
   up: mdi.mdiArrowUp, arrowDown: mdi.mdiArrowDown, euro: mdi.mdiCurrencyEur, shield: mdi.mdiShieldAlertOutline,
-  share: mdi.mdiShareVariantOutline, voice: mdi.mdiAccountVoice, micOff: mdi.mdiMicrophoneOff, hangup: mdi.mdiPhoneHangup,
+  share: mdi.mdiShareVariantOutline, dashboard: mdi.mdiViewDashboardOutline, voice: mdi.mdiAccountVoice, micOff: mdi.mdiMicrophoneOff, hangup: mdi.mdiPhoneHangup,
 };
 
 export function mdiPath(name: string): string {
