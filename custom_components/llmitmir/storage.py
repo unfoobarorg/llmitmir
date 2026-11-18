@@ -67,6 +67,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "quota_users": {},        # user_id -> {"requests_day", "tokens_day"}
     "models": {"enabled": [], "defaults": {}, "context": {}, "known": [], "auto_enable_new": True},
     "search": {"provider": "duckduckgo", "searxng_url": ""},
+    # Eigene Stimme des Roboters (speech.py, Microsoft-Edge-Vorlesedienst): ausgeschaltet nimmt das Panel die
+    # Sprachausgabe von Home Assistant oder des Browsers – dann geht kein Antworttext an Microsoft
+    "speech": {"enabled": True},
     "werkbank": {"url": "", "token": ""},
     "views": {"default": "choice", "users": {}},   # simple (Laien) or expert view, see views.py
     "notify_devices": {"overrides": {}},   # device key -> user id, where an admin corrected the link, see notifydevices.py

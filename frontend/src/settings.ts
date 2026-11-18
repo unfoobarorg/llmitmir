@@ -362,7 +362,7 @@ export class AdminPage extends StoreElement {
     try {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
         task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
-        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank, views: a.views,
+        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, speech: a.speech, werkbank: a.werkbank, views: a.views,
         notify_devices: { overrides: a.notify_overrides || {} },
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
@@ -668,6 +668,11 @@ export class AdminPage extends StoreElement {
           <option value="searxng" ?selected=${a.search.provider === "searxng"}>SearXNG (eigene Instanz)</option></select></label>
         ${a.search.provider === "searxng" ? html`<label class="f"><span>SearXNG-URL</span><input .value=${a.search.searxng_url || ""} @input=${(e: any) => this.set("search", { ...a.search, searxng_url: e.target.value })}></label>` : nothing}</div>
         <div class="hint" style="margin-top:6px">DuckDuckGo funktioniert ohne Schlüssel über die einfache HTML-Seite und kann bei vielen Anfragen kurz sperren.</div></section>
+      <section><h2>${icon("mdi:account-voice", 18)} ${t("Sprachausgabe")}</h2><div class="form">
+        <label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:3px" .checked=${a.speech?.enabled !== false}
+          @change=${(e: any) => this.set("speech", { ...(a.speech || {}), enabled: e.target.checked })}>
+          <span><b>${t("Eigene Stimme des Roboters")}</b><br><span class="hint">${t("Klingt auf jedem Gerät gleich. Dafür geht jeder vorgelesene Antworttext an den Vorlesedienst von Microsoft Edge (über das Paket edge-tts). Ausgeschaltet liest die Sprachausgabe von Home Assistant oder des Browsers vor – dann verlässt kein Antworttext Home Assistant für die Stimme.")}</span>
+          ${a.speech?.installed === false ? html`<br><span class="hint" style="color:var(--lm-err)">${t("Das Paket edge-tts ist nicht installiert.")}</span>` : nothing}</span></label></div></section>
       ${this.dirty ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.load()}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}
     </div>`;

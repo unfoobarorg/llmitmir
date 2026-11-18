@@ -62,6 +62,11 @@ def voice_id(voice: str | None) -> str:
     return v if v in VOICES else DEFAULT_VOICE
 
 
+def enabled(cfg: dict | None) -> bool:
+    """Hat der Admin die eigene Stimme eingeschaltet? (Admin → Sprachausgabe; Standard: an)"""
+    return bool(((cfg or {}).get("speech") or {}).get("enabled", True))
+
+
 def info() -> dict:
     return {"available": available(), "default": DEFAULT_VOICE, "languages": list(LANGUAGES),
             "voices": [{"id": k, "label": v["label"], "name": v["name"], "effect": bool(v["effect"])}

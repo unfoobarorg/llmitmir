@@ -134,6 +134,13 @@ async def _names(m, user_ids) -> dict:
     return out
 
 
+def _speech_view(m) -> dict:
+    """Die feste Stimme des Roboters – nicht verfügbar, wenn der Admin sie ausgeschaltet hat (Panel nimmt dann HA/Browser)."""
+    info = SP.info()
+    on = SP.enabled(m.config.data)
+    return dict(info, available=bool(info["available"] and on), disabled_by_admin=not on)
+
+
 def _project_view(p: dict) -> dict:
     return dict(p)
 
@@ -214,7 +221,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
         # Die feste Stimme des Roboters (eigene Sprachausgabe, auf jedem Gerät gleich)
-        "speech": SP.info(),
+        "speech": _speech_view(m),
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
@@ -1070,6 +1077,7 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "models": cfg.get("models"), "known_context": KNOWN_CONTEXT, "models_live": m.models_for_users(all_known=True),
         "auto_models": {r: MS.pick(m.live_models(), r) or "" for r in MS.ROLES},
         "search": cfg.get("search"),
+        "speech": {"enabled": SP.enabled(cfg), "installed": SP.available()},
         "werkbank": {"url": (cfg.get("werkbank") or {}).get("url", ""), "token": MASK if (cfg.get("werkbank") or {}).get("token") else ""},
         "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
                    "view": (m.users[u.id].meta["settings"].get("view") if u.id in m.users else None),
@@ -1162,6 +1170,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
             cfg[k] = c[k]
     if "views" in c:
         cfg["views"] = V.clean(c["views"])
+    if "speech" in c:
+        cfg["speech"] = {"enabled": bool((c["speech"] or {}).get("enabled"))}
     if "notify_devices" in c:
         cfg["notify_devices"] = ND.clean_links(c["notify_devices"])
     if "werkbank" in c:

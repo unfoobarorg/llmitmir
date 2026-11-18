@@ -365,3 +365,17 @@ async def test_the_api_key_from_setup_moves_into_the_admin_config(hass, hass_adm
         assert entry.data["api_key"] == ""
         assert hass.data[DOMAIN]["manager"].config.data["shared_key"] == KEY
         assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_admin_can_switch_off_the_microsoft_voice(hass, llmitmir, hass_ws_client, hass_client):
+    """P1: Ausgeschaltet geht kein Antworttext mehr an den Vorlesedienst – das Panel nimmt HA oder den Browser."""
+    admin = await hass_ws_client(hass)
+    assert (await _ok(admin, "admin/get"))["speech"]["enabled"] is True
+    view = await _ok(admin, "admin/save", config={"speech": {"enabled": False}})
+    assert view["speech"]["enabled"] is False
+    boot = await _ok(admin, "bootstrap")
+    assert boot["speech"]["available"] is False and boot["speech"]["disabled_by_admin"] is True
+    client = await hass_client()
+    with patch("custom_components.llmitmir.speech._speak") as speak:
+        resp = await client.post("/api/llmitmir/speak", json={"text": "Hallo"})
+        assert resp.status == HTTPStatus.FORBIDDEN and not speak.called

@@ -181,6 +181,10 @@ const EN: Record<string, string> = {
   "Bestätigt – die Aufgabe läuft wieder": "Approved – the task runs again", "Verworfen – der alte Auftrag gilt wieder": "Discarded – the old prompt applies again",
   "Bestätigt – die Kachel läuft wieder": "Approved – the tile runs again", "Verworfen – die alte Beschreibung gilt wieder": "Discarded – the old description applies again",
   "Aufgabe öffnen": "Open task",
+  "Sprachausgabe": "Speech output", "Eigene Stimme des Roboters": "The robot's own voice",
+  "Klingt auf jedem Gerät gleich. Dafür geht jeder vorgelesene Antworttext an den Vorlesedienst von Microsoft Edge (über das Paket edge-tts). Ausgeschaltet liest die Sprachausgabe von Home Assistant oder des Browsers vor – dann verlässt kein Antworttext Home Assistant für die Stimme.":
+    "Sounds the same on every device. For this, every answer that is read aloud goes to Microsoft Edge's read-aloud service (via the edge-tts package). When off, Home Assistant's or the browser's speech output reads aloud – then no answer text leaves Home Assistant for the voice.",
+  "Das Paket edge-tts ist nicht installiert.": "The edge-tts package is not installed.",
   "Der geänderte Auftrag wartet auf die Bestätigung von {owner}. Bis dahin läuft die Aufgabe nicht.": "The changed prompt is waiting for {owner} to approve it. Until then the task does not run.",
   "der Person, der sie gehört": "its owner", "Jemand": "Someone", "Vorher:": "Before:", "Bestätigen": "Approve", "Verwerfen": "Discard",
   "{name} hat den Auftrag geändert.": "{name} changed the prompt.",

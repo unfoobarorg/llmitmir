@@ -254,6 +254,8 @@ class SpeakView(_Base):
 
     async def post(self, request):
         hass, m, user, st = await self._user_store(request)
+        if not SP.enabled(m.config.data):
+            return self.json_message("Die Stimme von LLMitMir ist vom Admin ausgeschaltet", HTTPStatus.FORBIDDEN)
         try:
             body = await request.json()
         except ValueError:

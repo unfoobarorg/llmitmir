@@ -532,3 +532,9 @@ def test_pending_remembers_the_prompt_before_the_first_unconfirmed_change():
     p2 = taskedit.pending({"prompt": "B", "pending_approval": p1}, "ben", 2.0)
     assert p2["prompt_before"] == "A" and p2["by"] == "ben"
     assert taskedit.prompt_changed(old, {"prompt": " A "}) is False and taskedit.prompt_changed(old, {"prompt": "C"})
+
+
+def test_speech_switch_defaults_to_on_and_can_be_turned_off():
+    speech = load("speech")
+    assert speech.enabled({}) and speech.enabled({"speech": {}}) and speech.enabled(None)
+    assert not speech.enabled({"speech": {"enabled": False}})
