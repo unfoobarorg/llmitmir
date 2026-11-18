@@ -46,7 +46,8 @@ Voraussetzung: Home Assistant **2025.1** oder neuer. Python-Pakete (werden autom
 - **Nach außen geht** nur: Nachrichten an den gewählten Anbieter; Suchanfragen an DuckDuckGo oder ein eigenes SearXNG;
   vorgelesene Antworten an den Vorlesedienst von Microsoft Edge (abschaltbar unter *Admin → Sprachausgabe*);
   Anfragen an externe Claude-Modelle nur, wenn der Admin sie einrichtet und die Person zustimmt.
-- **Das Modell sieht nie ein Geheimnis.** Zugänge gehen nur an ihre eigenen Server; für jeden anderen fragt LLMitMir.
+- **Das Modell sieht nie ein Geheimnis.** Zugänge gehen nur an ihre eigenen Server; für jeden anderen fragt LLMitMir
+  (Übersicht: *Einstellungen → Erlaubte Server*).
 - **Nichts geschieht ungefragt:** Schreibende Aktionen brauchen eine Freigabe, geplante Aufgaben dürfen nur, was beim
   Anlegen erlaubt wurde. Ändert jemand eine geteilte Aufgabe, läuft sie erst nach Bestätigung der Eigentümerin oder
   des Eigentümers. Home-Assistant-Werkzeuge laufen mit den Rechten der Person.
@@ -108,7 +109,8 @@ Requires Home Assistant **2025.1** or newer. Python packages (installed automati
 - **What leaves:** messages to the chosen provider; search queries to DuckDuckGo or your own SearXNG; answers read aloud
   to Microsoft Edge's read-aloud service (can be switched off under *Admin → Speech output*); requests to external Claude
   models only if the admin sets them up and the person agrees.
-- **The model never sees a secret.** Credentials only go to their own servers; for any other server LLMitMir asks first.
+- **The model never sees a secret.** Credentials only go to their own servers; for any other server LLMitMir asks first
+  (overview: *Settings → Allowed servers*).
 - **Nothing happens unasked:** actions that change something need approval, scheduled tasks may only do what was
   allowed when they were created. If someone changes a shared task, it only runs again once its owner approves.
   Home Assistant tools run with the person's own permissions.

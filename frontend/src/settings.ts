@@ -76,6 +76,7 @@ export class SettingsPage extends StoreElement {
   @state() private imp: any = null;
   @state() private impResult: any = null;
   @state() private guide = false;
+  @state() private hostInput: Record<string, string> = {};   // Einstellungen → Erlaubte Server: Eingabe je Zugang
   static styles = [base, css2, taskUsageCss, externalCss];
   connectedCallback() {
     super.connectedCallback();
@@ -225,6 +226,41 @@ export class SettingsPage extends StoreElement {
     const b = store.data.defaults.base?.[role] || {};
     return b.auto ? `Vorgabe – automatisch (derzeit ${modelName(b.model)})` : `Vorgabe (${modelName(b.model)})`;
   }
+  /** Erlaubte Server eines Zugangs ändern (eigener Befehl – der Rest des Zugangs bleibt, wie er ist). */
+  private async setHosts(c: any, hosts: string[]) {
+    try { await store.api.ws("credential/hosts", { credential_id: c.id, hosts }); await store.load(); store.notify(t("Gespeichert")); }
+    catch (e: any) { store.notify(e.message); }
+  }
+  /** Alle erlaubten Server auf einen Blick, nach Zugang – wie die Domain-Freigaben in Claude Desktop, aber je Zugang. */
+  private hostsSection() {
+    const creds = (store.data?.credentials || []).filter((c: any) => c.type !== "gwdg");
+    if (!creds.length) return nothing;
+    const types = store.data?.credential_types || {};
+    return html`<section><h2>${icon("shield", 18)} ${t("Erlaubte Server")}</h2>
+      <div class="hint" style="margin-bottom:8px">${t("Zugangsdaten gehen nur an diese Server. Für jeden anderen fragt LLMitMir vorher, geplante Aufgaben lehnen ab. Ein Server gilt nur für den Zugang, bei dem er steht.")}</div>
+      ${creds.map((c: any) => {
+        const auto: string[] = c.auto_hosts || [];
+        const extra: string[] = c.hosts || [];
+        const val = this.hostInput[c.id] || "";
+        const add = () => {
+          const h = val.trim(); if (!h) return;
+          this.hostInput = { ...this.hostInput, [c.id]: "" };
+          this.setHosts(c, [...extra, ...h.split(/[\s,;]+/).filter(Boolean)]);
+        };
+        return html`<div class="card" style="margin-bottom:8px">
+          <div class="row"><b class="grow"><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/credential/${c.id}`); }}>${c.name}</a></b>
+            <span class="hint">${types[c.type]?.label || c.type}</span></div>
+          <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+            ${auto.map(h => html`<span class="chip" title=${t("Aus der Adresse des Zugangs – gilt immer")}>${h} · ${t("automatisch")}</span>`)}
+            ${extra.map(h => html`<span class="chip">${h}<button class="iconbtn" style="width:22px;height:22px" title=${t("Entfernen")}
+              @click=${() => this.setHosts(c, extra.filter(x => x !== h))}>${icon("close", 14)}</button></span>`)}
+            ${!auto.length && !extra.length ? html`<span class="hint">${t("Noch kein Server – der erste Aufruf fragt nach.")}</span>` : nothing}</div>
+          <div class="row" style="margin-top:8px"><input placeholder="api.example.org, *.example.org" .value=${val}
+              @input=${(e: any) => { this.hostInput = { ...this.hostInput, [c.id]: e.target.value }; }}
+              @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") add(); }}>
+            <button class="btn" ?disabled=${!val.trim()} @click=${add}>${icon("plus", 15)} ${t("Erlauben")}</button></div></div>`;
+      })}</section>`;
+  }
   render() {
     const d = store.data; const s = this.s;
     const rdays = Number(s.retention_days ?? d.retention?.default ?? 0) || 0;
@@ -305,6 +341,7 @@ export class SettingsPage extends StoreElement {
       ${perms.length ? html`<section><h2>${icon("lock", 18)} Dauerhafte Freigaben (ohne Projekt)</h2>
         ${perms.map(([n, v]) => html`<div class="row" style="padding:4px 0"><span class="grow">${d.tools[n]?.label || n}: ${v === "allow" ? "erlaubt" : v === "deny" ? "verboten" : "fragen"}</span>
           <button class="btn ghost" @click=${() => { const p = { ...s.permissions }; delete p[n]; this.set("permissions", p); }}>Zurücksetzen</button></div>`)}</section>` : nothing}
+      ${this.hostsSection()}
       ${simple ? nothing : html`<section><h2>${icon("mdi:console", 18)} Werkbank</h2>
         ${werkbankInfo(!!d.werkbank?.configured, this.guide, () => (this.guide = !this.guide), d.user.is_admin)}
         ${d.user.is_admin ? html`<div class="hint" style="margin-top:8px">URL und Token trägst du unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Werkbank</a> ein.</div>` : nothing}</section>`}

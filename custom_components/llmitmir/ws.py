@@ -646,6 +646,25 @@ async def ws_cred_check(hass, conn, msg, m, user, st):
     return await _check_one(m, st, user.id, msg["credential_id"])
 
 
+@command(_t("credential/hosts") | {vol.Required("credential_id"): str, vol.Required("hosts"): [str]})
+async def ws_cred_hosts(hass, conn, msg, m, user, st):
+    """Nur die Liste „Erlaubte Server“ eines Zugangs ändern (Einstellungen → Erlaubte Server).
+
+    Eigener Befehl statt credential/save: Der speichert den ganzen Zugang und würde Felder, die nicht mitgeschickt
+    werden (Notiz), leeren. Die Server aus den Adressfeldern gelten immer und stehen hier nicht drin."""
+    c = st.meta["credentials"].get(msg["credential_id"])
+    if not c:
+        raise ValueError("Zugang nicht gefunden")
+    if C.is_gwdg(c):
+        raise ValueError("Ein GWDG-Exchange-Zugang geht nur an die Server der GWDG – weitere lassen sich nicht erlauben.")
+    auto = set(C.auto_hosts(c))
+    c["hosts"] = [h for h in C.clean_hosts(msg["hosts"]) if h not in auto]
+    c["updated"] = now()
+    await st.async_save_meta()
+    m.emit(user.id, {"type": "meta", "section": "credentials"})
+    return mask_credential(c, C.secret_fields(c))
+
+
 @command(_t("credential/diagnose") | {vol.Required("credential_id"): str})
 async def ws_cred_diagnose(hass, conn, msg, m, user, st):
     """Zeigt, was der Exchange auf die einzelnen Anfragen antwortet – fuer die Fehlersuche."""

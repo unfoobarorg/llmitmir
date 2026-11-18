@@ -379,3 +379,28 @@ async def test_admin_can_switch_off_the_microsoft_voice(hass, llmitmir, hass_ws_
     with patch("custom_components.llmitmir.speech._speak") as speak:
         resp = await client.post("/api/llmitmir/speak", json={"text": "Hallo"})
         assert resp.status == HTTPStatus.FORBIDDEN and not speak.called
+
+
+async def test_allowed_servers_are_managed_from_the_settings(
+        hass, llmitmir, hass_ws_client, hass_admin_user, hass_read_only_user, hass_read_only_access_token):
+    """Einstellungen → Erlaubte Server: nur die Liste ändern, der Rest des Zugangs bleibt."""
+    admin = await hass_ws_client(hass)
+    await _allow(admin, hass_admin_user.id, hass_read_only_user.id)
+    cred = await _ok(admin, "credential/save", credential={"name": "API", "type": "bearer", "notes": "wichtig",
+                                                           "fields": {"url": "https://api.example.org", "token": KEY}})
+    assert cred["auto_hosts"] == ["api.example.org"] and cred["hosts"] == []
+    res = await _ok(admin, "credential/hosts", credential_id=cred["id"],
+                    hosts=["files.example.net", "*.example.io", "api.example.org", "FILES.example.net"])
+    assert res["hosts"] == ["files.example.net", "*.example.io"] and KEY not in json.dumps(res)
+    st = await llmitmir["manager"].user_store(hass_admin_user.id)
+    stored = st.meta["credentials"][cred["id"]]
+    assert stored["notes"] == "wichtig" and stored["fields"]["token"] == KEY
+    assert (await _ok(admin, "credential/hosts", credential_id=cred["id"], hosts=["*.example.io"]))["hosts"] == ["*.example.io"]
+    msg = await _ws(admin, "credential/hosts", credential_id=cred["id"], hosts=["kein server"])
+    assert not msg["success"] and "Servername" in msg["error"]["message"]
+    other = await hass_ws_client(hass, hass_read_only_access_token)
+    assert not (await _ws(other, "credential/hosts", credential_id=cred["id"], hosts=["evil.example"]))["success"]
+    assert st.meta["credentials"][cred["id"]]["hosts"] == ["*.example.io"]
+    gwdg = await _ok(admin, "credential/save", credential={"name": "Uni", "type": "gwdg", "services": ["calendar"],
+                                                           "fields": {"username": "erika@gwdg.de", "password": "pw"}})
+    assert not (await _ws(admin, "credential/hosts", credential_id=gwdg["id"], hosts=["evil.example"]))["success"]

@@ -177,6 +177,10 @@ const EN: Record<string, string> = {
   "Ohne sie weitermachen": "Continue without it", "Ohne diese Aktion weiterarbeiten": "Keep working without this action",
   "Erlaubte Server": "Allowed servers",
   "Externes Bild – wird erst beim Klick geöffnet": "External image – only opened when clicked",
+  "Zugangsdaten gehen nur an diese Server. Für jeden anderen fragt LLMitMir vorher, geplante Aufgaben lehnen ab. Ein Server gilt nur für den Zugang, bei dem er steht.":
+    "Credentials only go to these servers. For any other one LLMitMir asks first; scheduled tasks refuse. A server only counts for the credential it is listed under.",
+  "Aus der Adresse des Zugangs – gilt immer": "From the credential's address – always allowed", "automatisch": "automatic",
+  "Noch kein Server – der erste Aufruf fragt nach.": "No server yet – the first call asks.", "Erlauben": "Allow",
   // geänderte Aufträge warten auf die Bestätigung der Eigentümerin bzw. des Eigentümers
   "Bestätigt – die Aufgabe läuft wieder": "Approved – the task runs again", "Verworfen – der alte Auftrag gilt wieder": "Discarded – the old prompt applies again",
   "Bestätigt – die Kachel läuft wieder": "Approved – the tile runs again", "Verworfen – die alte Beschreibung gilt wieder": "Discarded – the old description applies again",

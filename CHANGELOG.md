@@ -10,7 +10,8 @@ Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe G
   hindeutet. `ha_service` prüft für Nicht-Admins jedes Ziel; Bereiche, Geräte und Labels bleiben Admins vorbehalten.
 - **Zugänge nur an ihre Server:** Zugangsdaten gehen nur an die Server des Zugangs (aus seinen Adressen und der neuen
   Liste *Erlaubte Server*). Für einen anderen Server fragt LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen
-  auf fremde Server bekommen keine Zugangsdaten mit.
+  auf fremde Server bekommen keine Zugangsdaten mit. Übersicht und Verwaltung aller erlaubten Server unter
+  *Einstellungen → Erlaubte Server* (je Zugang, wie die Domain-Freigaben in Claude Desktop).
 - **Geteilte Aufgaben und Kacheln:** Wer sie bearbeiten darf, ändert keine Freigaben, Werkzeuge, Werkbank, Modell oder
   Projekt mehr. Ein geänderter Auftrag läuft erst, wenn die Eigentümerin oder der Eigentümer ihn bestätigt.
 - **Bilder in Antworten** laden nicht mehr von selbst von fremden Servern (Schutz vor Datenabfluss), sondern erscheinen

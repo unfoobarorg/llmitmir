@@ -197,6 +197,7 @@
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt. Ein Zugang
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
   LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
+  Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Erlaubte Server*.
 - **Exchange über EWS** (Typ „Exchange (EWS)“ und GWDG-Exchange): Kalender und Kontakte laufen über Exchange Web
   Services statt über CalDAV. Der Server beantwortet die Zeitraumabfrage selbst (`FindItem` mit `CalendarView`), es
   kommt also kein Archiv mit; jeder Eintrag hat eine stabile `item_id` samt `ChangeKey`, und Ändern wie Löschen
