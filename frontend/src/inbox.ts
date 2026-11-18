@@ -218,7 +218,7 @@ export class Inbox extends StoreElement {
       ${this.menu ? html`<div class="sheet" @click=${() => (this.menu = null)}>
         <div class="box" @click=${(ev: Event) => ev.stopPropagation()}>
           <div class="ttl">${this.menu.task || t("Geplante Aufgabe")}</div>
-          <button @click=${() => this.open(this.menu)}>${icon(this.menu.link ? "dashboard" : "chat", 18)} ${this.menu.link ? t("Kachel öffnen") : t("Chat öffnen")}</button>
+          <button @click=${() => this.open(this.menu)}>${icon(this.menu.link?.startsWith("/dashboards") ? "dashboard" : this.menu.link ? "task" : "chat", 18)} ${this.menu.link?.startsWith("/dashboards") ? t("Kachel öffnen") : this.menu.link ? t("Aufgabe öffnen") : t("Chat öffnen")}</button>
           ${this.menu.chat_id ? html`<button class="danger" @click=${() => this.muteChat(this.menu)}>${icon("bellOff", 18)} ${t("Benachrichtigungen dieses Chats ausschalten")}</button>` : nothing}
           <button @click=${() => { const m = this.menu; this.menu = null; this.dismiss(m); }}>${icon("close", 18)} ${t("Nur diese entfernen")}</button>
         </div>

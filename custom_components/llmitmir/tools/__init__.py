@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
@@ -28,6 +28,9 @@ class Tool:
     # Obergrenze für das Ergebnis in Zeichen: None = Standard (TOOL_RESULT_MAX_CHARS), 0 = nie kürzen.
     # Anleitungen (skill_load) sind Arbeitsanweisungen, keine Vorschau – die dürfen nicht abgeschnitten werden.
     max_chars: int | None = None
+    # (ctx, args) -> None oder {"host": …, "creds": [Zugänge]}: der Aufruf schickt Zugangsdaten an einen Server, der für
+    # diese Zugänge nicht erlaubt ist. Im Chat fragt LLMitMir dann nach (agent.execute), unbeaufsichtigt wird abgelehnt.
+    gate: Callable[["ToolContext", dict], dict | None] | None = None
 
     def is_write(self, args: dict) -> bool:
         return self.write(args) if callable(self.write) else bool(self.write)

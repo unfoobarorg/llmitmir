@@ -8,7 +8,7 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -38,6 +38,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cfg["_seeded"] = True
         cfg["_auto_models"] = True
         await manager.config.async_save()
+    if entry.data.get("api_key"):
+        # Der Schlüssel aus dem Einrichtungsdialog steht jetzt in der Admin-Konfiguration (dort änderbar). Im Config
+        # Entry bliebe er sonst für immer liegen – auch nachdem der Admin ihn im Panel ändert oder entfernt.
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "api_key": ""})
     if not cfg.get("_auto_models"):
         # Up to 0.3 the preset's fixed models were copied into the admin defaults. Defaults nobody changed become
         # "automatic", so new releases and the current load are taken into account.
@@ -112,7 +116,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await _start()
     else:
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start))
+
+    async def _flush(_event=None) -> None:
+        # Home Assistant fährt herunter: verzögerte Speicherungen jetzt schreiben, sonst gingen die letzten Sekunden
+        # (Verbrauch, Prüfergebnisse, Startseiten-Karten) verloren
+        await _flush_all(manager)
+
+    entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _flush))
     return True
+
+
+async def _flush_all(manager) -> None:
+    for st in list(manager.users.values()):
+        try:
+            await st.async_flush()
+        except Exception:  # noqa: BLE001 - die anderen Personen trotzdem speichern
+            _LOGGER.exception("Speichern der Daten von %s fehlgeschlagen", st.user_id)
+    await manager.billing.async_save()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -125,9 +145,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await manager.scheduler.async_stop()
         if getattr(manager, "boards", None):
             await manager.boards.async_stop()
-        for st in manager.users.values():
+        for st in list(manager.users.values()):
             await st.async_save_meta()
-        await manager.billing.async_save()
+        await _flush_all(manager)
+        # die eigene Client-Session (ohne Cookie-Speicher) gehört zu diesem Eintrag – sonst bliebe sie bis zum
+        # Herunterfahren offen, bei jedem Neuladen eine mehr
+        await manager.session.close()
     frontend.async_remove_panel(hass, PANEL_URL)
     data.pop("manager", None)
     return True

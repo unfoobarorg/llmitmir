@@ -1,0 +1,5 @@
+# Integrationstests gegen ein echtes Home Assistant (tests_ha/). Die Version des Harness legt die HA-Version fest:
+#   0.13.375 = Home Assistant 2026.10.4 (Python 3.14) – aktuelle Version
+#   0.13.205 = Home Assistant 2025.1.4  (Python 3.13) – Mindestversion laut hacs.json (in der CI als Matrix)
+# Beim Anheben der Mindestversion in hacs.json auch den Eintrag in .gitlab-ci.yml (HA_HARNESS) anpassen.
+pytest-homeassistant-custom-component==0.13.375

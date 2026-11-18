@@ -929,9 +929,9 @@ def test_gwdg_account_like_calmerge():
     assert f == {"username": "max.muster@gwdg.de", "login": "max.muster", "password": "pw",
                  "ews_url": creds.GWDG_EWS}
     # eine abweichende Kennung bleibt erhalten
-    f2 = creds.normalize_fields("gwdg", {"username": "nikolaj.kopp@gwdg.de", "login": "nkopp1", "password": "pw"},
+    f2 = creds.normalize_fields("gwdg", {"username": "erika.mustermann@gwdg.de", "login": "emuste1", "password": "pw"},
                                 ["calendar"])
-    assert f2["login"] == "nkopp1" and f2["username"] == "nikolaj.kopp@gwdg.de"
+    assert f2["login"] == "emuste1" and f2["username"] == "erika.mustermann@gwdg.de"
     # alle Dienste: Postfach kommt dazu, abgewählte Adressen verschwinden wieder
     f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail", "contacts"])
     assert f["ews_url"] == creds.GWDG_EWS  # Postfach, Kalender und Kontakte: derselbe Endpunkt
@@ -1611,7 +1611,7 @@ def test_ews_parse_calendar_items():
       <t:CalendarItem><t:ItemId Id="AAMk=" ChangeKey="CK1"/><t:Subject>Jour fixe</t:Subject>
       <t:Start>2026-11-20T13:00:00Z</t:Start><t:End>2026-11-20T14:00:00Z</t:End>
       <t:Location>Videokonferenz</t:Location><t:IsAllDayEvent>false</t:IsAllDayEvent>
-      <t:Organizer><t:Mailbox><t:Name>Niko</t:Name><t:EmailAddress>niko@gwdg.de</t:EmailAddress></t:Mailbox></t:Organizer>
+      <t:Organizer><t:Mailbox><t:Name>Niko</t:Name><t:EmailAddress>erika@gwdg.de</t:EmailAddress></t:Mailbox></t:Organizer>
       <t:RequiredAttendees><t:Attendee><t:Mailbox><t:EmailAddress>a@example.org</t:EmailAddress></t:Mailbox>
       <t:ResponseType>Accept</t:ResponseType></t:Attendee></t:RequiredAttendees>
       <t:Categories><t:String>GWDG</t:String></t:Categories>
@@ -1622,7 +1622,7 @@ def test_ews_parse_calendar_items():
     ev = out["items"][0]
     assert ev["betreff"] == "Jour fixe" and ev["item_id"] == "AAMk=" and ev["change_key"] == "CK1"
     assert ev["start"] == "2026-11-20T13:00:00Z" and ev["ort"] == "Videokonferenz"
-    assert ev["organisator"]["email"] == "niko@gwdg.de"
+    assert ev["organisator"]["email"] == "erika@gwdg.de"
     assert ev["teilnehmer"][0]["email"] == "a@example.org" and ev["teilnehmer"][0]["art"] == "Accept"
     assert ev["kategorien"] == ["GWDG"]
 
@@ -1668,15 +1668,15 @@ def test_ews_item_ids_and_day():
 
 def test_ews_credentials_types():
     """Neuer Typ ews und GWDG über EWS: Endpunkte, Rechte, Dienste."""
-    gwdg = {"type": "gwdg", "fields": {"username": "niko@gwdg.de", "password": "x"}, "services": ["calendar", "contacts"]}
+    gwdg = {"type": "gwdg", "fields": {"username": "erika@gwdg.de", "password": "x"}, "services": ["calendar", "contacts"]}
     assert creds.is_ews(gwdg)
     assert creds.ews_endpoint(gwdg) == creds.GWDG_EWS
     # angemeldet wird mit der Kennung (gwdg\kennung), nicht mit der Adresse
-    assert creds.ews_account(gwdg) == ("niko", "x")
-    assert creds.ews_account({"type": "gwdg", "fields": {"username": "niko@gwdg.de", "login": "nkopp1",
-                                                         "password": "x"}}) == ("nkopp1", "x")
+    assert creds.ews_account(gwdg) == ("erika", "x")
+    assert creds.ews_account({"type": "gwdg", "fields": {"username": "erika@gwdg.de", "login": "emuste1",
+                                                         "password": "x"}}) == ("emuste1", "x")
     # der Absender bleibt die Adresse
-    assert creds.ews_sender({"type": "gwdg", "fields": {"username": "niko@gwdg.de", "login": "nkopp1"}}) == "niko@gwdg.de"
+    assert creds.ews_sender({"type": "gwdg", "fields": {"username": "erika@gwdg.de", "login": "emuste1"}}) == "erika@gwdg.de"
     assert creds.access(gwdg, "calendar") == "read" and creds.access(gwdg, "mail") == ""
     gwdg_write = dict(gwdg, access={"calendar": "write"})
     assert creds.access(gwdg_write, "calendar") == "write"
@@ -1690,9 +1690,9 @@ def test_ews_credentials_types():
     assert creds.access(ex, "contacts") == "read"
     assert creds.access_text(ex) == {"E-Mail-Postfach": "nur lesen", "Kalender": "nur lesen", "Kontakte": "nur lesen"}
     # Felder: GWDG erzeugt den EWS-Endpunkt, der eigene Typ behält seine Adresse
-    norm = creds.normalize_fields("gwdg", {"username": "Niko", "password": "p"}, ["calendar"])
-    assert norm["username"] == "niko@gwdg.de" and norm["ews_url"] == creds.GWDG_EWS and "url" not in norm
-    norm = creds.normalize_fields("gwdg", {"username": "niko@gwdg.de", "password": "p"}, ["mail"])
+    norm = creds.normalize_fields("gwdg", {"username": "Erika", "password": "p"}, ["calendar"])
+    assert norm["username"] == "erika@gwdg.de" and norm["ews_url"] == creds.GWDG_EWS and "url" not in norm
+    norm = creds.normalize_fields("gwdg", {"username": "erika@gwdg.de", "password": "p"}, ["mail"])
     assert norm["ews_url"] == creds.GWDG_EWS and "imap_host" not in norm  # Postfach über EWS
     norm = creds.normalize_fields("ews", {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p", "alt": ""})
     assert norm == {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p"}
@@ -2052,7 +2052,7 @@ def test_ews_mail_parsing():
       <t:DateTimeReceived>2026-11-13T09:15:00Z</t:DateTimeReceived><t:IsRead>false</t:IsRead>
       <t:HasAttachments>true</t:HasAttachments><t:Size>2048</t:Size>
       <t:From><t:Mailbox><t:Name>Buchhaltung</t:Name><t:EmailAddress>buch@example.org</t:EmailAddress></t:Mailbox></t:From>
-      <t:ToRecipients><t:Mailbox><t:EmailAddress>niko@gwdg.de</t:EmailAddress></t:Mailbox></t:ToRecipients>
+      <t:ToRecipients><t:Mailbox><t:EmailAddress>erika@gwdg.de</t:EmailAddress></t:Mailbox></t:ToRecipients>
       <t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag></t:Message>
       <t:Message><t:ItemId Id="M2" ChangeKey="C2"/><t:Subject>Termin</t:Subject>
       <t:DateTimeReceived>2026-11-12T08:00:00Z</t:DateTimeReceived><t:IsRead>true</t:IsRead>
@@ -2063,7 +2063,7 @@ def test_ews_mail_parsing():
     assert [r["uid"] for r in rows] == ["M1", "M2"]  # ItemId ist die Kennung
     first = rows[0]
     assert first["betreff"] == "Rechnung 4711" and first["von"] == "buch@example.org"
-    assert first["von_name"] == "Buchhaltung" and first["an"] == ["niko@gwdg.de"]
+    assert first["von_name"] == "Buchhaltung" and first["an"] == ["erika@gwdg.de"]
     assert first["ungelesen"] is True and first["anhaenge"] is True and first["markiert"] is True
     assert first["groesse"] == 2048 and first["change_key"] == "C1"
     assert first["datum"].startswith("2026-11-13T10:15")  # UTC → Europe/Berlin
@@ -2085,7 +2085,7 @@ def test_mail_tools_use_ews_for_exchange():
     import asyncio
     import types
 
-    M = _pkg("tools.mail")
+    _pkg("tools.mail")  # registriert die Mail-Werkzeuge
     EW = _pkg("tools.mail_ews")
     calls = []
 
@@ -2275,8 +2275,8 @@ def test_ntlm_handshake_messages():
     with pytest.raises(ValueError):
         N.parse_type2(b"kein NTLM")
 
-    assert N.split_user("gwdg\\nikolaj.kopp") == ("nikolaj.kopp", "gwdg")
-    assert N.split_user("nikolaj.kopp", "gwdg") == ("nikolaj.kopp", "gwdg")
+    assert N.split_user("gwdg\\erika.mustermann") == ("erika.mustermann", "gwdg")
+    assert N.split_user("erika.mustermann", "gwdg") == ("erika.mustermann", "gwdg")
     assert N.split_user("DOMAIN\\user", "gwdg") == ("user", "DOMAIN")
 
 
@@ -2298,7 +2298,7 @@ def test_ews_call_falls_back_to_ntlm(monkeypatch):
     import struct
 
     E = _pkg("ews")
-    N = _pkg("ntlm")
+    _pkg("ntlm")
     seen = []
 
     ti = bytes.fromhex("02000c0044006f006d00610069006e0000000000")
@@ -2394,22 +2394,22 @@ def test_ntlm_tries_username_variants(monkeypatch):
             return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
         return fake_post
 
-    # 1) die dokumentierte Form wird angenommen: gwdg\nikolaj.kopp, also Kennung + Domäne gwdg
-    monkeypatch.setattr(E, "_post", make_post(("nikolaj.kopp", "gwdg")))
-    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
+    # 1) die dokumentierte Form wird angenommen: gwdg\erika.mustermann, also Kennung + Domäne gwdg
+    monkeypatch.setattr(E, "_post", make_post(("erika.mustermann", "gwdg")))
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "erika.mustermann@gwdg.de", "pw",
                              "<x/>", domain="gwdg"))
     assert out["ok"] is True
-    assert seen == [("nikolaj.kopp", "gwdg")]  # erster Versuch, ohne @gwdg.de, mit Domäne gwdg
+    assert seen == [("erika.mustermann", "gwdg")]  # erster Versuch, ohne @gwdg.de, mit Domäne gwdg
     assert len(handshakes) == 1
 
     # 2) lehnt der Server die erste Form ab, kommt ein NEUER Handschlag – nicht derselbe verbrauchte
     seen.clear()
     handshakes.clear()
-    monkeypatch.setattr(E, "_post", make_post(("nikolaj.kopp@gwdg.de", "")))
-    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
+    monkeypatch.setattr(E, "_post", make_post(("erika.mustermann@gwdg.de", "")))
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "erika.mustermann@gwdg.de", "pw",
                              "<x/>", domain="gwdg"))
     assert out["ok"] is True
-    assert seen[-1] == ("nikolaj.kopp@gwdg.de", "")
+    assert seen[-1] == ("erika.mustermann@gwdg.de", "")
     assert len(seen) > 1
     assert len(handshakes) == len(seen)  # je Versuch ein eigener Type 1
 
@@ -2512,14 +2512,14 @@ def test_ews_contact_parser_reads_indexed_phones():
       xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body>
       <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
       <m:ResponseCode>NoError</m:ResponseCode><m:RootFolder TotalItemsInView="1">
-      <t:Items><t:Contact><t:ItemId Id="AAA=" ChangeKey="CQ=="/><t:DisplayName>Kopp, Nikolaj</t:DisplayName>
+      <t:Items><t:Contact><t:ItemId Id="AAA=" ChangeKey="CQ=="/><t:DisplayName>Mustermann, Erika</t:DisplayName>
       <t:PhoneNumbers>
         <t:Entry FieldIndex="BusinessPhone">0551 201-1234</t:Entry>
         <t:Entry FieldIndex="MobilePhone">0170 1234567</t:Entry>
       </t:PhoneNumbers></t:Contact></t:Items></m:RootFolder>
       </m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse></s:Body></s:Envelope>"""
     items = E.parse(xml)["items"]
-    assert items[0]["name"] == "Kopp, Nikolaj"
+    assert items[0]["name"] == "Mustermann, Erika"
     assert items[0]["telefon"] == "0551 201-1234"
     assert items[0]["mobil"] == "0170 1234567"
 
@@ -2560,7 +2560,7 @@ def test_built_message_is_seven_bit_clean():
 
     MB = _pkg("mailbox")
     text = "Sie ging ausschliesslich an dich.\nUmlaute: \u00e4\u00f6\u00fc\u00df \u00c4\u00d6\u00dc \u20ac \u2013 \u201eAnf\u00fchrung\"\n"
-    msg = MB.build_message("nikolaj.kopp@gwdg.de", "nikolaj.kopp@gwdg.de", "Test", text)
+    msg = MB.build_message("erika.mustermann@gwdg.de", "erika.mustermann@gwdg.de", "Test", text)
     raw = bytes(msg)
     body = raw.split(b"\n\n", 1)[1]
     # der transportierte Text ist reines ASCII

@@ -619,7 +619,8 @@ def _mailbox(el: ET.Element | None) -> dict:
     """Mailbox-Element (Organizer, Attendee) als {"name", "email"}."""
     if el is None:
         return {}
-    box = _kid(el, "Mailbox") or el
+    box = _kid(el, "Mailbox")
+    box = el if box is None else box
     return {"name": _text(box, "Name"), "email": _text(box, "EmailAddress")}
 
 
@@ -794,7 +795,8 @@ def parse_messages(xml: str | bytes) -> list[dict]:
         if iid is None or not iid.get("Id"):
             continue
         sender = _mailbox(_kid(el, "From"))
-        to = [_mailbox(a) for a in _kids(_kid(el, "ToRecipients") or ET.Element("x"), "Mailbox")]
+        rcpt = _kid(el, "ToRecipients")
+        to = [_mailbox(a) for a in _kids(rcpt if rcpt is not None else ET.Element("x"), "Mailbox")]
         entry = {
             "uid": iid.get("Id") or "",
             "change_key": iid.get("ChangeKey") or "",

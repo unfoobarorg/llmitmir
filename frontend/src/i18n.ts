@@ -165,6 +165,40 @@ const EN: Record<string, string> = {
   "„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.": "“Always allow” only applies to this subtask – even when you answer here in the main chat.", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
   "Dashboards": "Dashboards", "Kachel-Aufgaben": "Tile tasks", "Kachel-Läufe": "Tile runs", "Kachel öffnen": "Open tile",
   "Bearbeiten": "Edit",
+  // Zugänge nur an ihre Server (Freigabe bei neuen Servern)
+  "Zugang {name} an {host} senden?": "Send credential {name} to {host}?",
+  "Dieser Server gehört bisher nicht zu den erlaubten Servern des Zugangs. Erlaube das nur, wenn du ihm die Zugangsdaten anvertraust.":
+    "This server is not one of the credential's allowed servers yet. Only allow it if you trust it with the credentials.",
+  "Server immer erlauben": "Always allow server",
+  "„Server immer erlauben“ trägt {host} beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“).":
+    "“Always allow server” adds {host} to the credential (Credentials → Allowed servers).",
+  "Darf ich deine Zugangsdaten {name} an {host} schicken?": "May I send your credential {name} to {host}?",
+  "Diesem Server immer": "Always for this server", "Ja, diesmal": "Yes, this time", "Nein": "No", "Genau ansehen": "Look closely",
+  "Ohne sie weitermachen": "Continue without it", "Ohne diese Aktion weiterarbeiten": "Keep working without this action",
+  "Erlaubte Server": "Allowed servers",
+  "Externes Bild – wird erst beim Klick geöffnet": "External image – only opened when clicked",
+  "Zugangsdaten gehen nur an diese Server. Für jeden anderen fragt LLMitMir vorher, geplante Aufgaben lehnen ab. Ein Server gilt nur für den Zugang, bei dem er steht.":
+    "Credentials only go to these servers. For any other one LLMitMir asks first; scheduled tasks refuse. A server only counts for the credential it is listed under.",
+  "Aus der Adresse des Zugangs – gilt immer": "From the credential's address – always allowed", "automatisch": "automatic",
+  "Noch kein Server – der erste Aufruf fragt nach.": "No server yet – the first call asks.", "Erlauben": "Allow",
+  // geänderte Aufträge warten auf die Bestätigung der Eigentümerin bzw. des Eigentümers
+  "Bestätigt – die Aufgabe läuft wieder": "Approved – the task runs again", "Verworfen – der alte Auftrag gilt wieder": "Discarded – the old prompt applies again",
+  "Bestätigt – die Kachel läuft wieder": "Approved – the tile runs again", "Verworfen – die alte Beschreibung gilt wieder": "Discarded – the old description applies again",
+  "Aufgabe öffnen": "Open task",
+  "Sprachausgabe": "Speech output", "Eigene Stimme des Roboters": "The robot's own voice",
+  "Klingt auf jedem Gerät gleich. Dafür geht jeder vorgelesene Antworttext an den Vorlesedienst von Microsoft Edge (über das Paket edge-tts). Ausgeschaltet liest die Sprachausgabe von Home Assistant oder des Browsers vor – dann verlässt kein Antworttext Home Assistant für die Stimme.":
+    "Sounds the same on every device. For this, every answer that is read aloud goes to Microsoft Edge's read-aloud service (via the edge-tts package). When off, Home Assistant's or the browser's speech output reads aloud – then no answer text leaves Home Assistant for the voice.",
+  "Das Paket edge-tts ist nicht installiert.": "The edge-tts package is not installed.",
+  "Der geänderte Auftrag wartet auf die Bestätigung von {owner}. Bis dahin läuft die Aufgabe nicht.": "The changed prompt is waiting for {owner} to approve it. Until then the task does not run.",
+  "der Person, der sie gehört": "its owner", "Jemand": "Someone", "Vorher:": "Before:", "Bestätigen": "Approve", "Verwerfen": "Discard",
+  "{name} hat den Auftrag geändert.": "{name} changed the prompt.",
+  "Die Aufgabe läuft mit deinen Zugängen und Freigaben – deshalb erst wieder, wenn du bestätigst.": "The task runs with your credentials and approvals – so it only runs again once you approve.",
+  "{name} hat die Beschreibung geändert.": "{name} changed the description.",
+  "Die Kachel läuft mit deinen Zugängen – deshalb erst wieder, wenn du bestätigst.": "The tile runs with your credentials – so it only runs again once you approve.",
+  "Die geänderte Beschreibung wartet auf die Bestätigung von {owner}. Bis dahin läuft die Kachel nicht.": "The changed description is waiting for {owner} to approve it. Until then the tile does not run.",
+  "Automatisch aus den Adressen des Zugangs: {hosts}.": "Automatically from the credential's addresses: {hosts}.",
+  "Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.":
+    "More servers this credential may go to without asking – comma-separated, *.example.org works too. For any other server LLMitMir asks first; scheduled tasks refuse.",
 };
 
 let lang = "de";

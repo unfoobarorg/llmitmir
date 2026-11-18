@@ -26,6 +26,7 @@ from . import retention as RT
 from . import subchats as SC
 from . import providers as PV
 from . import sharing as SH
+from . import taskedit as TE
 from . import speech as SP
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, ORIGIN_DASHBOARD,
@@ -50,7 +51,10 @@ def command(schema: dict, admin: bool = False):
         @websocket_api.async_response
         @functools.wraps(func)
         async def handler(hass, connection, msg):
-            m = _mgr(hass)
+            m = hass.data.get(DOMAIN, {}).get("manager")
+            if m is None:  # Eintrag entladen (Neuladen, Fehler beim Einrichten): klare Meldung statt KeyError
+                connection.send_error(msg["id"], "not_loaded", "LLMitMir ist gerade nicht geladen")
+                return
             user = connection.user
             if admin and not user.is_admin:
                 connection.send_error(msg["id"], "unauthorized", "Nur für Admins")
@@ -113,6 +117,10 @@ def _task_view(m, user_id: str, t: dict, owner_id: str | None = None, names: dic
                                "notify": bool(e.get("notify"))}
                               for uid, e in ((t.get("share") or {}).get("users") or {}).items()]}
     out["share_text"] = SH.summary(t.get("share"), names)
+    pend = t.get("pending_approval") or {}
+    if pend:
+        # ein geänderter Auftrag wartet auf die Bestätigung der Eigentümerin bzw. des Eigentümers (taskedit.py)
+        out["pending_by_name"] = (names or {}).get(pend.get("by")) or ""
     if run_chats is not None:
         out["run_chats"] = run_chats
     return out
@@ -126,6 +134,13 @@ async def _names(m, user_ids) -> dict:
     return out
 
 
+def _speech_view(m) -> dict:
+    """Die feste Stimme des Roboters – nicht verfügbar, wenn der Admin sie ausgeschaltet hat (Panel nimmt dann HA/Browser)."""
+    info = SP.info()
+    on = SP.enabled(m.config.data)
+    return dict(info, available=bool(info["available"] and on), disabled_by_admin=not on)
+
+
 def _project_view(p: dict) -> dict:
     return dict(p)
 
@@ -136,7 +151,8 @@ async def _tasks_view(m, user) -> list[dict]:
     shared = await m.shared_tasks(user.id)
     ids = [user.id] + [uid for uid, _ in shared]
     for t in st.meta["tasks"].values():
-        ids += SH.users(t.get("share"))
+        ids += SH.users(t.get("share")) + [(t.get("pending_approval") or {}).get("by")]
+    ids += [(t.get("pending_approval") or {}).get("by") for _uid, t in shared]
     names = await _names(m, ids)
     # own tasks: the panel finds their runs in the own chat list – no need to read run chats from disk here.
     # Tasks of dashboard tiles are not listed here at all (boards.view -> tile_tasks, short form).
@@ -205,7 +221,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "permissions": perms,
         "transcription": bool((m.config.data.get("provider") or {}).get("transcription_model")),
         # Die feste Stimme des Roboters (eigene Sprachausgabe, auf jedem Gerät gleich)
-        "speech": SP.info(),
+        "speech": _speech_view(m),
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
@@ -222,7 +238,10 @@ async def ws_bootstrap(hass, conn, msg, m, user, st):
 @websocket_api.websocket_command(_t("access"))
 @callback
 def ws_access(hass, conn, msg):
-    m = _mgr(hass)
+    m = hass.data.get(DOMAIN, {}).get("manager")
+    if m is None:
+        conn.send_result(msg["id"], {"allowed": False, "is_admin": conn.user.is_admin, "configured": False})
+        return
     conn.send_result(msg["id"], {"allowed": m.allowed(conn.user), "is_admin": conn.user.is_admin,
                                  "configured": bool(m.config.data.get("provider", {}).get("base_url"))})
 
@@ -495,7 +514,7 @@ async def ws_chat_stop(hass, conn, msg, m, user, st):
     return {"stopped": m.stop(user.id, msg["chat_id"])}
 
 
-@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "lots", "deny"])})
+@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "lots", "deny", "skip"])})
 async def ws_permission(hass, conn, msg, m, user, st):
     return {"ok": m.answer_permission(user.id, msg["permission_id"], msg["decision"])}
 
@@ -550,9 +569,12 @@ async def ws_project_delete(hass, conn, msg, m, user, st):
     pid = msg["project_id"]
     st.meta["projects"].pop(pid, None)
     for cid, c in list(st.meta["chats"].items()):
+        if cid not in st.meta["chats"]:
+            continue  # als Teilaufgabe mit ihrem Hauptchat schon gelöscht
         if c.get("project_id") == pid:
             if msg["delete_chats"]:
-                await st.async_delete_chat(cid)
+                # derselbe Weg wie beim Löschen von Hand: Lauf anhalten, Sandbox, Teilaufgaben und Karten mit weg
+                await m.delete_chat(user.id, cid)
             else:
                 chat = await st.async_get_chat(cid)
                 if chat:
@@ -624,6 +646,25 @@ async def ws_cred_check(hass, conn, msg, m, user, st):
     return await _check_one(m, st, user.id, msg["credential_id"])
 
 
+@command(_t("credential/hosts") | {vol.Required("credential_id"): str, vol.Required("hosts"): [str]})
+async def ws_cred_hosts(hass, conn, msg, m, user, st):
+    """Nur die Liste „Erlaubte Server“ eines Zugangs ändern (Einstellungen → Erlaubte Server).
+
+    Eigener Befehl statt credential/save: Der speichert den ganzen Zugang und würde Felder, die nicht mitgeschickt
+    werden (Notiz), leeren. Die Server aus den Adressfeldern gelten immer und stehen hier nicht drin."""
+    c = st.meta["credentials"].get(msg["credential_id"])
+    if not c:
+        raise ValueError("Zugang nicht gefunden")
+    if C.is_gwdg(c):
+        raise ValueError("Ein GWDG-Exchange-Zugang geht nur an die Server der GWDG – weitere lassen sich nicht erlauben.")
+    auto = set(C.auto_hosts(c))
+    c["hosts"] = [h for h in C.clean_hosts(msg["hosts"]) if h not in auto]
+    c["updated"] = now()
+    await st.async_save_meta()
+    m.emit(user.id, {"type": "meta", "section": "credentials"})
+    return mask_credential(c, C.secret_fields(c))
+
+
 @command(_t("credential/diagnose") | {vol.Required("credential_id"): str})
 async def ws_cred_diagnose(hass, conn, msg, m, user, st):
     """Zeigt, was der Exchange auf die einzelnen Anfragen antwortet – fuer die Fehlersuche."""
@@ -663,14 +704,23 @@ async def ws_task_save(hass, conn, msg, m, user, st):
     owner_id, owner_st, old = user.id, st, None
     if t.get("id"):
         owner_id, owner_st, old = await _task_for(m, user, t["id"], need_edit=True)
-    ext = m.external_view(user.id)
-    if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
-        raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
-    if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
-        raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
-    if old is not None and owner_id != user.id:
-        # Somebody the task is shared with: only what concerns the task itself, never the sharing
+    editor = old is not None and owner_id != user.id
+    if not editor:
+        ext = m.external_view(user.id)
+        if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
+            raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
+        if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
+            raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
+    new_prompt = False
+    if editor:
+        # Jemand, mit dem die Aufgabe geteilt ist (taskedit.py): Name, Zeitplan, Benachrichtigung sofort; ein neuer
+        # Auftrag erst nach Bestätigung; womit die Aufgabe läuft (Freigaben, Werkzeuge, Modell …) nie.
+        changed = [k for k in TE.owner_only_changes(old, t) if k != "share"]
+        if changed:
+            raise PermissionError(TE.owner_only_error(changed))
         t = {k: v for k, v in t.items() if k != "share"}
+        t.update({k: old.get(k) for k in TE.OWNER_ONLY if k != "share"})
+        new_prompt = old.get("origin") != ORIGIN_DASHBOARD and TE.prompt_changed(old, t)
     if old is not None and old.get("origin") == ORIGIN_DASHBOARD:
         # a tile's task: the prompt is the tile's description, the sharing is the tile's – the rest may change here
         from homeassistant.util import dt as dt_util
@@ -680,10 +730,40 @@ async def ws_task_save(hass, conn, msg, m, user, st):
         if t.get("enabled") and old.get("paused") == "unplaced":
             raise ValueError("Die Kachel liegt auf keinem Dashboard – platziere sie, dann läuft die Aufgabe wieder.")
     task = await M.save_task(m, owner_id, owner_st, t)
+    if new_prompt:
+        task["pending_approval"] = TE.pending(old, user.id, now())
+        await owner_st.async_save_meta()
+        await m.tell_owner_pending(owner_id, task, user.id)
+    elif not editor and task.pop("pending_approval", None) is not None:
+        await owner_st.async_save_meta()  # wer die Aufgabe besitzt und speichert, hat den neuen Auftrag gesehen
     if task.get("origin") == ORIGIN_DASHBOARD:
         await m.boards.emit_boards([owner_id])
         return m.boards.tile_task_row(owner_st, task)
-    names = await _names(m, [owner_id, *SH.users(task.get("share"))])
+    m.emit_task(owner_id, task)
+    names = await _names(m, [owner_id, *SH.users(task.get("share")), (task.get("pending_approval") or {}).get("by")])
+    return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
+
+
+@command(_t("task/approve") | {vol.Required("task_id"): str, vol.Required("approve"): bool})
+async def ws_task_approve(hass, conn, msg, m, user, st):
+    """Einen von jemand anderem geänderten Auftrag bestätigen (die Aufgabe läuft wieder) oder verwerfen."""
+    owner_id, owner_st, task = await _task_for(m, user, msg["task_id"])
+    if owner_id != user.id:
+        raise PermissionError("Bestätigen kann nur, wem die Aufgabe gehört.")
+    pend = task.pop("pending_approval", None)
+    if not pend:
+        raise ValueError("Es wartet keine Änderung auf Bestätigung.")
+    if not msg["approve"]:
+        task["prompt"] = pend.get("prompt_before") or task.get("prompt") or ""
+        if task.get("origin") == ORIGIN_DASHBOARD and m.boards:
+            await m.boards.restore_description(owner_id, task, pend)
+    task["updated"] = now()
+    await owner_st.async_save_meta()
+    if task.get("origin") == ORIGIN_DASHBOARD and m.boards:
+        await m.boards.emit_boards(await m.boards.audience(owner_id, (owner_st.meta["tiles"].get(task.get("tile_id") or "") or {}).get("share")))
+        return m.boards.tile_task_row(owner_st, task)
+    m.emit_task(owner_id, task)
+    names = await _names(m, [owner_id, *SH.users(task.get("share")), (task.get("pending_approval") or {}).get("by")])
     return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
 
 
@@ -701,6 +781,9 @@ async def ws_task_delete(hass, conn, msg, m, user, st):
 @command(_t("task/run_now") | {vol.Required("task_id"): str})
 async def ws_task_run(hass, conn, msg, m, user, st):
     owner_id, _owner_st, _task = await _task_for(m, user, msg["task_id"], need_edit=True)
+    if _task.get("pending_approval"):
+        raise PermissionError("Der Auftrag wurde geändert und wartet auf die Bestätigung der Eigentümerin bzw. des "
+                              "Eigentümers – vorher läuft die Aufgabe nicht.")
     if _task.get("origin") == ORIGIN_DASHBOARD:
         return {"position": await m.boards.run_now(user, owner_id, _task.get("tile_id") or "")}
     pos = m.scheduler.enqueue(owner_id, msg["task_id"], "manuell")
@@ -1013,6 +1096,7 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "models": cfg.get("models"), "known_context": KNOWN_CONTEXT, "models_live": m.models_for_users(all_known=True),
         "auto_models": {r: MS.pick(m.live_models(), r) or "" for r in MS.ROLES},
         "search": cfg.get("search"),
+        "speech": {"enabled": SP.enabled(cfg), "installed": SP.available()},
         "werkbank": {"url": (cfg.get("werkbank") or {}).get("url", ""), "token": MASK if (cfg.get("werkbank") or {}).get("token") else ""},
         "users": [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
                    "view": (m.users[u.id].meta["settings"].get("view") if u.id in m.users else None),
@@ -1105,6 +1189,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
             cfg[k] = c[k]
     if "views" in c:
         cfg["views"] = V.clean(c["views"])
+    if "speech" in c:
+        cfg["speech"] = {"enabled": bool((c["speech"] or {}).get("enabled"))}
     if "notify_devices" in c:
         cfg["notify_devices"] = ND.clean_links(c["notify_devices"])
     if "werkbank" in c:

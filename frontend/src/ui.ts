@@ -7,6 +7,7 @@ import DOMPurify from "dompurify";
 import * as mdi from "./icons";
 import { t } from "./i18n";
 import { store } from "./api";
+import { blockedImageLabel, linkable, loadsSafely } from "./safeurl";
 
 // ------------------------------------------------------------------ safe element registration
 /** Like Lit's @customElement, but skips names that are already defined (HA may load a newer panel module
@@ -89,6 +90,32 @@ DOMPurify.addHook("afterSanitizeAttributes", (node: any) => {
 // eingehenden Textstueck neu). Ergebnis merken: marked und DOMPurify sind sonst der
 // teuerste Teil und liessen das Scrollen waehrend laufender Arbeit stocken.
 const mdCache = new Map<string, string>();
+
+// Nichts, was der Browser von selbst nachlädt: keine Medien-Tags, keine Bildquellen in Attributen, keine Formulare.
+const SANITIZE = {
+  FORBID_TAGS: ["style", "form", "input", "video", "audio", "source", "track", "picture", "image", "use", "object", "embed", "iframe"],
+  FORBID_ATTR: ["style", "srcset", "background", "poster", "ping", "action", "formaction", "xlink:href"],
+  RETURN_DOM_FRAGMENT: true,
+};
+
+/** Markdown-HTML säubern und Bilder, die nicht sicher von selbst laden dürfen (safeurl.ts), durch Links ersetzen. */
+function sanitize(raw: string): string {
+  const frag = DOMPurify.sanitize(raw, SANITIZE) as unknown as DocumentFragment;
+  frag.querySelectorAll("img").forEach(img => {
+    const src = img.getAttribute("src") || "";
+    if (loadsSafely(src, location.origin)) return;
+    const repl = linkable(src) ? document.createElement("a") : document.createElement("span");
+    if (repl instanceof HTMLAnchorElement) {
+      repl.href = src; repl.target = "_blank"; repl.rel = "noopener noreferrer";
+      repl.title = t("Externes Bild – wird erst beim Klick geöffnet");
+    }
+    repl.textContent = blockedImageLabel(img.getAttribute("alt"), src);
+    img.replaceWith(repl);
+  });
+  const box = document.createElement("div");
+  box.appendChild(frag);
+  return box.innerHTML;
+}
 export function md(text: string, opts: { breaks?: boolean } = {}) {
   const key = (opts.breaks === false ? "d" : "c") + "\u0000" + (text || "");
   const hit = mdCache.get(key);
@@ -98,7 +125,7 @@ export function md(text: string, opts: { breaks?: boolean } = {}) {
   // Tabellen in einen eigenen Scrollkasten setzen: sonst zieht eine breite Tabelle den
   // ganzen Chat in die Breite, statt nur in ihrem Kasten zu scrollen.
   raw = raw.replace(/<table>/g, '<div class="md-tw"><table>').replace(/<\/table>/g, "</table></div>");
-  const out = DOMPurify.sanitize(raw, { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] });
+  const out = sanitize(raw);
   if (mdCache.size > 300) mdCache.clear();
   mdCache.set(key, out);
   return unsafeHTML(out);

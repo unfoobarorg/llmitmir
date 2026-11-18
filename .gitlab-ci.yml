@@ -1,29 +1,178 @@
-stages: [check]
+# CI von LLMitMir
+#
+#   lint      ruff (echte Fehlerklassen), Syntax aller Python-Module, JSON, Shell-Skript der Werkbank
+#   test      Unit-Tests ohne Home Assistant (Python 3.13 und 3.14), Integrationstests gegen ein echtes Home
+#             Assistant (Mindestversion laut hacs.json und aktuelle Version), Frontend (tsc, Tests, Bundle)
+#   release   nur für main, Merge Requests nach main und Tags: dieselben Tests, aber bekannte Befunde
+#             (xfail) zählen als Fehler – nach main kommt nur, was alle Befunde behoben hat.
+#
+# Lokal:  pip install -r requirements_test.txt && PYTHONPATH=. pytest
+#         eigene Umgebung: pip install -r requirements_test_ha.txt && PYTHONPATH=. pytest tests_ha
+#         npm ci && npm run check && npm test && npm run build
 
-# Runner vm-gitlab-runner-02 der Gruppe ha-integrations (Docker, ohne
-# Secrets, im abgeschotteten Segment; home-ansible README 4.2). Ohne Tag
-# nimmt ihn kein Runner an.
+stages: [lint, test, release]
+
+# Runner vm-gitlab-runner-02 der Gruppe ha-integrations (Docker, ohne Secrets, im abgeschotteten Segment;
+# home-ansible README 4.2). Ohne Tag nimmt ihn kein Runner an.
 default:
   tags: [ha-integrations-test]
+  interruptible: true
 
-# test_ews_window_and_times rechnet mit Ortszeit (Europe/Berlin).
+# Eine Pipeline je Änderung: im Merge Request die MR-Pipeline, sonst die des Branches (auch dev und main).
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH || $CI_COMMIT_TAG
+
 variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_ROOT_USER_ACTION: ignore
+  PYTHONPATH: "$CI_PROJECT_DIR"
+  # Die Tests stellen die Zeitzone selbst ein (tests/conftest.py); das hier gilt für alles andere.
   TZ: Europe/Berlin
 
-python:
-  stage: check
-  image: python:3.13-slim
-  script:
-    - python -m py_compile custom_components/llmitmir/*.py custom_components/llmitmir/tools/*.py
-    - python -c "import json,glob; [json.load(open(f)) for f in glob.glob('custom_components/llmitmir/**/*.json', recursive=True)]"
-    - pip install -q pytest aiohttp && PYTHONPATH=. pytest -q tests
+.pip-cache:
+  cache:
+    key: "pip-$CI_JOB_NAME_SLUG"
+    paths: [.cache/pip]
 
-frontend:
-  stage: check
-  image: node:20-slim
+.release-rules:
+  stage: release
+  variables:
+    PYTEST_ADDOPTS: "--runxfail"
+  rules:
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_TAG
+
+# ------------------------------------------------------------------ lint
+lint:
+  stage: lint
+  extends: .pip-cache
+  image: python:3.14-slim
   script:
-    - npm ci --no-audit --no-fund
+    - pip install -q -r requirements_test.txt
+    - python -m compileall -q custom_components werkbank tests tests_ha
+    - >-
+      python -c "import json,glob; [json.load(open(f, encoding='utf-8')) for f in
+      glob.glob('custom_components/llmitmir/**/*.json', recursive=True) + ['hacs.json', 'package.json']]"
+    - ruff check --output-format=gitlab --output-file=gl-code-quality-report.json . || (ruff check . ; exit 1)
+    - ruff check --select F401 --exit-zero .   # ungenutzte Importe: nur als Hinweis
+    - bash -n werkbank/install.sh && bash -n werkbank/firewall.sh
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality-report.json
+
+# ------------------------------------------------------------------ Unit-Tests (ohne Home Assistant)
+.unit:
+  stage: test
+  extends: .pip-cache
+  image: python:${PY}-slim
+  script:
+    - pip install -q -r requirements_test.txt
+    - pytest tests -q -rxX --junitxml=report.xml --cov --cov-report=term --cov-report=xml:coverage.xml
+  coverage: '/^TOTAL.*\s(\d+(?:\.\d+)?)%$/'
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+unit:
+  extends: .unit
+  parallel:
+    matrix:
+      - PY: ["3.13", "3.14"]
+
+# ------------------------------------------------------------------ Integrationstests (echtes Home Assistant)
+# Volles Python-Image: einige Abhängigkeiten von Home Assistant werden je nach Version aus dem Quellcode gebaut.
+# HA_HARNESS "requirements" = Version aus requirements_test_ha.txt, sonst genau diese Version des Harness.
+.ha:
+  stage: test
+  extends: .pip-cache
+  image: python:${PY}
+  script:
+    - >-
+      if [ "$HA_HARNESS" != "requirements" ]; then pip install -q "pytest-homeassistant-custom-component==$HA_HARNESS";
+      else pip install -q -r requirements_test_ha.txt; fi
+    - python -c "from homeassistant.const import __version__; print('Home Assistant', __version__)"
+    - pytest tests_ha -q -rxX -p no:cacheprovider --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+
+homeassistant:
+  extends: .ha
+  parallel:
+    matrix:
+      - PY: "3.14"            # aktuelle Version (requirements_test_ha.txt)
+        HA_HARNESS: "requirements"
+      - PY: "3.13"            # Mindestversion laut hacs.json: Home Assistant 2025.1.4
+        HA_HARNESS: "0.13.205"
+
+# Neueste Home-Assistant-Version (ohne Pin): warnt früh, wenn ein neues HA etwas bricht. Blockiert nichts.
+homeassistant-latest:
+  extends: .ha
+  variables:
+    PY: "3.14"
+  script:
+    - pip install -q --upgrade pytest-homeassistant-custom-component
+    - python -c "from homeassistant.const import __version__; print('Home Assistant', __version__)"
+    - pytest tests_ha -q -rxX -p no:cacheprovider --junitxml=report.xml
+  allow_failure: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "main"
+
+# ------------------------------------------------------------------ Frontend
+frontend:
+  stage: test
+  image: node:22-slim
+  cache:
+    key: npm
+    paths: [.cache/npm]
+  script:
+    - npm ci --no-audit --no-fund --cache .cache/npm
     - npm run check
+    - npm test
     - cp custom_components/llmitmir/frontend/llmitmir-panel.js /tmp/committed.js
+    - cp custom_components/llmitmir/frontend/THIRD_PARTY_LICENSES.txt /tmp/committed-licenses.txt
     - npm run build
-    - cmp -s custom_components/llmitmir/frontend/llmitmir-panel.js /tmp/committed.js || (echo "Bundle nicht aktuell – npm run build ausführen und einchecken" && exit 1)
+    - >-
+      cmp -s custom_components/llmitmir/frontend/llmitmir-panel.js /tmp/committed.js ||
+      (echo "Bundle nicht aktuell – npm run build ausführen und einchecken" && exit 1)
+    - >-
+      cmp -s custom_components/llmitmir/frontend/THIRD_PARTY_LICENSES.txt /tmp/committed-licenses.txt ||
+      (echo "THIRD_PARTY_LICENSES.txt nicht aktuell – npm run build ausführen und einchecken" && exit 1)
+
+# ------------------------------------------------------------------ Release-Tor (main, MRs nach main, Tags)
+# Dieselben Tests, aber jeder bekannte Befund (xfail) zählt als Fehler. Auf dev bleiben bekannte Befunde
+# erlaubt – neue Fehler und Rückfälle fallen dort trotzdem auf.
+unit-release:
+  extends: [.unit, .release-rules]
+  variables:
+    PY: "3.14"
+
+homeassistant-release:
+  extends: [.ha, .release-rules]
+  variables:
+    PY: "3.14"
+    HA_HARNESS: "requirements"
+
+# Ein Tag muss genau die Version tragen, die manifest.json und const.py nennen (v1.0.0 oder 1.0.0).
+release-version:
+  stage: release
+  image: python:3.14-slim
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - V=$(python -c "import json; print(json.load(open('custom_components/llmitmir/manifest.json'))['version'])")
+    - echo "Tag $CI_COMMIT_TAG, Manifest $V"
+    - test "$CI_COMMIT_TAG" = "v$V" || test "$CI_COMMIT_TAG" = "$V"

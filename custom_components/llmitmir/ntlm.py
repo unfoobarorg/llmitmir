@@ -181,7 +181,7 @@ def type3(user: str, password: str, domain: str, challenge: bytes, target_info: 
 
 
 def split_user(value: str, default_domain: str = "") -> tuple[str, str]:
-    """``gwdg\\nikolaj.kopp`` → ("nikolaj.kopp", "gwdg"); ohne Domäne gilt die Vorgabe."""
+    """``gwdg\\erika.mustermann`` → ("erika.mustermann", "gwdg"); ohne Domäne gilt die Vorgabe."""
     raw = str(value or "").strip()
     if "\\" in raw:
         dom, _, usr = raw.partition("\\")

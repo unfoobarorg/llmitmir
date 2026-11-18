@@ -592,6 +592,43 @@ class Manager:
         for uid in SH.users(task.get("share")):
             self.emit(uid, {"type": "meta", "section": "tasks"})
 
+    async def allowed_ids(self, user_ids) -> list[str]:
+        """Nur die Personen, die LLMitMir (noch) nutzen dürfen – für Benachrichtigungen an geteilte Aufgaben/Kacheln."""
+        out = []
+        for uid in dict.fromkeys(u for u in user_ids if u):
+            if self.allowed(await self.hass.auth.async_get_user(uid)):
+                out.append(uid)
+        return out
+
+    async def tell_owner_pending(self, owner_id: str, task: dict, by: str, tile: dict | None = None) -> None:
+        """Jemand hat den Auftrag einer fremden Aufgabe (oder die Beschreibung einer Kachel) geändert: Karte auf der
+        Startseite der Eigentümerin bzw. des Eigentümers und Push aufs eigene Gerät. Bis zur Bestätigung läuft nichts."""
+        from homeassistant.core import Context
+
+        from . import inbox as IB
+        from . import notifydevices as ND
+
+        st = await self.user_store(owner_id)
+        who = await self.user_name(by)
+        what = f"die Kachel „{tile.get('name')}“" if tile else f"die Aufgabe „{task.get('name')}“"
+        title = f"{who} hat {what} geändert"[:120]
+        text = (f"Der neue Auftrag läuft erst, wenn du ihn bestätigst.\nVorher: "
+                f"{(task.get('pending_approval') or {}).get('prompt_before', '')[:200]}\nJetzt: {str(task.get('prompt') or '')[:200]}")
+        link = f"/dashboards?tile={owner_id}:{tile['id']}" if tile else f"/task/{task.get('id')}"
+        entry = {"id": new_id("n"), "chat_id": "", "task_id": task.get("id"), "task": str(task.get("name") or "Aufgabe"),
+                 "title": title, "text": text[:600], "status": "approval", "link": link}
+        st.meta["inbox"] = IB.add(st.meta.get("inbox"), entry, now())
+        await st.async_save_meta()
+        self.emit(owner_id, {"type": "inbox", "items": IB.prune(st.meta["inbox"], now(), IB.minutes(st.meta["settings"]))})
+        try:
+            devices = ND.apply_links(await ND.async_devices(self.hass), self.config.data.get("notify_devices"))
+            device = ND.resolve(ND.for_user(devices, owner_id), owner_id, st.meta["settings"])
+            if device:
+                await ND.async_send(self.hass, device, title[:100], text[:900], url=f"/llmitmir{link}",
+                                    tag=f"llmitmir-approve-{task.get('id')}", context=Context(user_id=owner_id))
+        except Exception:  # noqa: BLE001 - die Karte auf der Startseite ist schon da
+            _LOGGER.debug("Push für geänderte Aufgabe fehlgeschlagen", exc_info=True)
+
     def allowed(self, user) -> bool:
         allowed = self.config.data.get("allowed_users") or []
         if user is None or not user.is_active:
@@ -1891,6 +1928,8 @@ class ToolContext:
         self.tile_record: dict | None = None
         self._secrets = C.secret_values(store.meta["credentials"])
         self._img: dict[str, str] = {}
+        # (Zugangs-ID, Server), die die Person in diesem Lauf einmal freigegeben hat (tools/http.py, gate)
+        self.approved_hosts: set[tuple[str, str]] = set()
 
     @property
     def external(self) -> bool:
@@ -2359,6 +2398,10 @@ class ToolContext:
                     self._remember_allow(name)
                 # im Sprachgespraech gilt die Erlaubnis fuer den Rest des Gespraechs (auch bei „einmal“)
                 VO.remember(self.chat, name)
+        if tool.gate is not None and (need := tool.gate(self, args)):
+            denied = await self._approve_host(msg, tool, need)
+            if denied:
+                return denied
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                       "args": msg["args"]})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,
@@ -2387,6 +2430,33 @@ class ToolContext:
         elif CK.looks_like_auth_error(text):
             self._mark_credential_failed(args, text)
         return msg
+
+    async def _approve_host(self, msg: dict, tool, need: dict) -> dict | None:
+        """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.
+
+        Gibt die Ablehnung als Nachricht zurück oder None, wenn es weitergehen darf. „Immer erlauben“ trägt den Server
+        beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“); „einmal“ gilt für diesen Lauf."""
+        host, creds_ = need.get("host") or "?", need.get("creds") or []
+        names = ", ".join(f"„{c.get('name')}“" for c in creds_)
+        if self.task is not None:
+            msg.update(content=(f"Abgelehnt: Der Zugang {names} ist für den Server {host} nicht freigegeben. Ein "
+                                "unbeaufsichtigter Lauf fragt nicht nach – ohne diese Anfrage weiterarbeiten und im Bericht "
+                                f"nennen, dass {host} unter „Zugänge“ → „Erlaubte Server“ eingetragen werden muss."),
+                       status="denied")
+            return msg
+        decision = await self.manager.ask_permission(self.run, {
+            "tool": tool.name, "label": msg["label"], "icon": "mdi:shield-key-outline", "args": msg["args"],
+            "host": host, "creds": [c.get("name") for c in creds_]})
+        if decision in ("deny", "skip"):
+            msg.update(content=SKIP_TEXT if decision == "skip" else
+                       f"Abgelehnt: Die Person möchte den Zugang {names} nicht an {host} senden.", status="denied")
+            return msg
+        for c in creds_:
+            self.approved_hosts.add((c.get("id"), host))
+            if decision == "always" and C.allow_host(c, need.get("url") or f"https://{host}/"):
+                self.store.schedule_save(0.5)
+                self.manager.emit(self.user_id, {"type": "meta", "section": "credentials"})
+        return None
 
     def _mark_credential_failed(self, args: dict, text: str) -> None:
         """Ein Werkzeug wurde abgewiesen: den Zugang in der Liste rot markieren, damit er gleich auffaellt."""

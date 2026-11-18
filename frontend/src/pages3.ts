@@ -593,6 +593,12 @@ export class TileSheet extends StoreElement {
     </fieldset>`;
   }
 
+  private async approvePending(taskId: string, ok: boolean) {
+    try { await store.api.ws("task/approve", { task_id: taskId, approve: ok }); await store.load();
+      store.notify(ok ? t("Bestätigt – die Kachel läuft wieder") : t("Verworfen – die alte Beschreibung gilt wieder")); }
+    catch (e: any) { store.notify(e.message); }
+  }
+
   private modelSource() {
     const x = this.d, r = this.r, live = this.live;
     const task = live?.task;
@@ -605,7 +611,14 @@ export class TileSheet extends StoreElement {
     const d = store.data;
     const runs = (task?.runs || []).map((id: string) => (d.chats || []).find((c: any) => c.id === id)).filter(Boolean);
     const watch: string[] = x.source?.run_if_changed || [];
-    return html`
+    const pend = task?.pending ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-warn, #e0a800) 14%, var(--lm-panel))">${icon(r.owner ? "alert" : "clock")}<div>
+      ${r.owner ? html`<b>${t("{name} hat die Beschreibung geändert.", { name: live?.changed_by_name || t("Jemand") })}</b>
+        ${t("Die Kachel läuft mit deinen Zugängen – deshalb erst wieder, wenn du bestätigst.")}
+        ${task.pending_approval?.tile_description_before !== undefined ? html`<div class="hint" style="margin-top:6px">${t("Vorher:")} ${task.pending_approval.tile_description_before}</div>` : nothing}
+        <div class="row" style="margin-top:8px"><button class="btn primary" @click=${() => this.approvePending(task.id, true)}>${icon("check", 16)} ${t("Bestätigen")}</button>
+          <button class="btn" @click=${() => this.approvePending(task.id, false)}>${t("Verwerfen")}</button></div>`
+        : t("Die geänderte Beschreibung wartet auf die Bestätigung von {owner}. Bis dahin läuft die Kachel nicht.", { owner: live?.owner_name || t("der Person, der sie gehört") })}</div></div>` : nothing;
+    return html`${pend}
       <label class="f"><span>Beschreibung = Auftrag für jeden Lauf</span><textarea rows="7" ?disabled=${!r.edit} .value=${x.description || ""}
         placeholder="Was zeigt die Kachel, woher kommen die Daten, was ist ein Warnfall? Zum Beispiel: Lies die Mails der letzten 24 Stunden im Zugang „Postfach“, erkenne Aufgaben und liste die offenen auf. Überfällige sind „blockiert“."
         @input=${(e: any) => this.set("description", e.target.value)}></textarea>

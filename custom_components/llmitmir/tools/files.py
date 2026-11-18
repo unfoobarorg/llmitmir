@@ -129,7 +129,9 @@ async def extract_document(ctx, name: str, data: bytes, ctype: str = "", frage: 
 
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                xml = z.read("word/document.xml").decode("utf-8", "ignore")
+                from ..docpreview import zread
+
+                xml = zread(z, "word/document.xml").decode("utf-8", "ignore")
             return re.sub(r"<[^>]+>", " ", xml.replace("</w:p>", "\n"))[:200_000]
         except Exception as e:  # noqa: BLE001
             return f"Fehler: DOCX nicht lesbar ({e})"

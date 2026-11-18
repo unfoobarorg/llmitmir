@@ -195,6 +195,23 @@ export class TaskPage extends StoreElement {
     this.setShare(this.shareUsers().map((u: any) => (u.user_id === uid ? { ...u, [key]: on } : u)));
   }
   private set(k: string, v: any) { this.d = { ...this.d, [k]: v }; this.dirty = true; }
+  /** Einen von jemand anderem geänderten Auftrag bestätigen oder verwerfen (nur, wem die Aufgabe gehört). */
+  private async approve(ok: boolean) {
+    try { await store.api.ws("task/approve", { task_id: this.d.id, approve: ok }); await store.load(); this.dirty = false; this.reload();
+      store.notify(ok ? t("Bestätigt – die Aufgabe läuft wieder") : t("Verworfen – der alte Auftrag gilt wieder")); }
+    catch (e: any) { store.notify(e.message); }
+  }
+  /** Hinweis, solange ein geänderter Auftrag auf die Bestätigung wartet (Aufgaben und Kachel-Aufgaben). */
+  private pendingBanner(x: any, mine: boolean) {
+    const p = x.pending_approval || (x.pending ? {} : null);
+    if (!p) return nothing;
+    if (!mine) return html`<div class="banner">${icon("clock")}<div>${t("Der geänderte Auftrag wartet auf die Bestätigung von {owner}. Bis dahin läuft die Aufgabe nicht.", { owner: x.owner_name || t("der Person, der sie gehört") })}</div></div>`;
+    return html`<div class="banner" style="background:color-mix(in srgb, var(--lm-warn, #e0a800) 14%, var(--lm-panel))">${icon("alert")}<div>
+      <b>${t("{name} hat den Auftrag geändert.", { name: x.pending_by_name || t("Jemand") })}</b> ${t("Die Aufgabe läuft mit deinen Zugängen und Freigaben – deshalb erst wieder, wenn du bestätigst.")}
+      ${p.prompt_before !== undefined ? html`<div class="hint" style="margin-top:6px">${t("Vorher:")} ${p.prompt_before}</div>` : nothing}
+      <div class="row" style="margin-top:8px"><button class="btn primary" @click=${() => this.approve(true)}>${icon("check", 16)} ${t("Bestätigen")}</button>
+        <button class="btn" @click=${() => this.approve(false)}>${t("Verwerfen")}</button></div></div></div>`;
+  }
   private sched(k: string, v: any) { this.d = { ...this.d, schedule: { ...this.d.schedule, [k]: v } }; this.dirty = true; this.loadPreview(); }
   private async loadPreview() {
     try { this.preview = await store.api.ws("task/preview", { schedule: this.d.schedule }); } catch (e: any) { this.preview = { error: e.message }; }
@@ -212,6 +229,7 @@ export class TaskPage extends StoreElement {
         <button class="btn" @click=${() => navigate(`/dashboards?tile=${x.tile_key}`)}>${icon("mdi:view-dashboard-outline", 16)} Kachel öffnen</button></div>
       <div class="banner">${icon("info")}<div>Diese Aufgabe füllt die Kachel <b>${x.tile_name}</b> mit Daten. Ihr Auftrag ist die Beschreibung der Kachel –
         ändern lässt er sich dort. Gelöscht wird sie zusammen mit der Kachel.${x.paused === "unplaced" ? html`<br><b>Pausiert:</b> Die Kachel liegt auf keinem Dashboard.` : nothing}</div></div>
+      ${this.pendingBanner(x, true)}
       <div class="form">
         <div class="card"><b>${t("Zeitplan")}</b><div class="two" style="margin-top:10px">
           <label class="f"><span>Wie oft?</span><select @change=${(e: any) => { const p = presets.find(q => q[0] === e.target.value); this.set("schedule", { type: "cron", cron: p ? p[2] : cron || presets[0][2] }); }}>
@@ -353,7 +371,8 @@ export class TaskPage extends StoreElement {
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.id ? x.name || "Aufgabe" : t("Neue Aufgabe")}</h1>
         ${x.id && x.can_edit !== false ? html`<button class="btn" @click=${async () => { const r = await store.api.ws("task/run_now", { task_id: x.id }); store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits"); }}>${icon("play", 16)} ${t("Jetzt ausführen")}</button>` : nothing}</div>
-      ${x.shared ? html`<div class="banner">${icon("info")}<div>Diese Aufgabe gehört <b>${x.owner_name || "jemand anderem"}</b> und ist mit dir geteilt. Du darfst sie ändern und starten – löschen und weitergeben kann sie nur ${x.owner_name || "die Person, der sie gehört"}.</div></div>` : nothing}
+      ${x.shared ? html`<div class="banner">${icon("info")}<div>Diese Aufgabe gehört <b>${x.owner_name || "jemand anderem"}</b> und ist mit dir geteilt. Du darfst Name, Zeitplan, Benachrichtigung und Auftrag ändern und sie starten. Ein neuer Auftrag gilt erst, wenn ${x.owner_name || "die Person, der sie gehört"} ihn bestätigt; Freigaben, Werkzeuge, Modell und Projekt, löschen und weitergeben bleiben bei ${x.owner_name || "ihr"}.</div></div>` : nothing}
+      ${this.pendingBanner(x, !x.shared)}
       ${x.imported && !x.enabled ? html`<div class="banner">${icon("info")}<div>Aus Claude importiert und deshalb pausiert. Prüfe Auftrag, Zugänge und Freigaben – Verweise auf Claude-Werkzeuge
         (z. B. Gmail-Connector, list_triggers) gibt es hier nicht.${x.imported_note ? html`<br><i>${x.imported_note}</i>` : nothing}</div></div>` : nothing}
       ${x.werkbank_missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("mdi:console")}<div>
@@ -705,6 +724,10 @@ export class CredentialPage extends StoreElement {
           <button class="btn" @click=${() => { if (this.newField.trim()) { this.setField(this.newField.trim().replace(/\W+/g, "_"), ""); this.newField = ""; } }}>${icon("plus", 16)} Feld</button>
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
+        ${c.type === "gwdg" ? nothing : html`<label class="f"><span>${icon("shield", 13)} ${t("Erlaubte Server")}</span>
+          <input placeholder="api.example.org, *.example.org" .value=${(c.hosts || []).join(", ")}
+            @change=${(e: any) => this.set("hosts", e.target.value.split(/[\s,;]+/).map((x: string) => x.trim()).filter(Boolean))}>
+          <span class="hint">${(c.auto_hosts || []).length ? t("Automatisch aus den Adressen des Zugangs: {hosts}.", { hosts: c.auto_hosts.join(", ") }) + " " : ""}${t("Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.")}</span></label>`}
         <label class="f"><span>${t("Gültig bis")} <span class="hint">(optional)</span></span>
           <input type="date" .value=${c.valid_until || ""} @input=${(e: any) => this.set("valid_until", e.target.value)}>
           <span class="hint">Viele Tokens laufen ab. LLMitMir warnt zwei Wochen vorher in der Liste und nennt den Grund, wenn ein Werkzeug deshalb scheitert.</span></label>
