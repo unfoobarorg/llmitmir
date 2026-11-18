@@ -2,6 +2,10 @@
 
 *Zurück zur [README](../README.md).*
 
+Entwickelt wird auf [git.unfoobar.org/ha-integrations/llmitmir](https://git.unfoobar.org/ha-integrations/llmitmir)
+(Merge Requests nach `dev`, Release über `main`). [github.com/unfoobarorg/llmitmir](https://github.com/unfoobarorg/llmitmir)
+ist ein Spiegel – darüber installiert HACS die Integration; Änderungen dort gehen beim nächsten Spiegeln verloren.
+
 ## Bauen
 
 ```bash

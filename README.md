@@ -27,8 +27,12 @@ Alles im Detail: [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md) · Werkzeuge: [docs/WE
 
 ### Installation
 
-1. Den Ordner `custom_components/llmitmir` nach `<config>/custom_components/` kopieren und Home Assistant neu starten.
-   (HACS: als benutzerdefiniertes Repository vom Typ *Integration*, sobald es einen GitHub-Spiegel gibt.)
+1. **Über HACS** (direkt aus Home Assistant): Das Repository wird nach
+   [github.com/unfoobarorg/llmitmir](https://github.com/unfoobarorg/llmitmir) gespiegelt.
+   [In HACS öffnen](https://my.home-assistant.io/redirect/hacs_repository/?owner=unfoobarorg&repository=llmitmir&category=integration)
+   oder in HACS *⋮ → Benutzerdefinierte Repositories* diese Adresse mit Typ *Integration* hinzufügen, dann
+   *LLMitMir* herunterladen und Home Assistant neu starten.
+   *Manuell:* den Ordner `custom_components/llmitmir` nach `<config>/custom_components/` kopieren und neu starten.
 2. *Einstellungen → Geräte & Dienste → Integration hinzufügen → LLMitMir*: Anbieter und Schlüsselmodus wählen.
 3. In der Seitenleiste *LLMitMir → Admin*: Personen freigeben, Schlüssel, Modelle und Kontingente einstellen.
 
@@ -61,8 +65,9 @@ Anleitung, Sicherheit und Betrieb: [docs/WERKBANK.md](docs/WERKBANK.md)
 
 ### Entwicklung
 
-Bauen, Tests, CI und Aufbau: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md) · Änderungen: [CHANGELOG.md](CHANGELOG.md) ·
-Lizenz: [MIT](LICENSE)
+Entwickelt wird auf [git.unfoobar.org/ha-integrations/llmitmir](https://git.unfoobar.org/ha-integrations/llmitmir);
+GitHub ist ein Spiegel. Bauen, Tests, CI und Aufbau: [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md) ·
+Änderungen: [CHANGELOG.md](CHANGELOG.md) · Lizenz: [MIT](LICENSE)
 
 ---
 
@@ -84,8 +89,12 @@ All details (German): [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md) · Tools: [docs/W
 
 ### Installation
 
-1. Copy the folder `custom_components/llmitmir` to `<config>/custom_components/` and restart Home Assistant.
-   (HACS: as a custom repository of type *Integration*, once a GitHub mirror exists.)
+1. **Via HACS** (right from Home Assistant): the repository is mirrored to
+   [github.com/unfoobarorg/llmitmir](https://github.com/unfoobarorg/llmitmir).
+   [Open in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=unfoobarorg&repository=llmitmir&category=integration)
+   or add this address in HACS under *⋮ → Custom repositories* with type *Integration*, then download *LLMitMir* and
+   restart Home Assistant.
+   *Manually:* copy the folder `custom_components/llmitmir` to `<config>/custom_components/` and restart.
 2. *Settings → Devices & services → Add integration → LLMitMir*: choose the provider and the key mode.
 3. In the sidebar, *LLMitMir → Admin*: allow people, set keys, models and quotas.
 
@@ -118,5 +127,6 @@ Guide, security and operation (German): [docs/WERKBANK.md](docs/WERKBANK.md)
 
 ### Development
 
-Build, tests, CI and architecture (German): [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md) · Changes: [CHANGELOG.md](CHANGELOG.md) ·
-License: [MIT](LICENSE)
+Development happens on [git.unfoobar.org/ha-integrations/llmitmir](https://git.unfoobar.org/ha-integrations/llmitmir);
+GitHub is a mirror. Build, tests, CI and architecture (German): [docs/ENTWICKLUNG.md](docs/ENTWICKLUNG.md) ·
+Changes: [CHANGELOG.md](CHANGELOG.md) · License: [MIT](LICENSE)

@@ -40,5 +40,5 @@ Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe G
 ### Tests, CI, Dokumentation
 - Neue Test-Pipeline: Unit-Tests mit Python 3.13 und 3.14, Integrationstests gegen ein echtes Home Assistant (Mindest-
   und aktuelle Version), Frontend-Tests, ruff, Release-Tor für `main` und Tags.
-- README neu gegliedert, kurz und zweisprachig; Details in `docs/FUNKTIONEN.md`, `docs/WERKZEUGE.md` und
+- README neu gegliedert, kurz und zweisprachig, mit Installation über HACS aus dem GitHub-Spiegel; Details in `docs/FUNKTIONEN.md`, `docs/WERKZEUGE.md` und
   `docs/ENTWICKLUNG.md`. `pillow` steht jetzt in den Abhängigkeiten.
