@@ -19,8 +19,9 @@
   "requirements": [
     "pypdfium2>=4.30.0",
     "anthropic>=2.6.0",
-    "edge-tts>=7.0.0"
+    "edge-tts>=7.0.0",
+    "pillow>=10.0.0"
   ],
   "single_config_entry": true,
-  "version": "0.41.0"
+  "version": "0.42.0"
 }

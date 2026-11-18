@@ -1,0 +1,304 @@
+# Funktionen im Detail
+
+*Kurzfassung und Einstieg: [README](../README.md). Werkzeuge: [WERKZEUGE.md](WERKZEUGE.md).*
+
+- **Einfache Ansicht und Expertenansicht**: Standard ist die einfache Ansicht für technische Laien – der Chat zeigt wie ein
+  Messenger nur Nachricht und Antwort mit Warte-Animation, Modelle werden nie angezeigt und immer automatisch gewählt
+  (auch bei Überlastung wechselt LLMitMir selbst), die Modelle antworten verständlich und ohne Fachbegriffe, und Skills,
+  geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
+  Folgende) schaltet jede Person unter *Einstellungen → Ansicht* frei; Admins legen unter *Admin → Ansicht* für alle oder
+  je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
+- **Dateien ansehen statt nur herunterladen**: Erzeugte Dateien und Anhänge öffnen sich in einem eigenen Betrachter im
+  Panel – Bilder, PDFs (seitenweise, als Bild gerendert), Texte, Ton, Video sowie **Word- und Excel-Dateien** (Absätze
+  und Tabellen als lesbarer Ausschnitt, ohne Makros und ohne Formeln). Das funktioniert im Browser und in den mobilen
+  Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter nicht
+  darstellen kann, lässt sich herunterladen.
+- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
+  sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben) und **Spracheingabe**
+  (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
+  zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
+  Die Suche über der Liste findet auf Wunsch **auch in den Nachrichten** („Auch in Nachrichten suchen“) und zeigt je
+  Treffer einen Ausschnitt – so lässt sich eine Zahl oder ein Name wiederfinden, ohne sich an den Chat-Titel zu erinnern.
+- **Teilaufgaben (Unterchats)**: Ein Chat oder Cowork kann Teilaufgaben haben – eigene Chats mit eigenem Verlauf, die in
+  der Seitenleiste leicht eingerückt unter ihrem Hauptchat stehen, mit Symbol und Status-Punkt (läuft, wartet, fertig,
+  Fehler); ein Pfeil am Hauptchat klappt sie ein und aus. Unter jeder Antwort legt *Als Teilaufgabe weiterarbeiten* eine
+  an, mit der Antwort als Ausgangspunkt. Teilaufgaben teilen Dateien und Sandbox mit ihrem Hauptchat, ziehen mit ihm in
+  ein anderes Projekt und werden mit ihm gelöscht (auch über die Lebensdauer). Der Hauptchat sieht nur ihre
+  Zusammenfassungen, nie ihren Verlauf – so bleibt er kurz und aufgeräumt. Auch das Modell selbst verteilt Arbeit:
+  Mit `unterchat_starten` startet es Teilaufgaben mit eigenem Kontext und eigenem Modell (Standard *sparsam*, eine eigene
+  Rolle der automatischen Modellwahl, einstellbar unter *Einstellungen → Modelle* und *Admin → Modelle*), mehrere im
+  selben Schritt parallel, und wartet auf ihre Zusammenfassungen. Im Hauptchat erscheint je Teilaufgabe eine Karte mit
+  Modell, Stand (auch „wartet auf einen freien Platz“ und „Grenze erreicht“), Laufzeit, Verbrauch und *Öffnen*.
+  Grenzen: 3 gleichzeitig je Person, 8 je Lauf, 40 Schritte je Teilaufgabe; jede erreichte Grenze meldet sofort ein
+  Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Freigaben, Änderungskarten und die Frage nach mehr
+  Schritten aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
+  ist – als Push „Teilaufgabe braucht dich“ mit Link auf den Hauptchat; „Immer erlauben“ gilt dabei nur für die eine
+  Teilaufgabe. Unter *Einstellungen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
+  feste Regeln im Systemprompt, ab halb vollem Kontext ein Hinweis), *nur auf Wunsch* (Standard in der einfachen
+  Ansicht) oder *aus*. Wer selbst in einer Teilaufgabe weiterarbeitet, bekommt das neue Ergebnis als Nachtrag im
+  Hauptchat (abschaltbar, *Jetzt melden* schickt es sofort). In der einfachen Ansicht laufen Teilaufgaben unsichtbar
+  im Hintergrund („Arbeitet an 3 Teilaufgaben …“). Die Kopfzeile des Hauptchats zeigt den Verbrauch samt Teilaufgaben. Details: [docs/TEILAUFGABEN.md](TEILAUFGABEN.md).
+- **Gespräch (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite, aus der Seitenleiste und aus
+  jedem Chat und Cowork über den Knopf *Gespräch* –, in der man mit LLMitMir redet wie am Telefon, beliebig lange und
+  über viele Runden. Aus einem Chat heraus setzt das Gespräch dessen Verlauf fort (die letzte Antwort wird einmal
+  vorgelesen, damit klar ist, wo es weitergeht); getippt und gesprochen wechseln sich also im selben Chat ab. Das Mikrofon bleibt offen; eine
+  Sprechpause beendet die Äußerung (keine Taste halten), sie wird abgeschrieben (`/audio/transcriptions` des Anbieters,
+  Fallback Browser-Spracherkennung) und als normale Nachricht in einen Chat gestellt. Die Antwort wird Satz für Satz
+  vorgelesen, noch während sie entsteht – mit der **festen Stimme des Roboters**, die LLMitMir selbst mitbringt
+  (auf dem Server gesprochen, damit sie auf iPad, im Browser und in der Android-App gleich klingt – dort gibt es
+  keine brauchbare Stimme des Systems). Standard ist die **Roboterstimme**: eine neutrale, männliche deutsche
+  Stimme, nicht so tief wie eine Erzählerstimme, mit einem leichten Maschinenklang (Ringmodulation, Bass weg,
+  Höhen betont). Wahlweise die **männliche Stimme** (dieselbe Stimme ohne Klangbearbeitung, tiefer und ruhiger)
+  oder die **weibliche Stimme** (natürlich, ohne Klangbearbeitung).
+  Gesprochen wird über den Vorlesedienst von Microsoft Edge (Paket `edge-tts`) – der vorgelesene Text geht also dorthin;
+  der Admin kann die eigene Stimme unter *Admin → Sprachausgabe* ausschalten.
+  Ist die Stimme nicht erreichbar oder ausgeschaltet, liest die **Sprachausgabe von Home Assistant** (die Stimme des bevorzugten
+  Sprachassistenten, z. B. Piper oder Home Assistant Cloud), sonst die Stimme des Browsers oder nur als Untertitel. Es ist ein ganz normaler Chat: Open-Weight-Modelle wie
+  kostenpflichtige externe Modelle (Expertenansicht: Modellwahl in den Einstellungen der Ansicht), Werkzeuge und
+  Freigaben (als Karte zum Antippen) funktionieren wie dort – mit einem Unterschied: Was im Gespräch einmal erlaubt
+  wurde (ein Werkzeug oder eine ganze Werkzeuggruppe), gilt für den Rest des Gesprächs und wird nicht bei jeder
+  Aktion erneut gefragt; sonst stockt der Gesprächsfluss. Getippt wird weiterhin jede Aktion einzeln bestätigt.
+  Das Gespräch steht danach in der Chatliste zum Nachlesen und Weiterschreiben. Neue Gespräche landen von selbst im
+  Projekt **„Gespräche“**, das LLMitMir beim ersten Gespräch anlegt und das eine Lebensdauer von 14 Tagen hat – wer oft
+  mit dem Roboter spricht, behält so eine übersichtliche Chatliste. Das Projekt lässt sich umbenennen, die Frist ändern
+  oder löschen; beim nächsten Gespräch entsteht es neu. **Kurzweg von außen:** Der Pfad `/llmitmir/voice/last` öffnet
+  das jüngste Gespräch und hört sofort zu – als Shortcut der Home-Assistant-App (Einstellungen → Companion App →
+  Shortcuts verwalten, Typ *Dashboard*, Pfad `/llmitmir/voice/last`) ist das Gespräch damit einen Tipp entfernt, etwa
+  auf dem Autoradio im Auto. Gesprochene Nachrichten tragen ein Kennzeichen; solange gesprochen wird, antwortet
+  das Modell kurz und vorlesbar (kein Markdown, keine Tabellen oder Links).
+  **Ein Assistent, der nebenher läuft** (Auto, Tablet) – bedienbar, ohne den Bildschirm zu sehen oder zu berühren:
+  *Sofort losreden:* Wer die Ansicht öffnet – von der Startseite, aus der Seitenleiste oder aus einem Chat –, wird
+  gleich gehört; begrüßt wird nur, wer vier Sekunden nichts sagt. Der Roboter kommt mit einem kurzen Auftritt ins
+  Bild (steigt auf und nickt, neigt den Kopf oder winkt – jedes Mal etwas anders).
+  *Rufname:* Beim ersten Gespräch fragt der Roboter, wie er heißen soll (später in den Einstellungen der Ansicht
+  änderbar). Zwanzig Sekunden nach dem letzten Wort geht er in Bereitschaft und reagiert nur noch auf Äußerungen mit
+  seinem Namen am Anfang oder Ende („Robo, wie spät ist es?“); alles andere – Radio, Mitfahrende – lässt er
+  vorbeiziehen. Der Name wird großzügig erkannt, weil die Spracherkennung ihn selten zweimal gleich schreibt.
+  *Jederzeit unterbrechen:* Das Mikrofon bleibt offen, auch während der Roboter spricht oder arbeitet. „Stopp“ (auch
+  „Halt“, „Warte“, „Hör auf“ …) oder der Rufname unterbrechen ihn; anderes Gesagtes gilt dann nicht ihm.
+  *Sagen, was er tut:* Bei längerer Arbeit sagt er jeden neuen Schritt an („Jetzt schaue ich in den Kalender.“) und
+  meldet sich, wenn ein Schritt dauert („Ich suche noch im Internet.“) – samt Hinweis, dass „Stopp“ abbricht.
+  *Freigaben per Stimme:* Er sagt, was er tun möchte („Darf ich das tun: Licht einschalten?“), und versteht Ja,
+  Nein und Immer. „Immer“ gilt dauerhaft für das Projekt des Gesprächs – bei neuen Gesprächen also für den ganzen
+  Ordner „Gespräche“. Wer am Bildschirm schneller war, wird nicht mehr gefragt.
+  *Tempo vor Tiefe:* Für gesprochene Runden wählt LLMitMir ein eigenes Modell – das schnellste, das Werkzeuge
+  zuverlässig bedient (`models.pick_voice`). Es misst dafür je Modell die Zeit bis zum ersten Ausgabezeichen und
+  stützt sich, solange nichts gemessen ist, auf die Bauart (wenige aktive Parameter, „Flash“). Modelle mit Denkphase
+  antworten im Gespräch ohne sie (`chat_template_kwargs.enable_thinking: false`, sofern der Anbieter den Schalter
+  kennt); kommt sieben Sekunden nichts, übernimmt das nächste schnelle Modell. Wird im selben Chat wieder getippt,
+  gilt wieder das Modell für Chats.
+  *Schnell antworten:* Derselbe Schalter lässt sich im Chat selbst setzen (Modellmenü → *Schnell antworten*). Er gilt
+  je Chat und ab der nächsten Nachricht – gut für kurze Fragen, schwächer bei schwierigen.
+  *Nahtlos aus dem Chat:* Arbeitet der Chat beim Wechsel noch, übernimmt das Gespräch den Lauf – der Roboter zeigt
+  und sagt sofort, was gerade passiert, und liest vor, was ab da an Antwort entsteht.
+  *Fehlende Skills:* Braucht eine alltägliche Bitte Herumprobieren oder Recherche, bietet der Roboter danach an,
+  den Weg als Skill festzuhalten, damit es beim nächsten Mal sofort klappt.
+  **Gesprächsfluss statt Chat in Tonform** – mehrere Dinge laufen gleichzeitig:
+  *Mitdenken beim Zuhören:* Schon in einer kurzen Sprechpause wird das bisher Gesagte abgeschrieben (als Text unter
+  dem Roboter mitzulesen). Klingt der Satz fertig, genügt eine kurze Stille und die Nachricht geht mit fertiger
+  Abschrift sofort hinaus; bricht er mitten im Gedanken ab („… und“, „… weil“), wartet LLMitMir länger.
+  *Nachschieben:* Solange LLMitMir still überlegt, bleibt das Mikrofon offen. Wer weiterspricht, bevor die Antwort
+  kommt, wird nicht übergangen – der Nachsatz wird mit dem ersten Teil zu einer Nachricht verbunden und neu überlegt
+  (solange noch kein Werkzeug lief; sonst hängt er sich an den Verlauf an).
+  *Sprechen, während weitergedacht wird:* Die Antwort beginnt mit dem ersten fertigen Satz. Dauert es, überbrückt
+  LLMitMir die Stille gesprochen statt mit einem Text am Bildschirm – „Hm, Moment.“ nach gut zweieinhalb Sekunden,
+  „Ich schaue kurz im Kalender nach.“ beim ersten Werkzeug, bei langem Nachschlagen ab und zu ein „Einen Moment
+  noch.“ (abschaltbar; die Sätze liegen vorab bereit und kommen ohne Verzögerung).
+  *Kurze Beiträge:* Das Modell antwortet im Wechsel – meist ein, zwei Sätze, das Wichtigste zuerst, den Rest als
+  Angebot („soll ich alle nennen?“) – und fragt bei Unklarem kurz zurück, statt alles abzuarbeiten.
+  *Ruhige Gesten:* Der Roboter folgt nicht jedem technischen Zwischenschritt. Kurze Wartezeiten zeigt er
+  **aufmerksam** (Blickkontakt, langsames Nicken) und ohne Text; die Denkerpose und „Ich überlege noch“ kommen erst
+  nach rund viereinhalb Sekunden stillen Wartens; wer einmal nachschlägt, bleibt beim Nachschlagen, bis er
+  antwortet, und jede Geste wird ausgespielt, bevor die nächste kommt. Denkt er nebenher (schreibt beim Zuhören
+  schon mit, arbeitet beim Sprechen noch weiter), pulsiert die Antenne.
+  Den Bildschirm füllt der **Roboter aus dem LLMitMir-Icon in 3D** (eigenes kleines WebGL, keine 3D-Bibliothek): weiße
+  Schale, grüne Gesichtsscheibe, leuchtende Augen, Antenne – menschenähnlich in Haltung und Gesten, in der Oberfläche
+  klar eine Maschine. Er ist durchgehend in Bewegung und zeigt, was gerade passiert: **Zuhören** (beugt sich vor, Hand
+  hinters Ohr, die Ohren leuchten mit der Stimme), **Warten** (schaut sich um, wiegt sich), **Nachdenken** (Hand ans
+  Kinn, Blick nach oben, Antenne pulsiert), **Recherchieren** (tippt auf einer schwebenden Tafel, Augen lesen Zeilen,
+  Lichtpunkte kreisen um die Antenne) und **Antworten** (der Mund bewegt sich mit der Lautstärke der Stimme, die Hände
+  gestikulieren). Tippen auf den Roboter unterbricht die Antwort, das Mikrofon lässt sich pausieren (nach fünf Minuten
+  Stille von selbst), optional unterbricht auch Dazwischenreden. Der Bildschirm bleibt während des Gesprächs an.
+  Voraussetzung fürs Mikrofon: HTTPS und kein `Permissions-Policy: microphone=()` am Webserver.
+- **Hinweis nach einem Update**: Eine offene Seite – vor allem die Home-Assistant-App, die ihre Ansicht tagelang
+  behält – arbeitet nach einem Update mit der alten Oberfläche weiter, bis sie vollständig neu geladen wird. Das Panel
+  vergleicht deshalb seine eigene Version mit der des Servers (beim Start und nach jedem Wiederverbinden) und bietet
+  oben *Neu laden* an.
+- **Entwurf je Chat und je Projekt**: Was halb getippt ist und welche Dateien schon angehängt sind, bleibt beim Wechsel
+  in einen anderen Chat erhalten und steht beim Zurückkommen wieder da – auch auf der Startseite und auf einer
+  Projektseite, wo ein neuer Chat oder Cowork beginnt. Wer dort etwas tippt, kurz in einen Chat schaut und zurückkommt,
+  findet den Text wieder vor (im Browser, nicht über ein Neuladen der Seite hinweg).
+- **Ungelesen-Punkt**: Hat ein Chat ein neues Ergebnis bekommen, seit er zuletzt offen war, steht in der Seitenleiste ein
+  Punkt neben dem Titel – auch bei Läufen geplanter Aufgaben. Öffnen nimmt ihn weg.
+- **Weiterschreiben während einer Antwort** (wie bei Claude): Läuft schon eine Antwort, lässt sich die nächste Nachricht
+  trotzdem abschicken – mit Enter oder dem Senden-Knopf. Sie erscheint blass unter der laufenden Antwort („Kommt als
+  Nächstes dran“) und wird beantwortet, sobald der laufende Schritt fertig ist; das Modell sieht sie nicht mitten im Lauf.
+  Mehrere Nachrichten stellen sich der Reihe nach an, ein ✕ nimmt eine wieder zurück. Der Knopf ist nur noch dann
+  *Stopp*, wenn das Eingabefeld leer ist.
+- **Coworks**: Das Modell arbeitet eine Aufgabe selbstständig mit Werkzeugen ab, zeigt Plan, Schritte und Ergebnisdateien.
+  Schreibende Aktionen fragen nach („Einmal erlauben“, „Immer erlauben“, „Ablehnen“, „Ohne sie weitermachen“). Braucht das Modell ein Werkzeug,
+  das im Chat oder Projekt nicht eingeschaltet ist, fragt es ebenfalls („Einmal erlauben“, „Für diesen Chat einschalten“),
+  statt die Aufgabe abzulehnen.
+- **Kennt sich selbst**: Wie LLMitMir funktioniert und wie man Home Assistant gezielt abfragt, steht fest im Systemprompt
+  und in `llmitmir_info` – das Modell sucht dafür nie im Web.
+- **Skills, Aufgaben und Zugänge im Chat verwalten**: Das Modell legt sie an, ändert oder löscht sie; jede Änderung
+  erscheint als Karte mit allen betroffenen Feldern (lange Texte Zeile für Zeile) und gilt erst nach „Übernehmen“.
+  Geheimnisse bleiben dabei verdeckt, geplante Läufe dürfen das nie.
+- **Geplante Aufgaben** mit Zeitplan (täglich, werktags, Wochentage, monatlich, Intervall, einmalig, Cron), gemeinsamer
+  Warteschlange, langen Wiederholungsfristen und Push-Benachrichtigung über die HA-App. Ausdrücklich für Open-Weight-Modelle
+  gebaut: Läufe dürfen verzögert starten und lange dauern.
+- **Besonders aufwändige Aufgaben**: Normal hat ein Lauf 60 Schritte. Reicht das nicht, markiert man die Aufgabe als
+  besonders aufwändig und gibt ihr damit bis zu 150 Schritte. Erreicht eine Aufgabe ohne diese Markierung die 60 Schritte,
+  wird sie unter *Geplant* rot markiert („Schritte erschöpft“) und lässt sich dort mit einem Klick für 150 Schritte
+  freigeben – wie ein Zugang, dessen Prüfung fehlgeschlagen ist.
+- **Aufgaben teilen**: Eine Aufgabe gehört der Person, die sie anlegt. Sie lässt sich mit anderen Personen der
+  HA-Instanz teilen – je Person einstellbar, ob sie die Aufgabe nur sieht, sie auch ändern und starten darf und ob sie
+  bei jedem Lauf eine Nachricht aufs eigene Gerät bekommt. Geteilte Aufgaben stehen bei allen unter *Geplant* mit dem
+  Namen der Besitzerperson; löschen und weitergeben kann sie nur die Besitzerperson, Läufe laufen immer auf deren
+  Schlüssel, Kontingent und Freigaben. Deshalb ändern Bearbeitende nie Freigaben, Werkzeuge, Werkbank, Modell oder
+  Projekt, und ein geänderter Auftrag läuft erst, wenn die Besitzerperson ihn bestätigt (Karte auf der Startseite, Push).
+- **Passendes Modell, auch unter Last**: LLMitMir lädt die Modellliste alle drei Minuten neu – bei SAIA mit Auslastung
+  (`demand`) und Veröffentlichungsdatum, der Abruf zählt nicht zum Limit. „Standard“ wählt für Chat, Cowork/Aufgaben und
+  Bildlesen das am besten geeignete Modell, das gerade nicht überlastet ist; neu erscheinende Modelle werden automatisch
+  freigegeben und anhand ihrer Vorgänger eingeschätzt (`models.py`), zurückgezogene ersetzt. Das Modellmenü zeigt die
+  Auslastung als Punkt. Vor dem Senden an ein stark ausgelastetes Modell und wenn ein Modell 20 s lang nichts liefert,
+  schlägt der Chat ein freies, ähnlich gutes vor – der Wechsel geht mitten im Lauf und macht beim aktuellen Schritt
+  weiter. Geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. „Stopp“ greift auch,
+  während ein Modell hängt.
+- **Dashboards**: farbige Übersichten aus Kacheln auf einem Raster wie ein Handy-Startbildschirm (12 Spalten, auf dem
+  Tablet 6, auf dem Handy 4 – das rechnet die Oberfläche selbst um). Kacheltypen: Kennzahl mit Verlauf, Diagramm (Linie,
+  Fläche, Balken, Donut), Warnungen, Tabelle, Liste mit Status, Fortschritt, 5×5-Risikomatrix, Messuhr, 3D-Szene aus
+  Grundkörpern und Notiz – alles selbst gezeichnet (SVG und WebGL), ohne Diagramm-Bibliothek. Eine Kachel wird einmal
+  angelegt und lässt sich auf beliebig vielen Dashboards wiederverwenden; Farbwelten je Dashboard, Ziehen, Größe
+  ändern, Tastaturbedienung und lange Drücken auf dem Handy im Bearbeitenmodus.
+  - **Daten aus Home Assistant, ohne Modell**: Zustand, Verlauf, Langzeitstatistik, Kalender und To-do-Listen kommen live
+    im Browser der anschauenden Person an – keine KI-Aufrufe, keine Kosten. Regeln setzen den Status („unter 20 % →
+    Warnung“), Muster wie `sensor.*_battery` sammeln Entitäten ein. HA-Admins können zusätzlich Jinja-Vorlagen nutzen.
+  - **Daten von einem geplanten Lauf**: Was Home Assistant nicht weiß (etwa Aufgaben aus Mails), holt eine Kachel-Aufgabe.
+    Ihre Beschreibung ist der Auftrag; Datenformat, letzter Stand und „am Ende `dashboard_update`“ fügt LLMitMir selbst
+    hinzu. Kachel-Läufe haben eine eigene Warteschlange (normale Aufgaben warten nie auf sie), ein Tagesbudget je Person
+    (Admin, Standard 96), höchstens einen Lauf alle 15 Minuten, 30 Schritte, kein Nachholen nach einem Neustart und
+    pausieren, solange die Kachel nirgends liegt. „Nur bei Änderung“ überspringt Läufe, wenn sich gewählte Entitäten
+    nicht geändert haben. Ein Lauf ohne gültige Daten gilt als Fehler; Verlauf und Delta führt der Server, alte Läufe
+    werden aufgeräumt (die letzten 10 bleiben). Unter *Geplant* erscheinen sie nur mit dem Schalter „Kachel-Aufgaben“.
+  - **Teilen**: Dashboards und Kacheln je Person mit *ansehen*, *bearbeiten* oder *bearbeiten und weiter teilen*, oder
+    für alle (auch künftige Personen). Weitergegeben wird nie mehr, als man selbst darf; wer ein Recht verliert, nimmt
+    alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
+    freigegeben sind. Modell-Kacheln laufen mit den Zugängen der Eigentümer*in – „für alle“ geht bei ihnen nur als
+    *ansehen*, und ändert jemand anderes die Beschreibung, läuft die Kachel erst wieder, wenn die Eigentümer*in bestätigt.
+- **Projekte**: Anweisungen, Dateien, Zugänge, Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
+- **Lebensdauer**: Chats und Coworks können sich nach einer Frist selbst löschen – je Projekt eine eigene Frist, für
+  alles außerhalb eines Projekts eine Frist in den Einstellungen der Person. Standardmäßig ist das aus; wer es
+  einschaltet, bekommt 30 Tage vorgeschlagen, jede andere Zahl (bis 3650) geht auch. Gezählt ab der letzten Benutzung,
+  geprüft stündlich und beim Start; gelöscht werden Chat, Anhänge, Arbeitsbereich und Sandbox. Angeheftete Chats und
+  die Läufe geplanter Aufgaben bleiben. Das automatisch angelegte Projekt „Gespräche“ bringt seine Frist (14 Tage) mit.
+- **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
+- **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
+  serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt. Ein Zugang
+  geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
+  LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
+- **Exchange über EWS** (Typ „Exchange (EWS)“ und GWDG-Exchange): Kalender und Kontakte laufen über Exchange Web
+  Services statt über CalDAV. Der Server beantwortet die Zeitraumabfrage selbst (`FindItem` mit `CalendarView`), es
+  kommt also kein Archiv mit; jeder Eintrag hat eine stabile `item_id` samt `ChangeKey`, und Ändern wie Löschen
+  adressieren genau diesen Eintrag – unabhängig von Dateinamen oder href. Werkzeuge: `ews_events` (Zeitraum),
+  `ews_save` (anlegen, ändern, löschen, optional Einladungen an Teilnehmer), `ews_contacts` (Adressbuch). `caldav_events`
+  bleibt für Nextcloud und leitet bei einem Exchange-Zugang an `ews_events` weiter, damit bestehende Skills gültig
+  bleiben. Beim Typ „Exchange (EWS)“ trägt die Person EWS-Adresse (`…/EWS/Exchange.asmx`), Benutzername und Passwort
+  selbst ein; beim GWDG-Exchange genügen E-Mail-Adresse und Passwort, den Endpunkt setzt LLMitMir
+  (`https://email.gwdg.de/EWS/Exchange.asmx`).
+- **NTLM-Anmeldung:** Der GWDG-Exchange bietet kein Basic Auth an – auf eine einfache Anmeldung antwortet er mit
+  `401` und nur `WWW-Authenticate: Negotiate, NTLM`. LLMitMir meldet sich deshalb mit NTLMv2 an (`ntlm.py`, ohne
+  Fremdbibliothek, MD4 nach RFC 1320 selbst mitgebracht): erst Basic, und wenn der Server nur NTLM anbietet, derselbe
+  Aufruf mit NTLMv2. Die Zugangsdaten sind die, die die GWDG dokumentiert: **Benutzername `gwdg\userid`** – also die
+  Benutzerkennung (z. B. `emuste1`, nicht die Adresse `erika.mustermann@gwdg.de`) mit der Domäne `gwdg` – und das
+  Passwort. Die Kennung steht im GWDG-Zugang im eigenen Feld „Benutzerkennung“; fehlt sie, gilt der Teil der Adresse
+  vor dem @. Gesendete Nachrichten tragen weiter die E-Mail-Adresse als Absender. Genau diese Form probiert LLMitMir
+  zuerst; weitere
+  Schreibweisen (volle Adresse, ohne Domäne) folgen nur, wenn der Server die erste ablehnt. Jeder Versuch bekommt
+  einen **eigenen** Handschlag – eine Challenge ist nach einem 401 verbraucht, ein zweiter Type 3 darauf scheitert
+  zwangsläufig. Bietet der Server `NEGOTIATE_VERSION` an, enthält die dritte Nachricht wie bei Windows ein
+  Versionsfeld. Bleibt es beim 401, nennt die Fehlermeldung alle probierten Schreibweisen – dann stimmen Kennwort
+  oder Benutzername nicht.
+  Für Postfach und Kontakte gilt `BaseShape=Default` (bei `IdOnly` kennt Exchange `IsRead`, `From` und die
+  Empfängerlisten nicht und antwortet mit HTTP 500). Ein reines Datum ist immer der lokale Kalendertag – auch bei
+  ganztägigen Terminen, deren Ende genau einen Tag nach dem Start liegt. Fehlt beim Ändern der `change_key`, holt
+  LLMitMir ihn selbst.
+- **Postfach über EWS:** Bei einem Exchange-Zugang laufen auch die `mail_*`-Werkzeuge über EWS – so beschreibt die
+  GWDG den Zugang für Exchange-Konten (Apple Mail, „manuell konfigurieren“); IMAP nennt sie nur als eingeschränkte
+  Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der
+  MIME-Inhalt kommt als base64 und geht durch denselben Parser, Text und Anhänge verhalten sich also gleich. Gmail,
+  Posteo und Co. bleiben bei IMAP/SMTP.
+- **Ordner über den ganzen Baum:** `mail_folders` listet jeden Ordner mit vollem Pfad, Trennzeichen, Ordner-ID und
+  Zählern – bei IMAP über `LIST "" "*"`, bei Exchange aus der `ParentFolderId`-Kette. Optional `baum: true` für eine
+  eingerückte Ansicht, `tiefe` begrenzt die Ausgabe. `mail_list`, `mail_read` und `mail_change` lösen den Ordnernamen
+  über den ganzen Baum auf: Ordner-ID, voller Pfad oder ein eindeutiges letztes Segment, unabhängig von der
+  Schreibweise der Trennzeichen („Microsoft 365 > MPG“ = „Microsoft 365/MPG“). Gibt es denselben Namen zweimal (etwa
+  „MPG“ oben und unter „Microsoft 365“), wird **nicht** stillschweigend geraten: Die Meldung nennt beide Pfade und
+  verlangt Pfad oder ID. Ist nichts zu finden, schlägt sie die nächsten ähnlichen Pfade vor. Mit `alle_ordner: true`
+  durchsucht `mail_list` den ganzen Baum und gibt zu jedem Treffer den Ordnerpfad aus – das greift auch, wenn eine
+  Mail inzwischen woanders einsortiert ist.
+- **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste): GWDG-E-Mail-Adresse und Passwort eintragen (ohne @
+  wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender und/oder Kontakte**.
+  Postfach, Kalender und Kontakte laufen über EWS. Geprüft wird jeder angehakte Dienst einzeln (EWS-`GetFolder` auf
+  Posteingang, Kalender bzw. Kontakte).
+  **Je Dienst „nur lesen“ (Standard) oder „lesen und schreiben“**, durchgesetzt vor jeder Anfrage: Bei „nur lesen“
+  brechen `mail_send` und `mail_change` ab, bevor eine SOAP-Anfrage rausgeht, `mail_read` markiert nichts als gelesen,
+  und `ews_save` lehnt Anlegen, Ändern und Löschen ab. (Bei einem IMAP-Zugang öffnet `mailbox.Mailbox` Ordner nur mit
+  EXAMINE und holt Nachrichten mit BODY.PEEK.) Damit sich das nicht umgehen lässt, gibt
+  LLMitMir das Passwort eines Exchange-Zugangs nie heraus: kein Platzhalter {{cred:…:password}} (Werkbank, HTTP, DAV) und kein
+  `http_request` mit diesem Zugang.
+  Ältere WebDAV-Zugänge mit DavMail-URL behandelt LLMitMir weiter als GWDG-Kalender (DavMail, `dav_request`).
+- **Zugänge werden geprüft**: Nach dem Speichern, auf Knopfdruck (einzeln oder „Alle prüfen“) und automatisch, wenn ein
+  Werkzeug mit abgelehnter Anmeldung scheitert, meldet sich LLMitMir mit einer harmlosen Leseanfrage an (PROPFIND bei
+  WebDAV, GET bei HTTP-APIs, `getMe` bei Telegram, LOGIN bei IMAP). Schlägt das fehl, steht der Zugang in der Liste rot
+  mit der Meldung, ein Warnbanner nennt die betroffenen Namen, und das Modell bekommt den Fehler genannt, statt es
+  weiter zu versuchen (`credcheck.py`). Beim Postfach nennt die Meldung die Stufe, an der es hängt (DNS, Port, TLS oder
+  Anmeldung), statt nur „TimeoutError“; ist Port 993 gesperrt, versucht LLMitMir 143 mit STARTTLS – beim Prüfen wie
+  beim Abrufen der Mails.
+- **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, **diese Woche (ab Montag) und diesen
+  Monat (ab dem Ersten)**, persönliche Kontingente und die Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als
+  Füllanzeige.
+- **Ablaufdatum bei Zugängen** (optional): LLMitMir warnt zwei Wochen vorher in der Liste und nennt den Grund, wenn ein
+  Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
+- **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60
+  Minuten *ohne diese Aktion weitermacht* – sie auslässt, den Rest erledigt und im Ergebnis nennt, was fehlt.
+- **Freigaben aufs Handy**: Wartet eine Freigabe und ist gerade kein Panel offen, kommt eine Push-Nachricht mit Chat,
+  Werkzeug und – bei einem Befehl – dessen ersten Zeilen. Wer zusieht, bekommt keine zusätzliche Meldung; abschaltbar
+  in den Einstellungen.
+- **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
+  Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
+  noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*
+  sieht der Admin, welches Gerät mit welcher Person verknüpft ist, und kann es korrigieren.
+- **Benachrichtigungen auf der Startseite** (für Umgebungen ohne Push): Ergebnisse geplanter Aufgaben erscheinen als
+  Karten auf der Startseite – im Stil der Benachrichtigungen eines Smartphones, mit kurzem Ton, wenn die Startseite
+  gerade offen ist. Kurz tippen öffnet den Quellchat, lange drücken schaltet dessen Benachrichtigungen stumm, „×“ oder
+  Wischen entfernt die Karte. In den Einstellungen wählt jede Person, ob die Karten erscheinen (*automatisch*: an,
+  solange kein Push-Gerät gewählt ist; *immer*; *aus*) und wie lange sie stehen bleiben (5 Minuten bis 1 Tag oder bis
+  sie von Hand entfernt werden).
+- **Mehrere Personen**: Alles ist pro HA-Nutzer*in getrennt. Admins legen fest, wer LLMitMir nutzen darf, und wählen,
+  ob es **einen gemeinsamen Schlüssel**, **einen Schlüssel je Person (vom Admin eingetragen)** oder **eigene Schlüssel** gibt.
+- **Eigener Schlüssel für geplante Aufgaben** (optional), damit Aufgaben nicht das Kontingent für spontane Chats aufbrauchen.
+  Der Admin wählt: derselbe Schlüssel wie für alles andere, ein **zentraler Aufgaben-Schlüssel für alle**, **jede Person
+  entscheidet selbst** (ein Schlüssel für alles, eigener Aufgaben-Schlüssel oder zentraler Aufgaben-Schlüssel) oder
+  **eigene Schlüssel verpflichtend** – dann gibt es keinen zentralen Aufgaben-Schlüssel, und wer Aufgaben anlegt, trägt in den
+  Einstellungen einen eigenen ein; wer bereits einen eigenen Schlüssel für Chats und Coworks hat, darf denselben für alles
+  nutzen. Fehlt der Schlüssel, startet kein Lauf, und das Ergebnis nennt den Grund. Unter *Geplant* steht, wie viele Anfragen
+  und Tokens alle Aufgaben auf diesem Schlüssel je Tag verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum
+  persönlichen Tageskontingent.
+- **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
+  einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte
+  Claude-Modell und eigene Deployment-Namen per kostenloser Token-Zählung). Der Admin bringt die Anbieter in eine **Reihenfolge**
+  und stellt je Anbieter ein, ob seine Modelle **immer** oder **nur im Notfall** wählbar sind – „Notfall“ heißt: alle eingeschalteten
+  Anbieter davor sind für die Person gerade nicht nutzbar (Limit erreicht, Schlüssel abgelehnt, Monatslimit verbraucht). Externe
+  Modelle wählt LLMitMir **nie von selbst**: nur im Modellmenü (vom günstigsten zum teuersten sortiert), über ein Ersatz-Angebot im
+  Chat, wenn der Hauptanbieter ausfällt, oder bei geplanten Aufgaben mit „Im Notfall auf externe Modelle ausweichen“. Vor der ersten
+  Nutzung erklärt ein Dialog verständlich, was dorthin geht und dass keine sensiblen Daten eingegeben werden sollen.
+  **Zugänge** sind für externe Modelle gesperrt, bis die Person sie einzeln freigibt (gesperrte Zugänge und ihre Ergebnisse sieht das
+  Modell gar nicht), Passwörter gehen nie hinaus (jede Anfrage wird zusätzlich geschwärzt), **Projekte** lassen sich ganz sperren.
+  **Abrechnung**: Jede Anfrage wird dauerhaft mit Tokens und Euro-Kosten je Person und Modell gebucht (Anthropic-Listenpreise mit
+  einstellbarem Dollarkurs oder eigene Preise); der Admin setzt je Person ein **Monatslimit in Euro** und sieht die Kosten aller Personen
+  über die letzten zwölf Monate. Claude wird mit adaptivem Denken, Prompt-Caching und unverändert zurückgespielten Denkblöcken genutzt.
+- **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
+  geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link (Freigaben importierter Aufgaben legt man beim Einschalten selbst fest). Chatverläufe kommen aus dem offiziellen
+  Datenexport von claude.ai (ZIP hochladen).
+- Läuft auf Desktop, Tablet und Smartphone; hell und dunkel nach HA-Theme; Deutsch und Englisch.

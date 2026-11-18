@@ -51,11 +51,11 @@ TYPES: dict[str, dict[str, Any]] = {
              "obsolete": ["url", "contacts_url", "imap_host", "smtp_host"],
              "labels": {"username": "GWDG-E-Mail-Adresse", "login": "Benutzerkennung", "password": "Passwort",
                         "ews_url": "EWS-Adresse"},
-             "placeholders": {"username": "vorname.nachname@gwdg.de", "login": "z. B. nkopp1",
+             "placeholders": {"username": "vorname.nachname@gwdg.de", "login": "z. B. emuste1",
                               "ews_url": "Wird automatisch gesetzt"},
              "hint": "Dein Konto im GWDG-Exchange. Trag deine GWDG-E-Mail-Adresse, deine Benutzerkennung und dein "
                      "Passwort ein und wähl, wofür der Zugang gilt – ohne @ wird bei der Adresse @gwdg.de ergänzt. "
-                     "Die Benutzerkennung ist der Teil vor dem @, wenn sie bei dir anders lautet (z. B. nkopp1), trag "
+                     "Die Benutzerkennung ist der Teil vor dem @, wenn sie bei dir anders lautet (z. B. emuste1), trag "
                      "sie hier ein: Angemeldet wird als gwdg\\kennung. Alles läuft über Exchange Web Services "
                      "(email.gwdg.de/EWS/Exchange.asmx): Postfach, Kalender und Kontakte – so wie die GWDG es für "
                      "Exchange-Konten beschreibt. Weitere Adressen brauchst du nicht."},
@@ -128,7 +128,7 @@ def ews_endpoint(cred: dict) -> str:
 def ews_account(cred: dict) -> tuple[str, str]:
     r"""(Benutzername, Passwort) für die EWS-Anmeldung.
 
-    Beim GWDG-Zugang ist der Benutzername die **Kennung** (``nkopp1``), nicht die E-Mail-Adresse: Angemeldet wird als
+    Beim GWDG-Zugang ist der Benutzername die **Kennung** (``emuste1``), nicht die E-Mail-Adresse: Angemeldet wird als
     ``gwdg\kennung``. Steht keine Kennung im Zugang, gilt der Teil der Adresse vor dem @.
     """
     f = cred.get("fields") or {}

@@ -139,17 +139,52 @@ def test_actions_with_side_effects_are_write_tools():
 
 
 # ------------------------------------------------------------------ Dokumentation
-@pytest.mark.xfail(strict=True, reason="D1: caldav_entry, caldav_changes und task_result fehlen in der Werkzeugtabelle")
-def test_readme_lists_every_tool():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    missing = [n for n in sorted(TOOLS.REGISTRY) if f"`{n}`" not in readme]
-    assert missing == [], f"im README fehlen: {missing}"
+README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
-def test_readme_names_the_current_minimum_home_assistant_version():
+def test_tool_reference_lists_every_tool():
+    """docs/WERKZEUGE.md nennt jedes Werkzeug, die README verweist darauf."""
+    ref = (ROOT / "docs" / "WERKZEUGE.md").read_text(encoding="utf-8")
+    missing = [n for n in sorted(TOOLS.REGISTRY) if f"`{n}`" not in ref]
+    assert missing == [], f"in docs/WERKZEUGE.md fehlen: {missing}"
+    assert "docs/WERKZEUGE.md" in README
+
+
+def _sections(lang_heading: str) -> list[str]:
+    part = README.split(f"## {lang_heading}", 1)[1].split("\n## ", 1)[0]
+    return re.findall(r"^### (.+)$", part, re.M)
+
+
+def test_readme_is_bilingual_with_the_same_structure():
+    de, en = _sections("Deutsch"), _sections("English")
+    assert len(de) >= 5 and len(de) == len(en), (de, en)
+
+
+def test_readme_stays_short():
+    """So kurz wie möglich, so lang wie nötig – Details gehören nach docs/."""
+    assert len(README.splitlines()) <= 160
+
+
+def test_readme_names_the_python_packages_and_minimum_version():
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     major_minor = ".".join(hacs["homeassistant"].split(".")[:2])
-    assert major_minor in (ROOT / "README.md").read_text(encoding="utf-8")
+    for lang in ("Deutsch", "English"):
+        part = README.split(f"## {lang}", 1)[1]
+        assert major_minor in part, lang
+        for req in _manifest()["requirements"]:
+            name = re.split(r"[<>=~\[]", req)[0]
+            assert f"`{name}`" in part, f"{lang}: {name} fehlt"
+
+
+def test_documentation_links_resolve():
+    for doc in [ROOT / "README.md", *(ROOT / "docs").glob("*.md")]:
+        for target in re.findall(r"\]\(([^)#:]+\.md)\)", doc.read_text(encoding="utf-8")):
+            assert (doc.parent / target).exists(), f"{doc.name}: {target}"
+
+
+def test_changelog_has_the_current_version():
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"## {_manifest()['version']}" in changelog
 
 
 # ------------------------------------------------------------------ öffentliches Repo
