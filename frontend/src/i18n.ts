@@ -176,6 +176,7 @@ const EN: Record<string, string> = {
   "Diesem Server immer": "Always for this server", "Ja, diesmal": "Yes, this time", "Nein": "No", "Genau ansehen": "Look closely",
   "Ohne sie weitermachen": "Continue without it", "Ohne diese Aktion weiterarbeiten": "Keep working without this action",
   "Erlaubte Server": "Allowed servers",
+  "Externes Bild – wird erst beim Klick geöffnet": "External image – only opened when clicked",
   "Automatisch aus den Adressen des Zugangs: {hosts}.": "Automatically from the credential's addresses: {hosts}.",
   "Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.":
     "More servers this credential may go to without asking – comma-separated, *.example.org works too. For any other server LLMitMir asks first; scheduled tasks refuse.",
