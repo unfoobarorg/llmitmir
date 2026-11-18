@@ -12,23 +12,23 @@ async def _session(ctx):
     if wb is None:
         raise PermissionError("Keine Werkbank eingerichtet (Admin → Werkbank).")
     if not getattr(ctx, "_wb_ready", False):
-        info = await wb.session(ctx.chat_id)
+        info = await wb.session(ctx.files_id)
         # first contact in this run: copy attachments and skill files into the sandbox
         if info.get("created") or not getattr(ctx, "_wb_synced", False):
-            for f in await ctx.store.async_list_files("chat", ctx.chat_id):
-                data = await ctx.store.async_read_file("chat", ctx.chat_id, f["name"])
-                await wb.put(ctx.chat_id, f"/workspace/{f['name']}", data)
+            for f in await ctx.store.async_list_files("chat", ctx.files_id):
+                data = await ctx.store.async_read_file("chat", ctx.files_id, f["name"])
+                await wb.put(ctx.files_id, f"/workspace/{f['name']}", data)
             for s in ctx.store.meta["skills"].values():
                 if ctx.allowed_skills is not None and s["id"] not in ctx.allowed_skills:
                     continue
                 for f in await ctx.store.async_list_files("skill", s["id"]):
                     data = await ctx.store.async_read_file("skill", s["id"], f["name"])
                     safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in s["name"])
-                    await wb.put(ctx.chat_id, f"/workspace/skills/{safe}/{f['name']}", data)
+                    await wb.put(ctx.files_id, f"/workspace/skills/{safe}/{f['name']}", data)
             if ctx.project_id:
                 for f in await ctx.store.async_list_files("project", ctx.project_id):
                     data = await ctx.store.async_read_file("project", ctx.project_id, f["name"])
-                    await wb.put(ctx.chat_id, f"/workspace/projekt/{f['name']}", data)
+                    await wb.put(ctx.files_id, f"/workspace/projekt/{f['name']}", data)
             ctx._wb_synced = True
         ctx._wb_ready = True
     return wb
@@ -41,7 +41,7 @@ async def shell(ctx, a: dict):
         return "Fehler: leerer Befehl"
     timeout = max(5, min(int(a.get("timeout_s") or 300), 3600))
     await ctx.manager._status(ctx.run, "tool", {"label": "Befehl läuft", "icon": "mdi:console"})
-    r = await wb.exec(ctx.chat_id, cmd, timeout, a.get("ordner") or "/workspace")
+    r = await wb.exec(ctx.files_id, cmd, timeout, a.get("ordner") or "/workspace")
     out = f"Exit-Code: {r.get('exit_code')}" + (" (Zeitlimit erreicht)" if r.get("timed_out") else "") + f" · {r.get('seconds')} s\n"
     if r.get("stdout"):
         out += f"--- stdout ---\n{r['stdout']}\n"
@@ -54,7 +54,7 @@ async def shell(ctx, a: dict):
 
 async def files(ctx, a: dict):
     wb = await _session(ctx)
-    r = await wb.list(ctx.chat_id, a.get("pfad") or "/workspace")
+    r = await wb.list(ctx.files_id, a.get("pfad") or "/workspace")
     items = [i for i in r.get("items", []) if "/.home" not in i["path"]][:500]
     return {"pfad": r.get("path"), "eintraege": items}
 
@@ -62,9 +62,9 @@ async def files(ctx, a: dict):
 async def fetch(ctx, a: dict):
     wb = await _session(ctx)
     path = str(a.get("pfad") or "")
-    data = await wb.get(ctx.chat_id, path if path.startswith("/") else f"/workspace/{path}")
+    data = await wb.get(ctx.files_id, path if path.startswith("/") else f"/workspace/{path}")
     name = a.get("speichern_als") or posixpath.basename(path)
-    info = await ctx.store.async_write_file("chat", ctx.chat_id, name, data)
+    info = await ctx.store.async_write_file("chat", ctx.files_id, name, data)
     await ctx.emit_files()
     return {"ok": True, "im_arbeitsbereich": info["name"], "groesse": info["size"]}
 
@@ -72,12 +72,12 @@ async def fetch(ctx, a: dict):
 async def push(ctx, a: dict):
     wb = await _session(ctx)
     src = str(a.get("name") or "")
-    scope, owner = ("project", ctx.project_id) if a.get("bereich") == "projekt" else ("chat", ctx.chat_id)
+    scope, owner = ("project", ctx.project_id) if a.get("bereich") == "projekt" else ("chat", ctx.files_id)
     if not owner:
         return "Fehler: kein Projekt"
     data = await ctx.store.async_read_file(scope, owner, src)
     target = a.get("ziel") or f"/workspace/{posixpath.basename(src)}"
-    return await wb.put(ctx.chat_id, target if target.startswith("/") else f"/workspace/{target}", data)
+    return await wb.put(ctx.files_id, target if target.startswith("/") else f"/workspace/{target}", data)
 
 
 register(Tool("shell", "werkbank",

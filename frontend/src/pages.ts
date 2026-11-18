@@ -138,8 +138,8 @@ export class Chats extends StoreElement {
   }
 
   render() {
-    const chats = (store.data?.chats || []).filter((c: any) =>
-      (this.filter === "all" || c.kind === this.filter) && (!this.q || (c.title || "").toLowerCase().includes(this.q.toLowerCase())));
+    const chats = (store.data?.chats || []).filter((c: any) => !c.parent_id &&
+      (this.filter === "all" ? !c.tile_id : this.filter === "tile_run" ? !!c.tile_id : c.kind === this.filter && !c.tile_id) && (!this.q || (c.title || "").toLowerCase().includes(this.q.toLowerCase())));
     const proj = (id: string) => (store.data?.projects || []).find((p: any) => p.id === id)?.name;
     // Treffer im Inhalt, die nicht schon über den Titel in der Liste stehen
     const extra = this.deep ? this.found.filter((f: any) => !chats.some((c: any) => c.id === f.chat_id)) : [];
@@ -150,7 +150,8 @@ export class Chats extends StoreElement {
         @change=${(e: any) => { this.deep = e.target.checked; this.queueSearch(); }}>
         ${t("Auch in Nachrichten suchen")}${this.searching ? html` <lm-spark size="14"></lm-spark>` : nothing}</label>
       <div class="tabs">${(isSimple() ? [["all", t("Alle")], ["task_run", "Ergebnisse geplanter Aufgaben"]]
-        : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")]]).map(([k, l]) =>
+        : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")],
+          ...((store.data?.chats || []).some((c: any) => c.tile_id) ? [["tile_run", t("Kachel-Läufe")]] : [])]).map(([k, l]) =>
         html`<button class=${this.filter === k ? "on" : ""} @click=${() => (this.filter = k)}>${l}</button>`)}</div>
       <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
         ${icon(c.kind === "chat" ? "chat" : c.kind === "cowork" ? "cowork" : "task")}
@@ -179,7 +180,7 @@ export class Projects extends StoreElement {
   private create() { navigate("/project/new"); }
   render() {
     const ps = store.data?.projects || [];
-    const count = (id: string) => (store.data?.chats || []).filter((c: any) => c.project_id === id).length;
+    const count = (id: string) => (store.data?.chats || []).filter((c: any) => c.project_id === id && !c.parent_id).length;
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Projekte")}</h1>
       <button class="btn primary" @click=${this.create}>${icon("plus", 18)} ${t("Neues Projekt")}</button></div>
       ${isSimple() ? explainer("projects", !ps.length)
@@ -250,7 +251,7 @@ export class ProjectPage extends StoreElement {
     const p = this.draft;
     if (!p) return html`<div class="page hint">Projekt nicht gefunden.</div>`;
     const d = store.data;
-    const chats = (d.chats || []).filter((c: any) => c.project_id === p.id);
+    const chats = (d.chats || []).filter((c: any) => c.project_id === p.id && !c.parent_id);
     const models = d.models || [];
     const groups = d.tool_groups || {};
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks

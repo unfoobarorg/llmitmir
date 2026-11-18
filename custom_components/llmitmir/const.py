@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.36.1"
+VERSION = "1.0.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -77,6 +77,9 @@ MAX_STEPS_CHAT = 30         # expert view: before the limit the person is asked 
 MAX_STEPS_CHAT_SIMPLE = 40  # simple view: nobody is asked, so the limit is higher from the start
 MAX_STEPS_COWORK = 60
 MAX_STEPS_TASK_HEAVY = 150  # geplante Aufgabe, die als besonders aufwaendig markiert ist
+MAX_STEPS_SUB = 40          # Teilaufgabe (Unterchat): ein klar umrissener Auftrag
+SUB_PARALLEL = 3            # so viele Teilaufgaben laufen je Person gleichzeitig (SAIA antwortet sonst schnell mit 429)
+SUB_PER_RUN = 8             # so viele Teilaufgaben darf ein Lauf des Hauptchats starten
 MAX_STEPS_MORE = 15         # steps added each time the person (expert view) allows a little more
 MAX_STEPS_MORE_LOTS = 100   # … or a lot more, when the person does not want to be asked again soon
 MORE_STEPS = {"once": MAX_STEPS_MORE, "lots": MAX_STEPS_MORE_LOTS}  # answer to "more steps?" -> steps added (deny: none)
@@ -115,3 +118,21 @@ KIND_TASK_RUN = "task_run"
 PERM_ALLOW = "allow"
 PERM_ASK = "ask"
 PERM_DENY = "deny"
+
+# Dashboards (dashboards.py, access.py, boards.py)
+TILE_KINDS = ("stat", "chart", "alert", "table", "list", "progress", "matrix", "gauge", "scene", "text")
+HA_MODES = ("state", "history", "statistics", "calendar", "todo", "template")
+GRID_COLS = 12               # Desktop; Tablet (6) und Handy (4) leitet die Oberfläche daraus ab
+MAX_DASHBOARDS = 20          # je Person
+MAX_PLACEMENTS = 60          # je Dashboard
+MAX_TILES = 100              # je Person (HA- und Modell-Kacheln zusammen)
+MAX_SCENES = 4               # 3D-Kacheln je Dashboard (Browser erlauben nur rund 16 WebGL-Kontexte)
+MAX_TILE_DATA = 64 * 1024    # Bytes je Datensatz
+MAX_SHARE_USERS = 20         # persönliche Freigaben je Kachel / Dashboard
+TILE_RUN_BUDGET = 96         # Modell-Läufe je Person und Tag (Admin einstellbar, 0 = ohne Grenze)
+TILE_MIN_INTERVAL = 15 * 60  # kürzester Abstand zweier geplanter Läufe einer Kachel (Sekunden)
+TILE_KEEP_RUNS = 10          # so viele Lauf-Chats behält eine Kachel-Aufgabe, ältere werden gelöscht
+TILE_PARALLEL = 1            # gleichzeitige Läufe in der Kachel-Spur (Admin: 1–3)
+MAX_STEPS_TILE = 30          # Schritte je Kachel-Lauf …
+MAX_STEPS_TILE_HEAVY = 60    # … und je Lauf einer als aufwändig markierten Kachel
+ORIGIN_DASHBOARD = "dashboard"  # Kennzeichen einer Kachel-Aufgabe (task["origin"])

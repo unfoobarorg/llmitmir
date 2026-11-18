@@ -116,7 +116,7 @@ async def dav_read(ctx, a: dict):
         data, _ = await read_body(r, 30_000_000)
         ctype = r.headers.get("content-type", "")
     if a.get("speichern_als"):
-        info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], data)
+        info = await ctx.store.async_write_file("chat", ctx.files_id, a["speichern_als"], data)
         await ctx.emit_files()
         return {"ok": True, "gespeichert": info}
     from .files import extract_document
@@ -128,7 +128,7 @@ async def dav_write(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
     pfad = str(a.get("pfad") or "").strip("/")
     if a.get("aus_arbeitsbereich"):
-        data = await ctx.store.async_read_file("chat", ctx.chat_id, a["aus_arbeitsbereich"])
+        data = await ctx.store.async_read_file("chat", ctx.files_id, a["aus_arbeitsbereich"])
     else:
         data = str(a.get("inhalt") or "").encode("utf-8")
     headers = {} if a.get("ueberschreiben") else {"If-None-Match": "*"}
@@ -195,6 +195,22 @@ def http_hint(status: int, text: str = "") -> str:
     return f"HTTP {status}: {(text or '').strip()[:300] or 'Anfrage abgelehnt'}"
 
 
+def _other_creds(ctx, a: dict, cred: dict) -> list[dict]:
+    """Zugänge, deren Platzhalter im Inhalt stehen – außer dem Zugang der Anfrage selbst."""
+    return [c for c in C.creds_in(ctx.creds, a.get("inhalt")) if c.get("id") != cred.get("id")]
+
+
+def dav_gate(ctx, a: dict) -> dict | None:
+    try:
+        cred = _cred(ctx, a.get("zugang", ""))
+        pfad = str(a.get("pfad") or "")
+        url = pfad if pfad.startswith("http") else f"{dav_root(cred)}/{pfad.lstrip('/')}"
+    except (PermissionError, ValueError, KeyError):
+        return None
+    foreign = C.foreign_creds(_other_creds(ctx, a, cred), url, getattr(ctx, "approved_hosts", None))
+    return {"host": C.host_of(url), "url": url, "creds": foreign} if foreign else None
+
+
 async def dav_request(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
     methode = str(a.get("methode") or "PROPFIND").upper()
@@ -216,6 +232,10 @@ async def dav_request(ctx, a: dict):
             if (why := gwdg_allowed(cred, dest_url, write=True)):
                 return why
     body = a.get("inhalt")
+    # Platzhalter anderer Zugänge im Inhalt: nur, wenn dieser Server auch für sie erlaubt ist (oder freigegeben wurde)
+    foreign = C.foreign_creds(_other_creds(ctx, a, cred), url, getattr(ctx, "approved_hosts", None))
+    if foreign:
+        raise PermissionError(C.foreign_host_error(foreign, url))
     body = C.resolve_placeholders(body, ctx.creds, ctx.allowed_creds) if isinstance(body, str) else body
     try:
         async with ctx.session.request(methode, url, data=(body or None), auth=_auth(cred), headers=headers,
@@ -228,7 +248,7 @@ async def dav_request(ctx, a: dict):
         return f"Fehler: Keine Verbindung zu {root_host} ({type(e).__name__}: {e})"
     if a.get("speichern_als"):
         # Große multistatus-Antworten gehören in den Arbeitsbereich, nicht in den Chat: dort mit jq/grep auswerten
-        info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], raw)
+        info = await ctx.store.async_write_file("chat", ctx.files_id, a["speichern_als"], raw)
         await ctx.emit_files()
         return {"status": status, "etag": etag, "gespeichert": info, "bytes": len(raw),
                 **({"fehler": http_hint(status, text)} if status >= 400 else {}),
@@ -520,7 +540,7 @@ register(Tool("dav_request", "dav", "Freie WebDAV/CalDAV/CardDAV-Anfrage relativ
                    "speichern_als": {"type": "string", "description": "Antwort in den Arbeitsbereich schreiben statt in den Chat"}},
                   ["zugang", "methode", "pfad"]),
               dav_request, write=lambda a: str(a.get("methode") or "").upper() not in READ_METHODS,
-              label="DAV-Anfrage", icon="mdi:calendar-sync-outline"))
+              label="DAV-Anfrage", icon="mdi:calendar-sync-outline", gate=dav_gate))
 register(Tool("caldav_events", "dav", "Liest Termine eines Nextcloud-Kalenders in einem Zeitraum (Exchange-Kalender: ews_events).",
               obj({"zugang": Z, "kalender": {"type": "string", "description": "Kalender-ID, z. B. personal"},
                    "von": {"type": "string", "description": "JJJJ-MM-TT"}, "bis": {"type": "string"}}, ["zugang"]),

@@ -77,6 +77,9 @@ export class Api {
   }
 }
 
+/** Home Assistant pushed a new `hass` object (states changed): HA tiles listen and redraw what concerns them. */
+export const hassBus = new EventTarget();
+
 export interface RunState { run_id: string; status: string; detail: any; started: number; hint?: any; }
 
 /** Global reactive store; components re-render on "change". */
@@ -89,6 +92,9 @@ export class Store extends EventTarget {
   permissions: any[] = [];
   inbox: any[] = [];        // Benachrichtigungen auf der Startseite (inbox.ts)
   inboxPing = 0;            // Zähler: steigt, wenn eine neue Karte kam (die Startseite spielt dann einen Ton)
+  tileData = new Map<string, any>();   // Kacheldaten (key "owner:id" -> record), geladen für sichtbare Dashboards
+  tileRuns: Record<string, string> = {}; // key -> "queued" | "running" (Modell-Kacheln)
+  private boardsLoading: Promise<void> | null = null;
   error = "";
   toast = "";
   private _t: any;
@@ -110,6 +116,22 @@ export class Store extends EventTarget {
     this.inbox = this.data.inbox || [];
     this.changed();
   }
+  /** Dashboards, Kacheln und Kachel-Aufgaben neu holen – ohne den ganzen Bootstrap. */
+  async loadBoards() {
+    if (this.boardsLoading) return this.boardsLoading;
+    this.boardsLoading = (async () => {
+      try { if (this.data) { this.data.boards = await this.api.ws("dashboards/list"); this.changed(); } }
+      finally { this.boardsLoading = null; }
+    })();
+    return this.boardsLoading;
+  }
+  async loadTileData(keys: string[], force = false) {
+    const want = keys.filter(k => force || !this.tileData.has(k));
+    if (!want.length) return;
+    const r = await this.api.ws("tile/data", { keys: want });
+    for (const k of want) this.tileData.set(k, r.records?.[k] ?? null);
+    this.changed();
+  }
   async loadChat(id: string, force = false) {
     if (!force && this.chats.has(id)) return this.chats.get(id);
     const r = await this.api.ws("chat/get", { chat_id: id });
@@ -127,7 +149,11 @@ export class Store extends EventTarget {
         if (i >= 0) d.chats[i] = e.chat; else d.chats.unshift(e.chat);
         d.chats.sort((a: any, b: any) => (b.updated || 0) - (a.updated || 0));
         const full = this.chats.get(e.chat.id);
-        if (full) Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, model_auto: e.chat.model_auto, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
+        if (full) {
+          Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, model_auto: e.chat.model_auto, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
+          // Teilaufgabe: ihr Stand kommt mit der Zusammenfassung (die Karte im Hauptchat und die Leiste lesen ihn)
+          if (full.sub && e.chat.sub_status) full.sub.status = e.chat.sub_status;
+        }
         break;
       }
       case "queued": {
@@ -214,6 +240,11 @@ export class Store extends EventTarget {
       }
       case "models": d.models = e.models; d.defaults = e.defaults; if (e.external) d.external = e.external; break;
       case "meta": this.load(); return;
+      case "boards": this.loadBoards(); return;
+      case "tile_data": this.tileData.set(e.key, e.record); break;
+      case "tile_run":
+        if (e.state === "idle") { delete this.tileRuns[e.key]; this.loadBoards(); } else this.tileRuns[e.key] = e.state;
+        break;
       case "import_done": this.notify("Import abgeschlossen"); break;
     }
     this.changed();

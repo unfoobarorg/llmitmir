@@ -8,12 +8,13 @@ from pathlib import Path
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 
 from .agent import Manager
 from .const import DOMAIN, EXT_MODELS_REFRESH, MODEL_POLL_SECONDS, PANEL_ELEMENT, PANEL_ICON, PANEL_TITLE, PANEL_URL, PRESETS, STATIC_URL, VERSION
+from .boards import Boards
 from .scheduler import Scheduler
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,6 +38,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cfg["_seeded"] = True
         cfg["_auto_models"] = True
         await manager.config.async_save()
+    if entry.data.get("api_key"):
+        # Der Schlüssel aus dem Einrichtungsdialog steht jetzt in der Admin-Konfiguration (dort änderbar). Im Config
+        # Entry bliebe er sonst für immer liegen – auch nachdem der Admin ihn im Panel ändert oder entfernt.
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "api_key": ""})
     if not cfg.get("_auto_models"):
         # Up to 0.3 the preset's fixed models were copied into the admin defaults. Defaults nobody changed become
         # "automatic", so new releases and the current load are taken into account.
@@ -49,6 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await manager.config.async_save()
     data["manager"] = manager
     manager.scheduler = Scheduler(hass, manager)
+    manager.boards = Boards(manager)  # Dashboards und Kacheln (boards.py)
 
     if not data.get("registered"):
         from . import http, ws
@@ -79,6 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await panel_custom.async_register_panel(hass, **panel_args)
 
     async def _start(_event=None) -> None:
+        await manager.boards.async_start()
         await manager.scheduler.async_start()
         # model list with status, load and new releases – now and every few minutes
         await manager.refresh_models(max_age=0)
@@ -109,7 +116,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await _start()
     else:
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start))
+
+    async def _flush(_event=None) -> None:
+        # Home Assistant fährt herunter: verzögerte Speicherungen jetzt schreiben, sonst gingen die letzten Sekunden
+        # (Verbrauch, Prüfergebnisse, Startseiten-Karten) verloren
+        await _flush_all(manager)
+
+    entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _flush))
     return True
+
+
+async def _flush_all(manager) -> None:
+    for st in list(manager.users.values()):
+        try:
+            await st.async_flush()
+        except Exception:  # noqa: BLE001 - die anderen Personen trotzdem speichern
+            _LOGGER.exception("Speichern der Daten von %s fehlgeschlagen", st.user_id)
+    await manager.billing.async_save()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -120,9 +143,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             run.cancel.set()
         if manager.scheduler:
             await manager.scheduler.async_stop()
-        for st in manager.users.values():
+        if getattr(manager, "boards", None):
+            await manager.boards.async_stop()
+        for st in list(manager.users.values()):
             await st.async_save_meta()
-        await manager.billing.async_save()
+        await _flush_all(manager)
+        # die eigene Client-Session (ohne Cookie-Speicher) gehört zu diesem Eintrag – sonst bliebe sie bis zum
+        # Herunterfahren offen, bei jedem Neuladen eine mehr
+        await manager.session.close()
     frontend.async_remove_panel(hass, PANEL_URL)
     data.pop("manager", None)
     return True

@@ -41,7 +41,8 @@ const DOING: Record<string, string> = {
   files: "Ich lese Dateien …", skills: "Ich lese eine Anleitung …", werkbank: "Ich arbeite daran …", notify: "Ich schicke eine Nachricht …",
   llmitmir: "Ich schaue in LLMitMir nach …",
 };
-const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };
+const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang",
+  dashboard: "das Dashboard", kachel: "die Kachel" };
 
 interface Cfg { tts: string; pause: number; bargeIn: boolean; bridge: boolean; captions: boolean; model: string; }
 const LS = "llmitmir.voice";
@@ -568,7 +569,8 @@ export class Voice extends StoreElement {
     }
   }
 
-  private perm() { return this.chatId ? store.permissions.find(p => p.chat_id === this.chatId) : undefined; }
+  // auch Freigaben aus Teilaufgaben: im Gespräch mit dem Hauptchat beantworten
+  private perm() { return this.chatId ? store.permissions.find(p => p.chat_id === this.chatId || p.root_chat_id === this.chatId) : undefined; }
 
   /** Was die Gestenregie wissen muss. */
   private scene() {

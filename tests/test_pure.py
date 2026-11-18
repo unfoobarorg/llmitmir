@@ -27,6 +27,7 @@ inbox = load("inbox")
 permnote = load("permissionnotify")
 chatsearch = load("chatsearch")
 docpreview = load("docpreview")
+subchats = load("subchats")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -928,9 +929,9 @@ def test_gwdg_account_like_calmerge():
     assert f == {"username": "max.muster@gwdg.de", "login": "max.muster", "password": "pw",
                  "ews_url": creds.GWDG_EWS}
     # eine abweichende Kennung bleibt erhalten
-    f2 = creds.normalize_fields("gwdg", {"username": "nikolaj.kopp@gwdg.de", "login": "nkopp1", "password": "pw"},
+    f2 = creds.normalize_fields("gwdg", {"username": "erika.mustermann@gwdg.de", "login": "emuste1", "password": "pw"},
                                 ["calendar"])
-    assert f2["login"] == "nkopp1" and f2["username"] == "nikolaj.kopp@gwdg.de"
+    assert f2["login"] == "emuste1" and f2["username"] == "erika.mustermann@gwdg.de"
     # alle Dienste: Postfach kommt dazu, abgewählte Adressen verschwinden wieder
     f = creds.normalize_fields("gwdg", dict(f, username="max.muster"), ["mail", "contacts"])
     assert f["ews_url"] == creds.GWDG_EWS  # Postfach, Kalender und Kontakte: derselbe Endpunkt
@@ -1265,7 +1266,7 @@ def _mail_ctx(access):
         return None
 
     store = types.SimpleNamespace(async_write_file=write_file)
-    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit), saved
+    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", files_id="c", emit_files=emit), saved
 
 
 def test_mail_tools_follow_access():
@@ -1610,7 +1611,7 @@ def test_ews_parse_calendar_items():
       <t:CalendarItem><t:ItemId Id="AAMk=" ChangeKey="CK1"/><t:Subject>Jour fixe</t:Subject>
       <t:Start>2026-11-20T13:00:00Z</t:Start><t:End>2026-11-20T14:00:00Z</t:End>
       <t:Location>Videokonferenz</t:Location><t:IsAllDayEvent>false</t:IsAllDayEvent>
-      <t:Organizer><t:Mailbox><t:Name>Niko</t:Name><t:EmailAddress>niko@gwdg.de</t:EmailAddress></t:Mailbox></t:Organizer>
+      <t:Organizer><t:Mailbox><t:Name>Niko</t:Name><t:EmailAddress>erika@gwdg.de</t:EmailAddress></t:Mailbox></t:Organizer>
       <t:RequiredAttendees><t:Attendee><t:Mailbox><t:EmailAddress>a@example.org</t:EmailAddress></t:Mailbox>
       <t:ResponseType>Accept</t:ResponseType></t:Attendee></t:RequiredAttendees>
       <t:Categories><t:String>GWDG</t:String></t:Categories>
@@ -1621,7 +1622,7 @@ def test_ews_parse_calendar_items():
     ev = out["items"][0]
     assert ev["betreff"] == "Jour fixe" and ev["item_id"] == "AAMk=" and ev["change_key"] == "CK1"
     assert ev["start"] == "2026-11-20T13:00:00Z" and ev["ort"] == "Videokonferenz"
-    assert ev["organisator"]["email"] == "niko@gwdg.de"
+    assert ev["organisator"]["email"] == "erika@gwdg.de"
     assert ev["teilnehmer"][0]["email"] == "a@example.org" and ev["teilnehmer"][0]["art"] == "Accept"
     assert ev["kategorien"] == ["GWDG"]
 
@@ -1667,15 +1668,15 @@ def test_ews_item_ids_and_day():
 
 def test_ews_credentials_types():
     """Neuer Typ ews und GWDG über EWS: Endpunkte, Rechte, Dienste."""
-    gwdg = {"type": "gwdg", "fields": {"username": "niko@gwdg.de", "password": "x"}, "services": ["calendar", "contacts"]}
+    gwdg = {"type": "gwdg", "fields": {"username": "erika@gwdg.de", "password": "x"}, "services": ["calendar", "contacts"]}
     assert creds.is_ews(gwdg)
     assert creds.ews_endpoint(gwdg) == creds.GWDG_EWS
     # angemeldet wird mit der Kennung (gwdg\kennung), nicht mit der Adresse
-    assert creds.ews_account(gwdg) == ("niko", "x")
-    assert creds.ews_account({"type": "gwdg", "fields": {"username": "niko@gwdg.de", "login": "nkopp1",
-                                                         "password": "x"}}) == ("nkopp1", "x")
+    assert creds.ews_account(gwdg) == ("erika", "x")
+    assert creds.ews_account({"type": "gwdg", "fields": {"username": "erika@gwdg.de", "login": "emuste1",
+                                                         "password": "x"}}) == ("emuste1", "x")
     # der Absender bleibt die Adresse
-    assert creds.ews_sender({"type": "gwdg", "fields": {"username": "niko@gwdg.de", "login": "nkopp1"}}) == "niko@gwdg.de"
+    assert creds.ews_sender({"type": "gwdg", "fields": {"username": "erika@gwdg.de", "login": "emuste1"}}) == "erika@gwdg.de"
     assert creds.access(gwdg, "calendar") == "read" and creds.access(gwdg, "mail") == ""
     gwdg_write = dict(gwdg, access={"calendar": "write"})
     assert creds.access(gwdg_write, "calendar") == "write"
@@ -1689,9 +1690,9 @@ def test_ews_credentials_types():
     assert creds.access(ex, "contacts") == "read"
     assert creds.access_text(ex) == {"E-Mail-Postfach": "nur lesen", "Kalender": "nur lesen", "Kontakte": "nur lesen"}
     # Felder: GWDG erzeugt den EWS-Endpunkt, der eigene Typ behält seine Adresse
-    norm = creds.normalize_fields("gwdg", {"username": "Niko", "password": "p"}, ["calendar"])
-    assert norm["username"] == "niko@gwdg.de" and norm["ews_url"] == creds.GWDG_EWS and "url" not in norm
-    norm = creds.normalize_fields("gwdg", {"username": "niko@gwdg.de", "password": "p"}, ["mail"])
+    norm = creds.normalize_fields("gwdg", {"username": "Erika", "password": "p"}, ["calendar"])
+    assert norm["username"] == "erika@gwdg.de" and norm["ews_url"] == creds.GWDG_EWS and "url" not in norm
+    norm = creds.normalize_fields("gwdg", {"username": "erika@gwdg.de", "password": "p"}, ["mail"])
     assert norm["ews_url"] == creds.GWDG_EWS and "imap_host" not in norm  # Postfach über EWS
     norm = creds.normalize_fields("ews", {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p", "alt": ""})
     assert norm == {"url": "https://x/EWS/Exchange.asmx", "username": "u", "password": "p"}
@@ -1765,7 +1766,7 @@ def test_dav_request_speichern_als_writes_to_workspace():
 
     ctx = _dav_ctx(207, b"<multistatus/>" * 100)
     ctx.store = Store()
-    ctx.chat_id = "c1"
+    ctx.chat_id = ctx.files_id = "c1"
     emitted = []
 
     async def emit():
@@ -2051,7 +2052,7 @@ def test_ews_mail_parsing():
       <t:DateTimeReceived>2026-11-13T09:15:00Z</t:DateTimeReceived><t:IsRead>false</t:IsRead>
       <t:HasAttachments>true</t:HasAttachments><t:Size>2048</t:Size>
       <t:From><t:Mailbox><t:Name>Buchhaltung</t:Name><t:EmailAddress>buch@example.org</t:EmailAddress></t:Mailbox></t:From>
-      <t:ToRecipients><t:Mailbox><t:EmailAddress>niko@gwdg.de</t:EmailAddress></t:Mailbox></t:ToRecipients>
+      <t:ToRecipients><t:Mailbox><t:EmailAddress>erika@gwdg.de</t:EmailAddress></t:Mailbox></t:ToRecipients>
       <t:Flag><t:FlagStatus>Flagged</t:FlagStatus></t:Flag></t:Message>
       <t:Message><t:ItemId Id="M2" ChangeKey="C2"/><t:Subject>Termin</t:Subject>
       <t:DateTimeReceived>2026-11-12T08:00:00Z</t:DateTimeReceived><t:IsRead>true</t:IsRead>
@@ -2062,7 +2063,7 @@ def test_ews_mail_parsing():
     assert [r["uid"] for r in rows] == ["M1", "M2"]  # ItemId ist die Kennung
     first = rows[0]
     assert first["betreff"] == "Rechnung 4711" and first["von"] == "buch@example.org"
-    assert first["von_name"] == "Buchhaltung" and first["an"] == ["niko@gwdg.de"]
+    assert first["von_name"] == "Buchhaltung" and first["an"] == ["erika@gwdg.de"]
     assert first["ungelesen"] is True and first["anhaenge"] is True and first["markiert"] is True
     assert first["groesse"] == 2048 and first["change_key"] == "C1"
     assert first["datum"].startswith("2026-11-13T10:15")  # UTC → Europe/Berlin
@@ -2084,7 +2085,7 @@ def test_mail_tools_use_ews_for_exchange():
     import asyncio
     import types
 
-    M = _pkg("tools.mail")
+    _pkg("tools.mail")  # registriert die Mail-Werkzeuge
     EW = _pkg("tools.mail_ews")
     calls = []
 
@@ -2116,7 +2117,7 @@ def test_mail_tools_use_ews_for_exchange():
     async def emit():
         return None
 
-    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit)
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", files_id="c", emit_files=emit)
     reg = _pkg("tools").REGISTRY
     run = lambda name, a: asyncio.run(reg[name].handler(ctx, a))  # noqa: E731
 
@@ -2274,8 +2275,8 @@ def test_ntlm_handshake_messages():
     with pytest.raises(ValueError):
         N.parse_type2(b"kein NTLM")
 
-    assert N.split_user("gwdg\\nikolaj.kopp") == ("nikolaj.kopp", "gwdg")
-    assert N.split_user("nikolaj.kopp", "gwdg") == ("nikolaj.kopp", "gwdg")
+    assert N.split_user("gwdg\\erika.mustermann") == ("erika.mustermann", "gwdg")
+    assert N.split_user("erika.mustermann", "gwdg") == ("erika.mustermann", "gwdg")
     assert N.split_user("DOMAIN\\user", "gwdg") == ("user", "DOMAIN")
 
 
@@ -2297,7 +2298,7 @@ def test_ews_call_falls_back_to_ntlm(monkeypatch):
     import struct
 
     E = _pkg("ews")
-    N = _pkg("ntlm")
+    _pkg("ntlm")
     seen = []
 
     ti = bytes.fromhex("02000c0044006f006d00610069006e0000000000")
@@ -2393,22 +2394,22 @@ def test_ntlm_tries_username_variants(monkeypatch):
             return 401, b"", Headers([("WWW-Authenticate", "NTLM")])
         return fake_post
 
-    # 1) die dokumentierte Form wird angenommen: gwdg\nikolaj.kopp, also Kennung + Domäne gwdg
-    monkeypatch.setattr(E, "_post", make_post(("nikolaj.kopp", "gwdg")))
-    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
+    # 1) die dokumentierte Form wird angenommen: gwdg\erika.mustermann, also Kennung + Domäne gwdg
+    monkeypatch.setattr(E, "_post", make_post(("erika.mustermann", "gwdg")))
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "erika.mustermann@gwdg.de", "pw",
                              "<x/>", domain="gwdg"))
     assert out["ok"] is True
-    assert seen == [("nikolaj.kopp", "gwdg")]  # erster Versuch, ohne @gwdg.de, mit Domäne gwdg
+    assert seen == [("erika.mustermann", "gwdg")]  # erster Versuch, ohne @gwdg.de, mit Domäne gwdg
     assert len(handshakes) == 1
 
     # 2) lehnt der Server die erste Form ab, kommt ein NEUER Handschlag – nicht derselbe verbrauchte
     seen.clear()
     handshakes.clear()
-    monkeypatch.setattr(E, "_post", make_post(("nikolaj.kopp@gwdg.de", "")))
-    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "nikolaj.kopp@gwdg.de", "pw",
+    monkeypatch.setattr(E, "_post", make_post(("erika.mustermann@gwdg.de", "")))
+    out = asyncio.run(E.call(None, "https://email.gwdg.de/EWS/Exchange.asmx", "erika.mustermann@gwdg.de", "pw",
                              "<x/>", domain="gwdg"))
     assert out["ok"] is True
-    assert seen[-1] == ("nikolaj.kopp@gwdg.de", "")
+    assert seen[-1] == ("erika.mustermann@gwdg.de", "")
     assert len(seen) > 1
     assert len(handshakes) == len(seen)  # je Versuch ein eigener Type 1
 
@@ -2511,14 +2512,14 @@ def test_ews_contact_parser_reads_indexed_phones():
       xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><s:Body>
       <m:FindItemResponse><m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
       <m:ResponseCode>NoError</m:ResponseCode><m:RootFolder TotalItemsInView="1">
-      <t:Items><t:Contact><t:ItemId Id="AAA=" ChangeKey="CQ=="/><t:DisplayName>Kopp, Nikolaj</t:DisplayName>
+      <t:Items><t:Contact><t:ItemId Id="AAA=" ChangeKey="CQ=="/><t:DisplayName>Mustermann, Erika</t:DisplayName>
       <t:PhoneNumbers>
         <t:Entry FieldIndex="BusinessPhone">0551 201-1234</t:Entry>
         <t:Entry FieldIndex="MobilePhone">0170 1234567</t:Entry>
       </t:PhoneNumbers></t:Contact></t:Items></m:RootFolder>
       </m:FindItemResponseMessage></m:ResponseMessages></m:FindItemResponse></s:Body></s:Envelope>"""
     items = E.parse(xml)["items"]
-    assert items[0]["name"] == "Kopp, Nikolaj"
+    assert items[0]["name"] == "Mustermann, Erika"
     assert items[0]["telefon"] == "0551 201-1234"
     assert items[0]["mobil"] == "0170 1234567"
 
@@ -2559,7 +2560,7 @@ def test_built_message_is_seven_bit_clean():
 
     MB = _pkg("mailbox")
     text = "Sie ging ausschliesslich an dich.\nUmlaute: \u00e4\u00f6\u00fc\u00df \u00c4\u00d6\u00dc \u20ac \u2013 \u201eAnf\u00fchrung\"\n"
-    msg = MB.build_message("nikolaj.kopp@gwdg.de", "nikolaj.kopp@gwdg.de", "Test", text)
+    msg = MB.build_message("erika.mustermann@gwdg.de", "erika.mustermann@gwdg.de", "Test", text)
     raw = bytes(msg)
     body = raw.split(b"\n\n", 1)[1]
     # der transportierte Text ist reines ASCII
@@ -3073,3 +3074,377 @@ def test_doc_preview_only_for_word_and_excel():
     assert docpreview.to_html("a.pdf", b"x") is None
     assert docpreview.to_html("a.txt", b"x") is None
     assert docpreview.to_html("a.docx", _docx(["hallo"])) is not None
+
+
+# ---------------------------------------------------------------- Teilaufgaben (Unterchats)
+def _tree_index():
+    return {
+        "h": {"id": "h", "kind": "chat", "created": 10, "updated": 100},
+        "s2": {"id": "s2", "kind": "chat", "parent_id": "h", "created": 30, "updated": 400},
+        "s1": {"id": "s1", "kind": "chat", "parent_id": "h", "created": 20, "updated": 150},
+        "x": {"id": "x", "kind": "cowork", "created": 5, "updated": 50},
+    }
+
+
+def test_subchats_tree_and_order():
+    idx = _tree_index()
+    assert subchats.children(idx, "h") == ["s1", "s2"]
+    assert subchats.children(idx, "x") == []
+    # Unterchats zuerst, damit beim Löschen nichts verwaist
+    assert subchats.tree(idx, "h") == ["s1", "s2", "h"]
+    assert subchats.last_used(idx, "h") == 400
+    assert subchats.root_id(idx["s1"]) == "h" and subchats.root_id(idx["h"]) == "h"
+    assert subchats.is_sub(idx["s1"]) and not subchats.is_sub(idx["h"])
+    assert subchats.ordered(["a", "b", "c"], ["c", "a"]) == ["c", "a", "b"]
+
+
+def test_subchats_retention_follows_main_chat():
+    idx = _tree_index()
+    day = 86400
+    settings = {"retention_days": 1}
+    # Hauptchat selbst seit langem unbenutzt, aber in einer Teilaufgabe wurde gerade gearbeitet: bleibt
+    assert retention.expired(idx, {}, settings, 400 + day - 1) == ["x"]
+    # alles alt: nur Hauptchats werden genannt, die Teilaufgaben gehen mit ihnen (delete_chat)
+    assert retention.expired(idx, {}, settings, 400 + day + 1) == ["x", "h"]
+
+
+def test_subchats_result_and_api_text():
+    res = subchats.result("x" * 9000, ["/workspace/sub-a/b.csv", "b.csv", "", "c.md"], subchats.GRENZE, "Schrittgrenze")
+    assert len(res["zusammenfassung"]) <= subchats.RESULT_MAX_CHARS + 2
+    assert res["dateien"] == ["sub-a/b.csv", "b.csv", "c.md"]
+    assert res["stand"] == "grenze" and res["grund"] == "Schrittgrenze"
+    msg = subchats.result_message({"id": "s1", "title": "Recherche"}, res, "m1", 5.0, nachtrag=True)
+    assert msg["role"] == "sub_result" and msg["sub_id"] == "s1" and msg["nachtrag"]
+    text = subchats.api_text(msg)
+    assert text.startswith("[LLMitMir] Nachtrag aus Unterchat ›Recherche‹ (id s1, Stand: Grenze erreicht)")
+    assert "Grund: Schrittgrenze" in text and "sub-a/b.csv" in text
+    assert subchats.clean_files("a.txt, b.txt\na.txt") == ["a.txt", "b.txt"]
+
+
+def test_subchats_summary_fields_and_new_sub():
+    sub = subchats.new_sub("Finde X", subchats.VON_PERSON, call_id="call1")
+    assert sub["von"] == "person" and sub["melden"] is True and sub["status"] == "neu" and sub["call_id"] == "call1"
+    f = subchats.summary_fields({"id": "s", "parent_id": "h", "sub": sub})
+    assert f == {"parent_id": "h", "sub_status": "neu", "sub_call": "call1", "sub_von": "person", "sub_wait": None}
+    assert subchats.summary_fields({"id": "h"})["sub_status"] is None
+    assert subchats.message_text({"role": "assistant", "content": "Antwort"}) == "Antwort"
+    assert subchats.message_text({"role": "sub_result", "summary": "S"}) == "S"
+    assert subchats.title_from("## **Plan** für den Umzug") == "Plan für den Umzug"
+
+
+
+def test_subchats_pick_model():
+    ext = lambda m: m.startswith("ext:")  # noqa: E731
+    ok = lambda m: m in ("a", "b", "ext:claude")  # noqa: E731
+    pick = subchats.pick_model
+    assert pick("sparsam", "big", True, "small", "strong", ext, ok) == ("small", True, "")
+    assert pick(None, "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert pick("stark", "big", True, "small", "strong", ext, ok)[:2] == ("strong", True)
+    assert pick("wie_hauptchat", "big", False, "small", "strong", ext, ok)[:2] == ("big", False)
+    assert pick("a", "big", True, "small", "strong", ext, ok)[:2] == ("a", False)
+    model, auto, note = pick("gibtsnicht", "big", True, "small", "strong", ext, ok)
+    assert model == "small" and auto and "nicht verfügbar" in note
+    # externe Modelle nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat
+    assert pick("ext:claude", "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert pick("wie_hauptchat", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
+    assert pick("ext:claude", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
+
+
+def test_subchats_final_status_and_tool_result():
+    fs = subchats.final_status
+    assert fs("done") == "fertig"
+    assert fs("done", limit_hit=True) == "grenze"
+    assert fs("error", "Tageskontingent erreicht", limit_error=True) == "grenze"
+    assert fs("error", "KeyError: x") == "fehler"
+    assert fs("stopped") == "abgebrochen"
+    res = subchats.result("Teil fertig", ["a.csv"], "grenze", "Höchstzahl von 40 Schritten erreicht")
+    out = subchats.tool_result({"id": "s1", "title": "Recherche", "messages": [{"content": "geheim"}]}, res, "Hinweis")
+    assert out["stand"] == "grenze" and "unterchat_nachricht" in out["hinweis"] and out["hinweis_modell"] == "Hinweis"
+    assert "geheim" not in str(out)  # nie der Verlauf
+    assert "hinweis" not in subchats.tool_result({"id": "s"}, subchats.result("ok"))
+    assert subchats.last_answer([{"role": "assistant", "content": "A"}, {"role": "assistant", "content": "", "error": "x"}]) == "A"
+    assert subchats.clean_groups(["web", "nix", "web", "files"], {"web", "files"}) == ["web", "files"]
+    assert subchats.clean_groups([], {"web"}) is None
+
+
+def test_subchats_slots_queue_and_cancel():
+    import asyncio
+
+    async def main():
+        slots = subchats.Slots(3)
+        got = [await slots.acquire("u") for _ in range(3)]
+        assert got == [True, True, True] and slots.busy("u") == 3
+        assert await slots.acquire("andere")  # je Person gezählt
+        waited = []
+
+        async def on_wait():
+            waited.append(1)
+
+        fourth = asyncio.ensure_future(slots.acquire("u", on_wait=on_wait))
+        await asyncio.sleep(0)
+        assert waited == [1] and slots.waiting("u") == 1 and not fourth.done()
+        slots.release("u")  # der Platz geht direkt an die wartende Teilaufgabe
+        assert await fourth is True and slots.busy("u") == 3
+        cancel = asyncio.Event()
+        fifth = asyncio.ensure_future(slots.acquire("u", cancel))
+        await asyncio.sleep(0)
+        cancel.set()  # Stopp im Hauptchat: wartet nicht weiter
+        assert await fifth is False and slots.waiting("u") == 0
+        for _ in range(3):
+            slots.release("u")
+        assert slots.busy("u") == 0
+
+    asyncio.run(main())
+
+
+def test_models_sub_role_prefers_fast_reliable_models():
+    known = [{"id": m, "status": "ready", "input": ["text"], "output": ["text"]}
+             for m in ("glm-5.3", "deepseek-v4.1-flash-1017", "mistral-large-4-1t-a52b", "eurollm-22b-instruct-2512")]
+    assert ms.pick(known, "sub") == "deepseek-v4.1-flash-1017"
+    assert ms.quality("mistral-large-4-1t-a52b", "sub") < ms.quality("mistral-large-4-1t-a52b", "agent")
+    assert ms.quality("eurollm-22b-instruct-2512", "sub") < 10  # Werkzeuge zu unzuverlässig
+    assert "sub" in ms.ROLES
+
+
+def test_sub_tools_registered_but_not_in_tool_menu():
+    import re
+
+    text = (BASE / "tools" / "sub.py").read_text()
+    names = re.findall(r'register\(Tool\(\s*"(\w+)"', text)
+    assert names == ["unterchat_starten", "unterchat_nachricht", "unterchat_ergebnis", "ergebnis_melden"]
+    init = (BASE / "tools" / "__init__.py").read_text()
+    assert '"unterchat"' not in init and '"teilergebnis"' not in init  # keine Auswahl im Werkzeug-Menü
+
+
+
+def test_permission_push_from_subtask_names_subtask_and_main_chat():
+    base = {"root_chat_id": "h1", "sub_title": "Mails sichten", "root_title": "Wochenplanung"}
+    title, text = permnote.message(dict(base, label="Befehl ausführen", args={"befehl": "ls -la"}), "Mails sichten")
+    assert title == "LLMitMir: Teilaufgabe braucht dich"
+    assert text.startswith("Teilaufgabe ›Mails sichten‹ im Chat ›Wochenplanung‹") and "ls -la" in text
+    assert "ohne die Aktion weiter" in text
+    # Änderungskarte und „mehr Schritte?“ laufen über denselben Weg
+    title, text = permnote.message(dict(base, label="Aufgabe speichern", change={"art": "aufgabe"}), "")
+    assert title.endswith("Teilaufgabe braucht dich") and "Änderung: Aufgabe speichern" in text
+    title, text = permnote.message(dict(base, tool="more_steps", label="15 weitere Schritte"), "", simple=True)
+    assert "Weitere Schritte verwenden?" in text and text.startswith("Teilaufgabe ›Mails sichten‹")
+    # ohne Teilaufgabe bleibt alles wie bisher
+    assert permnote.message({"label": "x"}, "Chat")[0] == "Chat"
+    assert permnote.tag("h1") == "llmitmir-permission-h1"
+
+
+
+def test_subtask_permissions_are_central_but_scoped():
+    info = subchats.with_origin({"id": "p1", "chat_id": "s1", "tool": "shell"}, "h1", "Mails sichten", "Woche")
+    assert info["root_chat_id"] == "h1" and info["sub_title"] == "Mails sichten" and info["chat_id"] == "s1"
+    # die Karte erscheint im Hauptchat und in der Teilaufgabe, nirgends sonst
+    assert subchats.belongs_to(info, "h1") and subchats.belongs_to(info, "s1") and not subchats.belongs_to(info, "s2")
+    # ohne Antwort: die Teilaufgabe macht ohne die Aktion weiter
+    assert subchats.timeout_answer(False, True) == "skip"
+    assert subchats.timeout_answer(False, False) == "deny" and subchats.timeout_answer(True, False) == "skip"
+    # „Immer erlauben“ wirkt nur in der eigenen Teilaufgabe
+    s1, s2, main = {"id": "s1", "parent_id": "h1"}, {"id": "s2", "parent_id": "h1"}, {"id": "h1"}
+    assert subchats.remember_allow(s1, "shell") is True
+    assert subchats.sub_allows(s1, "shell") and not subchats.sub_allows(s2, "shell") and not subchats.sub_allows(main, "shell")
+    assert subchats.remember_allow(main, "shell") is False and "permissions" not in main
+
+
+
+def test_subtask_mode_prompt_and_context_threshold():
+    assert subchats.mode(None, simple=False) == "auto" and subchats.mode("", simple=True) == "ask"
+    assert subchats.mode("off", simple=False) == "off" and subchats.mode("quatsch", simple=False) == "auto"
+    assert subchats.prompt("off") == ""
+    assert "ausdrücklich" in subchats.prompt("ask")
+    auto = subchats.prompt("auto", {"context": 1000}, 100_000)
+    assert "Nicht aufteilen bei kurzen Fragen" in auto and "Kontext fast halb voll" not in auto
+    assert "Kontext fast halb voll" in subchats.prompt("auto", {"context": 60_000}, 100_000)
+    assert not subchats.context_full({"context": 50_000}, 100_000) and subchats.context_full({"context": 50_001}, 100_000)
+
+
+def test_subtask_usage_sum_over_tree():
+    idx = {"h": {"usage": {"prompt": 100, "completion": 10, "requests": 2}},
+           "s1": {"parent_id": "h", "created": 1, "usage": {"prompt": 50, "completion": 5, "requests": 1}},
+           "s2": {"parent_id": "h", "created": 2, "usage": {}}, "x": {"usage": {"prompt": 999}}}
+    assert subchats.tree_usage(idx, "h") == {"prompt": 150, "completion": 15, "requests": 3, "subs": 2}
+
+
+
+def test_ws_private_helpers_are_defined():
+    """Jede private Hilfsfunktion, die ws.py aufruft, muss dort auch definiert sein (inbox/dismiss und inbox/mute
+    scheiterten, weil _inbox_view versehentlich entfernt worden war)."""
+    import re
+
+    text = (BASE / "ws.py").read_text()
+    called = set(re.findall(r"(?<![\w.])(_[a-z]\w*)\(", text))
+    defined = set(re.findall(r"^(?:async )?def (_\w+)\(", text, re.M)) | set(re.findall(r"^(_\w+) = ", text, re.M))
+    assert "_inbox_view" in called
+    assert called - defined == set()
+
+
+# ---------------------------------------------------------------- dashboards: rights (access.py)
+acc = load("access")
+dash = load("dashboards")
+
+
+def test_access_levels_and_all():
+    share = acc.update("own", acc.empty(), "own", [{"user_id": "a"}, {"user_id": "b", "edit": True}], None)
+    assert acc.rights("own", share, "own")["owner"]
+    assert acc.rights("own", share, "a") == {"owner": False, "view": True, "edit": False, "reshare": False}
+    assert acc.rights("own", share, "b")["edit"] and not acc.rights("own", share, "b")["reshare"]
+    assert not acc.rights("own", share, "c")["view"]
+    # für alle: everybody sees, also people added later
+    share = acc.update("own", share, "own", [{"user_id": "a"}, {"user_id": "b", "edit": True}], {"edit": False})
+    assert acc.rights("own", share, "neu")["view"] and not acc.rights("own", share, "neu")["edit"]
+    # a personal entry may give more than „für alle“
+    assert acc.rights("own", share, "b")["edit"]
+    assert acc.summary("own", share, {"a": "Anna", "b": "Ben"}).startswith("alle (ansehen)")
+
+
+def test_access_reshare_never_escalates_and_only_own_entries():
+    share = acc.update("own", acc.empty(), "own", [{"user_id": "a", "reshare": True}], None)
+    # a may pass on, but has no edit right – so neither has whom a adds
+    share = acc.update("own", share, "a", [{"user_id": "c", "edit": True, "reshare": True}])
+    assert share["users"]["c"] == {"edit": False, "reshare": True, "by": "a"}
+    # a cannot touch entries granted by the owner, nor set „für alle“
+    share = acc.update("own", share, "own", [{"user_id": "a", "reshare": True}, {"user_id": "c", "reshare": True},
+                                             {"user_id": "d"}])
+    assert share["users"]["c"]["by"] == "a"
+    share2 = acc.update("own", share, "a", [])  # a removes what a granted (c) – d stays
+    assert "c" not in share2["users"] and "d" in share2["users"]
+    with pytest.raises(PermissionError):
+        acc.update("own", share, "a", [], {"edit": False})
+    with pytest.raises(PermissionError):
+        acc.update("own", share, "d", [{"user_id": "x"}])
+    with pytest.raises(ValueError):
+        acc.update("own", share, "own", [{"user_id": "x"}], allowed={"a", "c", "d"})
+
+
+def test_access_revoke_cascades():
+    share = acc.update("own", acc.empty(), "own", [{"user_id": "a", "edit": True, "reshare": True}], None)
+    share = acc.update("own", share, "a", [{"user_id": "b", "edit": True, "reshare": True}])
+    share = acc.update("own", share, "b", [{"user_id": "c", "edit": True}])
+    assert set(share["users"]) == {"a", "b", "c"}
+    share = acc.set_notify("own", share, "c", True)
+    assert acc.notify_users("own", share) == ["c"]
+    # the owner takes a away: b (granted by a) and c (granted by b) go too, and so does c's notification
+    out = acc.update("own", share, "own", [])
+    assert out["users"] == {} and acc.notify_users("own", out) == []
+    # a only loses the right to pass on: b and c go, a stays
+    out = acc.update("own", share, "own", [{"user_id": "a", "edit": True}])
+    assert set(out["users"]) == {"a"}
+    with pytest.raises(PermissionError):
+        acc.set_notify("own", out, "zz", True)
+
+
+def test_access_levels_from_words():
+    assert acc.from_level("weiterteilen") == {"edit": True, "reshare": True}
+    assert acc.from_level("Bearbeiten") == {"edit": True, "reshare": False}
+    assert acc.from_level("ansehen") == {"edit": False, "reshare": False}
+    with pytest.raises(ValueError):
+        acc.from_level("besitzen")
+
+
+# ---------------------------------------------------------------- dashboards: grid, tiles, data
+def _ids():
+    n = iter(range(1, 1000))
+    return lambda p: f"{p}{next(n)}"
+
+
+def test_grid_compacts_without_overlap():
+    items = [{"pid": "a", "x": 0, "y": 5, "w": 4, "h": 3}, {"pid": "b", "x": 2, "y": 5, "w": 4, "h": 2},
+             {"pid": "c", "x": 8, "y": 9, "w": 4, "h": 2}]
+    out = {p["pid"]: p for p in dash.compact(items)}
+    assert (out["a"]["x"], out["a"]["y"]) == (0, 0)       # floats up
+    assert out["b"]["y"] == 3                              # pushed below a (they overlapped)
+    assert out["c"]["y"] == 0                              # free column: all the way up
+    pl = dash.clean_placements([{"tile_owner": "u1", "tile_id": "t1", "x": 11, "y": 0, "w": 1, "h": 99},
+                                {"tile_owner": "u1", "tile_id": "../x"}], _ids())
+    assert len(pl) == 1 and pl[0]["w"] == 2 and pl[0]["h"] == 8 and pl[0]["x"] == 10
+    assert dash.free_spot([{"x": 0, "y": 0, "w": 12, "h": 2}], 4, 2) == (0, 2)
+    with pytest.raises(ValueError):
+        dash.clean_placements([{"tile_owner": "u", "tile_id": f"t{i}"} for i in range(61)], _ids())
+
+
+def test_dashboard_and_tile_cleaning():
+    d = dash.clean_dashboard({"name": "  Postfach ", "palette": "nope", "icon": "javascript:x"}, None, "u1", _ids())
+    assert d["name"] == "Postfach" and d["palette"] == "aurora" and d["icon"].startswith("mdi:") and d["owner"] == "u1"
+    with pytest.raises(ValueError):
+        dash.clean_dashboard({"name": ""}, None, "u1", _ids())
+    t = dash.clean_tile({"name": "Strom", "kind": "stat", "color": "red;background:url(x)",
+                         "source": {"type": "ha", "mode": "history", "entities": ["sensor.strom", "bad id"]}},
+                        None, "u1", False, _ids())
+    assert t["color"] == "" and t["source"]["entities"] == ["sensor.strom"] and t["source"]["hours"] == 24
+    with pytest.raises(ValueError):  # gauge cannot show a history
+        dash.clean_tile({"name": "x", "kind": "gauge", "source": {"type": "ha", "mode": "history", "entities": ["sensor.a"]}},
+                        None, "u1", False, _ids())
+    with pytest.raises(PermissionError):  # templates: admins only
+        dash.clean_tile({"name": "x", "kind": "text", "source": {"type": "ha", "mode": "template", "template": "{{ 1 }}"}},
+                        None, "u1", False, _ids())
+    with pytest.raises(ValueError):  # a model tile needs its description (= the prompt)
+        dash.clean_tile({"name": "x", "kind": "list", "source": {"type": "model"}}, None, "u1", False, _ids())
+    old = dash.clean_tile({"name": "x", "kind": "list", "description": "Mails", "source": {"type": "model"}}, None, "u1", False, _ids())
+    with pytest.raises(ValueError):  # the source type cannot change afterwards
+        dash.clean_tile({"source": {"type": "ha", "mode": "state", "entities": ["sensor.a"]}}, old, "u1", False, _ids())
+
+
+def test_tile_data_validation_and_hardening():
+    out = dash.validate("list", {"status": "warn", "headline": "3 offen", "data": {"items": [
+        {"title": "A", "state": "offen", "url": "javascript:alert(1)"}, {"title": "B", "url": "https://x.org/a"}, {"title": ""}]}})
+    assert out["status"] == "warn" and len(out["data"]["items"]) == 2
+    assert out["data"]["items"][0]["url"] is None and out["data"]["items"][1]["url"] == "https://x.org/a"
+    md = dash.validate("text", {"data": {"markdown": "Hallo ![x](https://t.example/p.gif) <img src=x>"}})
+    assert "![" not in md["data"]["markdown"] and "<img" not in md["data"]["markdown"]
+    with pytest.raises(ValueError):
+        dash.validate("stat", {"data": {"value": "viele"}})
+    with pytest.raises(ValueError):
+        dash.validate("chart", {"data": {"series": []}})
+    ch = dash.validate("chart", {"data": {"type": "bar", "series": [{"name": "E", "points": [["2026-11-17", 3], [1763400000, 4], ["x", 1]]}]}})
+    assert len(ch["data"]["series"][0]["points"]) == 2
+    mx = dash.validate("matrix", {"data": {"items": [{"title": "A", "x": 3, "y": 4}, {"title": "B", "x": 3, "y": 4}, {"x": 9}]}})
+    assert mx["data"]["cells"] == [{"x": 3, "y": 4, "count": 2}]
+    sc = dash.validate("scene", {"data": {"objects": [{"shape": "box", "pos": [1], "color": "#fff"}, {"shape": "teapot"}]}})
+    assert sc["data"]["objects"][0]["pos"] == [1.0, 0.0, 0.0] and len(sc["data"]["objects"]) == 1
+    with pytest.raises(ValueError):
+        dash.validate("table", {"data": {"columns": [], "rows": []}})
+    big = {"data": {"markdown": "x" * 70_000}}
+    assert len(dash.validate("text", big)["data"]["markdown"]) == 4000
+
+
+def test_tile_series_kept_by_server():
+    r1 = dash.merge("stat", dash.validate("stat", {"data": {"value": 10}}), None, 100.0)
+    assert "delta" not in r1["data"] and r1["series"]["value"] == [[100.0, 10.0]]
+    r2 = dash.merge("stat", dash.validate("stat", {"data": {"value": 13}}), r1, 200.0)
+    assert r2["data"]["delta"] == "+3" and r2["data"]["trend"] == [10.0, 13.0]
+    c1 = dash.merge("chart", dash.validate("chart", {"data": {"series": [{"name": "E", "points": [[1, 1], [2, 2]]}]}}), None, 1.0)
+    c2 = dash.merge("chart", dash.validate("chart", {"data": {"append": True, "series": [{"name": "E", "points": [[2, 5], [3, 3]]}]}}), c1, 2.0)
+    assert c2["data"]["series"][0]["points"] == [[1.0, 1.0], [2.0, 5.0], [3.0, 3.0]]
+
+
+def test_tile_schedules_and_queue():
+    sched = dash.default_schedule("w9f8e7")
+    assert sched["cron"].endswith(" 7-22 * * *") and sched == dash.default_schedule("w9f8e7")
+    start = datetime(2026, 11, 16, 0, 0, tzinfo=TZ)
+    assert dash.runs_per_day(sched, start) == 16.0
+    dash.check_interval({"type": "hourly", "minute": 5}, start)
+    with pytest.raises(ValueError):
+        dash.check_interval({"type": "cron", "cron": "*/5 * * * *"}, start)
+    assert dash.min_gap({"type": "once", "at": "2026-12-01T08:00"}, start) is None
+    q = [("a", "t1", "geplant", None), ("a", "t2", "manuell", None), ("b", "t3", "geplant", None)]
+    assert dash.pick_fair(q, None) == 1          # a first, manual run of a before its scheduled one
+    assert dash.pick_fair(q, "a") == 2           # then it is b's turn
+    assert dash.pick_fair([("a", "t1", "geplant", None)], "a") == 0
+    assert dash.pick_fair([], None) == -1
+
+
+def test_tile_prompt_section_carries_schema_and_last_data():
+    tile = {"name": "Mails", "kind": "stat", "options": {"unit": "Mails"}}
+    txt = dash.prompt_section(tile, {"status": "ok", "headline": "3 neu", "data": {"value": 3}, "updated": 1763400000})
+    assert "dashboard_update" in txt and dash.SCHEMAS["stat"] in txt and "3 neu" in txt and "aktuellen Wert" in txt
+
+
+def test_tile_data_rejects_wrong_types():
+    with pytest.raises(ValueError, match="Liste"):
+        dash.validate("list", {"data": {"items": "kaputt"}})
+    with pytest.raises(ValueError, match="Liste"):
+        dash.validate("table", {"data": {"columns": [{"key": "a"}], "rows": {"a": 1}}})
+    assert dash.validate("list", {"data": {}})["data"]["items"] == []

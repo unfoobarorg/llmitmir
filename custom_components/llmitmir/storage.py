@@ -4,6 +4,7 @@ Layout below <config>/.storage/llmitmir/:
   <user_id>/meta.json          settings, projects, skills, credentials, tasks, chat index, usage
   <user_id>/chats/<id>.json     one file per chat / cowork / task run (messages)
   <user_id>/files/<scope>/...   attachments, project files, cowork workspaces
+  <user_id>/tiles/<id>.json     the last data of a dashboard tile (dashboards.py), with its time series
 Global admin config lives in the regular HA store (llmitmir.config).
 """
 from __future__ import annotations
@@ -22,8 +23,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
+from . import subchats as SC
 from .const import (BILLING_STORE_KEY, CONFIG_STORE_KEY, EWS_STORE_KEY, KEY_SHARED, STORAGE_VERSION,
-                    TASK_KEY_SAME)
+                    TASK_KEY_SAME, TILE_PARALLEL, TILE_RUN_BUDGET)
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -65,6 +67,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "quota_users": {},        # user_id -> {"requests_day", "tokens_day"}
     "models": {"enabled": [], "defaults": {}, "context": {}, "known": [], "auto_enable_new": True},
     "search": {"provider": "duckduckgo", "searxng_url": ""},
+    # Eigene Stimme des Roboters (speech.py, Microsoft-Edge-Vorlesedienst): ausgeschaltet nimmt das Panel die
+    # Sprachausgabe von Home Assistant oder des Browsers – dann geht kein Antworttext an Microsoft
+    "speech": {"enabled": True},
     "werkbank": {"url": "", "token": ""},
     "views": {"default": "choice", "users": {}},   # simple (Laien) or expert view, see views.py
     "notify_devices": {"overrides": {}},   # device key -> user id, where an admin corrected the link, see notifydevices.py
@@ -72,6 +77,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "providers": [],
     "model_access": {},       # model key -> [user ids]; external models: nobody unless listed, main models: everybody
     "billing": {"usd_eur": 0.86, "prices": {}, "limits": {}, "limit_default": 0, "fallback_model": ""},
+    # Dashboards: Modell-Läufe je Person und Tag (0 = ohne Grenze) und gleichzeitige Läufe der Kachel-Spur
+    "dashboards": {"tile_budget": TILE_RUN_BUDGET, "tile_parallel": TILE_PARALLEL},
 }
 
 
@@ -160,7 +167,11 @@ class UserStore:
         self.meta: dict[str, Any] = {}
         self.lock = asyncio.Lock()
         self._chat_cache: dict[str, dict] = {}
+        self._tile_cache: dict[str, dict] = {}
         self._save_handle: asyncio.TimerHandle | None = None
+        # Schreibvorgänge dieser Person nacheinander: Der Stand wird erst unter der Sperre erfasst, so kann ein älterer
+        # Stand nie nach einem neueren auf der Platte landen (zwei Executor-Jobs liefen sonst gleichzeitig).
+        self._write_lock = asyncio.Lock()
 
     # ---------------------------------------------------------------- meta
     async def async_load(self) -> None:
@@ -173,7 +184,7 @@ class UserStore:
 
         meta = await self.hass.async_add_executor_job(_load)
         meta.setdefault("settings", {})
-        for key in ("projects", "skills", "credentials", "tasks", "chats", "usage", "import_tokens"):
+        for key in ("projects", "skills", "credentials", "tasks", "chats", "usage", "import_tokens", "dashboards", "tiles"):
             meta.setdefault(key, {})
         meta.setdefault("memory", "")
         # Benachrichtigungen auf der Startseite (inbox.py) – eine Liste, kein Verzeichnis
@@ -187,14 +198,23 @@ class UserStore:
         write_utf8_file_atomic(path, json.dumps(data, ensure_ascii=False), private=True)
 
     async def async_save_meta(self) -> None:
-        data = json.loads(json.dumps(self.meta))
-        await self.hass.async_add_executor_job(self._write, "meta.json", data)
+        if self._save_handle:  # eine verzögerte Speicherung ist hiermit erledigt
+            self._save_handle.cancel()
+            self._save_handle = None
+        async with self._write_lock:
+            data = json.loads(json.dumps(self.meta))
+            await self.hass.async_add_executor_job(self._write, "meta.json", data)
 
     def schedule_save(self, delay: float = 2.0) -> None:
         if self._save_handle:
             self._save_handle.cancel()
         self._save_handle = self.hass.loop.call_later(
             delay, lambda: self.hass.async_create_task(self.async_save_meta()))
+
+    async def async_flush(self) -> None:
+        """Eine noch verzögerte Speicherung sofort ausführen (Entladen, Herunterfahren) – danach liegt kein Timer mehr."""
+        if self._save_handle:
+            await self.async_save_meta()
 
     # ---------------------------------------------------------------- chats
     async def async_get_chat(self, chat_id: str) -> dict | None:
@@ -221,7 +241,7 @@ class UserStore:
     def chat_summary(self, chat: dict) -> dict:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",
                                         "updated", "pinned", "status", "usage", "tools", "last_seen", "voice",
-                                        "no_thinking")} | {
+                                        "no_thinking", "tile_id")} | SC.summary_fields(chat) | {
             "messages": len(chat.get("messages") or []), "queued": len(chat.get("queued") or [])}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:
@@ -229,8 +249,9 @@ class UserStore:
             chat["updated"] = now()
         self._chat_cache[chat["id"]] = chat
         self.meta["chats"][chat["id"]] = self.chat_summary(chat)
-        data = json.loads(json.dumps(chat))
-        await self.hass.async_add_executor_job(self._write, f"chats/{chat['id']}.json", data)
+        async with self._write_lock:
+            data = json.loads(json.dumps(chat))
+            await self.hass.async_add_executor_job(self._write, f"chats/{chat['id']}.json", data)
         self.schedule_save(0.5)
 
     async def async_delete_chat(self, chat_id: str) -> None:
@@ -246,6 +267,47 @@ class UserStore:
 
         await self.hass.async_add_executor_job(_rm)
         await self.async_save_meta()
+
+    # ---------------------------------------------------------------- tile data (dashboards)
+    async def async_get_tile_data(self, tile_id: str) -> dict | None:
+        """The last record of a tile (status, headline, data, time series) – None before the first write."""
+        _check_id(tile_id)
+        if tile_id in self._tile_cache:
+            return self._tile_cache[tile_id]
+
+        def _load() -> dict | None:
+            p = os.path.join(self.base, "tiles", f"{tile_id}.json")
+            if not os.path.exists(p):
+                return None
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    return json.load(fh)
+            except (OSError, ValueError):
+                return None
+
+        rec = await self.hass.async_add_executor_job(_load)
+        if rec is not None:
+            self._tile_cache[tile_id] = rec
+            if len(self._tile_cache) > 200:
+                self._tile_cache.pop(next(iter(self._tile_cache)))
+        return rec
+
+    async def async_save_tile_data(self, tile_id: str, record: dict) -> None:
+        _check_id(tile_id)
+        self._tile_cache[tile_id] = record
+        data = json.loads(json.dumps(record, default=str))
+        await self.hass.async_add_executor_job(self._write, f"tiles/{tile_id}.json", data)
+
+    async def async_delete_tile_data(self, tile_id: str) -> None:
+        _check_id(tile_id)
+        self._tile_cache.pop(tile_id, None)
+
+        def _rm() -> None:
+            p = os.path.join(self.base, "tiles", f"{tile_id}.json")
+            if os.path.exists(p):
+                os.remove(p)
+
+        await self.hass.async_add_executor_job(_rm)
 
     # ---------------------------------------------------------------- files
     def file_dir(self, scope: str, owner: str) -> str:
@@ -353,4 +415,5 @@ def mask_credential(cred: dict, secret_fields: set[str]) -> dict:
     out = {k: v for k, v in cred.items() if k != "fields"}
     out["fields"] = {k: ("•••" if k in secret_fields and v else v) for k, v in (cred.get("fields") or {}).items()}
     out["expiry"] = C.expiry(cred)  # Ablaufdatum für die Warnung in der Liste
+    out["auto_hosts"] = C.auto_hosts(cred)  # Server aus den Adressfeldern – gelten immer, zusätzlich zu „hosts“
     return out

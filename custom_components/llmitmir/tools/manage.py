@@ -20,6 +20,19 @@ def _find(items: dict, name, allowed: set | None = None) -> dict | None:
     return None
 
 
+def _own_tasks(ctx) -> dict:
+    """Scheduled tasks the model may change here – not the tasks of dashboard tiles (they belong to their tile)."""
+    return {k: t for k, t in ctx.store.meta["tasks"].items() if t.get("origin") != "dashboard"}
+
+
+def _tile_task_hint(ctx, name) -> None:
+    t = _find(ctx.store.meta["tasks"], name)
+    if t is not None and t.get("origin") == "dashboard":
+        tile = ctx.store.meta.get("tiles", {}).get(t.get("tile_id") or "") or {}
+        raise ValueError(f"„{t.get('name')}“ gehört zur Kachel „{tile.get('name') or '?'}“ – ändere die Kachel mit "
+                         "`tile_save` (oder lösche sie mit `tile_delete`).")
+
+
 def _cred_ids(ctx, names) -> list[str]:
     out = []
     for n in names or []:
@@ -120,7 +133,8 @@ async def _share_users(ctx, a: dict) -> list[dict] | None:
 
 def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     name = _req_name(a)
-    old = _find(ctx.store.meta["tasks"], name)
+    _tile_task_hint(ctx, name)
+    old = _find(_own_tasks(ctx), name)
     cur = old or {}
     prompt = str(a["auftrag"]) if a.get("auftrag") is not None else cur.get("prompt") or ""
     prompt = _edit(prompt, a.get("auftrag_ersetzen"), "auftrag_ersetzen")
@@ -187,7 +201,8 @@ async def task_save(ctx, a: dict):
 
 
 async def task_delete_preview(ctx, a: dict) -> dict:
-    old = _find(ctx.store.meta["tasks"], _req_name(a))
+    _tile_task_hint(ctx, _req_name(a))
+    old = _find(_own_tasks(ctx), _req_name(a))
     if not old:
         raise ValueError(f"Aufgabe „{a.get('name')}“ nicht gefunden.")
     return CH.build("aufgabe", old["name"], CH.task_fields(old, ctx.store.meta), [])
@@ -195,7 +210,7 @@ async def task_delete_preview(ctx, a: dict) -> dict:
 
 async def task_delete(ctx, a: dict):
     ch = await task_delete_preview(ctx, a)
-    await M.delete_task(ctx.manager, ctx.user_id, ctx.store, _find(ctx.store.meta["tasks"], a.get("name"))["id"])
+    await M.delete_task(ctx.manager, ctx.user_id, ctx.store, _find(_own_tasks(ctx), a.get("name"))["id"])
     return CH.summary(ch)
 
 

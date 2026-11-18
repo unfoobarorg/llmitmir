@@ -15,6 +15,21 @@ import zipfile
 from html import escape
 from xml.etree import ElementTree as ET
 
+# Office-Dateien und Exporte sind ZIP-Archive. Eine „ZIP-Bombe“ ist klein und entpackt riesig – deshalb wird die
+# entpackte Größe geprüft (Angabe im Archiv und tatsächlich gelesen), bevor etwas in den Speicher kommt.
+MAX_MEMBER = 64 * 1024 * 1024
+
+
+def zread(z: zipfile.ZipFile, name: str, limit: int = MAX_MEMBER) -> bytes:
+    info = z.getinfo(name)
+    if info.file_size > limit:
+        raise ValueError(f"{name} ist entpackt zu groß ({info.file_size // 1048576} MB, höchstens {limit // 1048576} MB)")
+    with z.open(info) as fh:
+        data = fh.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"{name} ist entpackt zu groß (höchstens {limit // 1048576} MB)")
+    return data
+
 MAX_CHARS = 400_000     # so viel HTML höchstens (der Betrachter soll flüssig bleiben)
 MAX_ROWS = 500          # je Blatt
 MAX_COLS = 40           # je Zeile
@@ -34,7 +49,7 @@ def _clip(html: str) -> str:
 def docx_html(data: bytes) -> str:
     """Absätze und Tabellen eines Word-Dokuments als HTML."""
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        xml = z.read("word/document.xml")
+        xml = zread(z, "word/document.xml")
     root = ET.fromstring(xml)
     out: list[str] = []
     body = root.find(f"{W}body")
@@ -61,7 +76,7 @@ def docx_html(data: bytes) -> str:
 
 def _shared_strings(z: zipfile.ZipFile) -> list[str]:
     try:
-        xml = z.read("xl/sharedStrings.xml")
+        xml = zread(z, "xl/sharedStrings.xml")
     except KeyError:
         return []
     root = ET.fromstring(xml)
@@ -85,8 +100,8 @@ def _col_index(ref: str) -> int:
 def _sheet_names(z: zipfile.ZipFile) -> list[tuple[str, str]]:
     """(Name, Pfad im Archiv) je Blatt, in der Reihenfolge der Arbeitsmappe."""
     try:
-        wb = ET.fromstring(z.read("xl/workbook.xml"))
-        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        wb = ET.fromstring(zread(z, "xl/workbook.xml"))
+        rels = ET.fromstring(zread(z, "xl/_rels/workbook.xml.rels"))
     except (KeyError, ET.ParseError):
         return []
     targets = {r.get("Id"): r.get("Target") or "" for r in rels}
@@ -114,7 +129,7 @@ def xlsx_html(data: bytes) -> str:
         out: list[str] = []
         for name, path in sheets[:MAX_SHEETS]:
             try:
-                root = ET.fromstring(z.read(path))
+                root = ET.fromstring(zread(z, path))
             except (KeyError, ET.ParseError):
                 continue
             rows: list[str] = []

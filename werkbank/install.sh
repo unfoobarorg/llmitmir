@@ -44,6 +44,32 @@ if [ ! -f .env ]; then
   chmod 600 .env
 fi
 
+# Frühere Versionen nutzten SANDBOX_NETWORK=bridge (Docker-Standardnetz, LAN erreichbar): auf das eigene Netz umstellen
+sed -i 's/^SANDBOX_NETWORK=bridge$/SANDBOX_NETWORK=llmitmir-sandbox/' .env
+
+say "Firewall für die Sandboxen einrichten (nur Internet, kein LAN)"
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables >/dev/null
+install -m 0755 firewall.sh /usr/local/sbin/llmitmir-werkbank-firewall
+cat > /etc/systemd/system/llmitmir-werkbank-firewall.service <<'UNIT'
+[Unit]
+Description=LLMitMir-Werkbank: Sandboxen nur ins Internet
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/llmitmir-werkbank-firewall
+ExecStop=/usr/local/sbin/llmitmir-werkbank-firewall --remove
+
+[Install]
+WantedBy=multi-user.target docker.service
+UNIT
+systemctl daemon-reload
+systemctl enable --now llmitmir-werkbank-firewall.service >/dev/null
+systemctl restart llmitmir-werkbank-firewall.service
+
 say "Sandbox-Image bauen (beim ersten Mal 5–15 Minuten)"
 docker build -q -t "$(grep '^SANDBOX_IMAGE=' .env | cut -d= -f2-)" sandbox/ >/dev/null
 
@@ -58,6 +84,24 @@ for _ in $(seq 1 20); do
   sleep 2
 done
 [ "${OK:-0}" = 1 ] || die "Die Werkbank antwortet nicht. Log ansehen: cd $DIR/werkbank && docker compose logs"
+
+# Der gemeinsame Cache früherer Versionen: jede Sandbox hat jetzt ihren eigenen
+docker volume rm llmitmir-werkbank-cache >/dev/null 2>&1 || true
+
+say "Prüfen: Sandbox erreicht das Internet, aber nicht das LAN"
+IMAGE="$(grep '^SANDBOX_IMAGE=' .env | cut -d= -f2-)"
+NET="$(grep '^SANDBOX_NETWORK=' .env | cut -d= -f2-)"; NET="${NET:-llmitmir-sandbox}"
+GW="$(ip route | awk '/^default/ {print $3; exit}')"
+if [ "$NET" != "none" ]; then
+  PROBE="$(docker run --rm --network "$NET" --user 1000:1000 "$IMAGE" sh -c "
+    curl -s -m 8 -o /dev/null https://example.org && echo INTERNET-OK || echo INTERNET-FEHLT
+    curl -s -m 3 -o /dev/null http://$GW/ && echo LAN-OFFEN || echo LAN-GESPERRT
+    curl -s -m 3 -o /dev/null http://$IP:$PORT/ && echo VM-OFFEN || echo VM-GESPERRT" 2>&1 || true)"
+  echo "$PROBE" | sed 's/^/    /'
+  if echo "$PROBE" | grep -q -e LAN-OFFEN -e VM-OFFEN; then
+    die "Eine Sandbox erreicht das LAN oder die VM – die Firewall greift nicht (systemctl status llmitmir-werkbank-firewall)."
+  fi
+fi
 
 cat <<EOT
 

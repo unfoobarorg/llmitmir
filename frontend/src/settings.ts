@@ -76,6 +76,7 @@ export class SettingsPage extends StoreElement {
   @state() private imp: any = null;
   @state() private impResult: any = null;
   @state() private guide = false;
+  @state() private hostInput: Record<string, string> = {};   // Einstellungen → Erlaubte Server: Eingabe je Zugang
   static styles = [base, css2, taskUsageCss, externalCss];
   connectedCallback() {
     super.connectedCallback();
@@ -206,9 +207,59 @@ export class SettingsPage extends StoreElement {
         <div class="hint">Kosten je Monat, letzte 12 Monate. Das Limit legt der Admin fest; am Monatsersten beginnt es neu.</div></div>` : nothing}
     </div></section>`;
   }
-  private vorgabe(role: "chat" | "agent") {
+  /** Teilaufgaben: aus, nur auf Wunsch oder automatisch. */
+  private subSection() {
+    const s = this.s;
+    const cur = s.sub_mode || s.sub_mode_effective || "auto";
+    const opts: [string, string, string][] = [
+      ["auto", t("Automatisch"), t("LLMitMir teilt größere Aufgaben selbst in Teilaufgaben auf – mehrere unabhängige Teile, viel Lesematerial, lange Werkbank-Arbeit. Der Chat bleibt dadurch kurz und übersichtlich.")],
+      ["ask", t("Nur auf Wunsch"), t("Teilaufgaben nur, wenn du ausdrücklich darum bittest (z. B. „als Teilaufgabe“ oder „parallel“).")],
+      ["off", t("Aus"), t("Keine Teilaufgaben – alles läuft im Chat selbst. Von Hand abzweigen geht weiterhin.")]];
+    return html`<section><h2>${icon("subtask", 18)} ${t("Teilaufgaben")}</h2><div class="form">
+      ${opts.map(([k, l, h]) => html`<label class="opt ${cur === k ? "on" : ""}">
+        <input type="radio" name="submode" .checked=${cur === k} @change=${() => this.set("sub_mode", k)}>
+        <div class="grow"><b>${l}</b><div class="hint">${h}</div></div></label>`)}
+      <div class="hint">${t("Teilaufgaben arbeiten mit eigenem Kontext und melden nur eine Zusammenfassung zurück. Fragen, die du freigeben musst, erscheinen auch im Hauptchat.")}</div></div></section>`;
+  }
+
+  private vorgabe(role: "chat" | "agent" | "sub") {
     const b = store.data.defaults.base?.[role] || {};
     return b.auto ? `Vorgabe – automatisch (derzeit ${modelName(b.model)})` : `Vorgabe (${modelName(b.model)})`;
+  }
+  /** Erlaubte Server eines Zugangs ändern (eigener Befehl – der Rest des Zugangs bleibt, wie er ist). */
+  private async setHosts(c: any, hosts: string[]) {
+    try { await store.api.ws("credential/hosts", { credential_id: c.id, hosts }); await store.load(); store.notify(t("Gespeichert")); }
+    catch (e: any) { store.notify(e.message); }
+  }
+  /** Alle erlaubten Server auf einen Blick, nach Zugang – wie die Domain-Freigaben in Claude Desktop, aber je Zugang. */
+  private hostsSection() {
+    const creds = (store.data?.credentials || []).filter((c: any) => c.type !== "gwdg");
+    if (!creds.length) return nothing;
+    const types = store.data?.credential_types || {};
+    return html`<section><h2>${icon("shield", 18)} ${t("Erlaubte Server")}</h2>
+      <div class="hint" style="margin-bottom:8px">${t("Zugangsdaten gehen nur an diese Server. Für jeden anderen fragt LLMitMir vorher, geplante Aufgaben lehnen ab. Ein Server gilt nur für den Zugang, bei dem er steht.")}</div>
+      ${creds.map((c: any) => {
+        const auto: string[] = c.auto_hosts || [];
+        const extra: string[] = c.hosts || [];
+        const val = this.hostInput[c.id] || "";
+        const add = () => {
+          const h = val.trim(); if (!h) return;
+          this.hostInput = { ...this.hostInput, [c.id]: "" };
+          this.setHosts(c, [...extra, ...h.split(/[\s,;]+/).filter(Boolean)]);
+        };
+        return html`<div class="card" style="margin-bottom:8px">
+          <div class="row"><b class="grow"><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/credential/${c.id}`); }}>${c.name}</a></b>
+            <span class="hint">${types[c.type]?.label || c.type}</span></div>
+          <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+            ${auto.map(h => html`<span class="chip" title=${t("Aus der Adresse des Zugangs – gilt immer")}>${h} · ${t("automatisch")}</span>`)}
+            ${extra.map(h => html`<span class="chip">${h}<button class="iconbtn" style="width:22px;height:22px" title=${t("Entfernen")}
+              @click=${() => this.setHosts(c, extra.filter(x => x !== h))}>${icon("close", 14)}</button></span>`)}
+            ${!auto.length && !extra.length ? html`<span class="hint">${t("Noch kein Server – der erste Aufruf fragt nach.")}</span>` : nothing}</div>
+          <div class="row" style="margin-top:8px"><input placeholder="api.example.org, *.example.org" .value=${val}
+              @input=${(e: any) => { this.hostInput = { ...this.hostInput, [c.id]: e.target.value }; }}
+              @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") add(); }}>
+            <button class="btn" ?disabled=${!val.trim()} @click=${add}>${icon("plus", 15)} ${t("Erlauben")}</button></div></div>`;
+      })}</section>`;
   }
   render() {
     const d = store.data; const s = this.s;
@@ -235,7 +286,9 @@ export class SettingsPage extends StoreElement {
         <label class="f"><span>Standard für Chats</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
           <option value="">${this.vorgabe("chat")}</option>${d.models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${s.model_chat === m.id}>${m.name}</option>`)}</select></label>
         <label class="f"><span>Standard für Coworks & Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
-          <option value="">${this.vorgabe("agent")}</option>${d.models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label></div>
+          <option value="">${this.vorgabe("agent")}</option>${d.models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${s.model_agent === m.id}>${m.name}</option>`)}</select></label>
+        <label class="f"><span>${t("Modell für Teilaufgaben (sparsam)")}</span><select @change=${(e: any) => this.set("model_sub", e.target.value || null)}>
+          <option value="">${this.vorgabe("sub")}</option>${d.models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${s.model_sub === m.id}>${m.name}</option>`)}</select></label></div>
         <div class="hint" style="margin-top:8px">„Vorgabe“ heißt: LLMitMir nimmt das passendste Modell, das gerade nicht überlastet ist, und berücksichtigt
           neu erschienene Modelle von selbst. Mit einem festen Modell empfiehlt der Chat einen Wechsel, wenn es stark ausgelastet ist.</div></section>`}
       ${d.key_mode === "per_user_own" ? html`<section><h2>${icon("key", 18)} Dein API-Schlüssel</h2>
@@ -256,6 +309,7 @@ export class SettingsPage extends StoreElement {
             ${d.user.is_admin ? html`Unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Benachrichtigungsgeräte</a> kannst du Geräte zuordnen.`
               : "Ein Admin von Home Assistant kann dein Handy mit deinem Benutzer verknüpfen."}</div>`}
         ${this.inboxSection()}</section>
+      ${this.subSection()}
       <section><h2>${icon("hourglass", 18)} Lebensdauer von Chats und Coworks</h2><div class="form">
         <label class="row hint" style="align-items:center"><input type="checkbox" style="width:auto" .checked=${rdays > 0}
           @change=${(e: any) => this.set("retention_days", e.target.checked ? (d.retention?.suggest || 30) : 0)}>
@@ -287,6 +341,7 @@ export class SettingsPage extends StoreElement {
       ${perms.length ? html`<section><h2>${icon("lock", 18)} Dauerhafte Freigaben (ohne Projekt)</h2>
         ${perms.map(([n, v]) => html`<div class="row" style="padding:4px 0"><span class="grow">${d.tools[n]?.label || n}: ${v === "allow" ? "erlaubt" : v === "deny" ? "verboten" : "fragen"}</span>
           <button class="btn ghost" @click=${() => { const p = { ...s.permissions }; delete p[n]; this.set("permissions", p); }}>Zurücksetzen</button></div>`)}</section>` : nothing}
+      ${this.hostsSection()}
       ${simple ? nothing : html`<section><h2>${icon("mdi:console", 18)} Werkbank</h2>
         ${werkbankInfo(!!d.werkbank?.configured, this.guide, () => (this.guide = !this.guide), d.user.is_admin)}
         ${d.user.is_admin ? html`<div class="hint" style="margin-top:8px">URL und Token trägst du unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Werkbank</a> ein.</div>` : nothing}</section>`}
@@ -344,11 +399,11 @@ export class AdminPage extends StoreElement {
     try {
       this.a = await store.api.ws("admin/save", { config: { provider: a.provider, key_mode: a.key_mode, shared_key: a.shared_key, user_keys: a.user_keys,
         task_key_mode: a.task_key_mode, shared_task_key: a.shared_task_key,
-        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, werkbank: a.werkbank, views: a.views,
+        allowed_users: a.allowed_users, quota_default: a.quota_default, quota_users: a.quota_users, search: a.search, speech: a.speech, werkbank: a.werkbank, views: a.views,
         notify_devices: { overrides: a.notify_overrides || {} },
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
-        model_access: a.model_access, billing: a.billing } });
+        model_access: a.model_access, billing: a.billing, dashboards: a.dashboards } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -603,7 +658,7 @@ export class AdminPage extends StoreElement {
       <section><h2>${icon("sparkle", 18)} Modelle</h2>
         <div class="row" style="margin-bottom:10px"><button class="btn" @click=${this.refresh} ?disabled=${this.loading}>${this.loading ? html`<lm-spark size="16"></lm-spark>` : icon("retry", 16)} Modellliste laden</button>
           <span class="hint">${known.length} Modelle bekannt</span></div>
-        <div class="two">${[["chat", "Standard Chat"], ["agent", "Standard Cowork/Aufgaben"], ["vision", "Bilder & Scans lesen"]].map(([r, l]) => html`<label class="f"><span>${l}</span>
+        <div class="two">${[["chat", "Standard Chat"], ["agent", "Standard Cowork/Aufgaben"], ["vision", "Bilder & Scans lesen"], ["sub", "Teilaufgaben (sparsam)"]].map(([r, l]) => html`<label class="f"><span>${l}</span>
           <select @change=${(e: any) => this.set("models", { ...a.models, defaults: { ...defs, [r]: e.target.value } })}>
             <option value="" ?selected=${!defs[r] || defs[r] === "auto"}>Automatisch (derzeit ${live[a.auto_models?.[r]]?.name || a.auto_models?.[r] || "–"})</option>
             ${known.map((m: any) => html`<option value=${m.id} ?selected=${defs[r] === m.id}>${m.name}</option>`)}</select></label>`)}</div>
@@ -612,12 +667,12 @@ export class AdminPage extends StoreElement {
           eingeschätzt. Hängt ein Modell im Chat, empfiehlt LLMitMir einen Wechsel; geplante Aufgaben mit automatischem Modell wechseln selbst.</div>
         <label class="row" style="margin-top:10px"><input type="checkbox" style="width:auto" .checked=${a.models.auto_enable_new !== false}
           @change=${(e: any) => this.set("models", { ...a.models, auto_enable_new: e.target.checked })}> Neu erscheinende Modelle automatisch freigeben</label>
-        <div class="tw" style="margin-top:12px"><table><tr><th>Freigegeben</th><th>Modell</th><th>Auslastung</th><th title="Eignung 0–100 für Chat / Cowork & Aufgaben / Bilder">Eignung</th><th>Fähigkeiten</th><th>Kontext</th></tr>
+        <div class="tw" style="margin-top:12px"><table><tr><th>Freigegeben</th><th>Modell</th><th>Auslastung</th><th title="Eignung 0–100 für Chat / Cowork & Aufgaben / Bilder / Teilaufgaben">Eignung</th><th>Fähigkeiten</th><th>Kontext</th></tr>
           ${known.map((m: any) => { const lv = live[m.id] || m; const l = load(lv); const q = lv.quality || {}; return html`<tr><td><input type="checkbox" .checked=${enabled.has(m.id)} @change=${(e: any) => {
             const s = new Set(enabled); e.target.checked ? s.add(m.id) : s.delete(m.id); this.set("models", { ...a.models, enabled: [...s] }); }}></td>
             <td>${m.name}${lv.new ? html` <span class="chip accent">neu</span>` : nothing}<div class="hint">${m.id}${m.gone ? " · nicht mehr angeboten" : m.status !== "ready" && m.status ? ` · ${m.status}` : ""}</div></td>
             <td class="hint"><span class="row" style="gap:6px;flex-wrap:nowrap">${loadDot(lv)}${l ? l.text : "–"}</span></td>
-            <td class="hint" style="white-space:nowrap">${q.chat || "–"} / ${q.agent || "–"} / ${q.vision || "–"}</td>
+            <td class="hint" style="white-space:nowrap">${q.chat || "–"} / ${q.agent || "–"} / ${q.vision || "–"} / ${q.sub || "–"}</td>
             <td class="hint">${(m.input || []).join(", ")} → ${(m.output || []).join(", ")}</td>
             <td><input type="number" style="width:110px" placeholder=${String(a.known_context[m.id] || 128000)} .value=${a.models.context?.[m.id] ?? ""}
               @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`; })}</table></div></section>
@@ -637,12 +692,24 @@ export class AdminPage extends StoreElement {
             : html`<span class="chip err">${icon("alert", 13)} ${this.wbTest.error}</span>`) : nothing}
           ${a.werkbank?.url ? html`<button class="btn ghost danger" @click=${() => this.set("werkbank", { url: "", token: "" })}>Werkbank entfernen</button>` : nothing}</div>
         <div class="hint" style="margin-top:6px">Nach dem Test auf „Speichern“ klicken. Befehle auf der Werkbank fragen wie andere schreibende Aktionen nach einer Freigabe.</div></section>
+      <section><h2>${icon("dashboard", 18)} Dashboards</h2><div class="two">
+        <label class="f"><span>Modell-Läufe je Person und Tag</span><input type="number" min="0" max="10000" .value=${String(a.dashboards?.tile_budget ?? 96)}
+          @input=${(e: any) => this.set("dashboards", { ...a.dashboards, tile_budget: Number(e.target.value) })}>
+          <span class="hint">So oft dürfen Kacheln mit Modell-Quelle je Person am Tag laufen (0 = ohne Grenze). Kacheln aus Home Assistant zählen nicht.</span></label>
+        <label class="f"><span>Gleichzeitige Kachel-Läufe</span><select @change=${(e: any) => this.set("dashboards", { ...a.dashboards, tile_parallel: Number(e.target.value) })}>
+          ${[1, 2, 3].map(n => html`<option value=${n} ?selected=${(a.dashboards?.tile_parallel || 1) === n}>${n}</option>`)}</select>
+          <span class="hint">Kacheln laufen in einer eigenen Warteschlange neben den geplanten Aufgaben. Mehr gleichzeitige Läufe teilen sich die Limits des Anbieters.</span></label></div></section>
       <section><h2>${icon("search", 18)} Websuche</h2><div class="two">
         <label class="f"><span>Anbieter</span><select @change=${(e: any) => this.set("search", { ...a.search, provider: e.target.value })}>
           <option value="duckduckgo" ?selected=${a.search.provider !== "searxng"}>DuckDuckGo (ohne Schlüssel)</option>
           <option value="searxng" ?selected=${a.search.provider === "searxng"}>SearXNG (eigene Instanz)</option></select></label>
         ${a.search.provider === "searxng" ? html`<label class="f"><span>SearXNG-URL</span><input .value=${a.search.searxng_url || ""} @input=${(e: any) => this.set("search", { ...a.search, searxng_url: e.target.value })}></label>` : nothing}</div>
         <div class="hint" style="margin-top:6px">DuckDuckGo funktioniert ohne Schlüssel über die einfache HTML-Seite und kann bei vielen Anfragen kurz sperren.</div></section>
+      <section><h2>${icon("mdi:account-voice", 18)} ${t("Sprachausgabe")}</h2><div class="form">
+        <label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:3px" .checked=${a.speech?.enabled !== false}
+          @change=${(e: any) => this.set("speech", { ...(a.speech || {}), enabled: e.target.checked })}>
+          <span><b>${t("Eigene Stimme des Roboters")}</b><br><span class="hint">${t("Klingt auf jedem Gerät gleich. Dafür geht jeder vorgelesene Antworttext an den Vorlesedienst von Microsoft Edge (über das Paket edge-tts). Ausgeschaltet liest die Sprachausgabe von Home Assistant oder des Browsers vor – dann verlässt kein Antworttext Home Assistant für die Stimme.")}</span>
+          ${a.speech?.installed === false ? html`<br><span class="hint" style="color:var(--lm-err)">${t("Das Paket edge-tts ist nicht installiert.")}</span>` : nothing}</span></label></div></section>
       ${this.dirty ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.load()}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}
     </div>`;

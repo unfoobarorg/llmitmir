@@ -11,7 +11,50 @@ from homeassistant.util import dt as dt_util
 
 from . import Tool, obj, register
 
-WS_READ = re.compile(r"(^|/|_)(list|liste|get|info|config|search|history|stats|status|dokumente|uebersicht|details)(/|_|$)")
+# Websocket-Befehle ohne Freigabe: nur, was sicher nur liest. Früher reichte ein Lesewort irgendwo im Namen –
+# dann liefen auch „config/auth/delete“ oder „lovelace/config/save“ ohne Rückfrage. Jetzt gilt: kein Wort, das
+# etwas ändert, und ein Lesewort im Namen (oder „…/config“ am Ende); alles andere fragt.
+WS_READ_WORDS = {"list", "liste", "get", "info", "search", "history", "stats", "statistics", "status", "dokumente",
+                 "uebersicht", "details"}
+WS_WRITE_WORDS = {
+    "delete", "remove", "update", "create", "save", "set", "add", "clear", "reset", "reload", "restart", "stop",
+    "start", "enable", "disable", "install", "uninstall", "upload", "import", "migrate", "rename", "move", "assign",
+    "unassign", "write", "apply", "execute", "run", "call", "fire", "trigger", "purge", "repair", "ignore", "confirm",
+    "approve", "reject", "commission", "permit", "pair", "unpair", "flow", "subscribe", "unsubscribe", "toggle", "turn",
+    "lock", "unlock", "activate", "generate", "restore", "resolve", "dismiss", "mark", "send", "change", "edit",
+    "register", "unregister", "schedule", "cancel", "rollback", "revoke", "grant", "merge", "reorder", "clean",
+    "cleanup", "delete_all", "loeschen", "aendern", "speichern", "anlegen", "erstellen", "setzen", "entfernen",
+    "hinzufuegen", "senden", "starten", "stoppen",
+}
+
+
+def ws_is_read(typ: str) -> bool:
+    """True, wenn ein Websocket-Befehl nach seinem Namen sicher nur liest (dann ohne Freigabe)."""
+    typ = str(typ or "").strip().lower()
+    words = [w for w in re.split(r"[/_\-.]+", typ) if w]
+    if not words or any(w in WS_WRITE_WORDS for w in words):
+        return False
+    return any(w in WS_READ_WORDS for w in words) or typ.endswith("/config")
+
+
+# Ziele, die sich nicht auf einzelne Entitäten prüfen lassen (für Nicht-Admins nicht erlaubt)
+_BROAD_TARGETS = ("area_id", "device_id", "floor_id", "label_id")
+
+
+def _targets(a: dict, data: dict) -> tuple[list[str], bool]:
+    """Alle Entitäten, die ein Dienstaufruf trifft (aus „daten“ und „ziel“), und ob er breiter zielt."""
+    ziel = a.get("ziel") if isinstance(a.get("ziel"), dict) else {}
+    out: list[str] = []
+    broad = False
+    for src in (data, ziel):
+        ids = src.get("entity_id")
+        if ids:
+            out += [ids] if isinstance(ids, str) else [str(x) for x in ids]
+        broad = broad or any(src.get(k) for k in _BROAD_TARGETS)
+    expanded = []
+    for e in out:
+        expanded += [x.strip() for x in e.split(",") if x.strip()]
+    return list(dict.fromkeys(expanded)), broad or "all" in [e.lower() for e in expanded]
 
 
 async def ha_states(ctx, a: dict):
@@ -63,14 +106,20 @@ async def ha_service(ctx, a: dict):
     data = a.get("daten") or {}
     if isinstance(data, str):
         data = json.loads(data or "{}")
-    targets = data.get("entity_id") or (a.get("ziel") or {}).get("entity_id") or []
-    targets = [targets] if isinstance(targets, str) else list(targets)
-    if not ctx.user.is_admin and not str(service).startswith("get_"):
-        for eid in targets:
-            if not ctx.user.permissions.check_entity(eid, "control"):
-                return f"Fehler: keine Berechtigung für {eid}"
+    if not isinstance(data, dict):
+        return "Fehler: „daten“ muss ein Objekt sein"
+    if not ctx.user.is_admin:
+        # Jede getroffene Entität prüfen – aus „daten“ und aus „ziel“. Bereiche, Geräte, Etagen und Labels lassen
+        # sich nicht einzeln prüfen und bleiben Admins vorbehalten; das gilt auch für lesende Dienste (get_…).
+        targets, broad = _targets(a, data)
+        if broad:
+            return "Fehler: Nicht-Admins dürfen Dienste nur mit einzelnen entity_id aufrufen (kein Bereich, Gerät, Label, „all“)"
         if not targets:
             return "Fehler: Nicht-Admins dürfen nur Dienste mit entity_id aufrufen"
+        policy = "read" if str(service).startswith("get_") else "control"
+        for eid in targets:
+            if not ctx.user.permissions.check_entity(eid, policy):
+                return f"Fehler: keine Berechtigung für {eid}"
     try:
         resp = await ctx.hass.services.async_call(domain, service, data, blocking=True,
                                                   context=Context(user_id=ctx.user.id),
@@ -173,5 +222,5 @@ register(Tool("ha_service", "ha", "Ruft einen Dienst in Home Assistant auf (z. B
               label="Dienst aufrufen", icon="mdi:play-circle-outline"))
 register(Tool("ha_ws", "ha", "Führt einen Websocket-Befehl von Home Assistant aus (z. B. eigener Integrationen wie „imkerei/liste“). Lesende Befehle frei, alle anderen mit Freigabe.",
               obj({"typ": {"type": "string"}, "daten": {"type": "object"}}, ["typ"]),
-              ha_ws, write=lambda a: not WS_READ.search(str(a.get("typ") or "")),
+              ha_ws, write=lambda a: not ws_is_read(a.get("typ") or ""),
               label="HA-Befehl", icon="mdi:console-network-outline"))

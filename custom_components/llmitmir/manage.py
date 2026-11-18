@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from . import credentials as C
 from . import sharing as SH
+from .const import ORIGIN_DASHBOARD
 from .cron import schedule_to_cron
 from .storage import new_id, now
 
@@ -84,6 +85,8 @@ def build_credential(st, c: dict) -> dict:
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
                 # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
                 external=bool(c["external"]) if "external" in c else bool(old.get("external")),
+                # weitere Server, an die der Zugang ohne Rückfrage gehen darf (die aus den Adressfeldern gelten immer)
+                hosts=C.clean_hosts(c["hosts"]) if "hosts" in c else list(old.get("hosts") or []),
                 updated=now())
     if svc is not None:
         cred["services"] = svc  # GWDG: wofür der Zugang gilt (Postfach, Kalender, Kontakte)
@@ -139,6 +142,16 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
                 # besonders aufwaendig: bis zu 150 statt 60 Schritte je Lauf
                 heavy=bool(t.get("heavy", old.get("heavy"))),
                 share=share, updated=now())
+    # Kachel-Aufgabe (boards.py): Herkunft, Kachel und das Schreibrecht in die eigene Kachel bleiben, egal was
+    # der Aufrufer schickt. Jede andere Aufgabe darf `dashboard_update` nie verwenden.
+    origin = old.get("origin") or (ORIGIN_DASHBOARD if t.get("origin") == ORIGIN_DASHBOARD else None)
+    if origin == ORIGIN_DASHBOARD:
+        task["origin"] = ORIGIN_DASHBOARD
+        task["tile_id"] = old.get("tile_id") or str(t.get("tile_id") or "")
+        task["allow_write"] = sorted(set(task["allow_write"]) | {"dashboard_update"})
+        task["share"] = {"users": {}}
+    else:
+        task["allow_write"] = [n for n in task["allow_write"] if n != "dashboard_update"]
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
     if task["heavy"] and not old.get("heavy"):

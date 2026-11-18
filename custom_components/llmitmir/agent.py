@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from . import claude_convert as CC
 from . import credcheck as CK
+from . import dashboards as DB
 from . import credentials as C
 from . import models as MS
 from . import permissionnotify as PN
@@ -26,6 +27,7 @@ from . import pricing as PR
 from . import retention as RT
 from . import providers as PV
 from . import selfdoc as SD
+from . import subchats as SC
 from . import sharing as SH
 from . import taskkeys as TK
 from . import views as V
@@ -35,7 +37,8 @@ from .claude_client import available as claude_available
 from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK, SLOW_AFTER_VOICE,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
-                    MAX_STEPS_TASK_HEAVY,
+                    MAX_STEPS_TASK_HEAVY, MAX_STEPS_SUB, SUB_PARALLEL, SUB_PER_RUN, MAX_STEPS_TILE, MAX_STEPS_TILE_HEAVY,
+                    ORIGIN_DASHBOARD,
                     MAX_STEPS_MORE, MAX_STEPS_MORE_LOTS, MORE_STEPS, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
@@ -79,7 +82,12 @@ class Run:
     switch_to: str | None = None
     switch_auto: bool = False  # chosen by LLMitMir itself (scheduled task), not by the person
     hint: dict | None = None   # "model is overloaded – switch to …", shown in the chat while waiting
+    parent_id: str | None = None  # Lauf einer Teilaufgabe: ihr Hauptchat ("Stopp" dort hält auch sie an)
+    subs_started: int = 0         # Teilaufgaben, die dieser Lauf gestartet hat (höchstens SUB_PER_RUN)
 
+
+# Werkzeuge, die im selben Schritt parallel laufen (alle anderen nacheinander)
+PARALLEL_TOOLS = {"unterchat_starten", "unterchat_nachricht"}
 
 # Ohne diese Aktion weitermachen (dritte Möglichkeit bei einer Freigabe, und was nach einer Wartezeit passiert)
 SKIP_TEXT = ("Nicht ausgeführt: Die Person möchte diese Aktion nicht. Ohne sie weiterarbeiten, den Rest erledigen und im "
@@ -107,6 +115,7 @@ class Manager:
         self.session = async_create_clientsession(hass, cookie_jar=aiohttp.DummyCookieJar())
         self.task_queue: asyncio.Queue = asyncio.Queue()
         self.scheduler = None  # set in __init__.py
+        self.boards = None     # Dashboards und Kacheln (boards.py), set in __init__.py
         self._models_at = 0.0  # last attempt to load /models
         self._models_failed = False
         self._models_lock = asyncio.Lock()
@@ -117,6 +126,9 @@ class Manager:
         self.ews = EwsStore(hass)  # was über die EWS-Server gelernt wurde (Feld-Schreibweise)
         self._ext: dict[str, ClaudeClient] = {}
         self._ext_refreshed: dict[str, float] = {}
+        # Teilaufgaben: Plätze je Person und wer auf welches Ergebnis wartet (Unterchat-ID -> Future)
+        self.sub_slots = SC.Slots(SUB_PARALLEL)
+        self.sub_waiters: dict[str, asyncio.Future] = {}
         load_all()
 
     async def async_setup(self) -> None:
@@ -457,7 +469,7 @@ class Manager:
         out["auto"] = {r: MS.pick(self.live_models(), r) or "" for r in MS.ROLES}
         out["voice"] = self.voice_model() or out["auto"].get("chat") or ""  # Gespräch: Tempo vor Tiefe
         # what applies without a personal choice ("Vorgabe" in the settings)
-        out["base"] = {r: dict(zip(("model", "auto"), self._default(user_id, r, personal=False))) for r in ("chat", "agent")}
+        out["base"] = {r: dict(zip(("model", "auto"), self._default(user_id, r, personal=False))) for r in ("chat", "agent", "sub")}
         return out
 
     def alternative_for(self, chat: dict) -> dict | None:
@@ -580,6 +592,43 @@ class Manager:
         for uid in SH.users(task.get("share")):
             self.emit(uid, {"type": "meta", "section": "tasks"})
 
+    async def allowed_ids(self, user_ids) -> list[str]:
+        """Nur die Personen, die LLMitMir (noch) nutzen dürfen – für Benachrichtigungen an geteilte Aufgaben/Kacheln."""
+        out = []
+        for uid in dict.fromkeys(u for u in user_ids if u):
+            if self.allowed(await self.hass.auth.async_get_user(uid)):
+                out.append(uid)
+        return out
+
+    async def tell_owner_pending(self, owner_id: str, task: dict, by: str, tile: dict | None = None) -> None:
+        """Jemand hat den Auftrag einer fremden Aufgabe (oder die Beschreibung einer Kachel) geändert: Karte auf der
+        Startseite der Eigentümerin bzw. des Eigentümers und Push aufs eigene Gerät. Bis zur Bestätigung läuft nichts."""
+        from homeassistant.core import Context
+
+        from . import inbox as IB
+        from . import notifydevices as ND
+
+        st = await self.user_store(owner_id)
+        who = await self.user_name(by)
+        what = f"die Kachel „{tile.get('name')}“" if tile else f"die Aufgabe „{task.get('name')}“"
+        title = f"{who} hat {what} geändert"[:120]
+        text = (f"Der neue Auftrag läuft erst, wenn du ihn bestätigst.\nVorher: "
+                f"{(task.get('pending_approval') or {}).get('prompt_before', '')[:200]}\nJetzt: {str(task.get('prompt') or '')[:200]}")
+        link = f"/dashboards?tile={owner_id}:{tile['id']}" if tile else f"/task/{task.get('id')}"
+        entry = {"id": new_id("n"), "chat_id": "", "task_id": task.get("id"), "task": str(task.get("name") or "Aufgabe"),
+                 "title": title, "text": text[:600], "status": "approval", "link": link}
+        st.meta["inbox"] = IB.add(st.meta.get("inbox"), entry, now())
+        await st.async_save_meta()
+        self.emit(owner_id, {"type": "inbox", "items": IB.prune(st.meta["inbox"], now(), IB.minutes(st.meta["settings"]))})
+        try:
+            devices = ND.apply_links(await ND.async_devices(self.hass), self.config.data.get("notify_devices"))
+            device = ND.resolve(ND.for_user(devices, owner_id), owner_id, st.meta["settings"])
+            if device:
+                await ND.async_send(self.hass, device, title[:100], text[:900], url=f"/llmitmir{link}",
+                                    tag=f"llmitmir-approve-{task.get('id')}", context=Context(user_id=owner_id))
+        except Exception:  # noqa: BLE001 - die Karte auf der Startseite ist schon da
+            _LOGGER.debug("Push für geänderte Aufgabe fehlgeschlagen", exc_info=True)
+
     def allowed(self, user) -> bool:
         allowed = self.config.data.get("allowed_users") or []
         if user is None or not user.is_active:
@@ -592,6 +641,11 @@ class Manager:
         """Simple (Laien) or expert view of this person, and whether the admin fixed it."""
         st = self.users.get(user_id)
         return V.resolve(self.config.data.get("views"), user_id, st.meta["settings"].get("view") if st else None)
+
+    def sub_mode(self, user_id: str) -> str:
+        """Teilaufgaben: aus, nur auf Wunsch oder automatisch (subchats.mode)."""
+        st = self.users.get(user_id)
+        return SC.mode(st.meta["settings"].get("sub_mode") if st else None, self.simple(user_id))
 
     def simple(self, user_id: str) -> bool:
         """In the simple view nobody picks models: everything runs on the automatic choice."""
@@ -652,7 +706,7 @@ class Manager:
         the role best right now – the newest strong model that is not overloaded."""
         st = self.users.get(user_id)
         personal = personal and not self.simple(user_id)  # the simple view has no personal model choice
-        mine = st.meta["settings"].get(f"model_{role}") if personal and st and role in ("chat", "agent") else None
+        mine = st.meta["settings"].get(f"model_{role}") if personal and st and role in ("chat", "agent", "sub") else None
         d = (self.config.data.get("models") or {}).get("defaults") or {}
         admin = d.get(role) if d.get(role) not in (None, "", AUTO) else None
         for explicit in (mine, admin):
@@ -818,9 +872,55 @@ class Manager:
         self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
         return chat
 
-    async def delete_chat(self, user_id: str, chat_id: str) -> None:
-        """Chat samt Sandbox und Dateien löschen – von Hand und für die Aufräumfrist derselbe Weg."""
+    async def create_sub(self, user_id: str, parent_id: str, auftrag: str, title: str = "", von: str = SC.VON_AGENT,
+                         call_id: str | None = None, model: str | None = None, model_choice: str | None = None,
+                         sub_tools: list[str] | None = None, model_auto: bool | None = None) -> dict:
+        """Eine Teilaufgabe (Unterchat) unter einem Hauptchat anlegen – ein normaler Chat mit ``parent_id``.
+
+        Sie übernimmt Art, Projekt, Werkzeugauswahl und die im Hauptchat eingeschalteten Werkzeuge; Dateien und
+        Sandbox teilt sie mit dem Hauptchat (ToolContext.files_id). Es gibt nur eine Ebene."""
         st = await self.user_store(user_id)
+        parent = await st.async_get_chat(parent_id)
+        if not parent:
+            raise ValueError("Chat nicht gefunden")
+        if SC.is_sub(parent):
+            raise ValueError("Eine Teilaufgabe kann selbst keine Teilaufgaben haben")
+        if parent.get("kind") not in (KIND_CHAT, KIND_COWORK):
+            raise ValueError("Läufe geplanter Aufgaben haben keine Teilaufgaben")
+        chat = {"id": new_id("c"), "kind": parent["kind"], "title": SC.clean_title(title or SC.title_from(auftrag)),
+                "project_id": parent.get("project_id"), "task_id": None, "parent_id": parent_id,
+                "model": model or parent.get("model"),
+                "model_auto": model_auto if model_auto is not None else (not model and bool(parent.get("model_auto"))),
+                "created": now(), "updated": now(), "pinned": False, "status": "idle", "last_seen": now(),
+                "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
+                "progress": [], "tools": parent.get("tools"),
+                "granted_groups": list(parent.get("granted_groups") or []),
+                "sub": SC.new_sub(auftrag, von, call_id=call_id, model_choice=model_choice)}
+        if sub_tools is not None:
+            chat["sub_tools"] = list(sub_tools)
+        if parent.get("no_thinking"):
+            chat["no_thinking"] = True
+        await st.async_save_chat(chat)
+        parent["subs"] = SC.ordered([*(parent.get("subs") or []), chat["id"]], parent.get("subs"))
+        await st.async_save_chat(parent, keep_updated=True)
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(parent)})
+        return chat
+
+    async def delete_chat(self, user_id: str, chat_id: str) -> None:
+        """Chat samt Sandbox und Dateien löschen – von Hand und für die Aufräumfrist derselbe Weg.
+
+        Ein Hauptchat nimmt seine Teilaufgaben mit; eine Teilaufgabe verschwindet aus der Liste ihres Hauptchats."""
+        st = await self.user_store(user_id)
+        for sub_id in SC.children(st.meta["chats"], chat_id):
+            await self.delete_chat(user_id, sub_id)
+        parent_id = (st.meta["chats"].get(chat_id) or {}).get("parent_id")
+        if parent_id:
+            parent = await st.async_get_chat(parent_id)
+            if parent and chat_id in (parent.get("subs") or []):
+                parent["subs"] = [x for x in parent["subs"] if x != chat_id]
+                await st.async_save_chat(parent, keep_updated=True)
+                self.emit(user_id, {"type": "chat", "chat": st.chat_summary(parent)})
         self.stop(user_id, chat_id)
         if self.werkbank is not None:
             try:
@@ -979,20 +1079,27 @@ class Manager:
         self.start_run(user, chat)
 
     def start_run(self, user, chat: dict, task: dict | None = None) -> str:
-        run = Run(id=new_id("r"), user_id=user.id, chat_id=chat["id"], kind=chat["kind"])
+        run = Run(id=new_id("r"), user_id=user.id, chat_id=chat["id"], kind=chat["kind"], parent_id=chat.get("parent_id"))
         self.runs[run.id] = run
         run.task = self.hass.async_create_background_task(self._run(user, chat, run, task), f"llmitmir run {run.id}")
         return run.id
 
     def stop(self, user_id: str, run_or_chat: str) -> bool:
-        for r in self.runs.values():
+        """Einen Lauf anhalten (per Lauf- oder Chat-ID). „Stopp“ im Hauptchat hält auch seine Teilaufgaben an."""
+        found = None
+        for r in list(self.runs.values()):
             if r.user_id == user_id and run_or_chat in (r.id, r.chat_id):
-                r.cancel.set()
-                for pid, (uid, fut, info) in list(self.permissions.items()):
-                    if uid == user_id and info.get("run_id") == r.id and not fut.done():
-                        fut.set_result("deny")
-                return True
-        return False
+                found = r
+                break
+        if found is None:
+            return False
+        targets = [found] + [r for r in list(self.runs.values()) if r.user_id == user_id and r.parent_id == found.chat_id]
+        for r in targets:
+            r.cancel.set()
+            for pid, (uid, fut, info) in list(self.permissions.items()):
+                if uid == user_id and info.get("run_id") == r.id and not fut.done():
+                    fut.set_result("deny")
+        return True
 
     async def _status(self, run: Run, status: str, detail: dict | None = None) -> None:
         run.status = status
@@ -1012,15 +1119,24 @@ class Manager:
         final_status, error, offer = "done", None, None
         # Eine als besonders aufwaendig markierte geplante Aufgabe bekommt mehr Schritte als ein Cowork
         steps = MAX_STEPS_TASK_HEAVY if task is not None and task.get("heavy") else MAX_STEPS_COWORK
+        is_tile = task is not None and task.get("origin") == ORIGIN_DASHBOARD
+        if is_tile:
+            # Kachel-Lauf: weniger Schritte – eine Kachel ist ein kleiner, wiederkehrender Auftrag
+            steps = MAX_STEPS_TILE_HEAVY if task.get("heavy") else MAX_STEPS_TILE
         limit_hit = False  # der Lauf endete, weil die Hoechstzahl an Schritten erreicht war
         # a scheduled task marked "in an emergency, external models are fine" moves there when the main provider is down
         may_fallback = task is not None and bool(task.get("external_fallback"))
         first_429: list[float] = []
-        role = "chat" if chat["kind"] == KIND_CHAT else "agent"
+        is_sub = SC.is_sub(chat)
+        role = "sub" if is_sub and chat.get("model_auto") else "chat" if chat["kind"] == KIND_CHAT else "agent"
+        wrapped = False      # der letzte Schritt (ohne Werkzeuge) war nötig: Höchstzahl erreicht
+        limit_error = False  # der Lauf endete an einer Grenze (Kontingent, Monatslimit, Anbieter), nicht an einem Fehler
         try:
             simple = self.simple(user.id)
             if chat["kind"] == KIND_CHAT:
                 steps = MAX_STEPS_CHAT_SIMPLE if simple else MAX_STEPS_CHAT
+            if is_sub:
+                steps = MAX_STEPS_SUB
             proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
             if PV.is_external(chat.get("model") or ""):
                 ok, why = self.model_selectable(user.id, chat["model"], task is not None)
@@ -1040,7 +1156,7 @@ class Manager:
                     chat["model"], chat["model_auto"] = self._default(user.id, role)
                     chat.pop("model_fallback", None)
                     self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
-            if simple and not chat.get("model_auto") and not PV.is_external(chat.get("model") or ""):
+            if simple and not is_sub and not chat.get("model_auto") and not PV.is_external(chat.get("model") or ""):
                 # simple view: a model fixed earlier (expert view, project) gives way to the default
                 default, auto = self._default(user.id, role)
                 if default and (default != chat.get("model") or auto):
@@ -1077,6 +1193,8 @@ class Manager:
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
             tools = ctx.tool_specs()
             await ctx.preload_images()
+            if is_tile and self.boards:
+                ctx.tile, ctx.tile_record = await self.boards.tile_context(user.id, task)
             last_progress = 0  # step of the last progress_update (or reminder)
             step = -1
             while True:
@@ -1121,7 +1239,10 @@ class Manager:
                         "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
                         f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
                         "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")
-                        + ("" if final or task is None or chat.get("result") else
+                        + ("" if final or task is None else
+                           (" Vergiss `dashboard_update` nicht – ohne gültige Daten gilt der Lauf als fehlgeschlagen."
+                            if not chat.get("tile_written") else "") if is_tile else
+                           "" if chat.get("result") else
                            " Vergiss `task_result` nicht – ohne diesen Aufruf bekommt die Person keine Nachricht.")})
                 if run.switch_to:
                     await self._apply_switch(run, chat, st, None)
@@ -1286,6 +1407,7 @@ class Manager:
                         amsg["content"] = content = "_Das Modell hat diese Anfrage aus Sicherheitsgründen abgelehnt._"
                 calls = [] if final else acc.calls()  # tool calls on the last step are ignored
                 if final:
+                    wrapped = True
                     amsg["content"] = (content or "_Abgebrochen: Höchstzahl von {0} Schritten erreicht._".format(steps)) + (
                         f"\n\n_Höchstzahl von {steps} Schritten erreicht – Lauf vorzeitig beendet._" if content else "")
                 if calls:
@@ -1300,20 +1422,33 @@ class Manager:
                     break
                 if not calls:
                     break
-                for call in calls:
+                ci = 0
+                while ci < len(calls):
                     if run.cancel.is_set():
                         break
-                    if (call.get("function") or {}).get("name") == "progress_update":
-                        last_progress = step
-                    res_msg = await ctx.execute(call)
-                    chat["messages"].append(res_msg)
-                    await st.async_save_chat(chat)
-                    self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": res_msg})
+                    name = (calls[ci].get("function") or {}).get("name")
+                    if name in PARALLEL_TOOLS:
+                        # Teilaufgaben eines Schritts laufen gleichzeitig; die Ergebnisse kommen in Aufrufreihenfolge
+                        batch = []
+                        while ci < len(calls) and (calls[ci].get("function") or {}).get("name") in PARALLEL_TOOLS:
+                            batch.append(calls[ci])
+                            ci += 1
+                        results = await asyncio.gather(*(ctx.execute(c) for c in batch))
+                    else:
+                        if name == "progress_update":
+                            last_progress = step
+                        results = [await ctx.execute(calls[ci])]
+                        ci += 1
+                    for res_msg in results:
+                        chat["messages"].append(res_msg)
+                        await st.async_save_chat(chat)
+                        self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": res_msg})
         except asyncio.CancelledError:
             final_status = "stopped"
             raise
         except (QuotaError, QuotaExhausted, ProviderError, ValueError) as e:
             final_status, error = "error", str(e)
+            limit_error = isinstance(e, (QuotaError, QuotaExhausted, ProviderError))
             if isinstance(e, (QuotaExhausted, ProviderError)):
                 self.emit_models()  # a blocked key may unlock emergency models
             if interactive and not PV.is_external(chat.get("model") or ""):
@@ -1327,6 +1462,10 @@ class Manager:
                                          "error": error, **({"offer": offer} if offer else {})})
             # drop a dangling empty streaming message
             chat["messages"] = [m for m in chat["messages"] if not (m.get("streaming") and not m.get("content"))]
+            # Nachträge von Teilaufgaben, die während des Laufs kamen, gehören jetzt in den Verlauf
+            for pend in chat.pop("sub_results_pending", None) or []:
+                chat["messages"].append(pend)
+                self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": pend})
             if chat.get("progress"):
                 # the run is over: nothing may keep spinning. Normally the list is closed (open steps count as done,
                 # failed ones stay failed); after a stop or an error the running step goes back to open.
@@ -1340,12 +1479,206 @@ class Manager:
             await self._status(run, final_status, {"error": error} if error else {})
             self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
             self.runs.pop(run.id, None)
+            if is_sub:
+                try:
+                    await self._sub_finished(user, st, chat, final_status, error, limit_hit or wrapped, limit_error, steps)
+                except Exception:  # noqa: BLE001 - der Hauptchat darf nie ohne Antwort warten
+                    _LOGGER.exception("Teilaufgabe %s: Abschluss fehlgeschlagen", chat["id"])
+                    fut = self.sub_waiters.get(chat["id"])
+                    if fut and not fut.done():
+                        fut.set_result(SC.result("", None, SC.FEHLER, error or "Abschluss fehlgeschlagen", now()))
             if task is not None and self.scheduler:
                 await self.scheduler.run_finished(user, task, chat, final_status, error)
             elif final_status == "done":
                 # jemand hat während des Laufs weitergeschrieben: jetzt ist die nächste Nachricht dran
                 # (nach Stopp oder Fehler bleibt sie liegen und lässt sich im Chat selbst starten)
                 await self._start_queued(user, st, chat)
+
+    # ------------------------------------------------------------- Teilaufgaben (Delegation)
+    def _sub_model(self, ctx: "ToolContext", choice: Any) -> tuple[str, bool, str]:
+        """Modell einer neuen Teilaufgabe (subchats.pick_model) samt Prüfung externer Modelle."""
+        uid = ctx.user_id
+        model, auto, note = SC.pick_model(choice, ctx.chat.get("model") or "", bool(ctx.chat.get("model_auto")),
+                                          self.default_model(uid, "sub"), self.default_model(uid, "agent"),
+                                          PV.is_external, self.model_usable)
+        if PV.is_external(model):
+            try:
+                self._check_chat_external(uid, ctx.store, ctx.chat, model)
+            except QuotaError as e:
+                model, auto, note = self.default_model(uid, "sub"), True, f"{e} Die Teilaufgabe läuft sparsam."
+        return model, auto, note
+
+    async def _sub_status(self, st: UserStore, sub: dict, status: str, wait: str | None = None) -> None:
+        sub["sub"]["status"] = status
+        if wait:
+            sub["sub"]["wartet_auf"] = wait
+        else:
+            sub["sub"].pop("wartet_auf", None)
+        await st.async_save_chat(sub, keep_updated=True)
+        self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(sub)})
+
+    async def delegate(self, ctx: "ToolContext", a: dict) -> Any:
+        """Werkzeug unterchat_starten: Teilaufgabe anlegen, starten und auf ihre Zusammenfassung warten."""
+        if SC.is_sub(ctx.chat):
+            return "Fehler: Eine Teilaufgabe kann keine weiteren Teilaufgaben starten – erledige den Auftrag selbst."
+        if ctx.run.subs_started >= SUB_PER_RUN:
+            return (f"Fehler: Höchstens {SUB_PER_RUN} Teilaufgaben je Lauf – diese wurde nicht gestartet. Fasse Teile "
+                    "zusammen, erledige den Rest selbst oder nutze unterchat_nachricht für eine vorhandene Teilaufgabe.")
+        auftrag = str(a.get("auftrag") or "").strip()
+        if not auftrag:
+            return "Fehler: Der Auftrag fehlt."
+        ctx.run.subs_started += 1
+        choice = str(a.get("modell") or "sparsam")
+        model, auto, note = self._sub_model(ctx, choice)
+        groups = SC.clean_groups(a.get("werkzeuge"), ctx.available_groups())
+        sub = await self.create_sub(ctx.user_id, ctx.chat_id, auftrag, str(a.get("titel") or ""), SC.VON_AGENT,
+                                    call_id=a.get("_call_id"), model=model, model_choice=choice, sub_tools=groups,
+                                    model_auto=auto)
+        files = SC.clean_files(a.get("dateien"))
+        text = auftrag + ("\n\nDateien aus dem Hauptchat (im gemeinsamen Arbeitsbereich): " + ", ".join(files) if files else "")
+        return await self._run_sub(ctx, sub, text, note)
+
+    async def delegate_more(self, ctx: "ToolContext", a: dict) -> Any:
+        """Werkzeug unterchat_nachricht: einer vorhandenen Teilaufgabe eine Folgeaufgabe schicken und warten."""
+        sub_id = str(a.get("id") or "").strip()
+        meta = ctx.store.meta["chats"].get(sub_id) if sub_id else None
+        if not meta or meta.get("parent_id") != ctx.chat_id:
+            return "Fehler: Keine Teilaufgabe mit dieser id in diesem Chat."
+        if self.active_run(sub_id) or sub_id in self.sub_waiters:
+            return "Fehler: Diese Teilaufgabe arbeitet gerade – warte auf ihr Ergebnis."
+        text = str(a.get("text") or "").strip()
+        if not text:
+            return "Fehler: Der Text fehlt."
+        sub = await ctx.store.async_get_chat(sub_id)
+        if not sub:
+            return "Fehler: Teilaufgabe nicht gefunden."
+        return await self._run_sub(ctx, sub, text)
+
+    async def _run_sub(self, ctx: "ToolContext", sub: dict, text: str, note: str = "") -> Any:
+        """Einen Platz abwarten, den Lauf der Teilaufgabe starten und ihr Ergebnis zurückgeben."""
+        st, uid, cancel = ctx.store, ctx.user_id, ctx.run.cancel
+
+        async def waiting() -> None:
+            await self._sub_status(st, sub, SC.WARTET, "platz")
+
+        if not await self.sub_slots.acquire(uid, cancel, waiting):
+            res = SC.result("Nicht gestartet: Der Hauptchat wurde angehalten.", None, SC.ABGEBROCHEN, "Stopp", now())
+            sub["sub"]["ergebnis"] = res
+            await self._sub_status(st, sub, SC.ABGEBROCHEN)
+            return SC.tool_result(sub, res, note)
+        fut: asyncio.Future = self.hass.loop.create_future()
+        self.sub_waiters[sub["id"]] = fut
+        try:
+            sub["sub"].pop("gemeldet", None)
+            msg = {"id": new_id("m"), "role": "user", "content": text, "created": now(), "attachments": [], "from_parent": True}
+            sub["messages"].append(msg)
+            sub["sub"]["status"] = SC.LAEUFT
+            sub["sub"].pop("wartet_auf", None)
+            await st.async_save_chat(sub)
+            self.emit(uid, {"type": "message", "chat_id": sub["id"], "message": msg})
+            self.emit(uid, {"type": "chat", "chat": st.chat_summary(sub)})
+            self.start_run(ctx.user, sub)
+            stop = asyncio.ensure_future(cancel.wait())
+            try:
+                await asyncio.wait({fut, stop}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                if not stop.done():
+                    stop.cancel()
+            if not fut.done():
+                # der Hauptchat wurde angehalten: die Teilaufgabe auch, und kurz auf ihr Teilergebnis warten
+                self.stop(uid, sub["id"])
+                try:
+                    await asyncio.wait_for(asyncio.shield(fut), 30)
+                except asyncio.TimeoutError:
+                    pass
+            res = fut.result() if fut.done() else SC.result("Abgebrochen.", None, SC.ABGEBROCHEN, "Stopp", now())
+        finally:
+            self.sub_waiters.pop(sub["id"], None)
+            self.sub_slots.release(uid)
+        return SC.tool_result(sub, res, note)
+
+    async def _sub_summary(self, user_id: str, chat: dict) -> str:
+        """Zusammenfassung, wenn die Teilaufgabe ergebnis_melden vergessen hat: kurze Antworten bleiben, wie sie sind,
+        lange fasst ein sparsames Modell zusammen."""
+        answer = SC.last_answer(chat.get("messages"))
+        if not answer:
+            return "(Die Teilaufgabe hat keine Antwort geschrieben.)"
+        if len(answer) <= int(SC.RESULT_MAX_CHARS * 0.8):
+            return answer
+        model = chat["model"] if PV.is_external(chat.get("model") or "") else self.default_model(user_id, "sub")
+        try:
+            out = await asyncio.wait_for(self.complete(user_id, model, SC.summary_request(
+                (chat.get("sub") or {}).get("auftrag") or "", answer), temperature=0.2), 180)
+        except Exception:  # noqa: BLE001 - dann eben gekürzt
+            _LOGGER.debug("Teilaufgabe %s: Zusammenfassung fehlgeschlagen", chat.get("id"), exc_info=True)
+            out = ""
+        return out or SC.clip(answer, SC.RESULT_MAX_CHARS)
+
+    async def _sub_finished(self, user, st: UserStore, chat: dict, final_status: str, error: str | None,
+                            limit_hit: bool, limit_error: bool, steps: int) -> None:
+        """Ende eines Laufs in einer Teilaufgabe: Ergebnis festhalten und dem wartenden Hauptchat geben."""
+        if chat["id"] not in st.meta["chats"]:
+            return  # gelöscht
+        sub = chat.setdefault("sub", SC.new_sub(""))
+        fut = self.sub_waiters.get(chat["id"])
+        gemeldet = sub.pop("gemeldet", None)
+        status = SC.final_status(final_status, error, limit_hit, limit_error)
+        if fut is None and (not sub.get("melden", True) or (final_status == "stopped" and not gemeldet)):
+            # die Person hat selbst in der Teilaufgabe gearbeitet und möchte nichts zurückmelden: nur den Stand festhalten
+            sub["status"] = status
+            await st.async_save_chat(chat, keep_updated=True)
+            self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+            return
+        reason = error or (f"Höchstzahl von {steps} Schritten erreicht" if limit_hit else
+                           "Angehalten" if final_status == "stopped" else "")
+        if gemeldet:
+            summary, files = gemeldet["zusammenfassung"], gemeldet.get("dateien")
+        else:
+            summary, files = await self._sub_summary(user.id, chat), None
+        res = SC.result(summary, files, status, reason, now())
+        sub["ergebnis"], sub["status"] = res, status
+        sub.pop("wartet_auf", None)
+        await st.async_save_chat(chat, keep_updated=True)
+        self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+        if fut is not None and not fut.done():
+            fut.set_result(res)
+        elif fut is None:
+            # eigene Arbeit der Person in der Teilaufgabe: als Nachtrag an den Hauptchat (der startet davon nicht)
+            await self._append_sub_result(user.id, st, chat, res)
+
+    async def _append_sub_result(self, user_id: str, st: UserStore, sub: dict, res: dict) -> None:
+        """Eine Rückmeldung (Nachtrag) in den Verlauf des Hauptchats stellen – läuft dort gerade ein Lauf, erst an
+        dessen Ende, damit sie nicht zwischen einen Werkzeugaufruf und sein Ergebnis gerät."""
+        parent = await st.async_get_chat(sub.get("parent_id") or "")
+        if not parent:
+            return
+        msg = SC.result_message(sub, res, new_id("m"), now(), nachtrag=True)
+        if self.active_run(parent["id"]):
+            parent.setdefault("sub_results_pending", []).append(msg)
+            await st.async_save_chat(parent, keep_updated=True)
+            return
+        parent["messages"].append(msg)
+        await st.async_save_chat(parent)
+        self.emit(user_id, {"type": "message", "chat_id": parent["id"], "message": msg})
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(parent)})
+
+    async def report_sub(self, user_id: str, chat_id: str) -> dict:
+        """„Jetzt melden“: die aktuelle Zusammenfassung einer Teilaufgabe sofort an den Hauptchat schicken."""
+        st = await self.user_store(user_id)
+        chat = await st.async_get_chat(chat_id)
+        if not chat or not SC.is_sub(chat):
+            raise ValueError("Keine Teilaufgabe")
+        if self.active_run(chat_id):
+            raise ValueError("Die Teilaufgabe arbeitet gerade – nach ihrer Antwort melden")
+        if not SC.last_answer(chat.get("messages")):
+            raise ValueError("Es gibt noch kein Ergebnis zum Melden")
+        sub = chat.setdefault("sub", SC.new_sub(""))
+        status = sub.get("status") if sub.get("status") in (SC.FERTIG, SC.GRENZE, SC.FEHLER) else SC.FERTIG
+        res = SC.result(await self._sub_summary(user_id, chat), None, status, "", now())
+        sub["ergebnis"] = res
+        await st.async_save_chat(chat, keep_updated=True)
+        await self._append_sub_result(user_id, st, chat, res)
+        return res
 
     def _check_run_quota(self, user_id: str, chat: dict, separate: bool) -> None:
         """Main provider: the personal daily quota. External models: the monthly limit in euros."""
@@ -1478,16 +1811,49 @@ class Manager:
             if not device:
                 return
             chat = await st.async_get_chat(run.chat_id) or {}
+            # aus einer Teilaufgabe: Titel nennt die Teilaufgabe, der Link führt in den Hauptchat
+            root = info.get("root_chat_id") or run.chat_id
             title, text = PN.message(info, chat.get("title") or "", self.simple(run.user_id))
-            await ND.async_send(self.hass, device, title, text, url=f"/llmitmir/chat/{run.chat_id}",
-                                tag=PN.tag(run.chat_id))
+            await ND.async_send(self.hass, device, title, text, url=f"/llmitmir/chat/{root}", tag=PN.tag(root))
         except Exception:  # noqa: BLE001
             _LOGGER.debug("LLMitMir: Push für wartende Freigabe fehlgeschlagen", exc_info=True)
+
+    async def _sub_permission_context(self, run: Run, info: dict) -> tuple[dict, Run | None, dict | None]:
+        """Freigabe aus einer Teilaufgabe: Herkunft ergänzen (root_chat_id, sub_title, root_title), die Teilaufgabe auf
+        „wartet“ und den Hauptchat auf „Teilaufgabe wartet auf dich“ setzen. Liefert (info, Lauf des Hauptchats, Chat)."""
+        if not run.parent_id:
+            return info, None, None
+        st = self.users.get(run.user_id)
+        sub = await st.async_get_chat(run.chat_id) if st else None
+        parent = (st.meta["chats"].get(run.parent_id) if st else None) or {}
+        info = SC.with_origin(info, run.parent_id, (sub or {}).get("title") or "", parent.get("title") or "")
+        if sub is not None and sub.get("sub") is not None:
+            await self._sub_status(st, sub, SC.WARTET, "freigabe")
+        main = self.active_run(run.parent_id)
+        if main is not None:
+            if main.status != "waiting_sub_permission":  # wartet schon eine andere: deren Vorher-Stand bleibt
+                main.detail = dict(main.detail, before=(main.status, {k: v for k, v in main.detail.items() if k != "before"}))
+            await self._status(main, "waiting_sub_permission", dict(main.detail, sub_title=info["sub_title"],
+                                                                    sub_id=run.chat_id, permission_id=info["id"]))
+        return info, main, sub
+
+    async def _sub_permission_done(self, run: Run, main: Run | None, sub: dict | None) -> None:
+        """Die Freigabe aus der Teilaufgabe ist beantwortet: beide Läufe zeigen wieder, was sie vorher taten."""
+        st = self.users.get(run.user_id)
+        if sub is not None and st and sub.get("sub") is not None and sub["sub"].get("status") == SC.WARTET \
+                and run.chat_id in st.meta["chats"]:
+            await self._sub_status(st, sub, SC.LAEUFT)
+        if main is not None and main.status == "waiting_sub_permission" and main.id in self.runs:
+            if any(i.get("root_chat_id") == main.chat_id for (_u, f, i) in self.permissions.values() if not f.done()):
+                return  # eine andere Teilaufgabe wartet noch
+            status, detail = (main.detail.get("before") or ("tool", {}))
+            await self._status(main, status, detail)
 
     async def ask_permission(self, run: Run, info: dict) -> str:
         pid = new_id("p")
         fut = self.hass.loop.create_future()
         info = dict(info, id=pid, run_id=run.id, chat_id=run.chat_id, created=now())
+        info, main, sub = await self._sub_permission_context(run, info)
         self.permissions[pid] = (run.user_id, fut, info)
         await self._status(run, "waiting_permission", {"permission": info})
         self.emit(run.user_id, {"type": "permission", "permission": info})
@@ -1506,10 +1872,16 @@ class Manager:
         try:
             return await asyncio.wait_for(fut, timeout=wait)
         except asyncio.TimeoutError:
-            return "skip" if wait != 3600 else "deny"
+            # eine Teilaufgabe macht ohne die Aktion weiter und nennt die Lücke in ihrem Ergebnis
+            return SC.timeout_answer(wait != 3600, bool(run.parent_id))
         finally:
             self.permissions.pop(pid, None)
-            self.emit(run.user_id, {"type": "permission_done", "id": pid, "chat_id": run.chat_id})
+            self.emit(run.user_id, {"type": "permission_done", "id": pid, "chat_id": run.chat_id,
+                                    "root_chat_id": info.get("root_chat_id")})
+            try:
+                await self._sub_permission_done(run, main, sub)
+            except Exception:  # noqa: BLE001 - nur Anzeige
+                _LOGGER.debug("Teilaufgabe: Status nach Freigabe nicht zurückgesetzt", exc_info=True)
 
     def answer_permission(self, user_id: str, pid: str, decision: str) -> bool:
         item = self.permissions.get(pid)
@@ -1543,14 +1915,21 @@ class ToolContext:
         self.store = store
         self.chat = chat
         self.chat_id = chat["id"]
+        # Teilaufgaben arbeiten im Dateibereich und in der Sandbox ihres Hauptchats: was sie erzeugen, ist dort sofort da
+        self.files_id = chat.get("parent_id") or chat["id"]
         self.run = run
         self.task = task
         self.project = store.meta["projects"].get(chat.get("project_id") or "") or None
         self.project_id = self.project["id"] if self.project else None
         self.allowed_creds: set[str] | None = set(self.project.get("credentials") or []) if self.project and self.project.get("credentials_only") else None
         self.allowed_skills: set[str] | None = set(self.project.get("skills") or []) if self.project and self.project.get("skills_only") else None
+        # Kachel-Lauf (boards.py): die Kachel und ihr letzter Datensatz, vor dem ersten Schritt geladen
+        self.tile: dict | None = None
+        self.tile_record: dict | None = None
         self._secrets = C.secret_values(store.meta["credentials"])
         self._img: dict[str, str] = {}
+        # (Zugangs-ID, Server), die die Person in diesem Lauf einmal freigegeben hat (tools/http.py, gate)
+        self.approved_hosts: set[tuple[str, str]] = set()
 
     @property
     def external(self) -> bool:
@@ -1582,6 +1961,11 @@ class ToolContext:
             g.discard("werkbank")
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
+        if SC.is_sub(self.chat):
+            g.add("teilergebnis")   # eine Teilaufgabe meldet ihr Ergebnis, startet aber keine weiteren
+        elif (self.task is None and self.chat["kind"] in (KIND_CHAT, KIND_COWORK)
+              and self.manager.sub_mode(self.user_id) != SC.MODE_OFF):
+            g.add("unterchat")      # Läufe geplanter Aufgaben starten keine Teilaufgaben
         return g
 
     def groups(self) -> set[str]:
@@ -1596,7 +1980,10 @@ class ToolContext:
             g &= set(self.project["tool_groups"]) | {"files", "skills", "progress"}
         if self.task is None:
             g |= set(self.chat.get("granted_groups") or [])
-        return (g | ALWAYS_GROUPS) & self.available_groups()
+        if self.chat.get("sub_tools") is not None:
+            # der Hauptchat hat die Werkzeuge der Teilaufgabe eingegrenzt
+            g &= set(self.chat["sub_tools"]) | {"files", "skills", "progress"}
+        return (g | ALWAYS_GROUPS | {"unterchat", "teilergebnis"}) & self.available_groups()
 
     def askable_groups(self) -> set[str]:
         """Groups that are not switched on but may be used after asking the person (never in unattended runs)."""
@@ -1662,7 +2049,12 @@ class ToolContext:
             parts.append(VO.voice_prompt(self.store.meta["settings"].get("voice_name"))
                          + "\nDiese Regeln gehen den Regeln zu Markdown und Antwortlänge weiter oben "
                          "vor, solange das Gespräch gesprochen wird.")
-        if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
+        if self.is_tile_run:
+            parts.append(
+                "## Arbeitsweise (Kachel)\nArbeite zielstrebig und sparsam: nur die Werkzeugaufrufe, die du für die Daten "
+                "der Kachel brauchst – keine Schrittliste (`progress_update`), keine Dateien, kein langer Bericht. Am Ende "
+                "`dashboard_update` und ein, zwei Sätze, was du gefunden hast.")
+        elif self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "
                 "(3–8 Schritte). Die Person sieht die Liste live: Sobald du mit einem neuen Schritt beginnst, "
@@ -1671,6 +2063,13 @@ class ToolContext:
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
                 "was erledigt ist, was offen ist, Rückfragen. Bist du fertig, rufe `progress_update` mit `aktuell` = "
                 "Anzahl der Schritte + 1 auf, damit die Liste abgeschlossen ist, bevor du den Bericht schreibst.")
+        if SC.is_sub(self.chat):
+            parts.append(self.sub_prompt())
+        elif "unterchat" in self.groups():
+            sp = SC.prompt(self.manager.sub_mode(self.user_id), self.chat.get("usage"),
+                           self.manager.context_size(self.chat.get("model") or ""))
+            if sp:
+                parts.append(sp)
         if self.task is not None:
             perms = sorted(self.task_write_allowed())
             g = self.groups()
@@ -1686,8 +2085,11 @@ class ToolContext:
                    + "." if partly else "")
                 + " Liefert ein Werkzeug ein unerwartetes Ergebnis, prüfe das höchstens zwei-, dreimal und arbeite dann "
                 "mit dem Rest weiter bzw. melde das Problem im Bericht, statt immer neue Varianten auszuprobieren.")
-            parts.append(
-                "## Benachrichtigung\nOb die Person eine Nachricht aufs Handy bekommt, entscheidet allein `task_result` – "
+            if self.is_tile_run:
+                parts.append(DB.prompt_section(self.tile or {"name": self.task.get("name"), "kind": "text"}, self.tile_record))
+            else:
+                parts.append(
+                    "## Benachrichtigung\nOb die Person eine Nachricht aufs Handy bekommt, entscheidet allein `task_result` – "
                 "nicht die Länge deines Berichts. Rufe es am Ende jedes Laufs genau einmal auf:\n"
                 "- `art` = „nichts“, wenn es nichts zu melden gibt (alles wie erwartet, nichts Neues, nichts zu tun).\n"
                 "- `art` = „ergebnis“, wenn es etwas Neues gibt, das die Person wissen sollte.\n"
@@ -1699,7 +2101,7 @@ class ToolContext:
                 "„keine neuen Mails“ oder „alles unverändert“ ist keine Neuigkeit. Schicke Statusmeldungen nie zusätzlich "
                 "mit `notify` – die Benachrichtigung ergibt sich aus `task_result`.")
             prev = (self.task.get("_prev_result") or {}).get("text") or ""
-            if prev:
+            if prev and not self.is_tile_run:
                 parts.append(f"## Zuletzt gemeldet\nDer Person wurde bei diesem Lauf zuletzt gemeldet: „{prev}“. Ist es "
                              "weiter so, melde „nichts“.")
             if "werkbank" in (self.task.get("requires") or []) and self.manager.werkbank is None:
@@ -1753,6 +2155,23 @@ class ToolContext:
                 "keine unnötigen Werkzeugaufrufe.")
         return "\n\n".join(parts)
 
+    def sub_prompt(self) -> str:
+        """Abschnitt im Systemprompt einer Teilaufgabe: woher sie kommt und wie sie arbeitet."""
+        sub = self.chat.get("sub") or {}
+        parent = self.store.meta["chats"].get(self.chat.get("parent_id") or "") or {}
+        folder = f"sub-{self.chat_id}"
+        text = (f"## Teilaufgabe\nDieser Chat ist eine Teilaufgabe des Hauptchats „{parent.get('title') or 'Hauptchat'}“. "
+                "Er hat einen eigenen Verlauf; der Hauptchat sieht davon nur Zusammenfassungen. Arbeite nur an diesem "
+                "Auftrag. Dateien und Sandbox teilst du mit dem Hauptchat und seinen anderen Teilaufgaben: lege eigene "
+                f"Dateien unter `{folder}/` ab (in der Werkbank `/workspace/{folder}/`), damit sich nichts überschneidet. "
+                "Bist du fertig (oder kommst nicht weiter), rufe genau einmal `ergebnis_melden` auf: Zusammenfassung mit "
+                "allen Fakten, Zahlen, Namen und offenen Punkten, höchstens etwa 1.500 Tokens, Längeres als Datei. "
+                "Kommt der Auftrag vom Hauptchat, kann die Person nicht antworten – offene Fragen gehören dann ins Ergebnis.")
+        if sub.get("von") == SC.VON_PERSON and sub.get("auftrag"):
+            # von Hand abgezweigt: der Auftrag steht nicht im Verlauf, sondern nur hier
+            text += "\n\nAusgangspunkt aus dem Hauptchat:\n" + str(sub["auftrag"])
+        return text
+
     def claude_request(self, tools: list[dict], final: bool) -> dict:
         """The chat for Claude: deterministic (same chat → same request), Claude's own answers replayed unchanged,
         results from Zugänge closed to external models removed, and no stored secret anywhere in it."""
@@ -1793,6 +2212,8 @@ class ToolContext:
                                "Die Person kann ihn unter Zugänge freigeben.]")
                 prepared.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": content,
                                  "error": m.get("status") == "error", "notes": m.get("notes")})
+            elif m["role"] == "sub_result":
+                prepared.append({"role": "user", "content": SC.api_text(m)})
         req = {"system": self.system_prompt(), "messages": CC.to_messages(prepared), "tools": CC.to_tools(tools),
                "tool_choice": {"type": "none"} if final and tools else None}
         return C.scrub_obj(req, self._secrets)
@@ -1829,6 +2250,9 @@ class ToolContext:
                 out.append(am)
             elif m["role"] == "tool":
                 out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": m.get("content") or ""})
+            elif m["role"] == "sub_result":
+                # Rückmeldung einer Teilaufgabe: nur die Zusammenfassung, nie deren Verlauf
+                out.append({"role": "user", "content": SC.api_text(m)})
         return _fit_context(out, self.manager.context_size(model))
 
     def _image_cache(self, name: str) -> str | None:
@@ -1840,7 +2264,7 @@ class ToolContext:
                 if a in self._img or a.lower().rsplit(".", 1)[-1] not in ("png", "jpg", "jpeg", "webp"):
                     continue
                 try:
-                    data = await self.store.async_read_file("chat", self.chat_id, a)
+                    data = await self.store.async_read_file("chat", self.files_id, a)
                     from .tools.files import _image_to_jpeg
 
                     self._img[a] = base64.b64encode(await self.hass.async_add_executor_job(_image_to_jpeg, data)).decode()
@@ -1856,23 +2280,34 @@ class ToolContext:
                                            cancel=self.run.cancel, task=self.task is not None, **kw)
 
     async def emit_files(self) -> None:
-        files = await self.store.async_list_files("chat", self.chat_id)
-        self.manager.emit(self.user_id, {"type": "files", "chat_id": self.chat_id, "files": files})
+        files = await self.store.async_list_files("chat", self.files_id)
+        self.manager.emit(self.user_id, {"type": "files", "chat_id": self.files_id, "files": files})
 
     async def set_progress(self, items: list[dict]) -> None:
         self.chat["progress"] = items
         self.manager.emit(self.user_id, {"type": "progress", "chat_id": self.chat_id, "items": items})
 
+    @property
+    def is_tile_run(self) -> bool:
+        """This run fills a dashboard tile (its task has origin "dashboard")."""
+        return self.task is not None and self.task.get("origin") == ORIGIN_DASHBOARD
+
     def task_write_allowed(self) -> set[str]:
-        """Write tools a scheduled task may use: its approvals, plus `shell` if it is marked as needing the Werkbank."""
+        """Write tools a scheduled task may use: its approvals, plus `shell` if it is marked as needing the Werkbank.
+        `dashboard_update` belongs to tile runs only – and there it is always allowed."""
         allowed = set(self.task.get("allow_write") or []) if self.task is not None else set()
         if self.task is not None and "werkbank" in (self.task.get("requires") or []):
             allowed.add("shell")
+        allowed.discard("dashboard_update")
+        if self.is_tile_run:
+            allowed.add("dashboard_update")
         return allowed
 
     def permission_for(self, tool_name: str) -> str:
         if self.task is not None:
             return PERM_ALLOW if tool_name in self.task_write_allowed() else PERM_DENY
+        if SC.sub_allows(self.chat, tool_name):
+            return PERM_ALLOW  # „Immer erlauben“ in dieser Teilaufgabe gilt nur hier
         if self.project:
             p = (self.project.get("permissions") or {}).get(tool_name)
             if p:
@@ -1963,11 +2398,17 @@ class ToolContext:
                     self._remember_allow(name)
                 # im Sprachgespraech gilt die Erlaubnis fuer den Rest des Gespraechs (auch bei „einmal“)
                 VO.remember(self.chat, name)
+        if tool.gate is not None and (need := tool.gate(self, args)):
+            denied = await self._approve_host(msg, tool, need)
+            if denied:
+                return denied
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                       "args": msg["args"]})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,
                                          "message": dict(msg, status="running", content="")})
         t0 = time.monotonic()
+        if tool.group == "unterchat":
+            args = dict(args, _call_id=call.get("id"))  # die Karte im Hauptchat findet ihre Teilaufgabe darüber
         try:
             result = await tool.handler(self, args)
             text = as_text(result)
@@ -1989,6 +2430,33 @@ class ToolContext:
         elif CK.looks_like_auth_error(text):
             self._mark_credential_failed(args, text)
         return msg
+
+    async def _approve_host(self, msg: dict, tool, need: dict) -> dict | None:
+        """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.
+
+        Gibt die Ablehnung als Nachricht zurück oder None, wenn es weitergehen darf. „Immer erlauben“ trägt den Server
+        beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“); „einmal“ gilt für diesen Lauf."""
+        host, creds_ = need.get("host") or "?", need.get("creds") or []
+        names = ", ".join(f"„{c.get('name')}“" for c in creds_)
+        if self.task is not None:
+            msg.update(content=(f"Abgelehnt: Der Zugang {names} ist für den Server {host} nicht freigegeben. Ein "
+                                "unbeaufsichtigter Lauf fragt nicht nach – ohne diese Anfrage weiterarbeiten und im Bericht "
+                                f"nennen, dass {host} unter „Zugänge“ → „Erlaubte Server“ eingetragen werden muss."),
+                       status="denied")
+            return msg
+        decision = await self.manager.ask_permission(self.run, {
+            "tool": tool.name, "label": msg["label"], "icon": "mdi:shield-key-outline", "args": msg["args"],
+            "host": host, "creds": [c.get("name") for c in creds_]})
+        if decision in ("deny", "skip"):
+            msg.update(content=SKIP_TEXT if decision == "skip" else
+                       f"Abgelehnt: Die Person möchte den Zugang {names} nicht an {host} senden.", status="denied")
+            return msg
+        for c in creds_:
+            self.approved_hosts.add((c.get("id"), host))
+            if decision == "always" and C.allow_host(c, need.get("url") or f"https://{host}/"):
+                self.store.schedule_save(0.5)
+                self.manager.emit(self.user_id, {"type": "meta", "section": "credentials"})
+        return None
 
     def _mark_credential_failed(self, args: dict, text: str) -> None:
         """Ein Werkzeug wurde abgewiesen: den Zugang in der Liste rot markieren, damit er gleich auffaellt."""
@@ -2021,6 +2489,8 @@ class ToolContext:
                                              "ext_last": c.get("ext_last")})
 
     def _remember_allow(self, name: str) -> None:
+        if SC.remember_allow(self.chat, name):
+            return  # nur für diese Teilaufgabe – weder im Hauptchat noch in seinen anderen Teilaufgaben
         if self.project:
             self.project.setdefault("permissions", {})[name] = PERM_ALLOW
         else:

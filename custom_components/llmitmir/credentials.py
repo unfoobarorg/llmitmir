@@ -51,11 +51,11 @@ TYPES: dict[str, dict[str, Any]] = {
              "obsolete": ["url", "contacts_url", "imap_host", "smtp_host"],
              "labels": {"username": "GWDG-E-Mail-Adresse", "login": "Benutzerkennung", "password": "Passwort",
                         "ews_url": "EWS-Adresse"},
-             "placeholders": {"username": "vorname.nachname@gwdg.de", "login": "z. B. nkopp1",
+             "placeholders": {"username": "vorname.nachname@gwdg.de", "login": "z. B. emuste1",
                               "ews_url": "Wird automatisch gesetzt"},
              "hint": "Dein Konto im GWDG-Exchange. Trag deine GWDG-E-Mail-Adresse, deine Benutzerkennung und dein "
                      "Passwort ein und wähl, wofür der Zugang gilt – ohne @ wird bei der Adresse @gwdg.de ergänzt. "
-                     "Die Benutzerkennung ist der Teil vor dem @, wenn sie bei dir anders lautet (z. B. nkopp1), trag "
+                     "Die Benutzerkennung ist der Teil vor dem @, wenn sie bei dir anders lautet (z. B. emuste1), trag "
                      "sie hier ein: Angemeldet wird als gwdg\\kennung. Alles läuft über Exchange Web Services "
                      "(email.gwdg.de/EWS/Exchange.asmx): Postfach, Kalender und Kontakte – so wie die GWDG es für "
                      "Exchange-Konten beschreibt. Weitere Adressen brauchst du nicht."},
@@ -128,7 +128,7 @@ def ews_endpoint(cred: dict) -> str:
 def ews_account(cred: dict) -> tuple[str, str]:
     r"""(Benutzername, Passwort) für die EWS-Anmeldung.
 
-    Beim GWDG-Zugang ist der Benutzername die **Kennung** (``nkopp1``), nicht die E-Mail-Adresse: Angemeldet wird als
+    Beim GWDG-Zugang ist der Benutzername die **Kennung** (``emuste1``), nicht die E-Mail-Adresse: Angemeldet wird als
     ``gwdg\kennung``. Steht keine Kennung im Zugang, gilt der Teil der Adresse vor dem @.
     """
     f = cred.get("fields") or {}
@@ -252,6 +252,114 @@ def normalize_fields(typ: str, fields: dict, picked: list[str] | None = None) ->
 
 PLACEHOLDER = re.compile(r"\{\{\s*cred:([^:}]+):([A-Za-z0-9_]+)\s*\}\}")
 
+# ------------------------------------------------------------------ erlaubte Server je Zugang
+# Ein Zugang geht nur an seine Server: die aus seinen Adressfeldern (url, imap_host …), die Voreinstellung seines Typs
+# und die, die die Person ausdrücklich erlaubt hat (Liste „hosts“, auch „*.example.org“). Für jeden anderen Server
+# fragt LLMitMir zuerst; „Immer erlauben“ trägt den Server in die Liste ein. Unbeaufsichtigte Läufe fragen nicht –
+# dort gilt nur die Liste.
+MAX_HOSTS = 30
+HOST_RE = re.compile(r"^(\*\.)?[a-z0-9]([a-z0-9\-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,62}[a-z0-9])?)*$|^\[?[0-9a-f:.]+\]?$")
+TYPE_HOSTS = {"telegram": ["api.telegram.org"], "gwdg": ["email.gwdg.de"]}
+_URL_FIELDS = ("url", "ews_url", "contacts_url")
+_HOST_FIELDS = ("imap_host", "smtp_host")
+
+
+def host_of(value: str) -> str:
+    """Rechnername aus einer Adresse oder einem „host:port“ (klein geschrieben, ohne Port)."""
+    import urllib.parse
+
+    v = str(value or "").strip()
+    if not v:
+        return ""
+    if "://" not in v:
+        v = "//" + v
+    try:
+        return (urllib.parse.urlsplit(v).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return ""
+
+
+def clean_hosts(raw) -> list[str]:
+    """Die Liste „Erlaubte Server“ aus dem Formular: Liste oder Text (Komma, Leerzeichen, Zeilen)."""
+    items = raw if isinstance(raw, list) else re.split(r"[\s,;]+", str(raw or ""))
+    out = []
+    for item in items:
+        h = str(item or "").strip().lower()
+        if not h:
+            continue
+        wildcard = h.startswith("*.")
+        h = ("*." if wildcard else "") + host_of(h[2:] if wildcard else h)
+        if h in ("", "*.") or not HOST_RE.match(h):
+            raise ValueError(f"„{item}“ ist kein Servername (z. B. api.example.org oder *.example.org).")
+        if h not in out:
+            out.append(h)
+    if len(out) > MAX_HOSTS:
+        raise ValueError(f"Höchstens {MAX_HOSTS} erlaubte Server je Zugang.")
+    return out
+
+
+def auto_hosts(cred: dict) -> list[str]:
+    """Server, die sich aus dem Zugang selbst ergeben (Adressfelder, Voreinstellung des Typs)."""
+    f = cred.get("fields") or {}
+    out = [host_of(f.get(k)) for k in _URL_FIELDS + _HOST_FIELDS if f.get(k)]
+    out += TYPE_HOSTS.get(cred.get("type") or "", [])
+    return [h for h in dict.fromkeys(out) if h]
+
+
+def hosts(cred: dict) -> list[str]:
+    """Alle Server, an die dieser Zugang ohne Rückfrage gehen darf."""
+    return list(dict.fromkeys(auto_hosts(cred) + [h for h in cred.get("hosts") or [] if isinstance(h, str)]))
+
+
+def host_allowed(cred: dict, url: str) -> bool:
+    host = host_of(url)
+    if not host:
+        return False
+    for allowed in hosts(cred):
+        if allowed.startswith("*.") and (host.endswith(allowed[1:]) or host == allowed[2:]):
+            return True
+        if host == allowed:
+            return True
+    return False
+
+
+def allow_host(cred: dict, url: str) -> bool:
+    """„Immer erlauben“: den Server in die Liste des Zugangs eintragen (True, wenn neu)."""
+    host = host_of(url)
+    if not host or host_allowed(cred, url):
+        return False
+    cred["hosts"] = clean_hosts([*(cred.get("hosts") or []), host])
+    return True
+
+
+def creds_in(creds: dict[str, dict], *texts, zugang: str | None = None) -> list[dict]:
+    """Die Zugänge, die ein Aufruf benutzt: „zugang“ und jeder Platzhalter {{cred:Name:feld}} in den Texten."""
+    names = [zugang] if zugang else []
+    for t in texts:
+        if t is None:
+            continue
+        s = t if isinstance(t, str) else json.dumps(t, ensure_ascii=False)
+        names += [m.group(1).strip() for m in PLACEHOLDER.finditer(s)]
+    out = []
+    for n in names:
+        c = find(creds, n)
+        if c and c not in out:
+            out.append(c)
+    return out
+
+
+def foreign_creds(used: list[dict], url: str, approved: set | None = None) -> list[dict]:
+    """Die benutzten Zugänge, für die der Server dieser Adresse (noch) nicht erlaubt ist."""
+    host = host_of(url)
+    approved = approved or set()
+    return [c for c in used if not host_allowed(c, url) and (c.get("id"), host) not in approved]
+
+
+def foreign_host_error(creds_: list[dict], url: str) -> str:
+    names = ", ".join(f"„{c.get('name')}“" for c in creds_)
+    return (f"Der Zugang {names} ist für den Server {host_of(url) or '?'} nicht freigegeben. Erlaubt sind nur die Server "
+            "des Zugangs (Seite „Zugänge“ → „Erlaubte Server“); in einem Chat fragt LLMitMir vorher nach.")
+
 
 def secret_fields(cred: dict) -> set[str]:
     t = TYPES.get(cred.get("type") or "other", TYPES["other"])
@@ -296,6 +404,7 @@ def describe_for_model(creds: dict[str, dict], allowed: set[str] | None = None) 
         sec = secret_fields(c)
         item = {"name": c.get("name"), "typ": c.get("type"),
                 "felder": {k: (v if k not in sec else "(geheim)") for k, v in (c.get("fields") or {}).items() if v},
+                "server": hosts(c) or "noch keiner – der erste Aufruf fragt nach",
                 "notiz": (c.get("notes") or "")[:300]}
         if is_gwdg(c):
             # wofür die Person den GWDG-Zugang freigegeben hat, mit welchem Recht – und womit das Modell ihn nutzt

@@ -129,7 +129,9 @@ async def extract_document(ctx, name: str, data: bytes, ctype: str = "", frage: 
 
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                xml = z.read("word/document.xml").decode("utf-8", "ignore")
+                from ..docpreview import zread
+
+                xml = zread(z, "word/document.xml").decode("utf-8", "ignore")
             return re.sub(r"<[^>]+>", " ", xml.replace("</w:p>", "\n"))[:200_000]
         except Exception as e:  # noqa: BLE001
             return f"Fehler: DOCX nicht lesbar ({e})"
@@ -141,7 +143,7 @@ def _scope(ctx, bereich: str) -> tuple[str, str]:
         if not ctx.project_id:
             raise ValueError("Dieser Chat gehört zu keinem Projekt.")
         return "project", ctx.project_id
-    return "chat", ctx.chat_id
+    return "chat", ctx.files_id
 
 
 async def file_list(ctx, a: dict):
@@ -170,7 +172,7 @@ async def file_write(ctx, a: dict):
     content = a.get("inhalt")
     if content is None:
         return "Fehler: inhalt fehlt"
-    info = await ctx.store.async_write_file("chat", ctx.chat_id, name, str(content).encode("utf-8"))
+    info = await ctx.store.async_write_file("chat", ctx.files_id, name, str(content).encode("utf-8"))
     await ctx.emit_files()
     return {"ok": True, "datei": info["name"], "groesse": info["size"]}
 

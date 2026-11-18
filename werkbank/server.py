@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import tarfile
 import time
 from posixpath import normpath
@@ -28,13 +29,19 @@ from posixpath import normpath
 import aiohttp
 from aiohttp import web
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 TOKEN = os.environ.get("WERKBANK_TOKEN", "")
 SANDBOX_IMAGE = os.environ.get("SANDBOX_IMAGE", "llmitmir-werkbank-sandbox:latest")
 MEMORY = os.environ.get("SANDBOX_MEMORY", "3g")
 CPUS = float(os.environ.get("SANDBOX_CPUS", "2"))
 PIDS = int(os.environ.get("SANDBOX_PIDS", "512"))
-NETWORK = os.environ.get("SANDBOX_NETWORK", "bridge")          # "bridge" (Internet) or "none"
+# Die Sandboxen hängen an einem eigenen Docker-Netz (Brücke lmwb0, ohne Verkehr untereinander). Ins LAN und zur VM
+# selbst kommen sie nicht: Das sperrt firewall.sh auf der VM (install.sh richtet es als Dienst ein) – erlaubt bleibt
+# nur das Internet. "none" = ganz ohne Netz. Das frühere "bridge" (Docker-Standardnetz, LAN erreichbar) gilt als
+# das abgeschottete Netz.
+_NET = os.environ.get("SANDBOX_NETWORK", "llmitmir-sandbox").strip() or "llmitmir-sandbox"
+NETWORK = "none" if _NET == "none" else ("llmitmir-sandbox" if _NET in ("bridge", "default") else _NET)
+BRIDGE = os.environ.get("SANDBOX_BRIDGE", "lmwb0")
 IDLE = int(os.environ.get("IDLE_TIMEOUT", "7200"))              # seconds without use until removal
 MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "6"))
 MAX_TIMEOUT = int(os.environ.get("MAX_EXEC_TIMEOUT", "3600"))
@@ -43,6 +50,8 @@ DOCKER = "http://docker/v1.43"
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 log = logging.getLogger("werkbank")
+DOCKER_KEY: web.AppKey["Docker"] = web.AppKey("docker")
+JANITOR_KEY: web.AppKey[asyncio.Task] = web.AppKey("janitor")
 last_used: dict[str, float] = {}
 locks: dict[str, asyncio.Lock] = {}
 
@@ -82,6 +91,16 @@ class Docker:
                 return None
             raise
 
+    async def ensure_network(self) -> None:
+        """Das Netz der Sandboxen anlegen, falls es fehlt (eigene Brücke, kein IPv6, kein Verkehr untereinander)."""
+        if NETWORK == "none":
+            return
+        found = await self.req("GET", "/networks", params={"filters": json.dumps({"name": [NETWORK]})})
+        if any(n.get("Name") == NETWORK for n in found or []):
+            return
+        await self.req("POST", "/networks/create", json=network_body())
+        log.info("network %s created (bridge %s)", NETWORK, BRIDGE)
+
     async def sessions(self) -> list[dict]:
         flt = json.dumps({"label": ["llmitmir.werkbank=1"]})
         return await self.req("GET", "/containers/json", params={"all": "1", "filters": flt})
@@ -100,13 +119,15 @@ class Docker:
                 "Labels": {"llmitmir.werkbank": "1", "llmitmir.session": key},
                 "Env": ["HOME=/workspace/.home", "PIP_CACHE_DIR=/cache/pip", "HF_HOME=/cache/hf", "XDG_CACHE_HOME=/cache",
                         "PYTHONUSERBASE=/workspace/.home/.local", "LANG=C.UTF-8", "TZ=" + os.environ.get("TZ", "Europe/Berlin")],
+                # Kein gemeinsames Volume mehr: Caches (pip, Sprachmodelle) liegen im Container selbst und
+                # verschwinden mit ihm – keine Sandbox kann einer anderen etwas unterschieben.
                 "HostConfig": {
                     "Memory": _bytes(MEMORY), "NanoCpus": int(CPUS * 1e9), "PidsLimit": PIDS,
                     "CapDrop": ["ALL"], "SecurityOpt": ["no-new-privileges"], "NetworkMode": NETWORK,
-                    "Mounts": [{"Type": "volume", "Source": "llmitmir-werkbank-cache", "Target": "/cache"}],
                     "Tmpfs": {"/tmp": "rw,nosuid,size=2g"}, "Init": True,
                 },
             }
+            await self.ensure_network()
             await self.req("POST", "/containers/create", params={"name": f"lmwb-{key}"}, json=body)
         await self.req("POST", f"/containers/lmwb-{key}/start", ok=(204, 304))
         await self.exec(key, "mkdir -p /workspace/.home /workspace/skills", 30)
@@ -141,7 +162,7 @@ class Docker:
 
     async def put_file(self, key: str, path: str, data: bytes) -> None:
         d, name = path.rsplit("/", 1)
-        await self.exec(key, f"mkdir -p '{d}'", 30)
+        await self.exec(key, f"mkdir -p {shlex.quote(d)}", 30)
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as tar:
             ti = tarfile.TarInfo(name)
@@ -157,6 +178,11 @@ class Docker:
             if m is None:
                 raise web.HTTPBadRequest(text="Keine Datei (Ordner?)")
             return tar.extractfile(m).read()
+
+
+def network_body() -> dict:
+    return {"Name": NETWORK, "Driver": "bridge", "EnableIPv6": False, "Labels": {"llmitmir.werkbank": "1"},
+            "Options": {"com.docker.network.bridge.name": BRIDGE, "com.docker.network.bridge.enable_icc": "false"}}
 
 
 def auth(handler):
@@ -178,13 +204,14 @@ def _key(request: web.Request) -> str:
 
 @auth
 async def health(request):
-    d: Docker = request.app["docker"]
+    d: Docker = request.app[DOCKER_KEY]
     img = await d.req("GET", f"/images/{SANDBOX_IMAGE}/json", ok=(200, 404))
     sess = await d.sessions()
     return web.json_response({"ok": True, "version": VERSION, "sandbox_image": SANDBOX_IMAGE,
                               "sandbox_image_ready": isinstance(img, dict) and "Id" in img,
                               "sessions": len([s for s in sess if s["State"] == "running"]), "max_sessions": MAX_SESSIONS,
-                              "limits": {"memory": MEMORY, "cpus": CPUS, "network": NETWORK, "idle_timeout": IDLE,
+                              "limits": {"memory": MEMORY, "cpus": CPUS, "network": NETWORK, "bridge": BRIDGE,
+                                         "idle_timeout": IDLE,
                                          "max_exec_timeout": MAX_TIMEOUT}})
 
 
@@ -192,7 +219,7 @@ async def health(request):
 async def create(request):
     key = _key(request)
     async with locks.setdefault(key, asyncio.Lock()):
-        cid, created = await request.app["docker"].ensure(key)
+        cid, created = await request.app[DOCKER_KEY].ensure(key)
     return web.json_response({"session": key, "created": created})
 
 
@@ -200,7 +227,7 @@ async def create(request):
 async def run(request):
     key = _key(request)
     body = await request.json()
-    d: Docker = request.app["docker"]
+    d: Docker = request.app[DOCKER_KEY]
     async with locks.setdefault(key, asyncio.Lock()):
         await d.ensure(key)
     res = await d.exec(key, str(body.get("cmd") or "true"), int(body.get("timeout") or 120), _path(body.get("workdir") or "/workspace"))
@@ -210,21 +237,21 @@ async def run(request):
 
 async def _ensure(request, key):
     async with locks.setdefault(key, asyncio.Lock()):
-        await request.app["docker"].ensure(key)
+        await request.app[DOCKER_KEY].ensure(key)
 
 
 @auth
 async def files_get(request):
     key = _key(request)
     await _ensure(request, key)
-    data = await request.app["docker"].get_file(key, _path(request.query.get("path", "")))
+    data = await request.app[DOCKER_KEY].get_file(key, _path(request.query.get("path", "")))
     return web.Response(body=data, content_type="application/octet-stream")
 
 
 @auth
 async def files_put(request):
     key = _key(request)
-    d: Docker = request.app["docker"]
+    d: Docker = request.app[DOCKER_KEY]
     async with locks.setdefault(key, asyncio.Lock()):
         await d.ensure(key)
     data = await request.read()
@@ -238,7 +265,8 @@ async def listing(request):
     key = _key(request)
     p = _path(request.query.get("path", "/workspace"))
     await _ensure(request, key)
-    r = await request.app["docker"].exec(key, f"find '{p}' -path '*/.home' -prune -o -printf '%y\\t%s\\t%T@\\t%p\\n' | head -2000", 60)
+    r = await request.app[DOCKER_KEY].exec(
+        key, f"find {shlex.quote(p)} -path '*/.home' -prune -o -printf '%y\\t%s\\t%T@\\t%p\\n' | head -2000", 60)
     items = []
     for line in r["stdout"].splitlines():
         parts = line.split("\t", 3)
@@ -251,13 +279,13 @@ async def listing(request):
 @auth
 async def remove(request):
     key = _key(request)
-    await request.app["docker"].req("DELETE", f"/containers/lmwb-{key}", ok=(204, 404), params={"force": "1"})
+    await request.app[DOCKER_KEY].req("DELETE", f"/containers/lmwb-{key}", ok=(204, 404), params={"force": "1"})
     last_used.pop(key, None)
     return web.json_response({"ok": True})
 
 
 async def janitor(app):
-    d: Docker = app["docker"]
+    d: Docker = app[DOCKER_KEY]
     while True:
         try:
             now = time.time()
@@ -274,13 +302,17 @@ async def janitor(app):
 
 
 async def on_start(app):
-    app["docker"] = Docker()
-    app["janitor"] = asyncio.create_task(janitor(app))
+    app[DOCKER_KEY] = Docker()
+    try:
+        await app[DOCKER_KEY].ensure_network()
+    except web.HTTPException as e:  # Docker noch nicht bereit: beim ersten Start einer Sandbox noch einmal
+        log.warning("network %s not ready yet: %s", NETWORK, e.text)
+    app[JANITOR_KEY] = asyncio.create_task(janitor(app))
 
 
 async def on_stop(app):
-    app["janitor"].cancel()
-    await app["docker"].s.close()
+    app[JANITOR_KEY].cancel()
+    await app[DOCKER_KEY].s.close()
 
 
 def main() -> None:
