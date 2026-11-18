@@ -348,7 +348,7 @@ export class AdminPage extends StoreElement {
         notify_devices: { overrides: a.notify_overrides || {} },
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
-        model_access: a.model_access, billing: a.billing } });
+        model_access: a.model_access, billing: a.billing, dashboards: a.dashboards } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -637,6 +637,13 @@ export class AdminPage extends StoreElement {
             : html`<span class="chip err">${icon("alert", 13)} ${this.wbTest.error}</span>`) : nothing}
           ${a.werkbank?.url ? html`<button class="btn ghost danger" @click=${() => this.set("werkbank", { url: "", token: "" })}>Werkbank entfernen</button>` : nothing}</div>
         <div class="hint" style="margin-top:6px">Nach dem Test auf „Speichern“ klicken. Befehle auf der Werkbank fragen wie andere schreibende Aktionen nach einer Freigabe.</div></section>
+      <section><h2>${icon("dashboard", 18)} Dashboards</h2><div class="two">
+        <label class="f"><span>Modell-Läufe je Person und Tag</span><input type="number" min="0" max="10000" .value=${String(a.dashboards?.tile_budget ?? 96)}
+          @input=${(e: any) => this.set("dashboards", { ...a.dashboards, tile_budget: Number(e.target.value) })}>
+          <span class="hint">So oft dürfen Kacheln mit Modell-Quelle je Person am Tag laufen (0 = ohne Grenze). Kacheln aus Home Assistant zählen nicht.</span></label>
+        <label class="f"><span>Gleichzeitige Kachel-Läufe</span><select @change=${(e: any) => this.set("dashboards", { ...a.dashboards, tile_parallel: Number(e.target.value) })}>
+          ${[1, 2, 3].map(n => html`<option value=${n} ?selected=${(a.dashboards?.tile_parallel || 1) === n}>${n}</option>`)}</select>
+          <span class="hint">Kacheln laufen in einer eigenen Warteschlange neben den geplanten Aufgaben. Mehr gleichzeitige Läufe teilen sich die Limits des Anbieters.</span></label></div></section>
       <section><h2>${icon("search", 18)} Websuche</h2><div class="two">
         <label class="f"><span>Anbieter</span><select @change=${(e: any) => this.set("search", { ...a.search, provider: e.target.value })}>
           <option value="duckduckgo" ?selected=${a.search.provider !== "searxng"}>DuckDuckGo (ohne Schlüssel)</option>

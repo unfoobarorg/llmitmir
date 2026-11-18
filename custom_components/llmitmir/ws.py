@@ -13,6 +13,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from . import voice as VO
+from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
 from . import credentials as C
@@ -26,8 +27,8 @@ from . import providers as PV
 from . import sharing as SH
 from . import speech as SP
 from . import views as V
-from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, PRESETS,
-                    TASK_KEY_CHOICES, TASK_KEY_MODES, TASK_KEY_OWN, VERSION)
+from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, ORIGIN_DASHBOARD,
+                    PRESETS, TASK_KEY_CHOICES, TASK_KEY_MODES, TASK_KEY_OWN, TILE_RUN_BUDGET, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
 from .storage import mask_credential, new_id, now
 from .claude_client import available as claude_available
@@ -84,9 +85,10 @@ def _models_for_users(m, user_id: str) -> list[dict]:
 
 
 async def _run_chats(owner_st, task: dict) -> list[dict]:
-    """The last runs of a task as short chat records – also for people the task is shared with."""
+    """The last runs of a task as short chat records – for people the task is shared with (their own chat list does
+    not hold the owner's runs). Runs are stored newest first."""
     out = []
-    for cid in (task.get("runs") or [])[-10:]:
+    for cid in (task.get("runs") or [])[:10]:
         c = await owner_st.async_get_chat(cid)
         if c:
             out.append({"id": c["id"], "title": c.get("title"), "status": c.get("status"),
@@ -135,7 +137,10 @@ async def _tasks_view(m, user) -> list[dict]:
     for t in st.meta["tasks"].values():
         ids += SH.users(t.get("share"))
     names = await _names(m, ids)
-    out = [_task_view(m, user.id, t, user.id, names, await _run_chats(st, t)) for t in st.meta["tasks"].values()]
+    # own tasks: the panel finds their runs in the own chat list – no need to read run chats from disk here.
+    # Tasks of dashboard tiles are not listed here at all (boards.view -> tile_tasks, short form).
+    out = [_task_view(m, user.id, t, user.id, names) for t in st.meta["tasks"].values()
+           if t.get("origin") != ORIGIN_DASHBOARD]
     for uid, t in shared:
         out.append(_task_view(m, user.id, t, uid, names, await _run_chats(await m.user_store(uid), t)))
     return out
@@ -181,6 +186,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
                                  "default_services": v.get("default_services", [])}
                              for k, v in C.TYPES.items()},
         "tasks": await _tasks_view(m, user),
+        # Dashboards, Kacheln und die Kurzform der Kachel-Aufgaben (boards.py)
+        "boards": await m.boards.view(user) if m.boards else None,
         "inbox": IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"])),
         "chats": sorted(st.meta["chats"].values(), key=lambda c: c.get("updated") or 0, reverse=True),
         "models": _models_for_users(m, user.id),
@@ -621,7 +628,18 @@ async def ws_task_save(hass, conn, msg, m, user, st):
     if old is not None and owner_id != user.id:
         # Somebody the task is shared with: only what concerns the task itself, never the sharing
         t = {k: v for k, v in t.items() if k != "share"}
+    if old is not None and old.get("origin") == ORIGIN_DASHBOARD:
+        # a tile's task: the prompt is the tile's description, the sharing is the tile's – the rest may change here
+        from homeassistant.util import dt as dt_util
+
+        t = dict(t, prompt=old.get("prompt") or "", share=None)
+        DB.check_interval(t.get("schedule") or old.get("schedule") or {}, dt_util.now())
+        if t.get("enabled") and old.get("paused") == "unplaced":
+            raise ValueError("Die Kachel liegt auf keinem Dashboard – platziere sie, dann läuft die Aufgabe wieder.")
     task = await M.save_task(m, owner_id, owner_st, t)
+    if task.get("origin") == ORIGIN_DASHBOARD:
+        await m.boards.emit_boards([owner_id])
+        return m.boards.tile_task_row(owner_st, task)
     names = await _names(m, [owner_id, *SH.users(task.get("share"))])
     return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
 
@@ -631,6 +649,8 @@ async def ws_task_delete(hass, conn, msg, m, user, st):
     owner_id, owner_st, _task = await _task_for(m, user, msg["task_id"], need_edit=True)
     if owner_id != user.id:
         raise PermissionError("Nur wer die Aufgabe angelegt hat, kann sie löschen.")
+    if _task.get("origin") == ORIGIN_DASHBOARD:
+        raise ValueError("Diese Aufgabe gehört zu einer Kachel – lösche die Kachel (Dashboards → Bearbeiten).")
     await M.delete_task(m, owner_id, owner_st, msg["task_id"])
     return {"ok": True}
 
@@ -638,11 +658,120 @@ async def ws_task_delete(hass, conn, msg, m, user, st):
 @command(_t("task/run_now") | {vol.Required("task_id"): str})
 async def ws_task_run(hass, conn, msg, m, user, st):
     owner_id, _owner_st, _task = await _task_for(m, user, msg["task_id"], need_edit=True)
+    if _task.get("origin") == ORIGIN_DASHBOARD:
+        return {"position": await m.boards.run_now(user, owner_id, _task.get("tile_id") or "")}
     pos = m.scheduler.enqueue(owner_id, msg["task_id"], "manuell")
     if owner_id != user.id:
         # The run belongs to the owner, but the person who started it should see it in their queue
         m.emit(user.id, {"type": "tasks_queue", "queue": m.scheduler.queue_info(user.id)})
     return {"position": pos}
+
+
+@command(_t("task/runs") | {vol.Required("task_id"): str})
+async def ws_task_runs(hass, conn, msg, m, user, st):
+    """The last runs of a task (short chat records) – loaded when a tile's task is opened in „Geplant“."""
+    _owner_id, owner_st, task = await _task_for(m, user, msg["task_id"])
+    return {"runs": await _run_chats(owner_st, task)}
+
+
+# ---------------------------------------------------------------- dashboards and tiles (boards.py)
+def _keyed(msg: dict) -> tuple[str, str]:
+    return DB.split_key(msg["key"])
+
+
+@command(_t("dashboards/list"))
+async def ws_dashboards_list(hass, conn, msg, m, user, st):
+    return await m.boards.view(user)
+
+
+@command(_t("dashboard/save") | {vol.Required("dashboard"): dict})
+async def ws_dashboard_save(hass, conn, msg, m, user, st):
+    return await m.boards.save_dashboard(user, msg["dashboard"])
+
+
+@command(_t("dashboard/delete") | {vol.Required("key"): str})
+async def ws_dashboard_delete(hass, conn, msg, m, user, st):
+    owner, did = _keyed(msg)
+    await m.boards.delete_dashboard(user, owner, did)
+    return {"ok": True}
+
+
+@command(_t("dashboard/share") | {vol.Required("key"): str, vol.Required("users"): [dict], vol.Optional("all"): vol.Any(None, dict)})
+async def ws_dashboard_share(hass, conn, msg, m, user, st):
+    owner, did = _keyed(msg)
+    return await m.boards.share(user, "dashboard", owner, did, msg["users"], msg.get("all", "keep") if "all" in msg else "keep")
+
+
+@command(_t("dashboard/place") | {vol.Required("key"): str, vol.Required("tile"): str})
+async def ws_dashboard_place(hass, conn, msg, m, user, st):
+    owner, did = _keyed(msg)
+    tile_owner, tid = DB.split_key(msg["tile"])
+    tile = await m.boards.tile(tile_owner, tid)
+    if not tile or not m.boards.rights(tile_owner, tile, user.id)["view"]:
+        raise PermissionError("Diese Kachel ist nicht für dich freigegeben.")
+    return await m.boards.place(user, owner, did, tile_owner, tid)
+
+
+@command(_t("tile/save") | {vol.Required("tile"): dict, vol.Optional("place"): vol.Any(None, str)})
+async def ws_tile_save(hass, conn, msg, m, user, st):
+    place = None
+    if msg.get("place"):
+        po, pd = DB.split_key(msg["place"])
+        d = await m.boards.dashboard(po, pd)
+        if not d or not m.boards.rights(po, d, user.id)["edit"]:
+            raise PermissionError("Auf diesem Dashboard darfst du nichts ändern.")
+        place = {"owner": po, "id": pd}
+    return await m.boards.save_tile(user, msg["tile"], place)
+
+
+@command(_t("tile/delete") | {vol.Required("key"): str})
+async def ws_tile_delete(hass, conn, msg, m, user, st):
+    owner, tid = _keyed(msg)
+    await m.boards.delete_tile(user, owner, tid)
+    return {"ok": True}
+
+
+@command(_t("tile/share") | {vol.Required("key"): str, vol.Required("users"): [dict], vol.Optional("all"): vol.Any(None, dict)})
+async def ws_tile_share(hass, conn, msg, m, user, st):
+    owner, tid = _keyed(msg)
+    return await m.boards.share(user, "tile", owner, tid, msg["users"], msg.get("all") if "all" in msg else "keep")
+
+
+@command(_t("tile/notify") | {vol.Required("key"): str, vol.Required("on"): bool})
+async def ws_tile_notify(hass, conn, msg, m, user, st):
+    owner, tid = _keyed(msg)
+    await m.boards.set_notify(user, owner, tid, msg["on"])
+    return {"ok": True}
+
+
+@command(_t("tile/data") | {vol.Required("keys"): [str]})
+async def ws_tile_data(hass, conn, msg, m, user, st):
+    """The last records of tiles this person may see (key -> record; missing or not visible: left out)."""
+    from .boards import public_record
+
+    out = {}
+    for k in msg["keys"][:200]:
+        try:
+            owner, tid = DB.split_key(k)
+        except ValueError:
+            continue
+        tile = await m.boards.tile(owner, tid)
+        if tile and m.boards.rights(owner, tile, user.id)["view"]:
+            out[k] = public_record(await m.boards.record(owner, tid))
+    return {"records": out}
+
+
+@command(_t("tile/run") | {vol.Required("key"): str})
+async def ws_tile_run(hass, conn, msg, m, user, st):
+    owner, tid = _keyed(msg)
+    return {"position": await m.boards.run_now(user, owner, tid)}
+
+
+@command(_t("tile/clear") | {vol.Required("key"): str})
+async def ws_tile_clear(hass, conn, msg, m, user, st):
+    owner, tid = _keyed(msg)
+    await m.boards.clear_data(user, owner, tid)
+    return {"ok": True}
 
 
 @command(_t("task/share") | {vol.Required("task_id"): str, vol.Required("users"): [dict]})
@@ -856,6 +985,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "billing": {k: (cfg.get("billing") or {}).get(k) for k in ("usd_eur", "prices", "limits", "limit_default", "fallback_model")},
         "costs": {u.id: {"months": PR.months(m.billing.ledger, u.id, 12), "limit": m.ext_limit(u.id)} for u in users},
         "sdk": claude_available(),
+        "dashboards": {"tile_budget": (cfg.get("dashboards") or {}).get("tile_budget", TILE_RUN_BUDGET),
+                       "tile_parallel": m.boards.parallel() if m.boards else 1},
     }
 
 
@@ -976,6 +1107,14 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         if "fallback_model" in nb:
             b["fallback_model"] = str(nb.get("fallback_model") or "")
         cfg["billing"] = b
+    if "dashboards" in c:
+        dc = c["dashboards"] or {}
+        try:
+            budget = max(0, min(10_000, int(dc.get("tile_budget", TILE_RUN_BUDGET))))
+            parallel = max(1, min(3, int(dc.get("tile_parallel", 1))))
+        except (TypeError, ValueError):
+            raise ValueError("Budget und gleichzeitige Läufe sind ganze Zahlen.") from None
+        cfg["dashboards"] = {"tile_budget": budget, "tile_parallel": parallel}
     if "models" in c:
         mm = dict(cfg.get("models") or {})
         for k in ("enabled", "defaults", "context", "auto_enable_new"):

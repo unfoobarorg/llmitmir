@@ -1,13 +1,14 @@
 // LLMitMir panel root: layout, sidebar, routing, event subscription.
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
-import { Api, store, navigate, isSimple } from "./api";
+import { Api, store, navigate, isSimple, hassBus } from "./api";
 import { tokens, base, icon, fmtTime, menuItemStyles, confirmDialog, safeElement } from "./ui";
 import { setLang, t } from "./i18n";
 import "./composer";
 import "./chat";
 import "./pages";
 import "./pages2";
+import "./pages3";
 import "./settings";
 import "./voice";
 
@@ -150,6 +151,7 @@ export class LLMitMirPanel extends LitElement {
       this.dark = !!this.hass.themes?.darkMode;
       if (store.data) store.data.__dark = this.dark;
       if (store.api) store.api.hass = this.hass;
+      hassBus.dispatchEvent(new Event("hass"));
       if (!this.inited) this.init();
     }
   }
@@ -472,6 +474,8 @@ export class LLMitMirPanel extends LitElement {
     const running = Object.keys(store.runs).length;
     const q = d?.queue || {};
     const taskBusy = (q.running ? 1 : 0) + Object.keys(q.position || {}).length;
+    // eigene Modell-Kacheln, deren letzter Lauf fehlgeschlagen ist
+    const boardErrors = (d?.boards?.tiles || []).filter((x: any) => x.rights?.owner && x.task?.last_run?.status === "error").length;
     const ni = (route: string, ic: string, label: string, active: boolean, badge?: any) =>
       html`<button class="ni ${active ? "on" : ""}" title=${label} @click=${() => navigate(route)}>${icon(ic)}<span class="lbl">${label}</span>${badge ? html`<span class="badge">${badge}</span>` : nothing}</button>`;
     return html`<nav class="${this.collapsed && !this.small ? "col" : ""} ${this.drawer ? "open" : ""}">
@@ -483,6 +487,7 @@ export class LLMitMirPanel extends LitElement {
         ${isSimple() ? nothing : ni("/cowork", "cowork", t("Neues Cowork"), p === "cowork")}
         ${ni("/voice", "voice", t("Gespräch"), p === "voice")}
         ${ni("/chats", "chat", t("Chats"), p === "chats")}
+        ${ni("/dashboards", "dashboard", t("Dashboards"), p === "dashboards", boardErrors || null)}
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
         ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
         ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
@@ -513,6 +518,7 @@ export class LLMitMirPanel extends LitElement {
       case "chats": return this.wrap(html`<lm-chats></lm-chats>`);
       case "projects": return this.wrap(html`<lm-projects></lm-projects>`);
       case "project": return this.wrap(html`<lm-project .projectId=${id}></lm-project>`);
+      case "dashboards": return this.wrap(html`<lm-dashboards .boardKey=${id || ""}></lm-dashboards>`);
       case "tasks": return this.wrap(html`<lm-tasks></lm-tasks>`);
       case "task": return this.wrap(html`<lm-task .taskId=${id}></lm-task>`);
       case "skills": return this.wrap(html`<lm-skills></lm-skills>`);

@@ -1,4 +1,11 @@
-"""Scheduled tasks: cron-style schedules, one shared queue, long-running friendly."""
+"""Scheduled tasks: cron-style schedules, two queues (lanes), long-running friendly.
+
+Lane "tasks" runs the person's scheduled tasks one after the other, as always. Lane "tiles" runs the tasks of
+dashboard tiles (boards.py) with its own worker(s), so a dozen tiles never hold up a real task. The tile lane takes
+people in turn (round robin), counts every run against the person's daily budget, skips a run when the entities it
+depends on did not change, and does not catch up on missed runs after a restart (every update restarts Home
+Assistant – otherwise all tiles would start at once).
+"""
 from __future__ import annotations
 
 import asyncio
@@ -13,11 +20,14 @@ from homeassistant.util import dt as dt_util
 from . import inbox as IB
 from . import sharing as SH
 from . import tasknotify as TN
-from .const import KIND_TASK_RUN
+from .dashboards import pick_fair
+from .const import KIND_TASK_RUN, ORIGIN_DASHBOARD
 from .storage import new_id, now
 
 _LOGGER = logging.getLogger(__name__)
 CATCH_UP = timedelta(hours=6)
+LANES = ("tasks", "tiles")
+MAX_TILE_WORKERS = 3
 
 
 from .cron import describe, next_cron, parse_cron, schedule_to_cron  # noqa: F401
@@ -36,17 +46,28 @@ def next_run(s: dict, after: datetime) -> datetime | None:
     return next_cron(cron, dt_util.as_local(after))
 
 
+def is_tile(task: dict | None) -> bool:
+    return bool(task) and task.get("origin") == ORIGIN_DASHBOARD
+
+
 # ------------------------------------------------------------------ scheduler
 class Scheduler:
     def __init__(self, hass: HomeAssistant, manager) -> None:
         self.hass = hass
         self.m = manager
         self.timers: dict[str, callable] = {}
-        self.queue: list[tuple[str, str, str]] = []  # (user_id, task_id, reason)
-        self.running: tuple[str, str] | None = None
-        self._wake = asyncio.Event()
-        self._worker: asyncio.Task | None = None
+        self.queues: dict[str, list[tuple]] = {lane: [] for lane in LANES}  # (user_id, task_id, reason, scheduled)
+        self.running: tuple[str, str] | None = None        # lane "tasks"
+        self.running_tiles: set[tuple[str, str]] = set()   # lane "tiles"
+        self._wake = {lane: asyncio.Event() for lane in LANES}
+        self._workers: list[asyncio.Task] = []
         self._done: dict[tuple[str, str], asyncio.Event] = {}
+        self._last_tile_user: str | None = None
+
+    @property
+    def queue(self) -> list[tuple]:
+        """The lane of normal tasks (what „Geplant“ shows as the queue)."""
+        return self.queues["tasks"]
 
     async def async_start(self) -> None:
         import os
@@ -59,14 +80,24 @@ class Scheduler:
             st = await self.m.user_store(uid)
             for task in st.meta["tasks"].values():
                 self.plan(uid, task, startup=True)
-        self._worker = self.hass.async_create_background_task(self._work(), "llmitmir scheduler")
+        self._workers.append(self.hass.async_create_background_task(self._work("tasks"), "llmitmir scheduler"))
+        for i in range(MAX_TILE_WORKERS):
+            self._workers.append(self.hass.async_create_background_task(self._work("tiles", i), f"llmitmir tiles {i}"))
 
     async def async_stop(self) -> None:
         for unsub in self.timers.values():
             unsub()
         self.timers.clear()
-        if self._worker:
-            self._worker.cancel()
+        for w in self._workers:
+            w.cancel()
+        self._workers.clear()
+
+    def _task(self, user_id: str, task_id: str) -> dict | None:
+        st = self.m.users.get(user_id)
+        return st.meta["tasks"].get(task_id) if st else None
+
+    def lane_of(self, user_id: str, task_id: str) -> str:
+        return "tiles" if is_tile(self._task(user_id, task_id)) else "tasks"
 
     @callback
     def plan(self, user_id: str, task: dict, startup: bool = False) -> None:
@@ -79,7 +110,8 @@ class Scheduler:
         n = dt_util.now()
         prev = task.get("next_run")
         if startup and prev and n.timestamp() - prev < CATCH_UP.total_seconds() and prev < n.timestamp() \
-                and (task.get("last_run") or {}).get("scheduled") != prev:
+                and (task.get("last_run") or {}).get("scheduled") != prev and not is_tile(task):
+            # tiles do not catch up: the next regular run brings them up to date
             self.enqueue(user_id, task["id"], "nachgeholt", scheduled=prev)
         try:
             nxt = next_run(task.get("schedule") or {}, n)
@@ -102,37 +134,75 @@ class Scheduler:
             self.timers[key] = async_track_point_in_time(self.hass, fire, nxt)
 
     def enqueue(self, user_id: str, task_id: str, reason: str, scheduled: float | None = None) -> int:
-        if any(q[0] == user_id and q[1] == task_id for q in self.queue) or self.running == (user_id, task_id):
+        lane = self.lane_of(user_id, task_id)
+        q = self.queues[lane]
+        busy = self.running == (user_id, task_id) or (user_id, task_id) in self.running_tiles
+        if any(e[0] == user_id and e[1] == task_id for e in q) or busy:
             return -1
-        self.queue.append((user_id, task_id, reason, scheduled))
-        self._wake.set()
-        self.m.emit(user_id, {"type": "tasks_queue", "queue": self.queue_info(user_id)})
-        return len(self.queue)
+        q.append((user_id, task_id, reason, scheduled))
+        self._wake[lane].set()
+        if lane == "tasks":
+            self.m.emit(user_id, {"type": "tasks_queue", "queue": self.queue_info(user_id)})
+        return len(q)
 
     def queue_info(self, user_id: str) -> dict:
+        tiles = self.queues["tiles"]
         return {"position": {q[1]: i + 1 for i, q in enumerate(self.queue) if q[0] == user_id},
                 "running": self.running[1] if self.running and self.running[0] == user_id else None,
-                "waiting_total": len(self.queue)}
+                "waiting_total": len(self.queue),
+                "tiles": {"position": {q[1]: i + 1 for i, q in enumerate(tiles) if q[0] == user_id},
+                          "running": [t for u, t in self.running_tiles if u == user_id], "waiting_total": len(tiles)}}
 
-    async def _work(self) -> None:
+    def _take(self, lane: str, slot: int) -> tuple | None:
+        q = self.queues[lane]
+        if not q:
+            return None
+        if lane == "tasks":
+            return q.pop(0)
+        if slot >= self.m.boards.parallel() or len(self.running_tiles) >= self.m.boards.parallel():
+            return None
+        i = pick_fair(q, self._last_tile_user)
+        entry = q.pop(i)
+        self._last_tile_user = entry[0]
+        return entry
+
+    async def _work(self, lane: str, slot: int = 0) -> None:
         while True:
-            if not self.queue:
-                self._wake.clear()
-                await self._wake.wait()
+            entry = self._take(lane, slot)
+            if entry is None:
+                self._wake[lane].clear()
+                if lane == "tiles" and self.queues["tiles"]:
+                    # entries wait, but this slot is not allowed to run now: look again shortly
+                    try:
+                        await asyncio.wait_for(self._wake[lane].wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        pass
+                else:
+                    await self._wake[lane].wait()
                 continue
-            uid, tid, reason, scheduled = self.queue.pop(0)
+            uid, tid, reason, scheduled = entry
             st = await self.m.user_store(uid)
             task = st.meta["tasks"].get(tid)
             user = await self.hass.auth.async_get_user(uid)
             if not task or not user or not self.m.allowed(user):
                 continue
-            self.running = (uid, tid)
-            self.m.emit(uid, {"type": "tasks_queue", "queue": self.queue_info(uid)})
+            tile = is_tile(task)
+            if tile and not await self._tile_may_run(uid, st, task, reason):
+                continue
+            if tile:
+                self.running_tiles.add((uid, tid))
+                self.m.boards.count_run(st)
+                await self.m.boards.emit_run(uid, task.get("tile_id") or "", "running")
+            else:
+                self.running = (uid, tid)
+                self.m.emit(uid, {"type": "tasks_queue", "queue": self.queue_info(uid)})
             done = asyncio.Event()
             self._done[(uid, tid)] = done
             try:
                 chat = await self.m.create_chat(uid, KIND_TASK_RUN, task.get("project_id"), task.get("model") or None,
                                                 title=f"{task.get('name')} · {dt_util.now():%d.%m. %H:%M}", task_id=tid)
+                if tile:
+                    chat["tile_id"] = task.get("tile_id")
                 chat["messages"].append({"id": new_id("m"), "role": "user", "content": task.get("prompt") or "",
                                          "created": now(), "task_reason": reason})
                 await st.async_save_chat(chat)
@@ -141,7 +211,8 @@ class Scheduler:
                 task.setdefault("runs", []).insert(0, chat["id"])
                 del task["runs"][40:]
                 await st.async_save_meta()
-                self.m.emit(uid, {"type": "meta", "section": "tasks"})
+                if not tile:
+                    self.m.emit(uid, {"type": "meta", "section": "tasks"})
                 self.m.start_run(user, chat, task)
                 await asyncio.wait_for(done.wait(), timeout=12 * 3600)
             except asyncio.TimeoutError:
@@ -150,10 +221,39 @@ class Scheduler:
                 _LOGGER.exception("Task %s failed to start", tid)
             finally:
                 self._done.pop((uid, tid), None)
-                self.running = None
-                self.m.emit(uid, {"type": "tasks_queue", "queue": self.queue_info(uid)})
+                if tile:
+                    self.running_tiles.discard((uid, tid))
+                    self._wake["tiles"].set()
+                else:
+                    self.running = None
+                    self.m.emit(uid, {"type": "tasks_queue", "queue": self.queue_info(uid)})
 
-    async def _inbox_entries(self, user, task: dict, chat: dict, status: str, title: str, text: str) -> None:
+    async def _tile_may_run(self, uid: str, st, task: dict, reason: str) -> bool:
+        """Daily budget and „nur bei Änderung“ – a skipped run says why on the tile instead of running."""
+        boards = self.m.boards
+        tid = task.get("tile_id") or ""
+        if boards.budget_left(st) == 0:
+            await boards.mark(uid, tid, notice="Tagesbudget für Kachel-Läufe aufgebraucht – morgen geht es weiter.")
+            await boards.emit_run(uid, tid, "idle")
+            return False
+        tile = st.meta["tiles"].get(tid) or {}
+        watch = (tile.get("source") or {}).get("run_if_changed") or []
+        last = task.get("last_run") or {}
+        if watch and reason != "manuell" and last.get("status") == "done" and last.get("started"):
+            changed = False
+            for eid in watch:
+                state = self.hass.states.get(eid)
+                if state is None or state.last_changed.timestamp() > float(last["started"]):
+                    changed = True
+                    break
+            if not changed:
+                await boards.mark(uid, tid, notice=f"Unverändert seit {dt_util.as_local(dt_util.utc_from_timestamp(last['started'])):%d.%m. %H:%M} – Lauf übersprungen.")
+                await boards.emit_run(uid, tid, "idle")
+                return False
+        return True
+
+    async def _inbox_entries(self, user, task: dict, chat: dict, status: str, title: str, text: str,
+                             recipients: list[str] | None = None) -> None:
         """Benachrichtigungskarten auf der Startseite anlegen (inbox.py).
 
         Die Eigentümerin oder der Eigentümer bekommt sie nach der eigenen Einstellung, alle, mit denen die Aufgabe
@@ -163,7 +263,7 @@ class Scheduler:
 
         ts = now()
         devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
-        for uid in [user.id, *SH.recipients(task.get("share"))]:
+        for uid in recipients if recipients is not None else [user.id, *SH.recipients(task.get("share"))]:
             try:
                 other = await self.m.user_store(uid)
                 settings = other.meta["settings"]
@@ -176,6 +276,10 @@ class Scheduler:
                 entry = {"id": new_id("n"), "chat_id": chat["id"], "task_id": task.get("id"),
                          "task": str(task.get("name") or "Aufgabe"), "title": title[:120], "text": text[:600],
                          "status": status}
+                if is_tile(task):
+                    entry["link"] = f"/dashboards?tile={user.id}:{task.get('tile_id')}"
+                    if uid != user.id:
+                        entry["chat_id"] = ""  # run chats belong to the owner of the tile
                 other.meta["inbox"] = IB.add(other.meta.get("inbox"), entry, ts)
                 await other.async_save_meta()
                 self.m.emit(uid, {"type": "inbox", "items": IB.prune(other.meta["inbox"], ts, IB.minutes(settings))})
@@ -184,6 +288,10 @@ class Scheduler:
 
     async def run_finished(self, user, task: dict, chat: dict, status: str, error: str | None) -> None:
         st = await self.m.user_store(user.id)
+        tile = is_tile(task)
+        if tile and status == "done" and not chat.get("tile_written"):
+            # the run ended without valid data: for the tile that is a failure, whatever the report says
+            status, error = "error", "Lauf ohne Daten: `dashboard_update` wurde nicht (gültig) aufgerufen."
         last = task.get("last_run") or {}
         answer = next((m.get("content") for m in reversed(chat["messages"]) if m["role"] == "assistant" and m.get("content")), "")
         run_info = chat.get("last_run") or {}
@@ -199,7 +307,8 @@ class Scheduler:
             task["limit_hit"] = now()
         else:
             task.pop("limit_hit", None)
-        # what the model declared with `task_result` decides whether the phone rings – not the length of the report
+        # what the model declared with `task_result` (or, for a tile, `dashboard_update`) decides whether the phone
+        # rings – not the length of the report
         res = chat.get("result") or {}
         art = res.get("art") if res.get("art") in TN.ARTS else "nichts"
         text = res.get("text") or ""
@@ -209,12 +318,22 @@ class Scheduler:
         told = task.get("_last_notified") or {}
         if not told and prev.get("text"):
             told = {"text": prev["text"], "at": prev.get("at")}
-        mode = task.get("notify") or "always"
+        mode = task.get("notify") or ("error" if tile else "always")
         send = TN.should_notify(mode, status, art, text, told.get("text") or "", told.get("at"), now())
         if send and art != "nichts":
             task["_last_notified"] = {"text": text, "at": now()}
+        recipients = [user.id, *SH.recipients(task.get("share"))]
+        if tile:
+            if status == "error":
+                await self.m.boards.mark(user.id, task.get("tile_id") or "", error=error or "Lauf fehlgeschlagen")
+            await self.m.boards.prune_runs(st, task)
+            t = st.meta["tiles"].get(task.get("tile_id") or "") or {}
+            recipients = [user.id, *(await self.m.boards.notify_users(user.id, t))]
         await st.async_save_meta()
-        self.m.emit(user.id, {"type": "meta", "section": "tasks"})
+        if tile:
+            await self.m.boards.emit_run(user.id, task.get("tile_id") or "", "idle")
+        else:
+            self.m.emit(user.id, {"type": "meta", "section": "tasks"})
         if send:
             from . import notifydevices as ND
 
@@ -223,14 +342,15 @@ class Scheduler:
             if chat.get("external_used") and chat.get("model_fallback"):
                 title += " (Notfall: externes Modell)"
             text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
-            if run_info.get("limit_hit") and not task.get("heavy"):
+            if run_info.get("limit_hit") and not task.get("heavy") and not tile:
                 text += (" " if text else "") + (f"Höchstzahl von {run_info.get('steps') or 60} Schritten erreicht – "
                                                  "die Aufgabe lässt sich für 150 Schritte freigeben.")
             # Benachrichtigungen auf der Startseite – für alle, die die Aufgabe betrifft, unabhängig vom Push-Gerät
-            await self._inbox_entries(user, task, chat, status, title, text)
-            # The owner gets the message according to the task's setting; everybody the task is shared with and
-            # who is marked for notifications gets it on their own device as well.
-            for uid in [user.id, *SH.recipients(task.get("share"))]:
+            await self._inbox_entries(user, task, chat, status, title, text, recipients)
+            # The owner gets the message according to the task's setting; everybody the task (or tile) is shared with
+            # and who asked for notifications gets it on their own device as well.
+            link = f"/llmitmir/dashboards?tile={user.id}:{task.get('tile_id')}" if tile else f"/llmitmir/chat/{chat['id']}"
+            for uid in recipients:
                 try:
                     other = st if uid == user.id else await self.m.user_store(uid)
                     device = ND.resolve(ND.for_user(devices, uid), uid, other.meta["settings"])
@@ -238,7 +358,7 @@ class Scheduler:
                         _LOGGER.debug("Task %s: no push device for user %s", task.get("id"), uid)
                         continue
                     await ND.async_send(self.hass, device, title[:100], text[:900],
-                                        url=f"/llmitmir/chat/{chat['id']}", tag=f"llmitmir-task-{task['id']}",
+                                        url=link, tag=f"llmitmir-task-{task['id']}",
                                         context=Context(user_id=uid))
                 except Exception:  # noqa: BLE001
                     _LOGGER.warning("Notification for task %s to %s failed", task.get("id"), uid, exc_info=True)

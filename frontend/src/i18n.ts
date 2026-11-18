@@ -139,6 +139,8 @@ const EN: Record<string, string> = {
   "Ich arbeite noch daran.": "Still working on it.", "Ich überlege noch.": "Still thinking.", "Sag Stopp, wenn ich abbrechen soll.": "Say stop if you want me to cancel.",
   "LLMitMir wurde aktualisiert (Version {v}). Lade neu, damit du die neue Oberfläche bekommst.": "LLMitMir has been updated (version {v}). Reload to get the new interface.",
   "Neu laden": "Reload", "Später": "Later",
+  "Dashboards": "Dashboards", "Kachel-Aufgaben": "Tile tasks", "Kachel-Läufe": "Tile runs", "Kachel öffnen": "Open tile",
+  "Bearbeiten": "Edit",
 };
 
 let lang = "de";

@@ -128,7 +128,8 @@ def build(art: str, name: str, old_rows: list, new_rows: list) -> dict:
 
 def summary(ch: dict) -> str:
     """One line for the model: what happened."""
-    what = {"skill": "Skill", "aufgabe": "Geplante Aufgabe", "zugang": "Zugang"}.get(ch["art"], ch["art"])
+    what = {"skill": "Skill", "aufgabe": "Geplante Aufgabe", "zugang": "Zugang", "dashboard": "Dashboard",
+            "kachel": "Kachel"}.get(ch["art"], ch["art"])
     verb = {"anlegen": "angelegt", "aendern": "geändert", "loeschen": "gelöscht"}[ch["aktion"]]
     fields = ", ".join(f["feld"] for f in ch["felder"]) if ch["aktion"] == "aendern" else ""
     return f"{what} „{ch['name']}“ {verb}" + (f" (geändert: {fields})" if fields else "") + "."
