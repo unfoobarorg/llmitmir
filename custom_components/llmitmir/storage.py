@@ -4,6 +4,7 @@ Layout below <config>/.storage/llmitmir/:
   <user_id>/meta.json          settings, projects, skills, credentials, tasks, chat index, usage
   <user_id>/chats/<id>.json     one file per chat / cowork / task run (messages)
   <user_id>/files/<scope>/...   attachments, project files, cowork workspaces
+  <user_id>/tiles/<id>.json     the last data of a dashboard tile (dashboards.py), with its time series
 Global admin config lives in the regular HA store (llmitmir.config).
 """
 from __future__ import annotations
@@ -23,7 +24,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
 from .const import (BILLING_STORE_KEY, CONFIG_STORE_KEY, EWS_STORE_KEY, KEY_SHARED, STORAGE_VERSION,
-                    TASK_KEY_SAME)
+                    TASK_KEY_SAME, TILE_PARALLEL, TILE_RUN_BUDGET)
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -72,6 +73,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "providers": [],
     "model_access": {},       # model key -> [user ids]; external models: nobody unless listed, main models: everybody
     "billing": {"usd_eur": 0.86, "prices": {}, "limits": {}, "limit_default": 0, "fallback_model": ""},
+    # Dashboards: Modell-Läufe je Person und Tag (0 = ohne Grenze) und gleichzeitige Läufe der Kachel-Spur
+    "dashboards": {"tile_budget": TILE_RUN_BUDGET, "tile_parallel": TILE_PARALLEL},
 }
 
 
@@ -160,6 +163,7 @@ class UserStore:
         self.meta: dict[str, Any] = {}
         self.lock = asyncio.Lock()
         self._chat_cache: dict[str, dict] = {}
+        self._tile_cache: dict[str, dict] = {}
         self._save_handle: asyncio.TimerHandle | None = None
 
     # ---------------------------------------------------------------- meta
@@ -173,7 +177,7 @@ class UserStore:
 
         meta = await self.hass.async_add_executor_job(_load)
         meta.setdefault("settings", {})
-        for key in ("projects", "skills", "credentials", "tasks", "chats", "usage", "import_tokens"):
+        for key in ("projects", "skills", "credentials", "tasks", "chats", "usage", "import_tokens", "dashboards", "tiles"):
             meta.setdefault(key, {})
         meta.setdefault("memory", "")
         # Benachrichtigungen auf der Startseite (inbox.py) – eine Liste, kein Verzeichnis
@@ -221,7 +225,7 @@ class UserStore:
     def chat_summary(self, chat: dict) -> dict:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",
                                         "updated", "pinned", "status", "usage", "tools", "last_seen", "voice",
-                                        "no_thinking")} | {
+                                        "no_thinking", "tile_id")} | {
             "messages": len(chat.get("messages") or []), "queued": len(chat.get("queued") or [])}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:
@@ -246,6 +250,47 @@ class UserStore:
 
         await self.hass.async_add_executor_job(_rm)
         await self.async_save_meta()
+
+    # ---------------------------------------------------------------- tile data (dashboards)
+    async def async_get_tile_data(self, tile_id: str) -> dict | None:
+        """The last record of a tile (status, headline, data, time series) – None before the first write."""
+        _check_id(tile_id)
+        if tile_id in self._tile_cache:
+            return self._tile_cache[tile_id]
+
+        def _load() -> dict | None:
+            p = os.path.join(self.base, "tiles", f"{tile_id}.json")
+            if not os.path.exists(p):
+                return None
+            try:
+                with open(p, encoding="utf-8") as fh:
+                    return json.load(fh)
+            except (OSError, ValueError):
+                return None
+
+        rec = await self.hass.async_add_executor_job(_load)
+        if rec is not None:
+            self._tile_cache[tile_id] = rec
+            if len(self._tile_cache) > 200:
+                self._tile_cache.pop(next(iter(self._tile_cache)))
+        return rec
+
+    async def async_save_tile_data(self, tile_id: str, record: dict) -> None:
+        _check_id(tile_id)
+        self._tile_cache[tile_id] = record
+        data = json.loads(json.dumps(record, default=str))
+        await self.hass.async_add_executor_job(self._write, f"tiles/{tile_id}.json", data)
+
+    async def async_delete_tile_data(self, tile_id: str) -> None:
+        _check_id(tile_id)
+        self._tile_cache.pop(tile_id, None)
+
+        def _rm() -> None:
+            p = os.path.join(self.base, "tiles", f"{tile_id}.json")
+            if os.path.exists(p):
+                os.remove(p)
+
+        await self.hass.async_add_executor_job(_rm)
 
     # ---------------------------------------------------------------- files
     def file_dir(self, scope: str, owner: str) -> str:
