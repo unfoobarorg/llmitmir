@@ -1,7 +1,10 @@
 """Web search (DuckDuckGo HTML or SearXNG) and page fetching."""
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import re
+import time
 import urllib.parse
 from html import unescape
 from html.parser import HTMLParser
@@ -132,6 +135,79 @@ def blocked_url(ctx, url: str) -> str | None:
     return None
 
 
+def _ip(host: str):
+    try:
+        return ipaddress.ip_address(str(host or "").strip("[]"))
+    except ValueError:
+        return None
+
+
+_OWN_IPS: dict = {"at": 0.0, "key": None, "ips": frozenset()}
+
+
+async def _own_ips(hosts: set[str]) -> frozenset:
+    """Die IP-Adressen, unter denen diese Home-Assistant-Instanz erreichbar ist (zehn Minuten gemerkt)."""
+    key = tuple(sorted(hosts))
+    if _OWN_IPS["key"] == key and time.monotonic() - _OWN_IPS["at"] < 600:
+        return _OWN_IPS["ips"]
+    loop = asyncio.get_running_loop()
+    ips = set()
+    for h in hosts:
+        if (ip := _ip(h)) is not None:
+            ips.add(ip)
+            continue
+        try:
+            infos = await asyncio.wait_for(loop.getaddrinfo(h, None), timeout=2)
+        except (OSError, asyncio.TimeoutError, UnicodeError):
+            continue
+        ips |= {ip for *_x, sa in infos if (ip := _ip(sa[0])) is not None}
+    _OWN_IPS.update(at=time.monotonic(), key=key, ips=frozenset(ips))
+    return _OWN_IPS["ips"]
+
+
+async def blocked(ctx, url: str) -> str | None:
+    """Wie blocked_url, zusätzlich für IP-Adressen: Loopback und die Adressen dieser Instanz selbst."""
+    if (b := blocked_url(ctx, url)):
+        return b
+    ip = _ip(urllib.parse.urlparse(url).hostname or "")
+    if ip is None:
+        return None
+    if ip.is_loopback or ip.is_unspecified or ip in await _own_ips(own_ha_hosts(ctx.hass)):
+        return HA_BLOCK
+    return None
+
+
+REDIRECTS = (301, 302, 303, 307, 308)
+
+
+async def fetch(ctx, method: str, url: str, *, limit: int, credentialed: bool = False, max_redirects: int = 8,
+                **kw) -> dict:
+    """Eine Anfrage, Weiterleitungen Schritt für Schritt: jedes Ziel wird geprüft (diese Instanz bleibt gesperrt),
+    und mit Zugangsdaten wird keiner Weiterleitung auf einen anderen Server gefolgt – sonst gingen eigene Header
+    (API-Schlüssel) dorthin mit. Ergebnis: status, data, cut, ctype, charset, url – oder error."""
+    for _hop in range(max_redirects + 1):
+        if (b := await blocked(ctx, url)):
+            return {"error": b}
+        async with ctx.session.request(method, url, allow_redirects=False, **kw) as r:
+            loc = r.headers.get("Location") or r.headers.get("location")
+            if r.status in REDIRECTS and loc:
+                nxt = urllib.parse.urljoin(url, loc)
+                if credentialed and (urllib.parse.urlparse(nxt).hostname or "").lower() != \
+                        (urllib.parse.urlparse(url).hostname or "").lower():
+                    data, cut = await read_body(r, limit)
+                    return {"status": r.status, "data": data, "cut": cut, "ctype": r.headers.get("content-type", ""),
+                            "charset": getattr(r, "charset", None), "url": url, "redirect_not_followed": nxt}
+                if r.status == 303 or (r.status in (301, 302) and method.upper() not in ("GET", "HEAD")):
+                    method = "GET"
+                    kw.pop("data", None)
+                url = nxt
+                continue
+            data, cut = await read_body(r, limit)
+            return {"status": r.status, "data": data, "cut": cut, "ctype": r.headers.get("content-type", ""),
+                    "charset": getattr(r, "charset", None), "url": url}
+    return {"error": f"Fehler: mehr als {max_redirects} Weiterleitungen"}
+
+
 async def web_search(ctx, a: dict):
     q = str(a.get("anfrage") or a.get("query") or "").strip()
     if not q:
@@ -164,19 +240,17 @@ async def web_fetch(ctx, a: dict):
         return "Fehler: nur http(s)-Adressen"
     if "{{cred:" in url:
         return "Fehler: web_fetch setzt keine Zugänge ein – für Adressen mit Zugangsdaten http_request mit „zugang“ oder Platzhalter verwenden."
-    if (b := blocked_url(ctx, url)):
-        return b
-    async with ctx.session.get(url, headers={"User-Agent": UA, "Accept-Language": "de,en;q=0.8"},
-                               timeout=aiohttp.ClientTimeout(total=45), max_redirects=8) as r:
-        ctype = r.headers.get("content-type", "")
-        data, _ = await read_body(r, 15_000_000)
-        status = r.status
+    res = await fetch(ctx, "GET", url, limit=15_000_000, headers={"User-Agent": UA, "Accept-Language": "de,en;q=0.8"},
+                      timeout=aiohttp.ClientTimeout(total=45))
+    if res.get("error"):
+        return res["error"]
+    ctype, data, status, url = res["ctype"], res["data"], res["status"], res["url"]
     if status >= 400:
         return f"Fehler: HTTP {status}"
     from .files import extract_document
 
     if "html" in ctype or data[:200].lstrip().lower().startswith((b"<!doctype html", b"<html")):
-        title, text, links = html_to_text(data.decode(r.charset or "utf-8", "ignore"))
+        title, text, links = html_to_text(data.decode(res.get("charset") or "utf-8", "ignore"))
         out = f"# {title}\nURL: {url}\n\n{text}"
         if a.get("links"):
             out += "\n\nLinks:\n" + "\n".join(f"- {t}: {urllib.parse.urljoin(url, h)}" for t, h in links)

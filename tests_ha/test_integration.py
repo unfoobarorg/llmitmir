@@ -189,6 +189,32 @@ async def test_editors_of_a_shared_task_cannot_grant_write_tools(
     assert task["allow_write"] == [] and task.get("requires") in (None, [])
 
 
+# ------------------------------------------------------------------ Freigaben
+@pytest.mark.parametrize("decision", ["once", "always", "deny", "skip"])
+async def test_every_button_of_a_permission_card_is_accepted(hass, llmitmir, hass_ws_client, hass_admin_user, decision):
+    """T9: „Ohne sie weitermachen“ schickt „skip“ – das Schema hat das früher abgelehnt."""
+    import asyncio
+
+    from custom_components.llmitmir.agent import Run
+
+    admin = await hass_ws_client(hass)
+    chat = await _ok(admin, "chat/create", kind="cowork")
+    m = llmitmir["manager"]
+    run = Run(id="r1", user_id=hass_admin_user.id, chat_id=chat["id"], kind="cowork")
+    m.runs[run.id] = run
+    waiting = hass.async_create_task(m.ask_permission(run, {"tool": "mail_send", "label": "E-Mail senden", "args": {}}))
+    try:
+        for _ in range(50):
+            if m.permissions:
+                break
+            await asyncio.sleep(0.01)
+        pid = next(iter(m.permissions))
+        assert (await _ok(admin, "permission/answer", permission_id=pid, decision=decision)) == {"ok": True}
+        assert await asyncio.wait_for(asyncio.shield(waiting), timeout=5) == decision
+    finally:
+        waiting.cancel()
+
+
 # ------------------------------------------------------------------ Projekte
 @pytest.mark.xfail(strict=True, reason="T2: Projekt löschen samt Chats hält laufende Antworten nicht an")
 async def test_deleting_a_project_with_its_chats_stops_their_runs(hass, llmitmir, hass_ws_client, hass_admin_user):

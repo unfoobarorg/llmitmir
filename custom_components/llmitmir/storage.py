@@ -399,4 +399,5 @@ def mask_credential(cred: dict, secret_fields: set[str]) -> dict:
     out = {k: v for k, v in cred.items() if k != "fields"}
     out["fields"] = {k: ("•••" if k in secret_fields and v else v) for k, v in (cred.get("fields") or {}).items()}
     out["expiry"] = C.expiry(cred)  # Ablaufdatum für die Warnung in der Liste
+    out["auto_hosts"] = C.auto_hosts(cred)  # Server aus den Adressfeldern – gelten immer, zusätzlich zu „hosts“
     return out

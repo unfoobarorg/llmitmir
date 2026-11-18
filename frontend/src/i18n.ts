@@ -165,6 +165,20 @@ const EN: Record<string, string> = {
   "„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.": "“Always allow” only applies to this subtask – even when you answer here in the main chat.", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
   "Dashboards": "Dashboards", "Kachel-Aufgaben": "Tile tasks", "Kachel-Läufe": "Tile runs", "Kachel öffnen": "Open tile",
   "Bearbeiten": "Edit",
+  // Zugänge nur an ihre Server (Freigabe bei neuen Servern)
+  "Zugang {name} an {host} senden?": "Send credential {name} to {host}?",
+  "Dieser Server gehört bisher nicht zu den erlaubten Servern des Zugangs. Erlaube das nur, wenn du ihm die Zugangsdaten anvertraust.":
+    "This server is not one of the credential's allowed servers yet. Only allow it if you trust it with the credentials.",
+  "Server immer erlauben": "Always allow server",
+  "„Server immer erlauben“ trägt {host} beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“).":
+    "“Always allow server” adds {host} to the credential (Credentials → Allowed servers).",
+  "Darf ich deine Zugangsdaten {name} an {host} schicken?": "May I send your credential {name} to {host}?",
+  "Diesem Server immer": "Always for this server", "Ja, diesmal": "Yes, this time", "Nein": "No", "Genau ansehen": "Look closely",
+  "Ohne sie weitermachen": "Continue without it", "Ohne diese Aktion weiterarbeiten": "Keep working without this action",
+  "Erlaubte Server": "Allowed servers",
+  "Automatisch aus den Adressen des Zugangs: {hosts}.": "Automatically from the credential's addresses: {hosts}.",
+  "Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.":
+    "More servers this credential may go to without asking – comma-separated, *.example.org works too. For any other server LLMitMir asks first; scheduled tasks refuse.",
 };
 
 let lang = "de";

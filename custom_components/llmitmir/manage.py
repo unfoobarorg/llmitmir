@@ -85,6 +85,8 @@ def build_credential(st, c: dict) -> dict:
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
                 # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
                 external=bool(c["external"]) if "external" in c else bool(old.get("external")),
+                # weitere Server, an die der Zugang ohne Rückfrage gehen darf (die aus den Adressfeldern gelten immer)
+                hosts=C.clean_hosts(c["hosts"]) if "hosts" in c else list(old.get("hosts") or []),
                 updated=now())
     if svc is not None:
         cred["services"] = svc  # GWDG: wofür der Zugang gilt (Postfach, Kalender, Kontakte)

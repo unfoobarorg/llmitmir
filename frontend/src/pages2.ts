@@ -705,6 +705,10 @@ export class CredentialPage extends StoreElement {
           <button class="btn" @click=${() => { if (this.newField.trim()) { this.setField(this.newField.trim().replace(/\W+/g, "_"), ""); this.newField = ""; } }}>${icon("plus", 16)} Feld</button>
           <label class="row hint" style="white-space:nowrap"><input type="checkbox" style="width:auto" @change=${(e: any) => {
             if (!this.newField.trim()) return; const n = this.newField.trim().replace(/\W+/g, "_"); this.set("secret_fields", e.target.checked ? [...(c.secret_fields || []), n] : (c.secret_fields || []).filter((x: string) => x !== n)); }}> geheim</label></div>`)}
+        ${c.type === "gwdg" ? nothing : html`<label class="f"><span>${icon("shield", 13)} ${t("Erlaubte Server")}</span>
+          <input placeholder="api.example.org, *.example.org" .value=${(c.hosts || []).join(", ")}
+            @change=${(e: any) => this.set("hosts", e.target.value.split(/[\s,;]+/).map((x: string) => x.trim()).filter(Boolean))}>
+          <span class="hint">${(c.auto_hosts || []).length ? t("Automatisch aus den Adressen des Zugangs: {hosts}.", { hosts: c.auto_hosts.join(", ") }) + " " : ""}${t("Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.")}</span></label>`}
         <label class="f"><span>${t("Gültig bis")} <span class="hint">(optional)</span></span>
           <input type="date" .value=${c.valid_until || ""} @input=${(e: any) => this.set("valid_until", e.target.value)}>
           <span class="hint">Viele Tokens laufen ab. LLMitMir warnt zwei Wochen vorher in der Liste und nennt den Grund, wenn ein Werkzeug deshalb scheitert.</span></label>
