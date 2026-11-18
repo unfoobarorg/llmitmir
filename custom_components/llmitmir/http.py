@@ -22,6 +22,9 @@ from .storage import new_id, now, safe_name
 
 _LOGGER = logging.getLogger(__name__)
 MAX_UPLOAD = 40 * 1024 * 1024  # per request (part)
+# claude.ai-Export: Grenzen fürs Entpacken (ZIP-Bombe); conversations.json kann bei viel Nutzung groß werden
+EXPORT_MEMBER = 1024 * 1024 * 1024
+EXPORT_TOTAL = 2 * 1024 * 1024 * 1024
 
 
 def _mgr(hass):
@@ -114,11 +117,25 @@ class FileView(_Base):
         except (FileNotFoundError, ValueError):
             return self.json_message("Nicht gefunden", HTTPStatus.NOT_FOUND)
         ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
-        disp = "inline" if ctype.startswith(("image/", "text/", "application/pdf")) else "attachment"
         return web.Response(body=data, content_type=ctype,
                             charset="utf-8" if ctype.startswith("text/") or ctype.endswith(("json", "xml")) else None,
-                            headers={"Content-Disposition": f'{disp}; filename="{safe_name(name)}"',
-                                     "Cache-Control": "private, max-age=60"})
+                            headers=file_headers(name, ctype))
+
+
+# Was der Browser nie selbst als Seite ausführen soll: HTML, SVG und XML aus Arbeitsbereichen stammen oft vom Modell
+# oder aus dem Netz. Ausgeliefert vom Origin von Home Assistant könnte Skript darin an die Anmeldung der Person.
+ACTIVE_TYPES = ("text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml", "text/javascript",
+                "application/javascript")
+
+
+def file_headers(name: str, ctype: str) -> dict:
+    """Header für eine Datei aus dem Arbeitsbereich: nie als Seite ausführen, nie den Typ raten."""
+    inline = ctype.startswith(("image/", "text/", "application/pdf")) and ctype not in ACTIVE_TYPES
+    fname = safe_name(name).replace('"', "_")
+    return {"Content-Disposition": f'{"inline" if inline else "attachment"}; filename="{fname}"',
+            "Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
+            "Referrer-Policy": "no-referrer"}
 
 
 def _preview(name: str, data: bytes, page: int) -> tuple[bytes, str, int]:
@@ -175,7 +192,8 @@ class PreviewView(_Base):
             _LOGGER.warning("LLMitMir: Vorschau fuer %s fehlgeschlagen: %s", name, e)
             return self.json_message(f"Keine Vorschau möglich: {e}", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
         return web.Response(body=body, content_type=ctype,
-                            headers={"Cache-Control": "private, max-age=300", "X-LLMitMir-Pages": str(pages)})
+                            headers={"Cache-Control": "private, max-age=300", "X-LLMitMir-Pages": str(pages),
+                                     "X-Content-Type-Options": "nosniff"})
 
 
 class DocView(_Base):
@@ -200,7 +218,8 @@ class DocView(_Base):
             return self.json_message("Für diesen Dateityp gibt es keine Vorschau", HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
         # Der Ausschnitt ist reiner Text aus der Datei, bereits maskiert (docpreview) – kein Markup aus der Datei.
         return web.Response(text=body, content_type="text/html", charset="utf-8",
-                            headers={"Cache-Control": "private, max-age=300"})
+                            headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff",
+                                     "Content-Security-Policy": "sandbox; default-src 'none'"})
 
 
 class TranscribeView(_Base):
@@ -282,10 +301,19 @@ class ImportView(HomeAssistantView):
             bundle = await request.json()
         except ValueError:
             return self.json_message("Kein gültiges JSON", HTTPStatus.BAD_REQUEST)
+        if not isinstance(bundle, dict):
+            return self.json_message("Erwartet wird ein JSON-Objekt", HTTPStatus.BAD_REQUEST)
+        # Einmal-Link: nach dem ersten Import ist er verbraucht (so steht es auch in der Anleitung für Claude)
+        st.meta["import_tokens"].pop(token, None)
+        hass.data[DOMAIN]["import_tokens"].pop(token, None)
         user = await hass.auth.async_get_user(uid)
-        res = await import_bundle(hass, m, user, st, bundle)
-        st.meta["import_tokens"][token]["used"] = now()
+        try:
+            res = await import_bundle(hass, m, user, st, bundle)
+        except ValueError as e:
+            await st.async_save_meta()
+            return self.json_message(f"Import nicht möglich: {e}", HTTPStatus.BAD_REQUEST)
         st.meta.setdefault("imports", []).insert(0, {"at": now(), "source": bundle.get("source", "claude"), "result": res})
+        del st.meta["imports"][20:]
         await st.async_save_meta()
         m.emit(uid, {"type": "meta", "section": "all"})
         m.emit(uid, {"type": "import_done", "result": res})
@@ -311,7 +339,21 @@ def _ts(value) -> float | None:
 async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing: bool = False) -> dict:
     """Merge an import bundle into the user's data (by name). Imported tasks start disabled.
     skip_existing=True (data exports): items whose name already exists stay untouched."""
+    if not isinstance(b, dict):
+        raise ValueError("Der Import muss ein JSON-Objekt sein (mit credentials, skills, projects, tasks, chats …).")
     res = {"credentials": 0, "skills": 0, "projects": 0, "tasks": 0, "chats": 0, "files": 0, "skipped": 0, "warnings": []}
+
+    def items(key: str) -> list[dict]:
+        """Die Einträge einer Liste – alles, was kein Objekt ist, wird übersprungen und gemeldet."""
+        raw = b.get(key) or []
+        if not isinstance(raw, list):
+            res["warnings"].append(f"„{key}“ ist keine Liste – übersprungen")
+            return []
+        good = [x for x in raw if isinstance(x, dict)]
+        if len(good) != len(raw):
+            res["warnings"].append(f"{len(raw) - len(good)} Einträge in „{key}“ sind keine Objekte – übersprungen")
+        return good
+
     seen = set(st.meta.setdefault("imported_uuids", []))
     meta = st.meta
     if isinstance(b.get("memory"), str) and b["memory"].strip():
@@ -319,7 +361,7 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
         if b["memory"].strip() not in (meta.get("memory") or ""):
             meta["memory"] = ((meta.get("memory") or "") + sep + b["memory"].strip())[:20000]
             res["memory"] = True
-    for c in b.get("credentials") or []:
+    for c in items("credentials"):
         if not c.get("name"):
             continue
         typ = c.get("type") if c.get("type") in C.TYPES else "other"
@@ -355,7 +397,7 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
                 res["warnings"].append(f"Zugang „{n}“ nicht gefunden")
         return out
 
-    for s in b.get("skills") or []:
+    for s in items("skills"):
         if not s.get("name"):
             continue
         old = _by_name(meta["skills"], s["name"])
@@ -371,7 +413,7 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
                 await st.async_write_file("skill", sid, f["name"], str(f["content"]).encode("utf-8"))
                 res["files"] += 1
         res["skills"] += 1
-    for p in b.get("projects") or []:
+    for p in items("projects"):
         if not p.get("name"):
             continue
         old = _by_name(meta["projects"], p["name"])
@@ -389,7 +431,7 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
                 await st.async_write_file("project", pid, f["name"], str(f["content"]).encode("utf-8"))
                 res["files"] += 1
         res["projects"] += 1
-    for t in b.get("tasks") or []:
+    for t in items("tasks"):
         if not t.get("prompt"):
             continue
         old = _by_name(meta["tasks"], t.get("name") or "")
@@ -406,14 +448,19 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
         task = dict(old or {"created": now(), "runs": []}, id=tid, name=str(t.get("name") or "Aufgabe")[:100],
                     prompt=str(t["prompt"]), schedule=sched or {"type": "daily", "time": "08:00"},
                     project_id=proj["id"] if proj else None, model=None, enabled=False,
-                    allow_write=list(t.get("allow_write") or []), notify=t.get("notify") or "always",
-                    requires=[r for r in (t.get("requires") or []) if r in ("werkbank",)],
+                    # Freigaben bringt ein Import nie mit: Wer die Aufgabe einschaltet, legt selbst fest, was sie
+                    # unbeaufsichtigt darf (und ob sie die Werkbank – also beliebige Befehle – nutzt).
+                    allow_write=[], notify=t.get("notify") or "always", requires=[],
                     requires_note=str(t.get("requires_note") or "")[:1500],
                     updated=now(), imported=True, imported_note=str(t.get("note") or "")[:1500])
+        dropped = [str(x) for x in (t.get("allow_write") or [])] + (["Werkbank"] if "werkbank" in (t.get("requires") or []) else [])
+        if dropped:
+            res["warnings"].append(f"Aufgabe „{task['name']}“: Freigaben nicht übernommen ({', '.join(dropped)}) – "
+                                   "beim Einschalten selbst festlegen")
         meta["tasks"][tid] = task
         m.scheduler.plan(user.id, task)
         res["tasks"] += 1
-    for c in b.get("chats") or []:
+    for c in items("chats"):
         if c.get("uuid") and c["uuid"] in seen:
             res["skipped"] += 1
             continue
@@ -463,30 +510,36 @@ def _read_export(data: bytes) -> dict:
     """Read one ZIP of a claude.ai data export (old single-ZIP format or the newer multi-ZIP parts)."""
     z = zipfile.ZipFile(io.BytesIO(data))
     names = z.namelist()
+    if sum(i.file_size for i in z.infolist()) > EXPORT_TOTAL:
+        raise ValueError(f"entpackt größer als {EXPORT_TOTAL // 1073741824} GB")
+
+    def read(n: str) -> bytes:
+        return DP.zread(z, n, EXPORT_MEMBER)
+
     out: dict = {"convs": [], "projects": [], "memories": None, "routines": [], "pages": [], "found": []}
     for n in names:
         base = n.rsplit("/", 1)[-1]
         if base == "conversations.json":
-            out["convs"] += json.loads(z.read(n)); out["found"].append("Chats")
+            out["convs"] += json.loads(read(n)); out["found"].append("Chats")
         elif base == "projects.json":
-            out["projects"] += json.loads(z.read(n)); out["found"].append("Projekte")
+            out["projects"] += json.loads(read(n)); out["found"].append("Projekte")
         elif re.match(r"(.*/)?projects/[^/]+\.json$", n):
-            out["projects"].append(json.loads(z.read(n)))
+            out["projects"].append(json.loads(read(n)))
         elif base == "memories.json":
-            out["memories"] = json.loads(z.read(n)); out["found"].append("Erinnerungen")
+            out["memories"] = json.loads(read(n)); out["found"].append("Erinnerungen")
         elif base == "routines.json":
-            r = json.loads(z.read(n))
+            r = json.loads(read(n))
             out["routines"] += r.get("claude_code_cloud", []) if isinstance(r, dict) else r
             out["found"].append("Routinen")
         elif base == "artifact.json" and "/versions/" not in n:
-            a = json.loads(z.read(n))
+            a = json.loads(read(n))
             if a.get("kind") == "page":
                 page = n.rsplit("/", 1)[0] + "/page.md"
                 if page in names:
                     v = next((x for x in a.get("versions") or [] if x.get("id") == a.get("active_version")), (a.get("versions") or [{}])[-1])
                     out["pages"].append({"uuid": a.get("id"), "title": v.get("title") or "Dokument",
                                          "created": v.get("created_at"), "updated": a.get("updated_at"),
-                                         "content": z.read(page).decode("utf-8", "ignore")})
+                                         "content": read(page).decode("utf-8", "ignore")})
     if any(re.match(r"(.*/)?projects/[^/]+\.json$", n) for n in names):
         out["found"].append("Projekte")
     if out["pages"]:
@@ -502,10 +555,15 @@ async def import_file(hass, m, user, st, name: str, data: bytes) -> dict:
             obj = json.loads(data)
         except ValueError:
             return {"error": f"{name}: kein gültiges JSON"}
-        if isinstance(obj, dict) and "data_files" in obj:
+        if not isinstance(obj, dict):
+            return {"error": f"{name}: erwartet wird ein JSON-Objekt"}
+        if "data_files" in obj:
             return {"error": "Das ist nur das Manifest des Exports. Lade bitte die ZIP-Dateien hoch "
                              "(conversations-000.zip, projects-000.zip, frames-000.zip, claude_code_cloud-000.zip …)."}
-        res = await import_bundle(hass, m, user, st, obj)
+        try:
+            res = await import_bundle(hass, m, user, st, obj)
+        except ValueError as e:
+            return {"error": f"{name}: {e}"}
         res["file"] = name
         return res
     try:

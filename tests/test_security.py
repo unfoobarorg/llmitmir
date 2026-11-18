@@ -436,8 +436,7 @@ def test_file_view_offers_unknown_types_as_download():
     assert resp.headers["Content-Disposition"].startswith("attachment")
 
 
-@pytest.mark.xfail(strict=True, reason="S8: HTML/SVG aus dem Arbeitsbereich werden inline vom HA-Origin ausgeliefert")
-@pytest.mark.parametrize("name", ["bericht.html", "bild.svg", "seite.htm", "x.xhtml"])
+@pytest.mark.parametrize("name", ["bericht.html", "bild.svg", "seite.htm", "x.xhtml", "daten.xml", "x.js"])
 def test_file_view_never_serves_active_content_inline(name):
     resp = _file_response(name, b"<script>alert(1)</script>")
     disp = resp.headers.get("Content-Disposition", "")
@@ -474,19 +473,42 @@ def test_imported_tasks_start_disabled():
     assert res["tasks"] == 1 and task["enabled"] is False and planned == [task]
 
 
-@pytest.mark.xfail(strict=True, reason="S6: importierte Aufgaben übernehmen Schreibfreigaben (allow_write) aus der Datei")
 def test_imported_tasks_bring_no_approved_write_tools():
-    st, _res, _ = _import({"tasks": [{"name": "T", "prompt": "x", "allow_write": ["mail_send", "shell"]}]})
-    assert next(iter(st.meta["tasks"].values()))["allow_write"] == []
+    st, res, _ = _import({"tasks": [{"name": "T", "prompt": "x", "allow_write": ["mail_send", "shell"], "requires": ["werkbank"]}]})
+    task = next(iter(st.meta["tasks"].values()))
+    assert task["allow_write"] == [] and task["requires"] == []
+    assert any("mail_send" in w and "Werkbank" in w for w in res["warnings"])
 
 
-@pytest.mark.xfail(strict=True, reason="T4: ein Import, der kein JSON-Objekt ist, endet in einem Serverfehler")
-@pytest.mark.parametrize("bundle", [[], "text", 5, {"skills": ["kein Objekt"]}, {"tasks": [None]}])
+@pytest.mark.parametrize("bundle", [[], "text", 5, {"skills": ["kein Objekt"]}, {"tasks": [None]}, {"chats": "x"}])
 def test_import_rejects_malformed_bundles_cleanly(bundle):
     try:
-        _import(bundle)
+        _st, res, _ = _import(bundle)
     except ValueError:
-        pass
+        return
+    assert res["warnings"]
+
+
+def test_file_view_keeps_images_and_text_inline_but_never_sniffs():
+    for name in ("foto.jpg", "notiz.txt", "brief.pdf"):
+        resp = _file_response(name, b"x")
+        assert resp.headers["Content-Disposition"].startswith("inline")
+        assert resp.headers["X-Content-Type-Options"] == "nosniff" and "sandbox" in resp.headers["Content-Security-Policy"]
+
+
+def test_zip_bombs_are_refused_before_unpacking():
+    import io
+    import zipfile
+
+    docpreview = load("docpreview")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", b"0" * (docpreview.MAX_MEMBER + 1))
+    with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as z:
+        with pytest.raises(ValueError):
+            docpreview.zread(z, "word/document.xml")
+        assert len(docpreview.zread(z, "word/document.xml", limit=docpreview.MAX_MEMBER + 1)) == docpreview.MAX_MEMBER + 1
+    assert len(buf.getvalue()) < 200_000  # klein gepackt, riesig entpackt
 
 
 # ------------------------------------------------------------------ fremde Aufgaben bearbeiten (S4)

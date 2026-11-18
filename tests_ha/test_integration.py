@@ -301,3 +301,33 @@ async def test_a_changed_tile_description_waits_for_the_owner(
     await _ok(admin, "task/approve", task_id=task_id, approve=False)
     assert st.meta["tiles"][tile["id"]]["description"] == "Wie wird das Wetter?"
     assert st.meta["tasks"][task_id]["prompt"] == "Wie wird das Wetter?" and not st.meta["tasks"][task_id].get("pending_approval")
+
+
+async def test_import_link_works_once_and_takes_only_objects(hass, llmitmir, hass_ws_client, hass_client_no_auth,
+                                                             hass_admin_user):
+    """S6/T4: Einmal-Link; ein Import, der kein Objekt ist, ergibt 400 statt eines Serverfehlers."""
+    admin = await hass_ws_client(hass)
+    anon = await hass_client_no_auth()
+    tok = await _ok(admin, "import/token")
+    bundle = {"tasks": [{"name": "Import", "prompt": "Hallo", "allow_write": ["mail_send"]}]}
+    resp = await anon.post(tok["path"], json=bundle)
+    assert resp.status == HTTPStatus.OK
+    assert (await anon.post(tok["path"], json=bundle)).status == HTTPStatus.UNAUTHORIZED
+    st = await llmitmir["manager"].user_store(hass_admin_user.id)
+    task = next(t for t in st.meta["tasks"].values() if t["name"] == "Import")
+    assert task["enabled"] is False and task["allow_write"] == []
+    tok2 = await _ok(admin, "import/token")
+    assert (await anon.post(tok2["path"], json=["kein", "objekt"])).status == HTTPStatus.BAD_REQUEST
+
+
+async def test_workspace_html_is_never_served_as_a_page(hass, llmitmir, hass_ws_client, hass_client, hass_admin_user):
+    """S8: HTML aus dem Arbeitsbereich kommt als Download mit Sandbox-CSP, nicht als Seite vom HA-Origin."""
+    admin = await hass_ws_client(hass)
+    chat = await _ok(admin, "chat/create", kind="cowork")
+    st = await llmitmir["manager"].user_store(hass_admin_user.id)
+    await st.async_write_file("chat", chat["id"], "seite.html", b"<script>alert(1)</script>")
+    client = await hass_client()
+    resp = await client.get(f"/api/llmitmir/file/chat/{chat['id']}/seite.html")
+    assert resp.status == HTTPStatus.OK
+    assert resp.headers["Content-Disposition"].startswith("attachment")
+    assert resp.headers["X-Content-Type-Options"] == "nosniff" and "sandbox" in resp.headers["Content-Security-Policy"]
