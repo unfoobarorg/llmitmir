@@ -22,6 +22,7 @@ from . import access as A
 from . import dashboards as D
 from . import inbox as IB
 from . import manage as M
+from . import taskedit as TE
 from .const import (MAX_DASHBOARDS, MAX_TILES, ORIGIN_DASHBOARD, TILE_KEEP_RUNS, TILE_PARALLEL, TILE_RUN_BUDGET)
 from .cron import describe
 from .storage import new_id, now
@@ -199,6 +200,10 @@ class Boards:
                "last_run": {k: (task.get("last_run") or {}).get(k) for k in ("status", "finished", "started", "error", "reason")}
                if task.get("last_run") else None}
         out["runs_per_day"] = runs_per_day(sched)
+        pend = task.get("pending_approval") or {}
+        out["pending"] = bool(pend)  # geänderte Beschreibung wartet auf die Bestätigung der Eigentümerin/des Eigentümers
+        if pend and full:
+            out["pending_approval"] = {k: pend.get(k) for k in ("by", "at", "prompt_before", "tile_description_before")}
         if full:
             out.update(project_id=task.get("project_id"), model=task.get("model"), runs=list(task.get("runs") or [])[:TILE_KEEP_RUNS])
         return out
@@ -423,15 +428,25 @@ class Boards:
         new = D.clean_tile(raw, old, owner, bool(user.is_admin), new_id)
         tile = dict(old or {"created": now(), "share": A.empty()}, **new)
         tile.update(version=int((old or {}).get("version") or 0) + 1, updated=now(), changed_by=uid)
+        old_task = dict(st.meta["tasks"].get(((old or {}).get("source") or {}).get("task_id") or "") or {})
+        desc_changed = bool(old) and old.get("description") != tile.get("description")
         if tile["source"]["type"] == "model":
             await self._save_tile_task(st, owner, tile, raw, is_owner, placing=bool(place))
+            task = st.meta["tasks"].get(tile["source"].get("task_id") or "") or {}
+            if not is_owner and desc_changed and old_task:
+                # die Beschreibung ist der Auftrag: er läuft erst nach Bestätigung (taskedit.py)
+                task["pending_approval"] = TE.pending(old_task, uid, now(), tile_description_before=old.get("description") or "")
+            elif is_owner:
+                task.pop("pending_approval", None)
         if A.clean(tile.get("share"))["all"] and tile["source"]["type"] == "model":
             tile["share"] = dict(A.clean(tile["share"]), all={"edit": False, "reshare": False})
         st.meta["tiles"][tile["id"]] = tile
         await st.async_save_meta()
         self._track_template(owner, tile)
-        if old and not is_owner and (old.get("description") != tile.get("description")
-                                     or (old.get("source") or {}) != (tile.get("source") or {})):
+        if old and not is_owner and desc_changed and tile["source"]["type"] == "model":
+            await self.m.tell_owner_pending(owner, st.meta["tasks"].get(tile["source"].get("task_id") or "") or {},
+                                            uid, tile=tile)
+        elif old and not is_owner and (desc_changed or (old.get("source") or {}) != (tile.get("source") or {})):
             await self._tell_owner(owner, tile, old, uid)
         await self.emit_boards(await self.audience(owner, tile.get("share")))
         if place:
@@ -488,6 +503,16 @@ class Boards:
         st.meta["inbox"] = IB.add(st.meta.get("inbox"), entry, now())
         await st.async_save_meta()
         self.m.emit(owner, {"type": "inbox", "items": IB.prune(st.meta["inbox"], now(), IB.minutes(st.meta["settings"]))})
+
+    async def restore_description(self, owner: str, task: dict, pend: dict) -> None:
+        """„Verwerfen“: die Kachel bekommt die Beschreibung von vor der unbestätigten Änderung zurück."""
+        st = (await self.stores()).get(owner)
+        tile = st.meta["tiles"].get(task.get("tile_id") or "") if st else None
+        if not tile:
+            return
+        tile["description"] = pend.get("tile_description_before") or pend.get("prompt_before") or tile.get("description")
+        tile["version"] = int(tile.get("version") or 0) + 1
+        tile["updated"] = now()
 
     async def delete_tile(self, user, owner: str, tid: str) -> None:
         tile = await self.tile(owner, tid)
@@ -590,6 +615,10 @@ class Boards:
         tile = await self.tile(owner, tid)
         if not tile or not self.rights(owner, tile, user.id)["edit"]:
             raise PermissionError("Diese Kachel darfst du nicht aktualisieren.")
+        st0 = (await self.stores()).get(owner)
+        if st0 and (st0.meta["tasks"].get((tile.get("source") or {}).get("task_id") or "") or {}).get("pending_approval"):
+            raise PermissionError("Die Beschreibung wurde geändert und wartet auf die Bestätigung der Eigentümerin bzw. "
+                                  "des Eigentümers – vorher läuft die Kachel nicht.")
         if (tile.get("source") or {}).get("type") != "model":
             raise ValueError("HA-Kacheln aktualisieren sich von selbst.")
         task_id = tile["source"].get("task_id")

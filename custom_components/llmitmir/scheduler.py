@@ -186,6 +186,10 @@ class Scheduler:
             user = await self.hass.auth.async_get_user(uid)
             if not task or not user or not self.m.allowed(user):
                 continue
+            if task.get("pending_approval"):
+                # jemand anderes hat den Auftrag geändert – er läuft erst nach Bestätigung (taskedit.py)
+                _LOGGER.info("Task %s waits for the owner's approval, run skipped", tid)
+                continue
             tile = is_tile(task)
             if tile and not await self._tile_may_run(uid, st, task, reason):
                 continue
@@ -263,7 +267,9 @@ class Scheduler:
 
         ts = now()
         devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
-        for uid in recipients if recipients is not None else [user.id, *SH.recipients(task.get("share"))]:
+        wanted = recipients if recipients is not None else [user.id, *SH.recipients(task.get("share"))]
+        # nur, wer LLMitMir noch nutzen darf – sonst bekäme jemand ohne Zugriff weiter Ergebnisse (P2)
+        for uid in await self.m.allowed_ids(wanted):
             try:
                 other = await self.m.user_store(uid)
                 settings = other.meta["settings"]
@@ -329,6 +335,7 @@ class Scheduler:
             await self.m.boards.prune_runs(st, task)
             t = st.meta["tiles"].get(task.get("tile_id") or "") or {}
             recipients = [user.id, *(await self.m.boards.notify_users(user.id, t))]
+        recipients = await self.m.allowed_ids(recipients)
         await st.async_save_meta()
         if tile:
             await self.m.boards.emit_run(user.id, task.get("tile_id") or "", "idle")

@@ -26,6 +26,7 @@ from . import retention as RT
 from . import subchats as SC
 from . import providers as PV
 from . import sharing as SH
+from . import taskedit as TE
 from . import speech as SP
 from . import views as V
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, ORIGIN_DASHBOARD,
@@ -113,6 +114,10 @@ def _task_view(m, user_id: str, t: dict, owner_id: str | None = None, names: dic
                                "notify": bool(e.get("notify"))}
                               for uid, e in ((t.get("share") or {}).get("users") or {}).items()]}
     out["share_text"] = SH.summary(t.get("share"), names)
+    pend = t.get("pending_approval") or {}
+    if pend:
+        # ein geänderter Auftrag wartet auf die Bestätigung der Eigentümerin bzw. des Eigentümers (taskedit.py)
+        out["pending_by_name"] = (names or {}).get(pend.get("by")) or ""
     if run_chats is not None:
         out["run_chats"] = run_chats
     return out
@@ -136,7 +141,8 @@ async def _tasks_view(m, user) -> list[dict]:
     shared = await m.shared_tasks(user.id)
     ids = [user.id] + [uid for uid, _ in shared]
     for t in st.meta["tasks"].values():
-        ids += SH.users(t.get("share"))
+        ids += SH.users(t.get("share")) + [(t.get("pending_approval") or {}).get("by")]
+    ids += [(t.get("pending_approval") or {}).get("by") for _uid, t in shared]
     names = await _names(m, ids)
     # own tasks: the panel finds their runs in the own chat list – no need to read run chats from disk here.
     # Tasks of dashboard tiles are not listed here at all (boards.view -> tile_tasks, short form).
@@ -550,9 +556,12 @@ async def ws_project_delete(hass, conn, msg, m, user, st):
     pid = msg["project_id"]
     st.meta["projects"].pop(pid, None)
     for cid, c in list(st.meta["chats"].items()):
+        if cid not in st.meta["chats"]:
+            continue  # als Teilaufgabe mit ihrem Hauptchat schon gelöscht
         if c.get("project_id") == pid:
             if msg["delete_chats"]:
-                await st.async_delete_chat(cid)
+                # derselbe Weg wie beim Löschen von Hand: Lauf anhalten, Sandbox, Teilaufgaben und Karten mit weg
+                await m.delete_chat(user.id, cid)
             else:
                 chat = await st.async_get_chat(cid)
                 if chat:
@@ -663,14 +672,23 @@ async def ws_task_save(hass, conn, msg, m, user, st):
     owner_id, owner_st, old = user.id, st, None
     if t.get("id"):
         owner_id, owner_st, old = await _task_for(m, user, t["id"], need_edit=True)
-    ext = m.external_view(user.id)
-    if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
-        raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
-    if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
-        raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
-    if old is not None and owner_id != user.id:
-        # Somebody the task is shared with: only what concerns the task itself, never the sharing
+    editor = old is not None and owner_id != user.id
+    if not editor:
+        ext = m.external_view(user.id)
+        if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
+            raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
+        if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
+            raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
+    new_prompt = False
+    if editor:
+        # Jemand, mit dem die Aufgabe geteilt ist (taskedit.py): Name, Zeitplan, Benachrichtigung sofort; ein neuer
+        # Auftrag erst nach Bestätigung; womit die Aufgabe läuft (Freigaben, Werkzeuge, Modell …) nie.
+        changed = [k for k in TE.owner_only_changes(old, t) if k != "share"]
+        if changed:
+            raise PermissionError(TE.owner_only_error(changed))
         t = {k: v for k, v in t.items() if k != "share"}
+        t.update({k: old.get(k) for k in TE.OWNER_ONLY if k != "share"})
+        new_prompt = old.get("origin") != ORIGIN_DASHBOARD and TE.prompt_changed(old, t)
     if old is not None and old.get("origin") == ORIGIN_DASHBOARD:
         # a tile's task: the prompt is the tile's description, the sharing is the tile's – the rest may change here
         from homeassistant.util import dt as dt_util
@@ -680,10 +698,40 @@ async def ws_task_save(hass, conn, msg, m, user, st):
         if t.get("enabled") and old.get("paused") == "unplaced":
             raise ValueError("Die Kachel liegt auf keinem Dashboard – platziere sie, dann läuft die Aufgabe wieder.")
     task = await M.save_task(m, owner_id, owner_st, t)
+    if new_prompt:
+        task["pending_approval"] = TE.pending(old, user.id, now())
+        await owner_st.async_save_meta()
+        await m.tell_owner_pending(owner_id, task, user.id)
+    elif not editor and task.pop("pending_approval", None) is not None:
+        await owner_st.async_save_meta()  # wer die Aufgabe besitzt und speichert, hat den neuen Auftrag gesehen
     if task.get("origin") == ORIGIN_DASHBOARD:
         await m.boards.emit_boards([owner_id])
         return m.boards.tile_task_row(owner_st, task)
-    names = await _names(m, [owner_id, *SH.users(task.get("share"))])
+    m.emit_task(owner_id, task)
+    names = await _names(m, [owner_id, *SH.users(task.get("share")), (task.get("pending_approval") or {}).get("by")])
+    return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
+
+
+@command(_t("task/approve") | {vol.Required("task_id"): str, vol.Required("approve"): bool})
+async def ws_task_approve(hass, conn, msg, m, user, st):
+    """Einen von jemand anderem geänderten Auftrag bestätigen (die Aufgabe läuft wieder) oder verwerfen."""
+    owner_id, owner_st, task = await _task_for(m, user, msg["task_id"])
+    if owner_id != user.id:
+        raise PermissionError("Bestätigen kann nur, wem die Aufgabe gehört.")
+    pend = task.pop("pending_approval", None)
+    if not pend:
+        raise ValueError("Es wartet keine Änderung auf Bestätigung.")
+    if not msg["approve"]:
+        task["prompt"] = pend.get("prompt_before") or task.get("prompt") or ""
+        if task.get("origin") == ORIGIN_DASHBOARD and m.boards:
+            await m.boards.restore_description(owner_id, task, pend)
+    task["updated"] = now()
+    await owner_st.async_save_meta()
+    if task.get("origin") == ORIGIN_DASHBOARD and m.boards:
+        await m.boards.emit_boards(await m.boards.audience(owner_id, (owner_st.meta["tiles"].get(task.get("tile_id") or "") or {}).get("share")))
+        return m.boards.tile_task_row(owner_st, task)
+    m.emit_task(owner_id, task)
+    names = await _names(m, [owner_id, *SH.users(task.get("share")), (task.get("pending_approval") or {}).get("by")])
     return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
 
 
@@ -701,6 +749,9 @@ async def ws_task_delete(hass, conn, msg, m, user, st):
 @command(_t("task/run_now") | {vol.Required("task_id"): str})
 async def ws_task_run(hass, conn, msg, m, user, st):
     owner_id, _owner_st, _task = await _task_for(m, user, msg["task_id"], need_edit=True)
+    if _task.get("pending_approval"):
+        raise PermissionError("Der Auftrag wurde geändert und wartet auf die Bestätigung der Eigentümerin bzw. des "
+                              "Eigentümers – vorher läuft die Aufgabe nicht.")
     if _task.get("origin") == ORIGIN_DASHBOARD:
         return {"position": await m.boards.run_now(user, owner_id, _task.get("tile_id") or "")}
     pos = m.scheduler.enqueue(owner_id, msg["task_id"], "manuell")

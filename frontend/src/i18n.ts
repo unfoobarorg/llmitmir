@@ -177,6 +177,17 @@ const EN: Record<string, string> = {
   "Ohne sie weitermachen": "Continue without it", "Ohne diese Aktion weiterarbeiten": "Keep working without this action",
   "Erlaubte Server": "Allowed servers",
   "Externes Bild – wird erst beim Klick geöffnet": "External image – only opened when clicked",
+  // geänderte Aufträge warten auf die Bestätigung der Eigentümerin bzw. des Eigentümers
+  "Bestätigt – die Aufgabe läuft wieder": "Approved – the task runs again", "Verworfen – der alte Auftrag gilt wieder": "Discarded – the old prompt applies again",
+  "Bestätigt – die Kachel läuft wieder": "Approved – the tile runs again", "Verworfen – die alte Beschreibung gilt wieder": "Discarded – the old description applies again",
+  "Aufgabe öffnen": "Open task",
+  "Der geänderte Auftrag wartet auf die Bestätigung von {owner}. Bis dahin läuft die Aufgabe nicht.": "The changed prompt is waiting for {owner} to approve it. Until then the task does not run.",
+  "der Person, der sie gehört": "its owner", "Jemand": "Someone", "Vorher:": "Before:", "Bestätigen": "Approve", "Verwerfen": "Discard",
+  "{name} hat den Auftrag geändert.": "{name} changed the prompt.",
+  "Die Aufgabe läuft mit deinen Zugängen und Freigaben – deshalb erst wieder, wenn du bestätigst.": "The task runs with your credentials and approvals – so it only runs again once you approve.",
+  "{name} hat die Beschreibung geändert.": "{name} changed the description.",
+  "Die Kachel läuft mit deinen Zugängen – deshalb erst wieder, wenn du bestätigst.": "The tile runs with your credentials – so it only runs again once you approve.",
+  "Die geänderte Beschreibung wartet auf die Bestätigung von {owner}. Bis dahin läuft die Kachel nicht.": "The changed description is waiting for {owner} to approve it. Until then the tile does not run.",
   "Automatisch aus den Adressen des Zugangs: {hosts}.": "Automatically from the credential's addresses: {hosts}.",
   "Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.":
     "More servers this credential may go to without asking – comma-separated, *.example.org works too. For any other server LLMitMir asks first; scheduled tasks refuse.",

@@ -487,3 +487,26 @@ def test_import_rejects_malformed_bundles_cleanly(bundle):
         _import(bundle)
     except ValueError:
         pass
+
+
+# ------------------------------------------------------------------ fremde Aufgaben bearbeiten (S4)
+taskedit = load("taskedit")
+
+
+def test_owner_only_fields_are_detected_and_omitted_fields_change_nothing():
+    old = {"allow_write": ["notify"], "tool_groups": None, "requires": [], "model": None, "heavy": False,
+           "external_fallback": False, "project_id": "p1"}
+    assert taskedit.owner_only_changes(old, {"name": "x", "prompt": "y"}) == []
+    assert taskedit.owner_only_changes(old, {"allow_write": ["notify"], "requires": None, "model": "", "heavy": 0}) == []
+    assert taskedit.owner_only_changes(old, {"allow_write": ["notify", "mail_send"], "requires": ["werkbank"],
+                                             "project_id": "p2", "external_fallback": True}) == \
+        ["allow_write", "requires", "external_fallback", "project_id"]
+
+
+def test_pending_remembers_the_prompt_before_the_first_unconfirmed_change():
+    old = {"prompt": "A"}
+    p1 = taskedit.pending(old, "anna", 1.0)
+    assert p1["prompt_before"] == "A" and p1["by"] == "anna"
+    p2 = taskedit.pending({"prompt": "B", "pending_approval": p1}, "ben", 2.0)
+    assert p2["prompt_before"] == "A" and p2["by"] == "ben"
+    assert taskedit.prompt_changed(old, {"prompt": " A "}) is False and taskedit.prompt_changed(old, {"prompt": "C"})
