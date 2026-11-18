@@ -3214,3 +3214,36 @@ def test_sub_tools_registered_but_not_in_tool_menu():
     assert names == ["unterchat_starten", "unterchat_nachricht", "unterchat_ergebnis", "ergebnis_melden"]
     init = (BASE / "tools" / "__init__.py").read_text()
     assert '"unterchat"' not in init and '"teilergebnis"' not in init  # keine Auswahl im Werkzeug-Menü
+
+
+
+def test_permission_push_from_subtask_names_subtask_and_main_chat():
+    base = {"root_chat_id": "h1", "sub_title": "Mails sichten", "root_title": "Wochenplanung"}
+    title, text = permnote.message(dict(base, label="Befehl ausführen", args={"befehl": "ls -la"}), "Mails sichten")
+    assert title == "LLMitMir: Teilaufgabe braucht dich"
+    assert text.startswith("Teilaufgabe ›Mails sichten‹ im Chat ›Wochenplanung‹") and "ls -la" in text
+    assert "ohne die Aktion weiter" in text
+    # Änderungskarte und „mehr Schritte?“ laufen über denselben Weg
+    title, text = permnote.message(dict(base, label="Aufgabe speichern", change={"art": "aufgabe"}), "")
+    assert title.endswith("Teilaufgabe braucht dich") and "Änderung: Aufgabe speichern" in text
+    title, text = permnote.message(dict(base, tool="more_steps", label="15 weitere Schritte"), "", simple=True)
+    assert "Weitere Schritte verwenden?" in text and text.startswith("Teilaufgabe ›Mails sichten‹")
+    # ohne Teilaufgabe bleibt alles wie bisher
+    assert permnote.message({"label": "x"}, "Chat")[0] == "Chat"
+    assert permnote.tag("h1") == "llmitmir-permission-h1"
+
+
+
+def test_subtask_permissions_are_central_but_scoped():
+    info = subchats.with_origin({"id": "p1", "chat_id": "s1", "tool": "shell"}, "h1", "Mails sichten", "Woche")
+    assert info["root_chat_id"] == "h1" and info["sub_title"] == "Mails sichten" and info["chat_id"] == "s1"
+    # die Karte erscheint im Hauptchat und in der Teilaufgabe, nirgends sonst
+    assert subchats.belongs_to(info, "h1") and subchats.belongs_to(info, "s1") and not subchats.belongs_to(info, "s2")
+    # ohne Antwort: die Teilaufgabe macht ohne die Aktion weiter
+    assert subchats.timeout_answer(False, True) == "skip"
+    assert subchats.timeout_answer(False, False) == "deny" and subchats.timeout_answer(True, False) == "skip"
+    # „Immer erlauben“ wirkt nur in der eigenen Teilaufgabe
+    s1, s2, main = {"id": "s1", "parent_id": "h1"}, {"id": "s2", "parent_id": "h1"}, {"id": "h1"}
+    assert subchats.remember_allow(s1, "shell") is True
+    assert subchats.sub_allows(s1, "shell") and not subchats.sub_allows(s2, "shell") and not subchats.sub_allows(main, "shell")
+    assert subchats.remember_allow(main, "shell") is False and "permissions" not in main

@@ -12,7 +12,7 @@ import "./composer";
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "In der Warteschlange …", thinking: "Denkt nach …", streaming: "Schreibt …", tool: "Arbeitet …",
-  waiting_permission: "Wartet auf Freigabe", retry: "Modell ausgelastet – neuer Versuch", quota_wait: "Limit erreicht – wartet",
+  waiting_permission: "Wartet auf Freigabe", waiting_sub_permission: "Eine Teilaufgabe wartet auf dich", retry: "Modell ausgelastet – neuer Versuch", quota_wait: "Limit erreicht – wartet",
 };
 
 // Proposed / applied changes to skills, scheduled tasks and credentials (change sets from changes.py).
@@ -297,6 +297,7 @@ export class ChatView extends LitElement {
     .subres details summary { cursor: pointer; color: var(--lm-muted); font-size: 13px; }
     .subres .md { margin-top: 6px; max-height: 360px; overflow-y: auto; }
     .att.left { justify-content: flex-start; margin: 0; }
+    .pfrom { font-size: 12.5px; color: var(--lm-muted); display: flex; align-items: center; gap: 5px; }
     .subcard { display: grid; gap: 6px; padding: 10px 12px; font-size: 13.5px; border-left: 3px solid var(--lm-accent); }
     .subcard + .step, .step + .subcard, .subcard + .subcard, .detail + .subcard { border-top: 1px solid var(--lm-line); }
     .subcard.fertig { border-left-color: var(--lm-ok); } .subcard.grenze, .subcard.platz, .subcard.dich { border-left-color: var(--lm-warn); }
@@ -547,6 +548,8 @@ export class ChatView extends LitElement {
     const lastMsg = chat.messages[chat.messages.length - 1];
     if (run.status === "streaming" && lastMsg?.streaming && lastMsg?.content) return nothing;
     if (run.status === "waiting_permission") return nothing;
+    if (run.status === "waiting_sub_permission") return html`<div class="running"><span class="den">${icon("clock", 18)}</span>
+      <span>${t("Teilaufgabe ›{t}‹ wartet auf dich", { t: run.detail?.sub_title || "" })}</span></div>`;
     const d = run.detail || {};
     let text = STATUS_TEXT[run.status] || "Arbeitet …";
     if (run.status === "tool") text = (d.label || "Werkzeug") + " …";
@@ -586,9 +589,20 @@ export class ChatView extends LitElement {
     store.api.ws("chat/switch_model", { chat_id: this.chatId, model }).catch(e => store.notify(String(e.message || e)));
   }
 
+  /** Freigaben dieses Chats – im Hauptchat auch die seiner Teilaufgaben (zentral beantworten). */
+  private myPerms(): any[] {
+    return store.permissions.filter(p => p.chat_id === this.chatId || p.root_chat_id === this.chatId);
+  }
+
+  /** Oben auf einer Karte aus einer Teilaufgabe: woher sie kommt, mit Link. */
+  private permFrom(p: any) {
+    if (!p.root_chat_id || p.chat_id === this.chatId) return nothing;
+    return html`<div class="pfrom">${icon("subtask", 15)} ${t("aus Teilaufgabe")} <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/chat/${p.chat_id}`); }}>›${p.sub_title || t("Teilaufgabe")}‹</a></div>`;
+  }
+
   private permCards() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => p.steps ? html`<div class="perm">
+    return this.myPerms().map(p => p.steps ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("list")}<b class="grow">LLMitMir ist noch nicht fertig – weitere ${p.steps.more} Schritte verwenden?</b></div>
       <div class="hint">${p.steps.used} von ${p.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${p.steps.limit - p.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.${p.steps.lots ? ` Mit ${p.steps.lots} weiteren Schritten wird die Frage so schnell nicht wieder fällig.` : ""}</div>
       <div class="row">
@@ -596,7 +610,7 @@ export class ChatView extends LitElement {
         ${p.steps.lots ? html`<button class="btn" @click=${() => answer(p, "lots")}>${icon("check", 16)} ${p.steps.lots} weitere Schritte</button>` : nothing}
         <button class="btn ghost" @click=${() => answer(p, "deny")}>Zum Ende kommen</button>
       </div></div>`
-    : p.change ? html`<div class="perm">
+    : p.change ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("edit")}<b class="grow">LLMitMir schlägt diese Änderung vor</b></div>
       ${changeView(p.change)}
       <div class="row">
@@ -604,7 +618,7 @@ export class ChatView extends LitElement {
         <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Änderung weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
-    : p.group ? html`<div class="perm">
+    : p.group ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte „${p.group_label}“ nutzen: ${p.label}</b></div>
       <div class="hint">Diese Werkzeuge sind ${this.chat?.project_id ? "in diesem Chat oder Projekt" : "in diesem Chat"} nicht eingeschaltet.</div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
@@ -613,8 +627,8 @@ export class ChatView extends LitElement {
         <button class="btn" @click=${() => answer(p, "always")}>${t("Für diesen Chat einschalten")}</button>
         <button class="btn ghost danger" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne dieses Werkzeug weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne es weitermachen")}</button>
-      </div><div class="hint">„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.</div></div>`
-    : html`<div class="perm">
+      </div><div class="hint">${p.root_chat_id ? t("„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.") : html`„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.`}</div></div>`
+    : html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte: ${p.label}</b></div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
@@ -622,7 +636,8 @@ export class ChatView extends LitElement {
         <button class="btn" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "always" })}>${t("Immer erlauben")}</button>
         <button class="btn ghost danger" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "deny" })}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Aktion weiterarbeiten")} @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "skip" })}>${t("Ohne sie weitermachen")}</button>
-      </div><div class="hint">„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.</div></div>`);
+      </div><div class="hint">${p.root_chat_id ? t("„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.")
+        : `„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.`}</div></div>`);
   }
 
   // ---------------------------------------------------------------- simple view (Laien-Ansicht)
@@ -678,7 +693,7 @@ export class ChatView extends LitElement {
 
   /** Waiting animation: typing dots and, in plain words, what is happening right now. */
   private typing(run: any, chat: any) {
-    if (!run || run.status === "waiting_permission") return nothing;
+    if (!run || run.status === "waiting_permission" || run.status === "waiting_sub_permission") return nothing;
     const last = chat.messages[chat.messages.length - 1];
     if (last?.role === "assistant" && (last.content || last.error) && !last.tool_calls?.length && !heldBack(last)) return nothing;  // the answer is there
     const el = this.now / 1000 - (run.started || this.now / 1000);
@@ -703,7 +718,7 @@ export class ChatView extends LitElement {
   /** Questions from the assistant as plain yes/no messages; the details stay one tap away. */
   private simplePerms() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return store.permissions.filter(p => p.chat_id === this.chatId).map(p => {
+    return this.myPerms().map(p => {
       if (p.change) {
         const del = p.change.aktion === "loeschen";
         const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change.aktion] || p.change.aktion;

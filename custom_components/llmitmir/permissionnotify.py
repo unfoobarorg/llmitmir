@@ -5,7 +5,8 @@ geschlossen hat, merkt davon nichts. Deshalb meldet LLMitMir eine wartende Freig
 wenn gerade niemand zusieht (kein Panel verbunden) und die Person es nicht abgeschaltet hat.
 
 Der Text nennt, was gefragt wird, und – bei einem Befehl – die ersten Zeilen davon, damit die Entscheidung
-ohne Öffnen des Chats möglich ist. Geheimnisse stehen nicht darin: die Argumente sind bereits geschwärzt.
+ohne Öffnen des Chats möglich ist. Fragt eine Teilaufgabe (Unterchat), heißt die Meldung „Teilaufgabe braucht dich“,
+nennt Teilaufgabe und Hauptchat und führt in den Hauptchat, wo die Frage zentral beantwortet wird. Geheimnisse stehen nicht darin: die Argumente sind bereits geschwärzt.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import re
 MAX_PREVIEW = 160      # so viel der Eingabe steht in der Nachricht
 MAX_LINES = 2          # bei einem Befehl: die ersten beiden Zeilen
 TITLE = "LLMitMir: Freigabe nötig"
+SUB_TITLE = "LLMitMir: Teilaufgabe braucht dich"
 
 # Reihenfolge wie im Panel (chat.ts, stepRow): das aussagekräftigste Argument zuerst
 ARGS = ("anfrage", "url", "pfad", "name", "entity_id", "filter", "typ")
@@ -51,8 +53,22 @@ def message(info: dict, chat_title: str = "", simple: bool = False) -> tuple[str
     Einfache Ansicht: ein Satz in Alltagssprache. Expertenansicht: Chat, Werkzeug und Eingabe.
     """
     label = _one_line(info.get("label") or info.get("group_label") or info.get("tool") or "eine Aktion")
+    if info.get("change"):
+        label = f"Änderung: {label}"
+    elif info.get("tool") == "more_steps":
+        label = "Weitere Schritte verwenden?"
     what = preview(info)
     title = _one_line(chat_title) or TITLE
+    if info.get("root_chat_id"):
+        # aus einer Teilaufgabe: Titel fest, der Text nennt Teilaufgabe und Hauptchat (Link führt in den Hauptchat)
+        sub = _one_line(info.get("sub_title")) or "Teilaufgabe"
+        root = _one_line(info.get("root_title"))
+        where = f"Teilaufgabe ›{sub}‹" + (f" im Chat ›{root}‹" if root else "")
+        if simple:
+            text = f"{where}: Ich brauche deine Erlaubnis – {label}."
+            return SUB_TITLE, text + (f" Es geht um: {what}" if what else "")
+        text = f"{where}\n{label}" + (f"\n{what}" if what else "")
+        return SUB_TITLE, text + "\nAntworten im Hauptchat – ohne Antwort macht die Teilaufgabe ohne die Aktion weiter."
     if simple:
         text = f"Ich brauche deine Erlaubnis: {label}."
         if what:

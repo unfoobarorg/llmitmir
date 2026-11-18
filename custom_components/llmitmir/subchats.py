@@ -314,3 +314,35 @@ class Slots:
                 f.set_result(True)  # der Platz geht direkt weiter, die Zahl bleibt gleich
                 return
         self.used[user] = max(0, self.used.get(user, 0) - 1)
+
+
+# ---------------------------------------------------------------- Freigaben zentral im Hauptchat
+def with_origin(info: dict, root: str, sub_title: str, root_title: str = "") -> dict:
+    """Eine Freigabe aus einer Teilaufgabe: Herkunft dazu, damit der Hauptchat sie zeigt und die Push-Nachricht dorthin
+    führt."""
+    return dict(info, root_chat_id=root, sub_title=sub_title or "Teilaufgabe", root_title=root_title or "")
+
+
+def belongs_to(perm: dict, chat_id: str) -> bool:
+    """Gehört die Freigabe in diesen Chat? Im Hauptchat erscheinen auch die seiner Teilaufgaben."""
+    return perm.get("chat_id") == chat_id or perm.get("root_chat_id") == chat_id
+
+
+def timeout_answer(custom_wait: bool, is_sub: bool) -> str:
+    """Antwort, wenn niemand reagiert: mit eigener Wartezeit oder in einer Teilaufgabe ohne die Aktion weiter, sonst
+    nach einer Stunde ablehnen."""
+    return "skip" if custom_wait or is_sub else "deny"
+
+
+def sub_allows(chat: dict, tool: str) -> bool:
+    """„Immer erlauben“ aus dieser Teilaufgabe (gilt nur in ihr selbst)."""
+    return bool(chat.get("parent_id")) and (chat.get("permissions") or {}).get(tool) == "allow"
+
+
+def remember_allow(chat: dict, tool: str) -> bool:
+    """„Immer erlauben“ in einer Teilaufgabe merken (True); bei einem normalen Chat False – dann gilt es wie bisher
+    für das Projekt bzw. alle Chats ohne Projekt."""
+    if not chat.get("parent_id"):
+        return False
+    chat.setdefault("permissions", {})[tool] = "allow"
+    return True

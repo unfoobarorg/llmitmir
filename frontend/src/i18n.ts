@@ -147,7 +147,10 @@ const EN: Record<string, string> = {
   "Läuft": "Running", "Wartet": "Waiting", "Grenze erreicht": "Limit reached", "Fehler": "Error", "Abgebrochen": "Stopped",
   "Neu": "New", "Wartet auf deine Freigabe": "Waiting for your approval",
   "Wartet auf einen freien Platz": "Waiting for a free slot", "Folgeauftrag": "Follow-up", "Zusammenfassung ausblenden": "Hide summary",
-  "Wartet auf Teilaufgaben …": "Waiting for subtasks …", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
+  "Wartet auf Teilaufgaben …": "Waiting for subtasks …", "aus Teilaufgabe": "from subtask",
+  "Teilaufgabe ›{t}‹ wartet auf dich": "Subtask ›{t}‹ is waiting for you",
+  "„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.": "“Turn on for this chat” only applies to this subtask.",
+  "„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.": "“Always allow” only applies to this subtask – even when you answer here in the main chat.", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
 };
 
 let lang = "de";

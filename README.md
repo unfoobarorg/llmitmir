@@ -36,7 +36,10 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   selben Schritt parallel, und wartet auf ihre Zusammenfassungen. Im Hauptchat erscheint je Teilaufgabe eine Karte mit
   Modell, Stand (auch „wartet auf einen freien Platz“ und „Grenze erreicht“), Laufzeit, Verbrauch und *Öffnen*.
   Grenzen: 3 gleichzeitig je Person, 8 je Lauf, 40 Schritte je Teilaufgabe; jede erreichte Grenze meldet sofort ein
-  Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Details: [docs/TEILAUFGABEN.md](docs/TEILAUFGABEN.md).
+  Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Freigaben, Änderungskarten und die Frage nach mehr
+  Schritten aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
+  ist – als Push „Teilaufgabe braucht dich“ mit Link auf den Hauptchat; „Immer erlauben“ gilt dabei nur für die eine
+  Teilaufgabe. Details: [docs/TEILAUFGABEN.md](docs/TEILAUFGABEN.md).
 - **Gespräch (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite, aus der Seitenleiste und aus
   jedem Chat und Cowork über den Knopf *Gespräch* –, in der man mit LLMitMir redet wie am Telefon, beliebig lange und
   über viele Runden. Aus einem Chat heraus setzt das Gespräch dessen Verlauf fort (die letzte Antwort wird einmal

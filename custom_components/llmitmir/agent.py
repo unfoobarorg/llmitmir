@@ -1716,16 +1716,49 @@ class Manager:
             if not device:
                 return
             chat = await st.async_get_chat(run.chat_id) or {}
+            # aus einer Teilaufgabe: Titel nennt die Teilaufgabe, der Link führt in den Hauptchat
+            root = info.get("root_chat_id") or run.chat_id
             title, text = PN.message(info, chat.get("title") or "", self.simple(run.user_id))
-            await ND.async_send(self.hass, device, title, text, url=f"/llmitmir/chat/{run.chat_id}",
-                                tag=PN.tag(run.chat_id))
+            await ND.async_send(self.hass, device, title, text, url=f"/llmitmir/chat/{root}", tag=PN.tag(root))
         except Exception:  # noqa: BLE001
             _LOGGER.debug("LLMitMir: Push für wartende Freigabe fehlgeschlagen", exc_info=True)
+
+    async def _sub_permission_context(self, run: Run, info: dict) -> tuple[dict, Run | None, dict | None]:
+        """Freigabe aus einer Teilaufgabe: Herkunft ergänzen (root_chat_id, sub_title, root_title), die Teilaufgabe auf
+        „wartet“ und den Hauptchat auf „Teilaufgabe wartet auf dich“ setzen. Liefert (info, Lauf des Hauptchats, Chat)."""
+        if not run.parent_id:
+            return info, None, None
+        st = self.users.get(run.user_id)
+        sub = await st.async_get_chat(run.chat_id) if st else None
+        parent = (st.meta["chats"].get(run.parent_id) if st else None) or {}
+        info = SC.with_origin(info, run.parent_id, (sub or {}).get("title") or "", parent.get("title") or "")
+        if sub is not None and sub.get("sub") is not None:
+            await self._sub_status(st, sub, SC.WARTET, "freigabe")
+        main = self.active_run(run.parent_id)
+        if main is not None:
+            if main.status != "waiting_sub_permission":  # wartet schon eine andere: deren Vorher-Stand bleibt
+                main.detail = dict(main.detail, before=(main.status, {k: v for k, v in main.detail.items() if k != "before"}))
+            await self._status(main, "waiting_sub_permission", dict(main.detail, sub_title=info["sub_title"],
+                                                                    sub_id=run.chat_id, permission_id=info["id"]))
+        return info, main, sub
+
+    async def _sub_permission_done(self, run: Run, main: Run | None, sub: dict | None) -> None:
+        """Die Freigabe aus der Teilaufgabe ist beantwortet: beide Läufe zeigen wieder, was sie vorher taten."""
+        st = self.users.get(run.user_id)
+        if sub is not None and st and sub.get("sub") is not None and sub["sub"].get("status") == SC.WARTET \
+                and run.chat_id in st.meta["chats"]:
+            await self._sub_status(st, sub, SC.LAEUFT)
+        if main is not None and main.status == "waiting_sub_permission" and main.id in self.runs:
+            if any(i.get("root_chat_id") == main.chat_id for (_u, f, i) in self.permissions.values() if not f.done()):
+                return  # eine andere Teilaufgabe wartet noch
+            status, detail = (main.detail.get("before") or ("tool", {}))
+            await self._status(main, status, detail)
 
     async def ask_permission(self, run: Run, info: dict) -> str:
         pid = new_id("p")
         fut = self.hass.loop.create_future()
         info = dict(info, id=pid, run_id=run.id, chat_id=run.chat_id, created=now())
+        info, main, sub = await self._sub_permission_context(run, info)
         self.permissions[pid] = (run.user_id, fut, info)
         await self._status(run, "waiting_permission", {"permission": info})
         self.emit(run.user_id, {"type": "permission", "permission": info})
@@ -1744,10 +1777,16 @@ class Manager:
         try:
             return await asyncio.wait_for(fut, timeout=wait)
         except asyncio.TimeoutError:
-            return "skip" if wait != 3600 else "deny"
+            # eine Teilaufgabe macht ohne die Aktion weiter und nennt die Lücke in ihrem Ergebnis
+            return SC.timeout_answer(wait != 3600, bool(run.parent_id))
         finally:
             self.permissions.pop(pid, None)
-            self.emit(run.user_id, {"type": "permission_done", "id": pid, "chat_id": run.chat_id})
+            self.emit(run.user_id, {"type": "permission_done", "id": pid, "chat_id": run.chat_id,
+                                    "root_chat_id": info.get("root_chat_id")})
+            try:
+                await self._sub_permission_done(run, main, sub)
+            except Exception:  # noqa: BLE001 - nur Anzeige
+                _LOGGER.debug("Teilaufgabe: Status nach Freigabe nicht zurückgesetzt", exc_info=True)
 
     def answer_permission(self, user_id: str, pid: str, decision: str) -> bool:
         item = self.permissions.get(pid)
@@ -2144,6 +2183,8 @@ class ToolContext:
     def permission_for(self, tool_name: str) -> str:
         if self.task is not None:
             return PERM_ALLOW if tool_name in self.task_write_allowed() else PERM_DENY
+        if SC.sub_allows(self.chat, tool_name):
+            return PERM_ALLOW  # „Immer erlauben“ in dieser Teilaufgabe gilt nur hier
         if self.project:
             p = (self.project.get("permissions") or {}).get(tool_name)
             if p:
@@ -2294,6 +2335,8 @@ class ToolContext:
                                              "ext_last": c.get("ext_last")})
 
     def _remember_allow(self, name: str) -> None:
+        if SC.remember_allow(self.chat, name):
+            return  # nur für diese Teilaufgabe – weder im Hauptchat noch in seinen anderen Teilaufgaben
         if self.project:
             self.project.setdefault("permissions", {})[name] = PERM_ALLOW
         else:

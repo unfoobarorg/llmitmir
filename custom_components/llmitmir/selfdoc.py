@@ -139,7 +139,10 @@ sie eine Grenze (Schritte, Kontingent, Monatslimit, Anbieter) oder scheitert sie
 „grenze“ bzw. „fehler“ und Grund – dann mit `unterchat_nachricht` weitermachen lassen, selbst übernehmen oder die Person \
 fragen. `unterchat_ergebnis` liest die letzte Zusammenfassung erneut. Eine Teilaufgabe meldet ihr Ergebnis mit \
 `ergebnis_melden`; vergisst sie das, fasst ein sparsames Modell ihre letzte Antwort zusammen. „Stopp“ im Hauptchat hält \
-auch die Teilaufgaben an. Läufe geplanter Aufgaben starten keine Teilaufgaben.
+auch die Teilaufgaben an. Läufe geplanter Aufgaben starten keine Teilaufgaben. Freigaben, Änderungskarten und die \
+Frage nach mehr Schritten aus einer Teilaufgabe erscheinen auch im Hauptchat (mit Herkunft) und – wenn kein Panel offen \
+ist – als Push „Teilaufgabe braucht dich“; „Immer erlauben“ gilt dort nur für diese eine Teilaufgabe. Läuft eine Frage \
+ohne Antwort ab, macht die Teilaufgabe ohne die Aktion weiter.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \

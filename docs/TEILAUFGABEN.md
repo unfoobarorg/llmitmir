@@ -81,6 +81,24 @@ Jede Teilaufgabe, die der Hauptchat startet, erscheint als Karte statt als Werkz
 wartet auf einen freien Platz, wartet auf deine Freigabe, fertig, Grenze erreicht, Fehler), Laufzeit, Verbrauch und
 *Öffnen*; die Zusammenfassung lässt sich aufklappen.
 
+## Freigaben zentral im Hauptchat
+
+Alles aus einer Teilaufgabe, was eine Eingabe der Person braucht – Freigaben, Änderungskarten (z. B. eine geplante
+Aufgabe anlegen) und die Frage nach mehr Schritten –, erscheint **auch im Hauptchat**:
+
+- Die Karte zeigt oben „aus Teilaufgabe ›Titel‹“ mit Link. In der Teilaufgabe selbst steht dieselbe Karte; die Antwort
+  gilt einmal für beide.
+- Der Hauptchat zeigt währenddessen „Teilaufgabe ›Titel‹ wartet auf dich“, die Karte der Teilaufgabe „wartet auf deine
+  Freigabe“, und in der Seitenleiste tragen Teilaufgabe und Hauptchat einen gelben Punkt.
+- **„Immer erlauben“** auf einer Karte aus einer Teilaufgabe gilt nur für diese Teilaufgabe – auch wenn im Hauptchat
+  geantwortet wird; die Karte sagt das. Freigaben, die im Hauptchat (Projekt, Einstellungen) schon gelten, gelten in
+  der Teilaufgabe von Anfang an.
+- **Push**: wie bei jeder Freigabe nur, wenn kein Panel offen ist und die Person es nicht abgeschaltet hat; Titel
+  „LLMitMir: Teilaufgabe braucht dich“, der Text nennt Teilaufgabe und Hauptchat, der Link führt in den Hauptchat.
+- **Wartezeit**: wie eingestellt (`permission_timeout_min`, sonst eine Stunde). Läuft sie ab, macht die Teilaufgabe
+  ohne die Aktion weiter und nennt die Lücke in ihrem Ergebnis.
+- **Gespräch**: Im Sprachgespräch mit dem Hauptchat lassen sich auch Freigaben seiner Teilaufgaben beantworten.
+
 ## Lebensdauer, Projekte, Löschen
 
 - Teilaufgaben folgen ihrem Hauptchat: Löschen, Aufräumfrist und Projektwechsel wirken auf den ganzen Baum.
