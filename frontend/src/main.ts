@@ -473,7 +473,9 @@ export class LLMitMirPanel extends LitElement {
 
   /** Status-Punkt einer Teilaufgabe: läuft, wartet, fertig oder Fehler. */
   private subDot(c: any) {
-    const st = this.waitsForMe(c.id) ? "wartet" : store.runs[c.id] ? "laeuft" : c.sub_status || "neu";
+    // „läuft“ ohne Lauf: nach einem Neustart von Home Assistant unterbrochen
+    const st = this.waitsForMe(c.id) ? "wartet" : store.runs[c.id] ? "laeuft"
+      : c.sub_status === "laeuft" ? "abgebrochen" : c.sub_status || "neu";
     const label: Record<string, string> = { laeuft: t("Läuft"), wartet: t("Wartet"), fertig: t("Fertig"), grenze: t("Grenze erreicht"),
       fehler: t("Fehler"), abgebrochen: t("Abgebrochen"), neu: t("Neu") };
     return html`<span class="sdot ${st}" title=${label[st] || st}></span>`;

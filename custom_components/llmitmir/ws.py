@@ -722,10 +722,10 @@ async def ws_task_preview(hass, conn, msg, m, user, st):
 async def ws_settings_save(hass, conn, msg, m, user, st):
     s = msg["settings"]
     cur = st.meta["settings"]
-    for k in ("model_chat", "model_agent"):
+    for k in ("model_chat", "model_agent", "model_sub"):
         if PV.is_external(s.get(k) or ""):
             raise ValueError("Externe Modelle lassen sich nicht als Standard festlegen – nur im Chat oder bei einer Aufgabe auswählen.")
-    for k in ("model_chat", "model_agent", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
+    for k in ("model_chat", "model_agent", "model_sub", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
     if "voice_name" in s:

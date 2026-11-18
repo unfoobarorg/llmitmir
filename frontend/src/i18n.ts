@@ -146,6 +146,8 @@ const EN: Record<string, string> = {
   "Teilaufgaben zuklappen": "Collapse subtasks", "Teilaufgaben aufklappen": "Expand subtasks",
   "Läuft": "Running", "Wartet": "Waiting", "Grenze erreicht": "Limit reached", "Fehler": "Error", "Abgebrochen": "Stopped",
   "Neu": "New", "Wartet auf deine Freigabe": "Waiting for your approval",
+  "Wartet auf einen freien Platz": "Waiting for a free slot", "Folgeauftrag": "Follow-up", "Zusammenfassung ausblenden": "Hide summary",
+  "Wartet auf Teilaufgaben …": "Waiting for subtasks …", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
 };
 
 let lang = "de";

@@ -3125,8 +3125,92 @@ def test_subchats_summary_fields_and_new_sub():
     sub = subchats.new_sub("Finde X", subchats.VON_PERSON, call_id="call1")
     assert sub["von"] == "person" and sub["melden"] is True and sub["status"] == "neu" and sub["call_id"] == "call1"
     f = subchats.summary_fields({"id": "s", "parent_id": "h", "sub": sub})
-    assert f == {"parent_id": "h", "sub_status": "neu", "sub_call": "call1", "sub_von": "person"}
+    assert f == {"parent_id": "h", "sub_status": "neu", "sub_call": "call1", "sub_von": "person", "sub_wait": None}
     assert subchats.summary_fields({"id": "h"})["sub_status"] is None
     assert subchats.message_text({"role": "assistant", "content": "Antwort"}) == "Antwort"
     assert subchats.message_text({"role": "sub_result", "summary": "S"}) == "S"
     assert subchats.title_from("## **Plan** für den Umzug") == "Plan für den Umzug"
+
+
+
+def test_subchats_pick_model():
+    ext = lambda m: m.startswith("ext:")  # noqa: E731
+    ok = lambda m: m in ("a", "b", "ext:claude")  # noqa: E731
+    pick = subchats.pick_model
+    assert pick("sparsam", "big", True, "small", "strong", ext, ok) == ("small", True, "")
+    assert pick(None, "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert pick("stark", "big", True, "small", "strong", ext, ok)[:2] == ("strong", True)
+    assert pick("wie_hauptchat", "big", False, "small", "strong", ext, ok)[:2] == ("big", False)
+    assert pick("a", "big", True, "small", "strong", ext, ok)[:2] == ("a", False)
+    model, auto, note = pick("gibtsnicht", "big", True, "small", "strong", ext, ok)
+    assert model == "small" and auto and "nicht verfügbar" in note
+    # externe Modelle nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat
+    assert pick("ext:claude", "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert pick("wie_hauptchat", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
+    assert pick("ext:claude", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
+
+
+def test_subchats_final_status_and_tool_result():
+    fs = subchats.final_status
+    assert fs("done") == "fertig"
+    assert fs("done", limit_hit=True) == "grenze"
+    assert fs("error", "Tageskontingent erreicht", limit_error=True) == "grenze"
+    assert fs("error", "KeyError: x") == "fehler"
+    assert fs("stopped") == "abgebrochen"
+    res = subchats.result("Teil fertig", ["a.csv"], "grenze", "Höchstzahl von 40 Schritten erreicht")
+    out = subchats.tool_result({"id": "s1", "title": "Recherche", "messages": [{"content": "geheim"}]}, res, "Hinweis")
+    assert out["stand"] == "grenze" and "unterchat_nachricht" in out["hinweis"] and out["hinweis_modell"] == "Hinweis"
+    assert "geheim" not in str(out)  # nie der Verlauf
+    assert "hinweis" not in subchats.tool_result({"id": "s"}, subchats.result("ok"))
+    assert subchats.last_answer([{"role": "assistant", "content": "A"}, {"role": "assistant", "content": "", "error": "x"}]) == "A"
+    assert subchats.clean_groups(["web", "nix", "web", "files"], {"web", "files"}) == ["web", "files"]
+    assert subchats.clean_groups([], {"web"}) is None
+
+
+def test_subchats_slots_queue_and_cancel():
+    import asyncio
+
+    async def main():
+        slots = subchats.Slots(3)
+        got = [await slots.acquire("u") for _ in range(3)]
+        assert got == [True, True, True] and slots.busy("u") == 3
+        assert await slots.acquire("andere")  # je Person gezählt
+        waited = []
+
+        async def on_wait():
+            waited.append(1)
+
+        fourth = asyncio.ensure_future(slots.acquire("u", on_wait=on_wait))
+        await asyncio.sleep(0)
+        assert waited == [1] and slots.waiting("u") == 1 and not fourth.done()
+        slots.release("u")  # der Platz geht direkt an die wartende Teilaufgabe
+        assert await fourth is True and slots.busy("u") == 3
+        cancel = asyncio.Event()
+        fifth = asyncio.ensure_future(slots.acquire("u", cancel))
+        await asyncio.sleep(0)
+        cancel.set()  # Stopp im Hauptchat: wartet nicht weiter
+        assert await fifth is False and slots.waiting("u") == 0
+        for _ in range(3):
+            slots.release("u")
+        assert slots.busy("u") == 0
+
+    asyncio.run(main())
+
+
+def test_models_sub_role_prefers_fast_reliable_models():
+    known = [{"id": m, "status": "ready", "input": ["text"], "output": ["text"]}
+             for m in ("glm-5.3", "deepseek-v4.1-flash-1017", "mistral-large-4-1t-a52b", "eurollm-22b-instruct-2512")]
+    assert ms.pick(known, "sub") == "deepseek-v4.1-flash-1017"
+    assert ms.quality("mistral-large-4-1t-a52b", "sub") < ms.quality("mistral-large-4-1t-a52b", "agent")
+    assert ms.quality("eurollm-22b-instruct-2512", "sub") < 10  # Werkzeuge zu unzuverlässig
+    assert "sub" in ms.ROLES
+
+
+def test_sub_tools_registered_but_not_in_tool_menu():
+    import re
+
+    text = (BASE / "tools" / "sub.py").read_text()
+    names = re.findall(r'register\(Tool\(\s*"(\w+)"', text)
+    assert names == ["unterchat_starten", "unterchat_nachricht", "unterchat_ergebnis", "ergebnis_melden"]
+    init = (BASE / "tools" / "__init__.py").read_text()
+    assert '"unterchat"' not in init and '"teilergebnis"' not in init  # keine Auswahl im Werkzeug-Menü

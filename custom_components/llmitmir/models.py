@@ -14,7 +14,7 @@ import math
 import re
 from typing import Any, Iterable
 
-ROLES = ("chat", "agent", "vision")
+ROLES = ("chat", "agent", "vision", "sub")
 
 # From this demand on a model counts as heavily loaded: answers can take minutes.
 DEMAND_HIGH = 4
@@ -99,6 +99,8 @@ def _can(info: dict, role: str) -> bool:
 def quality(model_id: str, role: str, info: dict | None = None) -> int:
     """Quality of a model for a role; estimated for models that are not in the table."""
     info = info or {"id": model_id}
+    if role == "sub":
+        return _sub_quality(model_id, info)
     q = QUALITY.get(model_id)
     if q:
         if role in q:
@@ -142,6 +144,29 @@ def _estimate(model_id: str, role: str, info: dict) -> int:
     if role == "vision" and "image" not in (info.get("input") or []):
         return 0
     return int(max(1, min(99, base)))
+
+
+# Role "sub" (Teilaufgaben, "sparsam"): reliable tool calls still come first, but speed and a small size count more
+# than for "agent" – a sub-task does one well-described job, often several of them in parallel.
+SUB_MIN_AGENT = 55     # below this, tool calls are too unreliable to work alone on a task
+
+
+def _sub_quality(model_id: str, info: dict) -> int:
+    a = quality(model_id, "agent", info)
+    if a <= 0:
+        return 0
+    if a < SUB_MIN_AGENT:
+        return max(1, a - 20)
+    p = parse(model_id)
+    size = p["active_b"] or p["total_b"]
+    bonus = 0
+    if p["light"]:
+        bonus += 8
+    if size and size <= 20:
+        bonus += 4
+    if (p["total_b"] or 0) >= 300:
+        bonus -= 8
+    return int(max(1, min(99, a + bonus)))
 
 
 def usable(info: dict) -> bool:

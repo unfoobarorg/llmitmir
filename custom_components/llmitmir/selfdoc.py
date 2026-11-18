@@ -131,6 +131,15 @@ Antwort wird zum Ausgangspunkt. Eine Teilaufgabe teilt Dateien und Sandbox mit i
 (verschieben und anheften lässt sich nur der Hauptchat) und wird mit ihm gelöscht. Der Hauptchat sieht nie den Verlauf \
 einer Teilaufgabe, nur Zusammenfassungen, die als „Ergebnis aus Unterchat ›Titel‹“ in seinem Verlauf stehen. Es gibt \
 nur eine Ebene: Teilaufgaben haben keine eigenen Teilaufgaben.
+Du selbst startest eine Teilaufgabe mit `unterchat_starten` (Titel, eigenständiger Auftrag, Modell „sparsam“, „stark“, \
+„wie_hauptchat“ oder eine Modell-ID, optional Werkzeuggruppen und Dateien). Du wartest im selben Schritt, bis sie fertig \
+ist, und bekommst ihre Zusammenfassung als Ergebnis; mehrere Aufrufe im selben Schritt laufen parallel. Höchstens 3 laufen \
+je Person gleichzeitig (weitere warten auf einen freien Platz), höchstens 8 je Lauf, je Teilaufgabe 40 Schritte. Erreicht \
+sie eine Grenze (Schritte, Kontingent, Monatslimit, Anbieter) oder scheitert sie, kommt sofort ein Teilergebnis mit Stand \
+„grenze“ bzw. „fehler“ und Grund – dann mit `unterchat_nachricht` weitermachen lassen, selbst übernehmen oder die Person \
+fragen. `unterchat_ergebnis` liest die letzte Zusammenfassung erneut. Eine Teilaufgabe meldet ihr Ergebnis mit \
+`ergebnis_melden`; vergisst sie das, fasst ein sparsames Modell ihre letzte Antwort zusammen. „Stopp“ im Hauptchat hält \
+auch die Teilaufgaben an. Läufe geplanter Aufgaben starten keine Teilaufgaben.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \

@@ -30,7 +30,13 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   Fehler); ein Pfeil am Hauptchat klappt sie ein und aus. Unter jeder Antwort legt *Als Teilaufgabe weiterarbeiten* eine
   an, mit der Antwort als Ausgangspunkt. Teilaufgaben teilen Dateien und Sandbox mit ihrem Hauptchat, ziehen mit ihm in
   ein anderes Projekt und werden mit ihm gelöscht (auch über die Lebensdauer). Der Hauptchat sieht nur ihre
-  Zusammenfassungen, nie ihren Verlauf – so bleibt er kurz und aufgeräumt. Details: [docs/TEILAUFGABEN.md](docs/TEILAUFGABEN.md).
+  Zusammenfassungen, nie ihren Verlauf – so bleibt er kurz und aufgeräumt. Auch das Modell selbst verteilt Arbeit:
+  Mit `unterchat_starten` startet es Teilaufgaben mit eigenem Kontext und eigenem Modell (Standard *sparsam*, eine eigene
+  Rolle der automatischen Modellwahl, einstellbar unter *Einstellungen → Modelle* und *Admin → Modelle*), mehrere im
+  selben Schritt parallel, und wartet auf ihre Zusammenfassungen. Im Hauptchat erscheint je Teilaufgabe eine Karte mit
+  Modell, Stand (auch „wartet auf einen freien Platz“ und „Grenze erreicht“), Laufzeit, Verbrauch und *Öffnen*.
+  Grenzen: 3 gleichzeitig je Person, 8 je Lauf, 40 Schritte je Teilaufgabe; jede erreichte Grenze meldet sofort ein
+  Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Details: [docs/TEILAUFGABEN.md](docs/TEILAUFGABEN.md).
 - **Gespräch (Sprachgespräch)**: Eine eigene Ansicht – erreichbar von der Startseite, aus der Seitenleiste und aus
   jedem Chat und Cowork über den Knopf *Gespräch* –, in der man mit LLMitMir redet wie am Telefon, beliebig lange und
   über viele Runden. Aus einem Chat heraus setzt das Gespräch dessen Verlauf fort (die letzte Antwort wird einmal
@@ -283,6 +289,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |
 | LLMitMir (immer an) | `llmitmir_info`; mit Bestätigung jeder einzelnen Änderung: `skill_save`, `skill_delete`, `task_save`, `task_delete`, `credential_save`, `credential_delete` |
 | Werkbank (optional) | `shell`*, `werkbank_files`, `werkbank_fetch`, `werkbank_push` |
+| Teilaufgaben | `unterchat_starten`, `unterchat_nachricht`, `unterchat_ergebnis` (nicht in Teilaufgaben und geplanten Aufgaben); in einer Teilaufgabe `ergebnis_melden` |
 
 \* schreibend – braucht eine Freigabe (bei geplanten Aufgaben beim Anlegen festgelegt).
 

@@ -297,6 +297,15 @@ export class ChatView extends LitElement {
     .subres details summary { cursor: pointer; color: var(--lm-muted); font-size: 13px; }
     .subres .md { margin-top: 6px; max-height: 360px; overflow-y: auto; }
     .att.left { justify-content: flex-start; margin: 0; }
+    .subcard { display: grid; gap: 6px; padding: 10px 12px; font-size: 13.5px; border-left: 3px solid var(--lm-accent); }
+    .subcard + .step, .step + .subcard, .subcard + .subcard, .detail + .subcard { border-top: 1px solid var(--lm-line); }
+    .subcard.fertig { border-left-color: var(--lm-ok); } .subcard.grenze, .subcard.platz, .subcard.dich { border-left-color: var(--lm-warn); }
+    .subcard.fehler, .subcard.abgebrochen { border-left-color: var(--lm-err); }
+    .subcard .srow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .subcard .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 560; }
+    .subcard .st { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--lm-muted); font-size: 12px; flex: none; }
+    .subinfo { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; color: var(--lm-faint); font-size: 12px; padding-left: 28px; }
+    .subsum { padding-left: 28px; max-height: 420px; overflow-y: auto; }
     .btn.tiny { padding: 2px 9px; font-size: 12px; border-radius: 8px; min-height: 26px; }
     .taskinfo { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 12px; padding: 10px 12px; display: flex; gap: 8px; }
     /* Gespräch: der Weg vom getippten Chat zur Sprachansicht – zurückhaltend, aber immer da */
@@ -411,7 +420,48 @@ export class ChatView extends LitElement {
     </div>`;
   }
 
+  /** Karte für eine Teilaufgabe, die der Hauptchat gestartet hat (statt einer Werkzeugzeile). */
+  private subCard(m: any) {
+    const chat = this.chat;
+    const chats = store.data?.chats || [];
+    const sub = m.name === "unterchat_nachricht" ? chats.find((c: any) => c.id === m.args?.id)
+      : chats.find((c: any) => c.parent_id === chat?.id && c.sub_call === m.tool_call_id);
+    let res: any = null;
+    if (m.status !== "running" && m.content) { try { res = JSON.parse(m.content); } catch { res = null; } }
+    const live = sub ? store.runs[sub.id] : null;
+    const asks = sub && store.permissions.some((p: any) => p.chat_id === sub.id);
+    const st = m.status === "running"
+      ? (asks ? "dich" : sub?.sub_wait === "platz" ? "platz" : live ? "laeuft" : sub?.sub_status === "wartet" ? "platz" : "laeuft")
+      : m.status === "error" && !res ? "fehler" : res?.stand || sub?.sub_status || "fertig";
+    const label: Record<string, string> = { laeuft: t("Läuft"), platz: t("Wartet auf einen freien Platz"), dich: t("Wartet auf deine Freigabe"),
+      fertig: t("Fertig"), grenze: t("Grenze erreicht"), fehler: t("Fehler"), abgebrochen: t("Abgebrochen") };
+    const secs = live ? this.now / 1000 - (live.started || this.now / 1000) : (m.ms || 0) / 1000;
+    const u = sub?.usage || {};
+    const tokens = (u.prompt || 0) + (u.completion || 0);
+    const open = this.openSteps.has(m.id);
+    const toggle = () => { const s = new Set(this.openSteps); open ? s.delete(m.id) : s.add(m.id); this.openSteps = s; };
+    return html`<div class="subcard ${st}">
+      <div class="srow">${icon("subtask", 18)}<b class="lbl">${sub?.title || m.args?.titel || t("Teilaufgabe")}</b>
+        ${m.name === "unterchat_nachricht" ? html`<span class="muted" style="font-size:12px">· ${t("Folgeauftrag")}</span>` : nothing}
+        <span class="st">${st === "laeuft" ? html`<span class="spin"></span>` : st === "fertig" ? html`<span class="ok">${icon("check", 16)}</span>`
+          : st === "fehler" || st === "abgebrochen" ? html`<span class="err">${icon("alert", 16)}</span>` : html`<span class="den">${icon("clock", 16)}</span>`}
+          ${label[st] || st}</span></div>
+      <div class="subinfo">
+        ${sub ? html`<span>${modelName(sub.model)}</span>` : nothing}
+        ${secs >= 1 ? html`<span>${fmtDuration(secs)}</span>` : nothing}
+        ${tokens ? html`<span>${fmtNum(tokens)} Tokens</span>` : nothing}
+        <span class="grow"></span>
+        ${res?.zusammenfassung || (m.content && !res && m.status !== "running") ? html`<button class="btn ghost tiny" @click=${toggle}>${open ? t("Zusammenfassung ausblenden") : t("Zusammenfassung")}</button>` : nothing}
+        ${sub ? html`<button class="btn tiny" @click=${() => navigate(`/chat/${sub.id}`)}>${t("Öffnen")}</button>` : nothing}
+      </div>
+      ${res?.grund && st !== "fertig" ? html`<div class="hint">${t("Grund")}: ${res.grund}</div>` : nothing}
+      ${open ? html`<div class="md subsum">${res ? md(res.zusammenfassung || "") : m.content}</div>
+        ${res?.dateien?.length ? html`<div class="att left">${res.dateien.map((f: string) => html`<button @click=${() => this.openFile(f)}>${icon("file", 15)}${f}</button>`)}</div>` : nothing}` : nothing}
+    </div>`;
+  }
+
   private stepRow(m: any) {
+    if (m.name === "unterchat_starten" || m.name === "unterchat_nachricht") return this.subCard(m);
     const open = this.openSteps.has(m.id);
     const a = m.args || {};
     const argText = a.anfrage || a.url || a.pfad || a.name || a.entity_id || a.filter || a.typ || (a.domain ? `${a.domain}.${a.service}` : "") || "";
@@ -500,6 +550,7 @@ export class ChatView extends LitElement {
     const d = run.detail || {};
     let text = STATUS_TEXT[run.status] || "Arbeitet …";
     if (run.status === "tool") text = (d.label || "Werkzeug") + " …";
+    if (run.status === "tool" && String(d.tool || "").startsWith("unterchat_")) text = t("Wartet auf Teilaufgaben …");
     if (run.status === "retry") text = `Modell ausgelastet – neuer Versuch in ${d.seconds} s (Versuch ${d.attempt})`;
     if (run.status === "quota_wait") text = `Limit des Schlüssels erreicht – geht in ${fmtDuration(d.seconds)} weiter`;
     if (run.status === "thinking" && d.switched_from) text = isExternal(chat.model) && d.auto

@@ -16,8 +16,9 @@ Dieses Modul kennt Home Assistant nicht, damit es sich direkt testen lässt.
 """
 from __future__ import annotations
 
+import asyncio
 import re
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 # Stand eines Unterchats (sub.status)
 LAEUFT = "laeuft"          # arbeitet gerade
@@ -148,9 +149,10 @@ def api_text(msg: dict) -> str:
 def summary_fields(chat: dict) -> dict:
     """Was die Seitenleiste je Chat zusätzlich braucht (chat_summary), ohne den Verlauf zu laden."""
     sub = chat.get("sub") or {}
-    return {"parent_id": chat.get("parent_id"), "sub_status": sub.get("status") if chat.get("parent_id") else None,
-            "sub_call": sub.get("call_id") if chat.get("parent_id") else None,
-            "sub_von": sub.get("von") if chat.get("parent_id") else None}
+    is_s = bool(chat.get("parent_id"))
+    return {"parent_id": chat.get("parent_id"), "sub_status": sub.get("status") if is_s else None,
+            "sub_call": sub.get("call_id") if is_s else None, "sub_von": sub.get("von") if is_s else None,
+            "sub_wait": sub.get("wartet_auf") if is_s else None}
 
 
 def message_text(msg: dict | None) -> str:
@@ -174,3 +176,141 @@ def ordered(ids: Iterable[str], subs: list[str] | None) -> list[str]:
     """Reihenfolge am Hauptchat nachziehen: bekannte zuerst in ihrer Reihenfolge, neue hinten."""
     have = [s for s in subs or [] if s in set(ids)]
     return have + [s for s in ids if s not in have]
+
+
+# ---------------------------------------------------------------- Delegation (Werkzeuge des Hauptchats)
+MODEL_CHOICES = ("sparsam", "stark", "wie_hauptchat")
+
+
+def pick_model(choice: Any, main_model: str, main_auto: bool, sparsam: str, stark: str,
+               is_external: Callable[[str], bool], usable: Callable[[str], bool]) -> tuple[str, bool, str]:
+    """Modell einer neuen Teilaufgabe: (Modell, automatisch, Hinweis für den Hauptchat).
+
+    ``sparsam`` nimmt die beste Wahl der Rolle „sub“, ``stark`` die der Rolle „agent“, ``wie_hauptchat`` das Modell
+    des Hauptchats; sonst eine Modell-ID. Kostenpflichtige externe Modelle nur, wenn die Person sie für den Hauptchat
+    ausdrücklich gewählt hat – sonst geht es sparsam weiter."""
+    c = str(choice or "sparsam").strip()
+    key = c.lower().replace("-", "_").replace(" ", "_")
+    main_ext_chosen = is_external(main_model or "") and not main_auto
+    note = ""
+    if key in ("", "sparsam"):
+        model, auto = sparsam, True
+    elif key == "stark":
+        model, auto = stark, True
+    elif key in ("wie_hauptchat", "hauptchat"):
+        model, auto = main_model, bool(main_auto)
+    elif usable(c):
+        model, auto = c, False
+    else:
+        model, auto, note = sparsam, True, f"Modell „{c}“ ist nicht verfügbar – die Teilaufgabe läuft sparsam."
+    if model and is_external(model) and not main_ext_chosen:
+        model, auto, note = sparsam, True, ("Kostenpflichtige externe Modelle nur, wenn die Person sie für den Hauptchat "
+                                            "gewählt hat – die Teilaufgabe läuft sparsam.")
+    return model or sparsam, auto, note
+
+
+def final_status(run_status: str, error: str | None = None, limit_hit: bool = False, limit_error: bool = False) -> str:
+    """Stand einer Teilaufgabe nach ihrem Lauf. Eine Grenze (Schritte, Kontingent, Monatslimit, Modell dauerhaft
+    ausgelastet) heißt „grenze“, alles Unerwartete „fehler“."""
+    if run_status == "stopped":
+        return ABGEBROCHEN
+    if run_status == "error" or error:
+        return GRENZE if limit_error else FEHLER
+    if limit_hit:
+        return GRENZE
+    return FERTIG
+
+
+def last_answer(messages: list[dict] | None) -> str:
+    """Der Text der letzten Antwort (für die Zusammenfassung, wenn ergebnis_melden fehlt)."""
+    for m in reversed(messages or []):
+        if m.get("role") == "assistant" and str(m.get("content") or "").strip() and not m.get("error"):
+            return str(m["content"]).strip()
+    return ""
+
+
+def summary_request(auftrag: str, answer: str) -> list[dict]:
+    """Bitte an ein sparsames Modell, die letzte Antwort einer Teilaufgabe für den Hauptchat zusammenzufassen."""
+    return [{"role": "system", "content": (
+        "Fasse das Ergebnis einer Teilaufgabe für den Hauptchat zusammen, der den Verlauf nicht kennt: alle Fakten, "
+        "Zahlen, Namen und Dateinamen, die er braucht, offene Punkte und Rückfragen. Höchstens 1.000 Wörter, Markdown, "
+        "keine Einleitung.")},
+        {"role": "user", "content": f"Auftrag:\n{clip(auftrag, 4000)}\n\nLetzte Antwort der Teilaufgabe:\n{clip(answer, 30000)}"}]
+
+
+def tool_result(sub_chat: dict, res: dict, note: str = "") -> dict:
+    """Werkzeug-Ergebnis für den Hauptchat: nur die Zusammenfassung, nie der Verlauf."""
+    out = {"id": sub_chat.get("id"), "titel": sub_chat.get("title"), "stand": res.get("stand") or FERTIG,
+           "zusammenfassung": res.get("zusammenfassung") or "", "dateien": list(res.get("dateien") or [])}
+    if res.get("grund"):
+        out["grund"] = res["grund"]
+    if out["stand"] in (GRENZE, FEHLER, ABGEBROCHEN):
+        out["hinweis"] = ("Die Teilaufgabe ist nicht fertig geworden. Entscheide: mit unterchat_nachricht weitermachen "
+                          "lassen, den Rest selbst übernehmen oder die Person fragen.")
+    if note:
+        out["hinweis_modell"] = note
+    return out
+
+
+def clean_groups(groups: Any, allowed: Iterable[str]) -> list[str] | None:
+    """Werkzeuggruppen aus ``werkzeuge`` (None = wie der Hauptchat)."""
+    if not groups:
+        return None
+    if isinstance(groups, str):
+        groups = re.split(r"[,\s]+", groups)
+    ok = set(allowed)
+    out = [g for g in dict.fromkeys(str(x).strip() for x in groups) if g in ok]
+    return out or None
+
+
+class Slots:
+    """Plätze für gleichzeitig laufende Teilaufgaben je Person, der Reihe nach vergeben.
+
+    ``acquire`` wartet, bis ein Platz frei ist (oder ``cancel`` gesetzt wird – dann False); ``release`` gibt den Platz
+    an die nächste wartende Teilaufgabe weiter."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(1, int(limit))
+        self.used: dict[str, int] = {}
+        self.queue: dict[str, list[asyncio.Future]] = {}
+
+    def busy(self, user: str) -> int:
+        return self.used.get(user, 0)
+
+    def waiting(self, user: str) -> int:
+        return len([f for f in self.queue.get(user, []) if not f.done()])
+
+    async def acquire(self, user: str, cancel: asyncio.Event | None = None,
+                      on_wait: Callable[[], Awaitable[None]] | None = None) -> bool:
+        if self.used.get(user, 0) < self.limit and not self.waiting(user):
+            self.used[user] = self.used.get(user, 0) + 1
+            return True
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        self.queue.setdefault(user, []).append(fut)
+        if on_wait:
+            await on_wait()
+        waiters = {fut}
+        stop = asyncio.ensure_future(cancel.wait()) if cancel else None
+        if stop:
+            waiters.add(stop)
+        try:
+            await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if stop and not stop.done():
+                stop.cancel()
+        if fut.done():
+            if cancel and cancel.is_set():
+                self.release(user)  # Platz bekommen, aber schon abgebrochen: gleich weitergeben
+                return False
+            return True
+        fut.cancel()
+        self.queue[user] = [f for f in self.queue.get(user, []) if f is not fut]
+        return False
+
+    def release(self, user: str) -> None:
+        for f in self.queue.get(user, []):
+            if not f.done():
+                self.queue[user].remove(f)
+                f.set_result(True)  # der Platz geht direkt weiter, die Zahl bleibt gleich
+                return
+        self.used[user] = max(0, self.used.get(user, 0) - 1)
