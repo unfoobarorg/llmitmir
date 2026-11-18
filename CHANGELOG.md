@@ -2,6 +2,21 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.0.0 – erste stabile Version
+
+LLMitMir ist stabil: geprüft auf Sicherheit, Datenschutz und Technik, mit Tests gegen Home Assistant 2025.1 bis
+2026.10. Enthält alle Änderungen aus 0.42.0 (unten). Installation über HACS aus dem Spiegel
+[github.com/unfoobarorg/llmitmir](https://github.com/unfoobarorg/llmitmir).
+
+**Beim Update beachten**
+- Zugänge gehen nur noch an ihre Server. Geplante Aufgaben, die einen Zugang an einen anderen Server schicken, lehnen
+  das ab, bis er unter *Einstellungen → Erlaubte Server* (oder auf der Seite des Zugangs) steht – die Meldung nennt ihn.
+- Wer eine geteilte Aufgabe bearbeiten darf, kann Freigaben, Werkzeuge, Modell und Projekt nicht mehr ändern; ein neuer
+  Auftrag läuft erst nach Bestätigung.
+- Werkbank 0.2.0: Sandboxen erreichen das Heimnetz nicht mehr. Nach dem Update `install.sh` erneut ausführen, damit
+  die Firewall eingerichtet wird (bei eigener Ausrollung: `werkbank/firewall.sh` als Dienst nach Docker).
+- Import-Links gelten einmal; HTML-Dateien aus Arbeitsbereichen gibt es nur noch als Download.
+
 ## 0.42.0 – Prüfung vor 1.0.0
 
 ### Sicherheit
