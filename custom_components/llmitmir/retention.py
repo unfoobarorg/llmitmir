@@ -4,7 +4,9 @@ Chats und Coworks können nach einer Frist von selbst verschwinden: je Projekt e
 außerhalb eines Projekts die Frist aus den Einstellungen der Person. Standardmäßig ist das Löschen aus – erst
 wenn die Person es einschaltet, gilt eine Frist (vorgeschlagen werden 30 Tage). Gezählt wird ab der letzten
 Benutzung, damit ein Chat, in dem noch gearbeitet wird, nicht unter der Hand verschwindet. Angeheftete Chats
-und die Läufe geplanter Aufgaben bleiben (die gehören zu ihrer Aufgabe, nicht zum Verlauf).
+und die Läufe geplanter Aufgaben bleiben (die gehören zu ihrer Aufgabe, nicht zum Verlauf). Teilaufgaben
+(Unterchats) haben keine eigene Frist: Sie verschwinden mit ihrem Hauptchat, und Arbeit in einer Teilaufgabe
+zählt als Benutzung des Hauptchats.
 
 Eine Ausnahme ist das Gespräch: Wer oft mit dem Roboter spricht, hat schnell eine lange Chatliste. Neue
 Sprachgespräche landen deshalb von selbst in einem eigenen Projekt „Gespräche“ mit 14 Tagen Lebensdauer
@@ -65,13 +67,18 @@ def expired(chats: dict | None, projects: dict | None, settings: dict | None, no
             kinds: tuple[str, ...] = KINDS) -> list[str]:
     """Ids der Chats und Coworks, deren Frist abgelaufen ist (älteste zuerst)."""
     out: list[tuple[float, str]] = []
-    for cid, c in (chats or {}).items():
+    idx = chats or {}
+    for cid, c in idx.items():
         if c.get("kind") not in kinds or c.get("pinned"):
             continue
+        if c.get("parent_id"):
+            continue  # Teilaufgaben folgen ihrem Hauptchat (delete_chat löscht den ganzen Baum)
         days = days_for(c, projects, settings)
         if days <= KEEP:
             continue
-        last = float(c.get("updated") or c.get("created") or 0)
+        # Arbeit in einer Teilaufgabe zählt auch als Benutzung des Hauptchats
+        last = max([float(c.get("updated") or c.get("created") or 0)]
+                   + [float(s.get("updated") or s.get("created") or 0) for s in idx.values() if s.get("parent_id") == cid])
         if last and now_ts - last >= days * 86400:
             out.append((last, cid))
     return [cid for _last, cid in sorted(out)]

@@ -27,6 +27,7 @@ inbox = load("inbox")
 permnote = load("permissionnotify")
 chatsearch = load("chatsearch")
 docpreview = load("docpreview")
+subchats = load("subchats")
 TZ = timezone(timedelta(hours=1))
 
 
@@ -1265,7 +1266,7 @@ def _mail_ctx(access):
         return None
 
     store = types.SimpleNamespace(async_write_file=write_file)
-    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit), saved
+    return types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", files_id="c", emit_files=emit), saved
 
 
 def test_mail_tools_follow_access():
@@ -1765,7 +1766,7 @@ def test_dav_request_speichern_als_writes_to_workspace():
 
     ctx = _dav_ctx(207, b"<multistatus/>" * 100)
     ctx.store = Store()
-    ctx.chat_id = "c1"
+    ctx.chat_id = ctx.files_id = "c1"
     emitted = []
 
     async def emit():
@@ -2116,7 +2117,7 @@ def test_mail_tools_use_ews_for_exchange():
     async def emit():
         return None
 
-    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", emit_files=emit)
+    ctx = types.SimpleNamespace(creds={"k": cred}, allowed_creds=None, store=store, chat_id="c", files_id="c", emit_files=emit)
     reg = _pkg("tools").REGISTRY
     run = lambda name, a: asyncio.run(reg[name].handler(ctx, a))  # noqa: E731
 
@@ -3073,3 +3074,59 @@ def test_doc_preview_only_for_word_and_excel():
     assert docpreview.to_html("a.pdf", b"x") is None
     assert docpreview.to_html("a.txt", b"x") is None
     assert docpreview.to_html("a.docx", _docx(["hallo"])) is not None
+
+
+# ---------------------------------------------------------------- Teilaufgaben (Unterchats)
+def _tree_index():
+    return {
+        "h": {"id": "h", "kind": "chat", "created": 10, "updated": 100},
+        "s2": {"id": "s2", "kind": "chat", "parent_id": "h", "created": 30, "updated": 400},
+        "s1": {"id": "s1", "kind": "chat", "parent_id": "h", "created": 20, "updated": 150},
+        "x": {"id": "x", "kind": "cowork", "created": 5, "updated": 50},
+    }
+
+
+def test_subchats_tree_and_order():
+    idx = _tree_index()
+    assert subchats.children(idx, "h") == ["s1", "s2"]
+    assert subchats.children(idx, "x") == []
+    # Unterchats zuerst, damit beim Löschen nichts verwaist
+    assert subchats.tree(idx, "h") == ["s1", "s2", "h"]
+    assert subchats.last_used(idx, "h") == 400
+    assert subchats.root_id(idx["s1"]) == "h" and subchats.root_id(idx["h"]) == "h"
+    assert subchats.is_sub(idx["s1"]) and not subchats.is_sub(idx["h"])
+    assert subchats.ordered(["a", "b", "c"], ["c", "a"]) == ["c", "a", "b"]
+
+
+def test_subchats_retention_follows_main_chat():
+    idx = _tree_index()
+    day = 86400
+    settings = {"retention_days": 1}
+    # Hauptchat selbst seit langem unbenutzt, aber in einer Teilaufgabe wurde gerade gearbeitet: bleibt
+    assert retention.expired(idx, {}, settings, 400 + day - 1) == ["x"]
+    # alles alt: nur Hauptchats werden genannt, die Teilaufgaben gehen mit ihnen (delete_chat)
+    assert retention.expired(idx, {}, settings, 400 + day + 1) == ["x", "h"]
+
+
+def test_subchats_result_and_api_text():
+    res = subchats.result("x" * 9000, ["/workspace/sub-a/b.csv", "b.csv", "", "c.md"], subchats.GRENZE, "Schrittgrenze")
+    assert len(res["zusammenfassung"]) <= subchats.RESULT_MAX_CHARS + 2
+    assert res["dateien"] == ["sub-a/b.csv", "b.csv", "c.md"]
+    assert res["stand"] == "grenze" and res["grund"] == "Schrittgrenze"
+    msg = subchats.result_message({"id": "s1", "title": "Recherche"}, res, "m1", 5.0, nachtrag=True)
+    assert msg["role"] == "sub_result" and msg["sub_id"] == "s1" and msg["nachtrag"]
+    text = subchats.api_text(msg)
+    assert text.startswith("[LLMitMir] Nachtrag aus Unterchat ›Recherche‹ (id s1, Stand: Grenze erreicht)")
+    assert "Grund: Schrittgrenze" in text and "sub-a/b.csv" in text
+    assert subchats.clean_files("a.txt, b.txt\na.txt") == ["a.txt", "b.txt"]
+
+
+def test_subchats_summary_fields_and_new_sub():
+    sub = subchats.new_sub("Finde X", subchats.VON_PERSON, call_id="call1")
+    assert sub["von"] == "person" and sub["melden"] is True and sub["status"] == "neu" and sub["call_id"] == "call1"
+    f = subchats.summary_fields({"id": "s", "parent_id": "h", "sub": sub})
+    assert f == {"parent_id": "h", "sub_status": "neu", "sub_call": "call1", "sub_von": "person"}
+    assert subchats.summary_fields({"id": "h"})["sub_status"] is None
+    assert subchats.message_text({"role": "assistant", "content": "Antwort"}) == "Antwort"
+    assert subchats.message_text({"role": "sub_result", "summary": "S"}) == "S"
+    assert subchats.title_from("## **Plan** für den Umzug") == "Plan für den Umzug"

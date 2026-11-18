@@ -139,6 +139,13 @@ const EN: Record<string, string> = {
   "Ich arbeite noch daran.": "Still working on it.", "Ich überlege noch.": "Still thinking.", "Sag Stopp, wenn ich abbrechen soll.": "Say stop if you want me to cancel.",
   "LLMitMir wurde aktualisiert (Version {v}). Lade neu, damit du die neue Oberfläche bekommst.": "LLMitMir has been updated (version {v}). Reload to get the new interface.",
   "Neu laden": "Reload", "Später": "Later",
+  // Teilaufgaben (Unterchats)
+  "Teilaufgabe": "Subtask", "Hauptchat": "Main chat", "Ausgangspunkt": "Starting point", "Öffnen": "Open",
+  "Zusammenfassung": "Summary", "Grund": "Reason", "Als Teilaufgabe weiterarbeiten": "Continue as a subtask",
+  "Nachtrag aus Teilaufgabe": "Update from subtask", "Ergebnis aus Teilaufgabe": "Result from subtask",
+  "Teilaufgaben zuklappen": "Collapse subtasks", "Teilaufgaben aufklappen": "Expand subtasks",
+  "Läuft": "Running", "Wartet": "Waiting", "Grenze erreicht": "Limit reached", "Fehler": "Error", "Abgebrochen": "Stopped",
+  "Neu": "New", "Wartet auf deine Freigabe": "Waiting for your approval",
 };
 
 let lang = "de";

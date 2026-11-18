@@ -26,6 +26,7 @@ from . import pricing as PR
 from . import retention as RT
 from . import providers as PV
 from . import selfdoc as SD
+from . import subchats as SC
 from . import sharing as SH
 from . import taskkeys as TK
 from . import views as V
@@ -818,9 +819,54 @@ class Manager:
         self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
         return chat
 
-    async def delete_chat(self, user_id: str, chat_id: str) -> None:
-        """Chat samt Sandbox und Dateien löschen – von Hand und für die Aufräumfrist derselbe Weg."""
+    async def create_sub(self, user_id: str, parent_id: str, auftrag: str, title: str = "", von: str = SC.VON_AGENT,
+                         call_id: str | None = None, model: str | None = None, model_choice: str | None = None,
+                         sub_tools: list[str] | None = None) -> dict:
+        """Eine Teilaufgabe (Unterchat) unter einem Hauptchat anlegen – ein normaler Chat mit ``parent_id``.
+
+        Sie übernimmt Art, Projekt, Werkzeugauswahl und die im Hauptchat eingeschalteten Werkzeuge; Dateien und
+        Sandbox teilt sie mit dem Hauptchat (ToolContext.files_id). Es gibt nur eine Ebene."""
         st = await self.user_store(user_id)
+        parent = await st.async_get_chat(parent_id)
+        if not parent:
+            raise ValueError("Chat nicht gefunden")
+        if SC.is_sub(parent):
+            raise ValueError("Eine Teilaufgabe kann selbst keine Teilaufgaben haben")
+        if parent.get("kind") not in (KIND_CHAT, KIND_COWORK):
+            raise ValueError("Läufe geplanter Aufgaben haben keine Teilaufgaben")
+        chat = {"id": new_id("c"), "kind": parent["kind"], "title": SC.clean_title(title or SC.title_from(auftrag)),
+                "project_id": parent.get("project_id"), "task_id": None, "parent_id": parent_id,
+                "model": model or parent.get("model"), "model_auto": not model and bool(parent.get("model_auto")),
+                "created": now(), "updated": now(), "pinned": False, "status": "idle", "last_seen": now(),
+                "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
+                "progress": [], "tools": parent.get("tools"),
+                "granted_groups": list(parent.get("granted_groups") or []),
+                "sub": SC.new_sub(auftrag, von, call_id=call_id, model_choice=model_choice)}
+        if sub_tools is not None:
+            chat["sub_tools"] = list(sub_tools)
+        if parent.get("no_thinking"):
+            chat["no_thinking"] = True
+        await st.async_save_chat(chat)
+        parent["subs"] = SC.ordered([*(parent.get("subs") or []), chat["id"]], parent.get("subs"))
+        await st.async_save_chat(parent, keep_updated=True)
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(chat)})
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(parent)})
+        return chat
+
+    async def delete_chat(self, user_id: str, chat_id: str) -> None:
+        """Chat samt Sandbox und Dateien löschen – von Hand und für die Aufräumfrist derselbe Weg.
+
+        Ein Hauptchat nimmt seine Teilaufgaben mit; eine Teilaufgabe verschwindet aus der Liste ihres Hauptchats."""
+        st = await self.user_store(user_id)
+        for sub_id in SC.children(st.meta["chats"], chat_id):
+            await self.delete_chat(user_id, sub_id)
+        parent_id = (st.meta["chats"].get(chat_id) or {}).get("parent_id")
+        if parent_id:
+            parent = await st.async_get_chat(parent_id)
+            if parent and chat_id in (parent.get("subs") or []):
+                parent["subs"] = [x for x in parent["subs"] if x != chat_id]
+                await st.async_save_chat(parent, keep_updated=True)
+                self.emit(user_id, {"type": "chat", "chat": st.chat_summary(parent)})
         self.stop(user_id, chat_id)
         if self.werkbank is not None:
             try:
@@ -1543,6 +1589,8 @@ class ToolContext:
         self.store = store
         self.chat = chat
         self.chat_id = chat["id"]
+        # Teilaufgaben arbeiten im Dateibereich und in der Sandbox ihres Hauptchats: was sie erzeugen, ist dort sofort da
+        self.files_id = chat.get("parent_id") or chat["id"]
         self.run = run
         self.task = task
         self.project = store.meta["projects"].get(chat.get("project_id") or "") or None
@@ -1671,6 +1719,8 @@ class ToolContext:
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
                 "was erledigt ist, was offen ist, Rückfragen. Bist du fertig, rufe `progress_update` mit `aktuell` = "
                 "Anzahl der Schritte + 1 auf, damit die Liste abgeschlossen ist, bevor du den Bericht schreibst.")
+        if SC.is_sub(self.chat):
+            parts.append(self.sub_prompt())
         if self.task is not None:
             perms = sorted(self.task_write_allowed())
             g = self.groups()
@@ -1753,6 +1803,20 @@ class ToolContext:
                 "keine unnötigen Werkzeugaufrufe.")
         return "\n\n".join(parts)
 
+    def sub_prompt(self) -> str:
+        """Abschnitt im Systemprompt einer Teilaufgabe: woher sie kommt und wie sie arbeitet."""
+        sub = self.chat.get("sub") or {}
+        parent = self.store.meta["chats"].get(self.chat.get("parent_id") or "") or {}
+        folder = f"sub-{self.chat_id}"
+        text = (f"## Teilaufgabe\nDieser Chat ist eine Teilaufgabe des Hauptchats „{parent.get('title') or 'Hauptchat'}“. "
+                "Er hat einen eigenen Verlauf; der Hauptchat sieht davon nur Zusammenfassungen. Arbeite nur an diesem "
+                "Auftrag. Dateien und Sandbox teilst du mit dem Hauptchat und seinen anderen Teilaufgaben: lege eigene "
+                f"Dateien unter `{folder}/` ab (in der Werkbank `/workspace/{folder}/`), damit sich nichts überschneidet.")
+        if sub.get("von") == SC.VON_PERSON and sub.get("auftrag"):
+            # von Hand abgezweigt: der Auftrag steht nicht im Verlauf, sondern nur hier
+            text += "\n\nAusgangspunkt aus dem Hauptchat:\n" + str(sub["auftrag"])
+        return text
+
     def claude_request(self, tools: list[dict], final: bool) -> dict:
         """The chat for Claude: deterministic (same chat → same request), Claude's own answers replayed unchanged,
         results from Zugänge closed to external models removed, and no stored secret anywhere in it."""
@@ -1793,6 +1857,8 @@ class ToolContext:
                                "Die Person kann ihn unter Zugänge freigeben.]")
                 prepared.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": content,
                                  "error": m.get("status") == "error", "notes": m.get("notes")})
+            elif m["role"] == "sub_result":
+                prepared.append({"role": "user", "content": SC.api_text(m)})
         req = {"system": self.system_prompt(), "messages": CC.to_messages(prepared), "tools": CC.to_tools(tools),
                "tool_choice": {"type": "none"} if final and tools else None}
         return C.scrub_obj(req, self._secrets)
@@ -1829,6 +1895,9 @@ class ToolContext:
                 out.append(am)
             elif m["role"] == "tool":
                 out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": m.get("content") or ""})
+            elif m["role"] == "sub_result":
+                # Rückmeldung einer Teilaufgabe: nur die Zusammenfassung, nie deren Verlauf
+                out.append({"role": "user", "content": SC.api_text(m)})
         return _fit_context(out, self.manager.context_size(model))
 
     def _image_cache(self, name: str) -> str | None:
@@ -1840,7 +1909,7 @@ class ToolContext:
                 if a in self._img or a.lower().rsplit(".", 1)[-1] not in ("png", "jpg", "jpeg", "webp"):
                     continue
                 try:
-                    data = await self.store.async_read_file("chat", self.chat_id, a)
+                    data = await self.store.async_read_file("chat", self.files_id, a)
                     from .tools.files import _image_to_jpeg
 
                     self._img[a] = base64.b64encode(await self.hass.async_add_executor_job(_image_to_jpeg, data)).decode()
@@ -1856,8 +1925,8 @@ class ToolContext:
                                            cancel=self.run.cancel, task=self.task is not None, **kw)
 
     async def emit_files(self) -> None:
-        files = await self.store.async_list_files("chat", self.chat_id)
-        self.manager.emit(self.user_id, {"type": "files", "chat_id": self.chat_id, "files": files})
+        files = await self.store.async_list_files("chat", self.files_id)
+        self.manager.emit(self.user_id, {"type": "files", "chat_id": self.files_id, "files": files})
 
     async def set_progress(self, items: list[dict]) -> None:
         self.chat["progress"] = items

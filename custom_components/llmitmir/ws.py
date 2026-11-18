@@ -22,6 +22,7 @@ from . import models as MS
 from . import notifydevices as ND
 from . import pricing as PR
 from . import retention as RT
+from . import subchats as SC
 from . import providers as PV
 from . import sharing as SH
 from . import speech as SP
@@ -315,8 +316,24 @@ async def _chat_for(m, user, chat_id: str) -> tuple[Any, dict]:
 @command(_t("chat/get") | {vol.Required("chat_id"): str})
 async def ws_chat_get(hass, conn, msg, m, user, st):
     cst, chat = await _chat_for(m, user, msg["chat_id"])
-    files = await cst.async_list_files("chat", chat["id"])
+    # eine Teilaufgabe zeigt die Dateien ihres Hauptchats (gemeinsamer Arbeitsbereich)
+    files = await cst.async_list_files("chat", SC.root_id(chat))
     return {"chat": chat, "files": files}
+
+
+@command(_t("chat/branch") | {vol.Required("chat_id"): str, vol.Required("message_id"): str})
+async def ws_chat_branch(hass, conn, msg, m, user, st):
+    """„Als Teilaufgabe weiterarbeiten“: aus einer Nachricht eine Teilaufgabe des Chats machen."""
+    chat = await st.async_get_chat(msg["chat_id"])
+    if not chat:
+        raise ValueError("Chat nicht gefunden")
+    root = await st.async_get_chat(SC.root_id(chat)) or chat
+    src = next((x for x in chat.get("messages") or [] if x.get("id") == msg["message_id"]), None)
+    text = SC.message_text(src).strip()
+    if not text:
+        raise ValueError("Diese Nachricht hat keinen Text")
+    sub = await m.create_sub(user.id, root["id"], text, von=SC.VON_PERSON)
+    return st.chat_summary(sub)
 
 
 @command(_t("chat/create") | {vol.Optional("kind", default=KIND_CHAT): vol.In([KIND_CHAT, KIND_COWORK]),
@@ -335,11 +352,21 @@ async def ws_chat_update(hass, conn, msg, m, user, st):
     chat = await st.async_get_chat(msg["chat_id"])
     if not chat:
         raise ValueError("Chat nicht gefunden")
+    if SC.is_sub(chat) and ("pinned" in msg or "project_id" in msg):
+        raise ValueError("Eine Teilaufgabe gehört zu ihrem Hauptchat – anheften oder verschieben lässt sich nur der Hauptchat")
     for k in ("title", "pinned", "project_id", "model", "tools", "no_thinking"):
         if k in msg:
             chat[k] = msg[k][:120] if k == "title" else msg[k]
     await st.async_save_chat(chat, keep_updated=True)  # moving/renaming does not make a chat "new"
     m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+    if "project_id" in msg:
+        # die Teilaufgaben ziehen mit ihrem Hauptchat um
+        for sub_id in SC.children(st.meta["chats"], chat["id"]):
+            sub = await st.async_get_chat(sub_id)
+            if sub and sub.get("project_id") != chat.get("project_id"):
+                sub["project_id"] = chat.get("project_id")
+                await st.async_save_chat(sub, keep_updated=True)
+                m.emit(user.id, {"type": "chat", "chat": st.chat_summary(sub)})
     return st.chat_summary(chat)
 
 

@@ -141,7 +141,7 @@ def _scope(ctx, bereich: str) -> tuple[str, str]:
         if not ctx.project_id:
             raise ValueError("Dieser Chat gehört zu keinem Projekt.")
         return "project", ctx.project_id
-    return "chat", ctx.chat_id
+    return "chat", ctx.files_id
 
 
 async def file_list(ctx, a: dict):
@@ -170,7 +170,7 @@ async def file_write(ctx, a: dict):
     content = a.get("inhalt")
     if content is None:
         return "Fehler: inhalt fehlt"
-    info = await ctx.store.async_write_file("chat", ctx.chat_id, name, str(content).encode("utf-8"))
+    info = await ctx.store.async_write_file("chat", ctx.files_id, name, str(content).encode("utf-8"))
     await ctx.emit_files()
     return {"ok": True, "datei": info["name"], "groesse": info["size"]}
 

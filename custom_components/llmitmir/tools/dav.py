@@ -116,7 +116,7 @@ async def dav_read(ctx, a: dict):
         data, _ = await read_body(r, 30_000_000)
         ctype = r.headers.get("content-type", "")
     if a.get("speichern_als"):
-        info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], data)
+        info = await ctx.store.async_write_file("chat", ctx.files_id, a["speichern_als"], data)
         await ctx.emit_files()
         return {"ok": True, "gespeichert": info}
     from .files import extract_document
@@ -128,7 +128,7 @@ async def dav_write(ctx, a: dict):
     cred = _cred(ctx, a.get("zugang", ""))
     pfad = str(a.get("pfad") or "").strip("/")
     if a.get("aus_arbeitsbereich"):
-        data = await ctx.store.async_read_file("chat", ctx.chat_id, a["aus_arbeitsbereich"])
+        data = await ctx.store.async_read_file("chat", ctx.files_id, a["aus_arbeitsbereich"])
     else:
         data = str(a.get("inhalt") or "").encode("utf-8")
     headers = {} if a.get("ueberschreiben") else {"If-None-Match": "*"}
@@ -228,7 +228,7 @@ async def dav_request(ctx, a: dict):
         return f"Fehler: Keine Verbindung zu {root_host} ({type(e).__name__}: {e})"
     if a.get("speichern_als"):
         # Große multistatus-Antworten gehören in den Arbeitsbereich, nicht in den Chat: dort mit jq/grep auswerten
-        info = await ctx.store.async_write_file("chat", ctx.chat_id, a["speichern_als"], raw)
+        info = await ctx.store.async_write_file("chat", ctx.files_id, a["speichern_als"], raw)
         await ctx.emit_files()
         return {"status": status, "etag": etag, "gespeichert": info, "bytes": len(raw),
                 **({"fehler": http_hint(status, text)} if status >= 400 else {}),

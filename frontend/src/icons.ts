@@ -84,6 +84,8 @@ export {
   mdiShieldAccountOutline,
   mdiShieldAlertOutline,
   mdiStop,
+  mdiSubdirectoryArrowRight,
+  mdiArrowLeft,
   mdiTimerSandComplete,
   mdiToolboxOutline,
   mdiTools,

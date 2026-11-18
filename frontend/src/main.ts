@@ -66,6 +66,18 @@ export class LLMitMirPanel extends LitElement {
     .rc { display: flex; align-items: center; gap: 6px; padding: 6px 4px 6px 10px; border-radius: 9px; cursor: pointer; font-size: 13.5px; color: var(--lm-text); }
     .rc .unread { font-weight: 600; }
     .rc .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--lm-accent); flex: none; margin-right: 2px; }
+    .rc .dot.warn { background: var(--lm-warn); }
+    /* Teilaufgaben: eingerückt unter ihrem Hauptchat, mit eigenem Symbol und Status-Punkt */
+    .subs { display: grid; }
+    .rc.sub { padding-left: 26px; font-size: 13px; }
+    .rc .subt { width: 24px; height: 24px; flex: none; color: var(--lm-muted); }
+    .rc .sdot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-right: 2px; background: var(--lm-faint); }
+    .rc .sdot.laeuft { background: var(--lm-accent); animation: pulse 1.4s ease-in-out infinite; }
+    .rc .sdot.wartet, .rc .sdot.grenze { background: var(--lm-warn); }
+    .rc .sdot.fertig { background: var(--lm-ok); }
+    .rc .sdot.fehler { background: var(--lm-err); }
+    @keyframes pulse { 50% { opacity: .35; } }
+    @media (prefers-reduced-motion: reduce) { .rc .sdot.laeuft { animation: none; } }
     .rc:hover { background: var(--lm-hover); }
     .rc.on { background: color-mix(in srgb, var(--lm-text) 9%, transparent); }
     .rc .more { opacity: 0; } .rc:hover .more, .rc.on .more { opacity: 1; }
@@ -350,7 +362,8 @@ export class LLMitMirPanel extends LitElement {
   @state() private selected: Set<string> = new Set();
 
   private get selectableChats(): any[] {
-    return (store.data?.chats || []).filter((c: any) => c.kind !== "task_run");
+    // Teilaufgaben gehen mit ihrem Hauptchat (Löschen nimmt sie mit)
+    return (store.data?.chats || []).filter((c: any) => c.kind !== "task_run" && !c.parent_id);
   }
   private get canSelect(): boolean { return this.selectableChats.length > LLMitMirPanel.SELECT_FROM; }
 
@@ -406,7 +419,7 @@ export class LLMitMirPanel extends LitElement {
     const d = store.data; if (!d?.projects?.length) return nothing;
     const cur = this.path[0] === "chat" ? this.path[1] : "";
     const curProj = this.path[0] === "project" ? this.path[1] : (d.chats.find((c: any) => c.id === cur)?.project_id || "");
-    const chatsOf = (pid: string) => d.chats.filter((c: any) => c.project_id === pid && c.kind !== "task_run");
+    const chatsOf = (pid: string) => d.chats.filter((c: any) => c.project_id === pid && c.kind !== "task_run" && !c.parent_id);
     const sorted = [...d.projects].sort((a: any, b: any) => {
       const la = chatsOf(a.id)[0]?.updated || a.updated || 0, lb = chatsOf(b.id)[0]?.updated || b.updated || 0; return lb - la; });
     return html`<div class="rh">${t("Projekte")}</div>
@@ -418,7 +431,7 @@ export class LLMitMirPanel extends LitElement {
             <button class="iconbtn chev" @click=${(e: Event) => { e.stopPropagation(); this.toggleProject(p.id); }} title=${open ? "Zuklappen" : "Aufklappen"}>${icon(open ? "down" : "right", 16)}</button>
             <span class="grow ellipsis" @click=${() => navigate(`/project/${p.id}`)}>${icon("project", 16)} ${p.name}</span>
             ${list.some((c: any) => store.runs[c.id]) ? html`<lm-spark size="13"></lm-spark>` : nothing}</div>
-          ${open ? html`<div class="pjc">${list.slice(0, 8).map((c: any) => this.chatRow(c, cur))}
+          ${open ? html`<div class="pjc">${list.slice(0, 8).map((c: any) => this.treeRows(c, cur))}
             ${list.length > 8 ? html`<div class="rc more-all" @click=${() => navigate(`/project/${p.id}`)}>${t("Alle anzeigen")} (${list.length})</div>` : nothing}
             ${!list.length ? html`<div class="hint" style="padding:4px 10px 6px 30px">Noch keine Chats</div>` : nothing}</div>` : nothing}`;
       })}`;
@@ -430,18 +443,60 @@ export class LLMitMirPanel extends LitElement {
     return (c.updated || 0) > (c.last_seen || 0) + 1;
   }
 
-  private chatRow(c: any, cur: string) {
+  /** Teilaufgaben eines Hauptchats (älteste zuerst). In der einfachen Ansicht laufen sie still im Hintergrund. */
+  private subsOf(id: string): any[] {
+    if (isSimple()) return [];
+    return (store.data?.chats || []).filter((c: any) => c.parent_id === id).sort((a: any, b: any) => (a.created || 0) - (b.created || 0));
+  }
+
+  /** Wartet in diesem Chat (oder einer seiner Teilaufgaben) eine Freigabe auf Antwort? */
+  private waitsForMe(id: string): boolean {
+    return store.permissions.some((p: any) => p.chat_id === id || p.root_chat_id === id);
+  }
+
+  @state() private openSubs: Set<string> = (() => { try { return new Set(JSON.parse(localStorage.getItem("llmitmir.openSubs") || "[]")); } catch { return new Set(); } })();
+  private toggleSubs(id: string, open: boolean) {
+    const s = new Set(this.openSubs); open ? s.add(id) : s.delete(id); this.openSubs = s;
+    try { localStorage.setItem("llmitmir.openSubs", JSON.stringify([...s].slice(-200))); } catch { /* ignore */ }
+  }
+
+  /** Ein Hauptchat und darunter, eingerückt, seine Teilaufgaben. Ausgeklappt, solange eine läuft oder wartet,
+   *  während man in einer davon ist oder wenn man sie selbst aufgeklappt hat. */
+  private treeRows(c: any, cur: string) {
+    const subs = this.subsOf(c.id);
+    if (!subs.length) return this.chatRow(c, cur);
+    const active = subs.some((s: any) => s.sub_status === "laeuft" || s.sub_status === "wartet" || store.runs[s.id]);
+    const open = this.openSubs.has(c.id) || active || subs.some((s: any) => s.id === cur);
+    return html`${this.chatRow(c, cur, { open, toggle: () => this.toggleSubs(c.id, !open) })}
+      ${open ? html`<div class="subs">${subs.map((s: any) => this.chatRow(s, cur))}</div>` : nothing}`;
+  }
+
+  /** Status-Punkt einer Teilaufgabe: läuft, wartet, fertig oder Fehler. */
+  private subDot(c: any) {
+    const st = this.waitsForMe(c.id) ? "wartet" : store.runs[c.id] ? "laeuft" : c.sub_status || "neu";
+    const label: Record<string, string> = { laeuft: t("Läuft"), wartet: t("Wartet"), fertig: t("Fertig"), grenze: t("Grenze erreicht"),
+      fehler: t("Fehler"), abgebrochen: t("Abgebrochen"), neu: t("Neu") };
+    return html`<span class="sdot ${st}" title=${label[st] || st}></span>`;
+  }
+
+  private chatRow(c: any, cur: string, tree?: { open: boolean; toggle: () => void }) {
     const unread = this.unread(c);
     const projects = store.data?.projects || [];
-    return html`<div class="rc ${c.id === cur ? "on" : ""} ${this.drag?.chatId === c.id ? "drag" : ""}"
-        @click=${() => this.openChat(c.id)} @pointerdown=${(e: PointerEvent) => this.dragStart(e, c)}>
-      ${store.runs[c.id] ? html`<lm-spark size="14"></lm-spark>` : c.kind === "cowork" ? html`<span class="muted">${icon("cowork", 15)}</span>` : nothing}
+    const sub = !!c.parent_id;
+    const waiting = this.waitsForMe(c.id);
+    return html`<div class="rc ${c.id === cur ? "on" : ""} ${sub ? "sub" : ""} ${this.drag?.chatId === c.id ? "drag" : ""}"
+        @click=${() => this.openChat(c.id)} @pointerdown=${(e: PointerEvent) => !sub && this.dragStart(e, c)}>
+      ${sub ? html`<span class="muted" title=${t("Teilaufgabe")}>${icon("subtask", 15)}</span>`
+        : store.runs[c.id] ? html`<lm-spark size="14"></lm-spark>` : c.kind === "cowork" ? html`<span class="muted">${icon("cowork", 15)}</span>` : nothing}
       <span class="grow ellipsis ${unread ? "unread" : ""}">${c.title || t("Neuer Chat")}</span>
-      ${unread ? html`<span class="dot" title=${t("Neu seit deinem letzten Blick")}></span>` : nothing}
+      ${sub ? this.subDot(c) : waiting ? html`<span class="dot warn" title=${t("Wartet auf deine Freigabe")}></span>`
+        : unread ? html`<span class="dot" title=${t("Neu seit deinem letzten Blick")}></span>` : nothing}
+      ${tree ? html`<button class="iconbtn subt" title=${tree.open ? t("Teilaufgaben zuklappen") : t("Teilaufgaben aufklappen")}
+        @click=${(e: Event) => { e.stopPropagation(); tree.toggle(); }}>${icon(tree.open ? "down" : "right", 15)}</button>` : nothing}
       <lm-menu class="more" direction="down" align="right" @click=${(e: Event) => e.stopPropagation()}><button slot="trigger" class="iconbtn">${icon("dots", 16)}</button>
-        <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: c.id, pinned: !c.pinned })}>${icon(c.pinned ? "pinOff" : "pin", 18)} ${c.pinned ? t("Lösen") : t("Anheften")}</button>
+        ${sub ? nothing : html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: c.id, pinned: !c.pinned })}>${icon(c.pinned ? "pinOff" : "pin", 18)} ${c.pinned ? t("Lösen") : t("Anheften")}</button>`}
         ${c.kind !== "task_run" ? html`<button class="mi" data-close @click=${() => navigate(`/voice/${c.id}`)}>${icon("voice", 18)} ${t("Im Gespräch sprechen")}</button>` : nothing}
-        ${projects.length ? html`<div class="mh">${t("In Projekt verschieben")}</div>
+        ${projects.length && !sub ? html`<div class="mh">${t("In Projekt verschieben")}</div>
           <button class="mi" data-close @click=${() => this.moveChat(c.id, null)}>${icon("chat", 18)} ${t("Ohne Projekt")}</button>
           ${projects.map((p: any) => html`<button class="mi ${c.project_id === p.id ? "sel" : ""}" data-close @click=${() => this.moveChat(c.id, p.id)}>${icon("project", 18)} ${p.name}</button>`)}` : nothing}
         <div class="msep"></div>
@@ -456,11 +511,11 @@ export class LLMitMirPanel extends LitElement {
       return html`${this.selectionBar()}${all.map((c: any) => this.selectRow(c))}`;
     }
     const cur = this.path[0] === "chat" ? this.path[1] : "";
-    const items = d.chats.filter((c: any) => c.kind !== "task_run");
+    const items = d.chats.filter((c: any) => c.kind !== "task_run" && !c.parent_id);
     const pinned = items.filter((c: any) => c.pinned);
     // chats of projects appear under their project above; "Zuletzt" shows the rest
     const rest = items.filter((c: any) => !c.pinned && !c.project_id).slice(0, 40);
-    const row = (c: any) => this.chatRow(c, cur);
+    const row = (c: any) => this.treeRows(c, cur);
     const zone = this.drag ? html`<div class="rc dropzone ${this.drag.over === "none" ? "drop" : ""}" data-drop="none">
       ${icon("chat", 15)}<span class="grow ellipsis">${t("Ohne Projekt")}</span></div>` : nothing;
     return html`${pinned.length ? html`<div class="rh">${t("Angeheftet")}</div>${pinned.map(row)}` : nothing}

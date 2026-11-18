@@ -120,7 +120,17 @@ Benutzung, geprüft wird stündlich und beim Start von Home Assistant. Angehefte
 bleiben. Die Fristen setzt nur die Person in der Oberfläche – du kannst sie weder ändern noch umgehen; löschen kannst du \
 einzelne Chats auch nicht. Eine Ausnahme ist das Projekt „Gespräche“: Es entsteht beim ersten Sprachgespräch von selbst \
 (14 Tage Lebensdauer) und nimmt jedes neue Gespräch auf; die Person kann es umbenennen, die Frist ändern oder löschen – \
-beim nächsten Gespräch ist es wieder da.
+beim nächsten Gespräch ist es wieder da. Teilaufgaben haben keine eigene Frist: Sie gehen mit ihrem Hauptchat, und Arbeit \
+in einer Teilaufgabe zählt als Benutzung des Hauptchats.
+
+## Teilaufgaben (Unterchats)
+Ein Chat oder Cowork kann Teilaufgaben haben: eigene Chats mit eigenem Verlauf, die in der Seitenleiste eingerückt unter \
+ihrem Hauptchat stehen (mit Symbol und Status-Punkt: läuft, wartet, fertig, Fehler; der Pfeil am Hauptchat klappt sie ein \
+und aus). Die Person legt eine an, indem sie unter einer Antwort „Als Teilaufgabe weiterarbeiten“ wählt – der Text dieser \
+Antwort wird zum Ausgangspunkt. Eine Teilaufgabe teilt Dateien und Sandbox mit ihrem Hauptchat, gehört zu dessen Projekt \
+(verschieben und anheften lässt sich nur der Hauptchat) und wird mit ihm gelöscht. Der Hauptchat sieht nie den Verlauf \
+einer Teilaufgabe, nur Zusammenfassungen, die als „Ergebnis aus Unterchat ›Titel‹“ in seinem Verlauf stehen. Es gibt \
+nur eine Ebene: Teilaufgaben haben keine eigenen Teilaufgaben.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \

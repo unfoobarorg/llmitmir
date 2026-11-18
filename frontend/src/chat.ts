@@ -284,6 +284,20 @@ export class ChatView extends LitElement {
     @keyframes dot { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-5px); opacity: 1; } }
     @keyframes bin { from { opacity: 0; transform: translateY(6px) scale(.98); } }
     @media (prefers-reduced-motion: reduce) { .dots i, .bubble { animation: none; } .dots i { opacity: .7; } }
+    /* Teilaufgaben: Leiste oben mit dem Weg zurück, Rückmeldungen als kleine Karte im Hauptchat */
+    .subbar { display: grid; gap: 4px; padding: 0 16px 6px; max-width: 812px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+    .subbar > .btn { justify-self: start; font-size: 13px; padding: 4px 10px; min-height: 30px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .auftrag { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 10px; padding: 6px 10px; }
+    .auftrag summary { cursor: pointer; display: flex; gap: 6px; align-items: center; list-style: none; }
+    .auftrag summary::-webkit-details-marker { display: none; }
+    .auftrag .md { max-height: 260px; overflow-y: auto; margin-top: 6px; color: var(--lm-text); }
+    .subres { border: 1px solid var(--lm-line); border-left: 3px solid var(--lm-ok); border-radius: 12px; background: var(--lm-panel);
+      padding: 8px 12px; display: grid; gap: 6px; font-size: 13.5px; }
+    .subres.limit { border-left-color: var(--lm-warn); } .subres.bad { border-left-color: var(--lm-err); }
+    .subres details summary { cursor: pointer; color: var(--lm-muted); font-size: 13px; }
+    .subres .md { margin-top: 6px; max-height: 360px; overflow-y: auto; }
+    .att.left { justify-content: flex-start; margin: 0; }
+    .btn.tiny { padding: 2px 9px; font-size: 12px; border-radius: 8px; min-height: 26px; }
     .taskinfo { font-size: 13px; color: var(--lm-muted); background: var(--lm-side); border-radius: 12px; padding: 10px 12px; display: flex; gap: 8px; }
     /* Gespräch: der Weg vom getippten Chat zur Sprachansicht – zurückhaltend, aber immer da */
     .btn.talk { color: var(--lm-accent); }
@@ -341,7 +355,7 @@ export class ChatView extends LitElement {
     const d = e.detail; const chat = this.chat; if (!chat) return;
     try {
       let names: string[] = [];
-      if (d.files.length) names = (await store.api.upload("chat", chat.id, d.files)).files.map((f: any) => f.name);
+      if (d.files.length) names = (await store.api.upload("chat", this.fileOwner, d.files)).files.map((f: any) => f.name);
       this.stick = true;
       await store.api.ws("chat/send", { chat_id: chat.id, text: d.text || "(siehe Anhang)", attachments: names, model: d.model,
         ...(chat.kind === "chat" ? { tools: d.tools } : {}) });
@@ -361,7 +375,41 @@ export class ChatView extends LitElement {
   }
   private retry() { store.api.ws("chat/retry", { chat_id: this.chatId }).then(r => { store.chats.set(this.chatId, r.chat); store.changed(); }).catch(e => store.notify(e.message)); }
 
-  private openFile(name: string) { openFileViewer("chat", this.chatId, name); }
+  /** Teilaufgaben teilen Dateien und Sandbox mit ihrem Hauptchat. */
+  private get fileOwner(): string { return this.chat?.parent_id || this.chatId; }
+  private openFile(name: string) { openFileViewer("chat", this.fileOwner, name); }
+
+  /** „Als Teilaufgabe weiterarbeiten“: aus dieser Nachricht eine eigene Teilaufgabe machen und sie öffnen. */
+  private async branch(m: any) {
+    try {
+      const sub = await store.api.ws("chat/branch", { chat_id: this.chatId, message_id: m.id });
+      navigate(`/chat/${sub.id}`);
+    } catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  /** Kopfleiste einer Teilaufgabe: zurück zum Hauptchat, darunter (eingeklappt) der Auftrag. */
+  private subBar(chat: any) {
+    if (!chat.parent_id) return nothing;
+    const parent = (store.data?.chats || []).find((c: any) => c.id === chat.parent_id);
+    const sub = chat.sub || {};
+    return html`<div class="subbar">
+      <button class="btn ghost" @click=${() => navigate(`/chat/${chat.parent_id}`)}>${icon("back", 16)} ${t("Hauptchat")}: ›${parent?.title || t("Neuer Chat")}‹</button>
+      ${sub.auftrag ? html`<details class="auftrag"><summary>${icon("subtask", 15)} ${sub.von === "person" ? t("Ausgangspunkt") : t("Auftrag")}</summary>
+        <div class="md">${md(sub.auftrag)}</div></details>` : nothing}
+    </div>`;
+  }
+
+  /** Rückmeldung einer Teilaufgabe im Hauptchat (Nachtrag nach eigener Arbeit darin). */
+  private subResult(m: any) {
+    const bad = m.status === "fehler" || m.status === "abgebrochen", limit = m.status === "grenze";
+    return html`<div class="subres ${bad ? "bad" : limit ? "limit" : ""}">
+      <div class="row">${icon("subtask", 16)}<b class="grow ellipsis">${m.nachtrag ? t("Nachtrag aus Teilaufgabe") : t("Ergebnis aus Teilaufgabe")} ›${m.title}‹</b>
+        <button class="btn ghost tiny" @click=${() => navigate(`/chat/${m.sub_id}`)}>${t("Öffnen")}</button></div>
+      <details><summary>${t("Zusammenfassung")}</summary><div class="md">${md(m.summary || "")}</div>
+        ${m.reason ? html`<div class="hint">${t("Grund")}: ${m.reason}</div>` : nothing}</details>
+      ${m.files?.length ? html`<div class="att left">${m.files.map((f: string) => html`<button @click=${() => this.openFile(f)}>${icon("file", 15)}${f}</button>`)}</div>` : nothing}
+    </div>`;
+  }
 
   private stepRow(m: any) {
     const open = this.openSteps.has(m.id);
@@ -394,6 +442,7 @@ export class ChatView extends LitElement {
           <div class="user">${m.content}</div>`);
         i++; continue;
       }
+      if (m.role === "sub_result") { out.push(this.subResult(m)); i++; continue; }
       if (m.role === "tool") {
         const group: any[] = [];
         while (i < msgs.length && msgs[i].role === "tool") { group.push(msgs[i]); i++; }
@@ -413,6 +462,7 @@ export class ChatView extends LitElement {
         ${(m.content || m.error) && !streaming ? html`<div class="meta">
           ${m.content ? html`<button class="iconbtn" title=${t("Kopieren")} @click=${() => copyText(m.content)}>${icon("copy", 16)}</button>` : nothing}
           ${last && !run ? html`<button class="iconbtn" title=${t("Erneut versuchen")} @click=${() => this.retry()}>${icon("retry", 16)}</button>` : nothing}
+          ${m.content && chat.kind !== "task_run" ? html`<button class="iconbtn" title=${t("Als Teilaufgabe weiterarbeiten")} @click=${() => this.branch(m)}>${icon("subtask", 16)}</button>` : nothing}
           <span>${(store.data?.models || []).find((x: any) => x.id === m.model)?.name || m.model || ""}${isExternal(m.model) ? " · extern" : ""}${m.usage?.completion ? ` · ${fmtNum(m.usage.completion)} Tokens` : ""} · ${fmtTime(m.created)}</span></div>` : nothing}
       </div>`);
       i++;
@@ -630,7 +680,7 @@ export class ChatView extends LitElement {
   }
 
   private side(chat: any) {
-    const files = store.chatFiles.get(chat.id) || [];
+    const files = store.chatFiles.get(chat.parent_id || chat.id) || [];
     const prog = chat.progress || [];
     // a finished run must not keep spinning: without a live run, a step marked "laeuft" is shown as done
     const live = !!store.runs[chat.id] || chat.status === "running";
@@ -669,14 +719,15 @@ export class ChatView extends LitElement {
     const task = chat.task_id ? (store.data?.tasks || []).find((x: any) => x.id === chat.task_id) : null;
     const proj = (store.data?.projects || []).find((p: any) => p.id === chat.project_id);
     const simple = isSimple();
-    const files = simple ? store.chatFiles.get(chat.id) || [] : [];
+    const files = simple ? store.chatFiles.get(chat.parent_id || chat.id) || [] : [];
     return html`<div class="main">
       <header>
         <slot name="menu"></slot>
         ${this.editTitle ? html`<input .value=${chat.title || ""} @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") this.rename((e.target as HTMLInputElement).value); if (e.key === "Escape") this.editTitle = false; }}
             @blur=${(e: any) => this.rename(e.target.value)} autofocus>`
           : html`<span class="title ellipsis" @click=${() => (this.editTitle = true)}>${chat.title || t("Neuer Chat")}</span>`}
-        ${isWork && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
+        ${chat.parent_id ? html`<span class="chip accent">${icon("subtask", 14)} ${t("Teilaufgabe")}</span>` : nothing}
+        ${isWork && !chat.parent_id && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
         ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon("euro", 14)} ${simple ? "Ersatz-KI" : "extern"}</span>` : nothing}
         <span class="grow"></span>
@@ -689,14 +740,15 @@ export class ChatView extends LitElement {
         <lm-menu direction="down" align="right"><button slot="trigger" class="iconbtn">${icon("dots")}</button>
           ${chat.kind !== "task_run" ? html`<button class="mi" data-close @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)} ${t("Im Gespräch sprechen")}</button>` : nothing}
           <button class="mi" data-close @click=${() => (this.editTitle = true)}>${icon("edit", 18)} ${t("Umbenennen")}</button>
-          <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
+          ${chat.parent_id ? nothing : html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
           <div class="mh">In Projekt verschieben</div>
           <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: null })}>${icon("chat", 18)} Ohne Projekt</button>
-          ${(store.data?.projects || []).map((p: any) => html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: p.id })}>${icon("project", 18)} ${p.name}</button>`)}
+          ${(store.data?.projects || []).map((p: any) => html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: p.id })}>${icon("project", 18)} ${p.name}</button>`)}`}
           <div class="msep"></div>
-          <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog("Diesen Chat endgültig löschen?")) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
+          <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog("Diesen Chat endgültig löschen?")) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate(chat.parent_id ? `/chat/${chat.parent_id}` : "/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
         </lm-menu>
       </header>
+      ${this.subBar(chat)}
       <div class="scroll" @scroll=${this.onScroll}><div class="thread ${simple ? "simple" : ""}">
         ${task ? html`<div class="taskinfo">${icon("task", 18)}<span>${simple ? "Ergebnis" : "Lauf"} der geplanten Aufgabe <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/task/${task.id}`); }}>${task.name}</a>.
           ${simple ? "Sie läuft von selbst nach Zeitplan." : "Open-Weight-Modelle können verzögert starten und länger laufen."}</span></div>` : nothing}
