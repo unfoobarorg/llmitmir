@@ -78,10 +78,15 @@ diagramm.png.“* Das Modell fragt vor dem ersten Befehl nach deiner Freigabe.
 
 - Nutze für die Werkbank eine **eigene VM**, auf der sonst nichts läuft: Der Werkbank-Dienst steuert Docker und hat damit
   volle Rechte auf dieser VM.
-- Die Sandboxen laufen ohne Sonderrechte, mit begrenztem Speicher (3 GB), Prozessor (2 Kerne) und Prozessanzahl. Sie haben
-  Internetzugang (`SANDBOX_NETWORK=bridge`); mit `none` laufen sie komplett offline – dann gehen aber keine Downloads.
-- Der **Token** ist das einzige Passwort – nicht weitergeben. Erlaube Port 8787 am besten nur für die IP von Home Assistant
-  (Firewall der VM oder des Routers).
+- Die Sandboxen laufen ohne Sonderrechte, mit begrenztem Speicher (3 GB), Prozessor (2 Kerne) und Prozessanzahl.
+- **Netz: nur Internet.** Die Sandboxen hängen an einem eigenen Docker-Netz (`llmitmir-sandbox`, Brücke `lmwb0`, ohne
+  Verkehr untereinander). Die Firewall-Regeln aus `firewall.sh` (von `install.sh` als Dienst
+  `llmitmir-werkbank-firewall` eingerichtet) sperren alles Private und Lokale – das LAN, den Router, Home Assistant, die
+  VM selbst. `install.sh` prüft das am Ende. Mit `SANDBOX_NETWORK=none` laufen die Sandboxen ganz offline.
+- **Jede Sandbox hat ihren eigenen Cache** (pip, Sprachmodelle); er verschwindet mit ihr. Keine Sandbox kann einer anderen
+  – etwa der einer anderen Person – etwas unterschieben.
+- Der **Token** ist das einzige Passwort – nicht weitergeben. Die Verbindung ist unverschlüsseltes HTTP: Erlaube Port 8787
+  nur für die IP von Home Assistant (Firewall der VM oder des Routers) und lass sie nicht durch fremde Netze laufen.
 - Gib die Werkbank **nicht ins Internet frei**.
 - Zugangsdaten aus LLMitMir landen nur dann in einer Sandbox, wenn ein Befehl sie über `{{cred:Name:feld}}` anfordert;
   Ausgaben werden wie überall nach Geheimnissen durchsucht und geschwärzt.
@@ -113,11 +118,11 @@ diagramm.png.“* Das Modell fragt vor dem ersten Befehl nach deiner Freigabe.
 **Aufbau:** `werkbank/server.py` ist ein kleiner aiohttp-Dienst im Container `llmitmir-werkbank`. Er spricht über
 `/var/run/docker.sock` mit Docker und startet je Sitzung (LLMitMir nutzt die Chat-ID) einen Container `lmwb-<id>` aus dem
 Image `llmitmir-werkbank-sandbox` (Python 3.13, ffmpeg, Tesseract, Poppler, ImageMagick, Node.js, pandas, faster-whisper …),
-Benutzer `agent` (UID 1000), Arbeitsordner `/workspace`, gemeinsamer Cache `/cache` (Volume `llmitmir-werkbank-cache` für
-pip und Sprachmodelle).
+Benutzer `agent` (UID 1000), Arbeitsordner `/workspace`, Cache `/cache` im Container selbst (je Sandbox, ohne Volume).
 
 **Einstellungen** (`werkbank/.env`): `WERKBANK_TOKEN`, `WERKBANK_PORT` (8787), `SANDBOX_MEMORY` (3g), `SANDBOX_CPUS` (2),
-`SANDBOX_PIDS` (512), `SANDBOX_NETWORK` (bridge|none), `MAX_SESSIONS` (6), `IDLE_TIMEOUT` (7200 s), `MAX_EXEC_TIMEOUT`
+`SANDBOX_PIDS` (512), `SANDBOX_NETWORK` (llmitmir-sandbox|none; das frühere `bridge` gilt als llmitmir-sandbox),
+`SANDBOX_BRIDGE` (lmwb0), `MAX_SESSIONS` (6), `IDLE_TIMEOUT` (7200 s), `MAX_EXEC_TIMEOUT`
 (3600 s), `SANDBOX_IMAGE`, `TZ`.
 
 **API** (alle mit `Authorization: Bearer <Token>`):
@@ -132,5 +137,6 @@ pip und Sprachmodelle).
 | DELETE | `/v1/sessions/{id}` | Sandbox entfernen |
 
 **Mit Ansible/Compose verwalten:** Repository in einer festen Version auschecken, `werkbank/.env` aus einer Vorlage
-erzeugen (Token aus dem Vault), `docker build -t llmitmir-werkbank-sandbox:latest werkbank/sandbox` und
-`docker compose up -d --build` im Ordner `werkbank/` ausführen – genau das, was `install.sh` macht.
+erzeugen (Token aus dem Vault), `werkbank/firewall.sh` als Dienst nach Docker einrichten (wie in `install.sh`),
+`docker build -t llmitmir-werkbank-sandbox:latest werkbank/sandbox` und `docker compose up -d --build` im Ordner
+`werkbank/` ausführen – genau das, was `install.sh` macht. **Ohne die Firewall erreichen die Sandboxen das LAN.**

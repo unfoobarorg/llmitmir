@@ -61,7 +61,7 @@ lint:
       glob.glob('custom_components/llmitmir/**/*.json', recursive=True) + ['hacs.json', 'package.json']]"
     - ruff check --output-format=gitlab --output-file=gl-code-quality-report.json . || (ruff check . ; exit 1)
     - ruff check --select F401 --exit-zero .   # ungenutzte Importe: nur als Hinweis
-    - bash -n werkbank/install.sh
+    - bash -n werkbank/install.sh && bash -n werkbank/firewall.sh
   artifacts:
     when: always
     reports:

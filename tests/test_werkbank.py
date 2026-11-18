@@ -38,7 +38,7 @@ class FakeDocker:
 
     async def req(self, method, path, ok=(200, 201, 204), **kw):
         self.calls.append((method, path, kw))
-        if path.startswith("/containers/json"):
+        if path.startswith("/containers/json") or path == "/networks":
             return []
         if path.endswith("/json") and path.startswith("/containers/"):
             return None
@@ -57,12 +57,13 @@ class FakeDocker:
         return {"exit_code": 0, "stdout": "", "stderr": "", "timed_out": False, "seconds": 0, "truncated": False}
 
     ensure = S.Docker.ensure
+    ensure_network = S.Docker.ensure_network
     put_file = S.Docker.put_file
 
 
 def _app(docker):
     app = web.Application()
-    app["docker"] = docker
+    app[S.DOCKER_KEY] = docker
     app.add_routes([web.get("/v1/health", S.health), web.post("/v1/sessions/{key}/exec", S.run),
                     web.get("/v1/sessions/{key}/list", S.listing), web.put("/v1/sessions/{key}/files", S.files_put)])
     return app
@@ -124,12 +125,11 @@ def test_sandbox_containers_are_locked_down():
     assert body["User"] == "1000:1000"
     assert hc["CapDrop"] == ["ALL"] and "no-new-privileges" in hc["SecurityOpt"]
     assert hc["Memory"] > 0 and hc["PidsLimit"] > 0 and hc["NanoCpus"] > 0
-    assert not hc.get("Privileged") and hc["NetworkMode"] in ("bridge", "none")
+    assert not hc.get("Privileged") and hc["NetworkMode"] in ("llmitmir-sandbox", "none")
     assert not any("docker.sock" in str(m) for m in hc.get("Mounts") or [])
     assert not hc.get("Binds")
 
 
-@pytest.mark.xfail(strict=True, reason="S5: alle Sandboxen (aller Personen) teilen sich das Volume /cache")
 def test_sandboxes_do_not_share_a_writable_cache():
     sources = []
     for key in ("chatA", "chatB"):
@@ -140,7 +140,6 @@ def test_sandboxes_do_not_share_a_writable_cache():
     assert len(sources) == len(set(sources))
 
 
-@pytest.mark.xfail(strict=True, reason="S9: Pfade werden ungeschützt in Shell-Befehle eingesetzt (listing, put_file)")
 def test_paths_with_quotes_are_passed_to_the_shell_safely():
     path = "/workspace/it's here"
     status, _body, docker = asyncio.run(_call("GET", "/v1/sessions/c1/list", AUTH, params={"path": path}))
@@ -153,3 +152,36 @@ def test_bytes_parser_for_memory_limits():
     assert S._bytes("3g") == 3 * 1024 ** 3 and S._bytes("512m") == 512 * 1024 ** 2 and S._bytes("100") == 100
     with pytest.raises(ValueError):
         S._bytes("viel")
+
+
+def test_put_file_quotes_the_directory():
+    docker = FakeDocker()
+    asyncio.run(S.Docker.put_file(docker, "c1", "/workspace/a b/it's; rm -rf ~/x.txt", b"x"))
+    assert shlex.split(docker.cmds[0]) == ["mkdir", "-p", "/workspace/a b/it's; rm -rf ~"]
+
+
+def test_sandboxes_get_their_own_isolated_network():
+    """S9: eigenes Netz (Brücke lmwb0), kein Verkehr untereinander, kein IPv6 – angelegt, bevor eine Sandbox startet."""
+    docker = FakeDocker()
+    asyncio.run(S.Docker.ensure(docker, "c1"))
+    paths = [p for _m, p, _kw in docker.calls]
+    assert paths.index("/networks/create") < paths.index("/containers/create")
+    body = next(kw["json"] for _m, p, kw in docker.calls if p == "/networks/create")
+    assert body["Name"] == "llmitmir-sandbox" and body["EnableIPv6"] is False
+    assert body["Options"] == {"com.docker.network.bridge.name": "lmwb0", "com.docker.network.bridge.enable_icc": "false"}
+
+
+@pytest.mark.parametrize("value, expected", [("bridge", "llmitmir-sandbox"), ("", "llmitmir-sandbox"),
+                                             ("none", "none"), ("eigenes-netz", "eigenes-netz")])
+def test_the_old_default_bridge_means_the_isolated_network(monkeypatch, value, expected):
+    monkeypatch.setenv("SANDBOX_NETWORK", value)
+    assert _server().NETWORK == expected
+
+
+def test_firewall_blocks_every_private_and_local_range():
+    fw = (ROOT / "werkbank" / "firewall.sh").read_text(encoding="utf-8")
+    for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10"):
+        assert net in fw, net
+    assert "DOCKER-USER" in fw and "INPUT" in fw and 'BRIDGE="${SANDBOX_BRIDGE:-lmwb0}"' in fw
+    install = (ROOT / "werkbank" / "install.sh").read_text(encoding="utf-8")
+    assert "llmitmir-werkbank-firewall" in install and "LAN-GESPERRT" in install
