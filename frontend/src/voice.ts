@@ -41,7 +41,8 @@ const DOING: Record<string, string> = {
   files: "Ich lese Dateien …", skills: "Ich lese eine Anleitung …", werkbank: "Ich arbeite daran …", notify: "Ich schicke eine Nachricht …",
   llmitmir: "Ich schaue in LLMitMir nach …",
 };
-const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };
+const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang",
+  dashboard: "das Dashboard", kachel: "die Kachel" };
 
 interface Cfg { tts: string; pause: number; bargeIn: boolean; bridge: boolean; captions: boolean; model: string; }
 const LS = "llmitmir.voice";

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "llmitmir"
-VERSION = "0.40.1"
+VERSION = "0.41.0"
 
 PANEL_URL = "llmitmir"
 PANEL_TITLE = "LLMitMir"
@@ -118,3 +118,21 @@ KIND_TASK_RUN = "task_run"
 PERM_ALLOW = "allow"
 PERM_ASK = "ask"
 PERM_DENY = "deny"
+
+# Dashboards (dashboards.py, access.py, boards.py)
+TILE_KINDS = ("stat", "chart", "alert", "table", "list", "progress", "matrix", "gauge", "scene", "text")
+HA_MODES = ("state", "history", "statistics", "calendar", "todo", "template")
+GRID_COLS = 12               # Desktop; Tablet (6) und Handy (4) leitet die Oberfläche daraus ab
+MAX_DASHBOARDS = 20          # je Person
+MAX_PLACEMENTS = 60          # je Dashboard
+MAX_TILES = 100              # je Person (HA- und Modell-Kacheln zusammen)
+MAX_SCENES = 4               # 3D-Kacheln je Dashboard (Browser erlauben nur rund 16 WebGL-Kontexte)
+MAX_TILE_DATA = 64 * 1024    # Bytes je Datensatz
+MAX_SHARE_USERS = 20         # persönliche Freigaben je Kachel / Dashboard
+TILE_RUN_BUDGET = 96         # Modell-Läufe je Person und Tag (Admin einstellbar, 0 = ohne Grenze)
+TILE_MIN_INTERVAL = 15 * 60  # kürzester Abstand zweier geplanter Läufe einer Kachel (Sekunden)
+TILE_KEEP_RUNS = 10          # so viele Lauf-Chats behält eine Kachel-Aufgabe, ältere werden gelöscht
+TILE_PARALLEL = 1            # gleichzeitige Läufe in der Kachel-Spur (Admin: 1–3)
+MAX_STEPS_TILE = 30          # Schritte je Kachel-Lauf …
+MAX_STEPS_TILE_HEAVY = 60    # … und je Lauf einer als aufwändig markierten Kachel
+ORIGIN_DASHBOARD = "dashboard"  # Kennzeichen einer Kachel-Aufgabe (task["origin"])

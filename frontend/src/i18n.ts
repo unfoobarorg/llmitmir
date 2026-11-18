@@ -163,6 +163,8 @@ const EN: Record<string, string> = {
   "Teilaufgaben": "Subtasks",
   "„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.": "“Turn on for this chat” only applies to this subtask.",
   "„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.": "“Always allow” only applies to this subtask – even when you answer here in the main chat.", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
+  "Dashboards": "Dashboards", "Kachel-Aufgaben": "Tile tasks", "Kachel-Läufe": "Tile runs", "Kachel öffnen": "Open tile",
+  "Bearbeiten": "Edit",
 };
 
 let lang = "de";

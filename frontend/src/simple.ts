@@ -5,7 +5,7 @@ import { icon } from "./ui";
 import { store } from "./api";
 import { startChat } from "./pages";
 
-type Kind = "skills" | "tasks" | "credentials" | "projects";
+type Kind = "skills" | "tasks" | "credentials" | "projects" | "dashboards";
 
 interface Explainer { icon: string; title: string; text: string; examples: string[]; steps: string[]; chat?: [string, string]; }
 
@@ -18,6 +18,16 @@ const EXPLAIN: Record<Kind, Explainer> = {
     steps: ["Sag im Chat, was regelmäßig passieren soll und wann.", "LLMitMir schlägt dir die fertige Aufgabe vor.", "Du tippst auf „Übernehmen“ – fertig."],
     chat: ["Aufgabe im Chat einrichten", "Ich möchte eine geplante Aufgabe einrichten. Erkläre mir in einem Satz, was das ist, und frag mich dann "
       + "Schritt für Schritt, was regelmäßig passieren soll, wann und ob ich eine Nachricht aufs Handy bekommen möchte. Schlag mir am Ende die fertige Aufgabe vor."],
+  },
+  dashboards: {
+    icon: "dashboard", title: "Alles Wichtige auf einen Blick",
+    text: "Ein Dashboard ist eine bunte Übersicht aus Kacheln – wie die Symbole auf dem Startbildschirm deines Handys. Eine Kachel zeigt "
+      + "zum Beispiel den Stromverbrauch, die Temperatur, deine Termine oder offene Aufgaben. Was Home Assistant schon weiß, erscheint "
+      + "sofort und ohne Wartezeit; für anderes (etwa Aufgaben aus deinen Mails) schaut LLMitMir regelmäßig selbst nach.",
+    examples: ["Stromverbrauch heute", "Termine der Woche", "Einkaufsliste", "Offene Aufgaben aus den Mails"],
+    steps: ["Lege ein Dashboard an und gib ihm einen Namen.", "Tippe auf „Bearbeiten“ und dann auf „Kachel“.", "Wähle, was die Kachel zeigen soll – fertig."],
+    chat: ["Dashboard im Chat einrichten", "Ich möchte ein Dashboard einrichten. Erkläre mir in einem Satz, was das ist, und frag mich dann, was ich "
+      + "auf einen Blick sehen möchte. Suche dafür zuerst passende Entitäten in Home Assistant und schlag mir dann das Dashboard mit den Kacheln vor."],
   },
   skills: {
     icon: "skill", title: "Anleitungen, die LLMitMir sich merkt",

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from . import credentials as C
 from . import sharing as SH
+from .const import ORIGIN_DASHBOARD
 from .cron import schedule_to_cron
 from .storage import new_id, now
 
@@ -139,6 +140,16 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
                 # besonders aufwaendig: bis zu 150 statt 60 Schritte je Lauf
                 heavy=bool(t.get("heavy", old.get("heavy"))),
                 share=share, updated=now())
+    # Kachel-Aufgabe (boards.py): Herkunft, Kachel und das Schreibrecht in die eigene Kachel bleiben, egal was
+    # der Aufrufer schickt. Jede andere Aufgabe darf `dashboard_update` nie verwenden.
+    origin = old.get("origin") or (ORIGIN_DASHBOARD if t.get("origin") == ORIGIN_DASHBOARD else None)
+    if origin == ORIGIN_DASHBOARD:
+        task["origin"] = ORIGIN_DASHBOARD
+        task["tile_id"] = old.get("tile_id") or str(t.get("tile_id") or "")
+        task["allow_write"] = sorted(set(task["allow_write"]) | {"dashboard_update"})
+        task["share"] = {"users": {}}
+    else:
+        task["allow_write"] = [n for n in task["allow_write"] if n != "dashboard_update"]
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
     if task["heavy"] and not old.get("heavy"):

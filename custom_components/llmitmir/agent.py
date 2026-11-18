@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from . import claude_convert as CC
 from . import credcheck as CK
+from . import dashboards as DB
 from . import credentials as C
 from . import models as MS
 from . import permissionnotify as PN
@@ -36,7 +37,8 @@ from .claude_client import available as claude_available
 from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS_REFRESH, FALLBACK_AFTER, MODEL_POLL_SECONDS, NEW_MODEL_DAYS, SLOW_AFTER_INTERACTIVE, SLOW_AFTER_TASK, SLOW_AFTER_VOICE,
                     SLOW_MEMORY, FAST_FIRST_TOKEN, KEY_PER_USER_ADMIN, KEY_PER_USER_OWN, KEY_SHARED, KIND_CHAT, KIND_COWORK,
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
-                    MAX_STEPS_TASK_HEAVY, MAX_STEPS_SUB, SUB_PARALLEL, SUB_PER_RUN,
+                    MAX_STEPS_TASK_HEAVY, MAX_STEPS_SUB, SUB_PARALLEL, SUB_PER_RUN, MAX_STEPS_TILE, MAX_STEPS_TILE_HEAVY,
+                    ORIGIN_DASHBOARD,
                     MAX_STEPS_MORE, MAX_STEPS_MORE_LOTS, MORE_STEPS, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
@@ -113,6 +115,7 @@ class Manager:
         self.session = async_create_clientsession(hass, cookie_jar=aiohttp.DummyCookieJar())
         self.task_queue: asyncio.Queue = asyncio.Queue()
         self.scheduler = None  # set in __init__.py
+        self.boards = None     # Dashboards und Kacheln (boards.py), set in __init__.py
         self._models_at = 0.0  # last attempt to load /models
         self._models_failed = False
         self._models_lock = asyncio.Lock()
@@ -1079,6 +1082,10 @@ class Manager:
         final_status, error, offer = "done", None, None
         # Eine als besonders aufwaendig markierte geplante Aufgabe bekommt mehr Schritte als ein Cowork
         steps = MAX_STEPS_TASK_HEAVY if task is not None and task.get("heavy") else MAX_STEPS_COWORK
+        is_tile = task is not None and task.get("origin") == ORIGIN_DASHBOARD
+        if is_tile:
+            # Kachel-Lauf: weniger Schritte – eine Kachel ist ein kleiner, wiederkehrender Auftrag
+            steps = MAX_STEPS_TILE_HEAVY if task.get("heavy") else MAX_STEPS_TILE
         limit_hit = False  # der Lauf endete, weil die Hoechstzahl an Schritten erreicht war
         # a scheduled task marked "in an emergency, external models are fine" moves there when the main provider is down
         may_fallback = task is not None and bool(task.get("external_fallback"))
@@ -1149,6 +1156,8 @@ class Manager:
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
             tools = ctx.tool_specs()
             await ctx.preload_images()
+            if is_tile and self.boards:
+                ctx.tile, ctx.tile_record = await self.boards.tile_context(user.id, task)
             last_progress = 0  # step of the last progress_update (or reminder)
             step = -1
             while True:
@@ -1193,7 +1202,10 @@ class Manager:
                         "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
                         f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
                         "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")
-                        + ("" if final or task is None or chat.get("result") else
+                        + ("" if final or task is None else
+                           (" Vergiss `dashboard_update` nicht – ohne gültige Daten gilt der Lauf als fehlgeschlagen."
+                            if not chat.get("tile_written") else "") if is_tile else
+                           "" if chat.get("result") else
                            " Vergiss `task_result` nicht – ohne diesen Aufruf bekommt die Person keine Nachricht.")})
                 if run.switch_to:
                     await self._apply_switch(run, chat, st, None)
@@ -1874,6 +1886,9 @@ class ToolContext:
         self.project_id = self.project["id"] if self.project else None
         self.allowed_creds: set[str] | None = set(self.project.get("credentials") or []) if self.project and self.project.get("credentials_only") else None
         self.allowed_skills: set[str] | None = set(self.project.get("skills") or []) if self.project and self.project.get("skills_only") else None
+        # Kachel-Lauf (boards.py): die Kachel und ihr letzter Datensatz, vor dem ersten Schritt geladen
+        self.tile: dict | None = None
+        self.tile_record: dict | None = None
         self._secrets = C.secret_values(store.meta["credentials"])
         self._img: dict[str, str] = {}
 
@@ -1995,7 +2010,12 @@ class ToolContext:
             parts.append(VO.voice_prompt(self.store.meta["settings"].get("voice_name"))
                          + "\nDiese Regeln gehen den Regeln zu Markdown und Antwortlänge weiter oben "
                          "vor, solange das Gespräch gesprochen wird.")
-        if self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
+        if self.is_tile_run:
+            parts.append(
+                "## Arbeitsweise (Kachel)\nArbeite zielstrebig und sparsam: nur die Werkzeugaufrufe, die du für die Daten "
+                "der Kachel brauchst – keine Schrittliste (`progress_update`), keine Dateien, kein langer Bericht. Am Ende "
+                "`dashboard_update` und ein, zwei Sätze, was du gefunden hast.")
+        elif self.chat["kind"] in (KIND_COWORK, KIND_TASK_RUN):
             parts.append(
                 "## Arbeitsweise (Cowork)\nDu arbeitest selbstständig an einer Aufgabe. Plane zuerst mit `progress_update` "
                 "(3–8 Schritte). Die Person sieht die Liste live: Sobald du mit einem neuen Schritt beginnst, "
@@ -2026,8 +2046,11 @@ class ToolContext:
                    + "." if partly else "")
                 + " Liefert ein Werkzeug ein unerwartetes Ergebnis, prüfe das höchstens zwei-, dreimal und arbeite dann "
                 "mit dem Rest weiter bzw. melde das Problem im Bericht, statt immer neue Varianten auszuprobieren.")
-            parts.append(
-                "## Benachrichtigung\nOb die Person eine Nachricht aufs Handy bekommt, entscheidet allein `task_result` – "
+            if self.is_tile_run:
+                parts.append(DB.prompt_section(self.tile or {"name": self.task.get("name"), "kind": "text"}, self.tile_record))
+            else:
+                parts.append(
+                    "## Benachrichtigung\nOb die Person eine Nachricht aufs Handy bekommt, entscheidet allein `task_result` – "
                 "nicht die Länge deines Berichts. Rufe es am Ende jedes Laufs genau einmal auf:\n"
                 "- `art` = „nichts“, wenn es nichts zu melden gibt (alles wie erwartet, nichts Neues, nichts zu tun).\n"
                 "- `art` = „ergebnis“, wenn es etwas Neues gibt, das die Person wissen sollte.\n"
@@ -2039,7 +2062,7 @@ class ToolContext:
                 "„keine neuen Mails“ oder „alles unverändert“ ist keine Neuigkeit. Schicke Statusmeldungen nie zusätzlich "
                 "mit `notify` – die Benachrichtigung ergibt sich aus `task_result`.")
             prev = (self.task.get("_prev_result") or {}).get("text") or ""
-            if prev:
+            if prev and not self.is_tile_run:
                 parts.append(f"## Zuletzt gemeldet\nDer Person wurde bei diesem Lauf zuletzt gemeldet: „{prev}“. Ist es "
                              "weiter so, melde „nichts“.")
             if "werkbank" in (self.task.get("requires") or []) and self.manager.werkbank is None:
@@ -2225,11 +2248,20 @@ class ToolContext:
         self.chat["progress"] = items
         self.manager.emit(self.user_id, {"type": "progress", "chat_id": self.chat_id, "items": items})
 
+    @property
+    def is_tile_run(self) -> bool:
+        """This run fills a dashboard tile (its task has origin "dashboard")."""
+        return self.task is not None and self.task.get("origin") == ORIGIN_DASHBOARD
+
     def task_write_allowed(self) -> set[str]:
-        """Write tools a scheduled task may use: its approvals, plus `shell` if it is marked as needing the Werkbank."""
+        """Write tools a scheduled task may use: its approvals, plus `shell` if it is marked as needing the Werkbank.
+        `dashboard_update` belongs to tile runs only – and there it is always allowed."""
         allowed = set(self.task.get("allow_write") or []) if self.task is not None else set()
         if self.task is not None and "werkbank" in (self.task.get("requires") or []):
             allowed.add("shell")
+        allowed.discard("dashboard_update")
+        if self.is_tile_run:
+            allowed.add("dashboard_update")
         return allowed
 
     def permission_for(self, tool_name: str) -> str:

@@ -18,7 +18,8 @@ const STATUS_TEXT: Record<string, string> = {
 // Proposed / applied changes to skills, scheduled tasks and credentials (change sets from changes.py).
 const CHANGE_ART: Record<string, [string, string, string]> = {
   skill: ["Skill", "mdi:school-outline", "Skills"], aufgabe: ["Geplante Aufgabe", "mdi:calendar-clock-outline", "Geplant"],
-  zugang: ["Zugang", "mdi:key-outline", "Zugänge"],
+  zugang: ["Zugang", "mdi:key-outline", "Zugänge"], dashboard: ["Dashboard", "mdi:view-dashboard-outline", "Dashboards"],
+  kachel: ["Kachel", "mdi:view-grid-outline", "Dashboards"],
 };
 const CHANGE_VERB: Record<string, [string, string]> = { anlegen: ["neu", "add"], aendern: ["ändern", "upd"], loeschen: ["löschen", "del"] };
 // Simple view: what the assistant is doing, in plain words (by tool group).
@@ -34,7 +35,8 @@ const GROUP_PLAIN: Record<string, string> = {
   files: "Dateien", notify: "Benachrichtigungen",
   skills: "deine Anleitungen (Skills)", werkbank: "die Werkbank (Programme ausführen)", ha: "Home Assistant",
 };
-const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang" };
+const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang",
+  dashboard: "das Dashboard", kachel: "die Kachel" };
 const tsDate = (ts: any) => (typeof ts === "number" ? new Date(ts * 1000) : ts ? new Date(ts) : null);
 const hm = (ts: any) => tsDate(ts)?.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) || "";
 function dayLabel(ts: any): string {

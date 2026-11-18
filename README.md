@@ -168,6 +168,27 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
   schlägt der Chat ein freies, ähnlich gutes vor – der Wechsel geht mitten im Lauf und macht beim aktuellen Schritt
   weiter. Geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. „Stopp“ greift auch,
   während ein Modell hängt.
+- **Dashboards**: farbige Übersichten aus Kacheln auf einem Raster wie ein Handy-Startbildschirm (12 Spalten, auf dem
+  Tablet 6, auf dem Handy 4 – das rechnet die Oberfläche selbst um). Kacheltypen: Kennzahl mit Verlauf, Diagramm (Linie,
+  Fläche, Balken, Donut), Warnungen, Tabelle, Liste mit Status, Fortschritt, 5×5-Risikomatrix, Messuhr, 3D-Szene aus
+  Grundkörpern und Notiz – alles selbst gezeichnet (SVG und WebGL), ohne Diagramm-Bibliothek. Eine Kachel wird einmal
+  angelegt und lässt sich auf beliebig vielen Dashboards wiederverwenden; Farbwelten je Dashboard, Ziehen, Größe
+  ändern, Tastaturbedienung und lange Drücken auf dem Handy im Bearbeitenmodus.
+  - **Daten aus Home Assistant, ohne Modell**: Zustand, Verlauf, Langzeitstatistik, Kalender und To-do-Listen kommen live
+    im Browser der anschauenden Person an – keine KI-Aufrufe, keine Kosten. Regeln setzen den Status („unter 20 % →
+    Warnung“), Muster wie `sensor.*_battery` sammeln Entitäten ein. HA-Admins können zusätzlich Jinja-Vorlagen nutzen.
+  - **Daten von einem geplanten Lauf**: Was Home Assistant nicht weiß (etwa Aufgaben aus Mails), holt eine Kachel-Aufgabe.
+    Ihre Beschreibung ist der Auftrag; Datenformat, letzter Stand und „am Ende `dashboard_update`“ fügt LLMitMir selbst
+    hinzu. Kachel-Läufe haben eine eigene Warteschlange (normale Aufgaben warten nie auf sie), ein Tagesbudget je Person
+    (Admin, Standard 96), höchstens einen Lauf alle 15 Minuten, 30 Schritte, kein Nachholen nach einem Neustart und
+    pausieren, solange die Kachel nirgends liegt. „Nur bei Änderung“ überspringt Läufe, wenn sich gewählte Entitäten
+    nicht geändert haben. Ein Lauf ohne gültige Daten gilt als Fehler; Verlauf und Delta führt der Server, alte Läufe
+    werden aufgeräumt (die letzten 10 bleiben). Unter *Geplant* erscheinen sie nur mit dem Schalter „Kachel-Aufgaben“.
+  - **Teilen**: Dashboards und Kacheln je Person mit *ansehen*, *bearbeiten* oder *bearbeiten und weiter teilen*, oder
+    für alle (auch künftige Personen). Weitergegeben wird nie mehr, als man selbst darf; wer ein Recht verliert, nimmt
+    alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
+    freigegeben sind. Modell-Kacheln laufen mit den Zugängen der Eigentümer*in – „für alle“ geht bei ihnen nur als
+    *ansehen*, und ändert jemand anderes die Beschreibung, bekommt die Eigentümer*in eine Benachrichtigung.
 - **Projekte**: Anweisungen, Dateien, Zugänge, Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
 - **Lebensdauer**: Chats und Coworks können sich nach einer Frist selbst löschen – je Projekt eine eigene Frist, für
   alles außerhalb eines Projekts eine Frist in den Einstellungen der Person. Standardmäßig ist das aus; wer es
@@ -294,7 +315,7 @@ Eine Oberfläche nach dem Vorbild der Claude-Desktop-App, die mit jedem OpenAI-k
 | HTTP | `http_request` (GET frei, sonst*) |
 | Dateien | `file_list`, `file_read` (Textebene oder Bildmodell), `file_write` |
 | Sonstiges | `notify`*, `skill_load`, `skill_file`, `progress_update`, `credentials_list` |
-| LLMitMir (immer an) | `llmitmir_info`; mit Bestätigung jeder einzelnen Änderung: `skill_save`, `skill_delete`, `task_save`, `task_delete`, `credential_save`, `credential_delete` |
+| LLMitMir (immer an) | `llmitmir_info`, `dashboard_list`, `dashboard_get`; mit Bestätigung jeder einzelnen Änderung: `skill_save`, `skill_delete`, `task_save`, `task_delete`, `credential_save`, `credential_delete`, `dashboard_save`, `dashboard_delete`, `tile_save`, `tile_delete`; `dashboard_update`* (im Kachel-Lauf ohne Rückfrage, nur in die eigene Kachel) |
 | Werkbank (optional) | `shell`*, `werkbank_files`, `werkbank_fetch`, `werkbank_push` |
 | Teilaufgaben | `unterchat_starten`, `unterchat_nachricht`, `unterchat_ergebnis` (nicht in Teilaufgaben und geplanten Aufgaben); in einer Teilaufgabe `ergebnis_melden` |
 
@@ -328,7 +349,7 @@ für die externen Claude-Modelle; beide werden automatisch installiert).
 ### Daten
 
 Pro Person unter `<config>/.storage/llmitmir/<user_id>/` (Chats als einzelne Dateien, Anhänge und Arbeitsbereiche unter
-`files/`), die Admin-Konfiguration in `.storage/llmitmir.config`, das Kostenbuch der externen Modelle in `.storage/llmitmir.billing`. Beides ist Teil normaler HA-Backups. Zugangsdaten
+`files/`, Kacheldaten unter `tiles/`), die Admin-Konfiguration in `.storage/llmitmir.config`, das Kostenbuch der externen Modelle in `.storage/llmitmir.billing`. Beides ist Teil normaler HA-Backups. Zugangsdaten
 und Schlüssel liegen dort wie bei anderen Integrationen unverschlüsselt.
 
 ## Entwicklung
@@ -344,6 +365,10 @@ Das Frontend ist TypeScript mit [Lit](https://lit.dev), gebündelt mit esbuild; 
 Der 3D-Roboter des Sprachgesprächs (`frontend/src/robot3d.ts`) ist eigenes WebGL ohne weitere Abhängigkeit; Mikrofon und
 Vorlesen stehen in `voiceio.ts`, die Aufbereitung des Textes fürs Vorlesen in `voicetext.ts`, die Regeln des Gesprächsflusses (Satzende, Gestenregie,
 gesprochene Überbrückung) in `voiceflow.ts`, die Ansicht in `voice.ts`.
+Die Dashboards stehen in `pages3.ts` (Seite, Bibliothek, Kachel-Blatt), `grid.ts` (Raster, Spiegel von `dashboards.py`)
+und `share.ts`; die Kacheln in `frontend/src/tiles/` – `kinds.ts` zeichnet die Typen (eigener SVG-Kern in `svg.ts`),
+`ha.ts` liest Home Assistant direkt, `scene.ts` ist das WebGL der 3D-Kachel. Im Backend: `dashboards.py` und `access.py`
+(rein, getestet), `boards.py` (Speichern, Rechte über alle Personen, Vorlagen-Kacheln) und die zweite Spur in `scheduler.py`.
 
 ## English
 
@@ -351,7 +376,10 @@ LLMitMir adds a Claude-Desktop-style panel to Home Assistant. By default people 
 with request and answer only, automatic model choice, plain-language answers, explained features); the full expert view
 can be switched on in the settings, and admins can fix the view per person. Both views include a talk mode: a hands-free spoken conversation (speech recognition via the provider, answers read aloud with Home Assistant's text-to-speech or the browser voice) in which the robot from the LLMitMir icon, rendered in 3D, visibly listens, waits, thinks, researches and answers. The expert view offers chats with streaming, reasoning and voice input; coworks
 (autonomous tool use with approvals); scheduled tasks designed for slow, rate-limited open-weight models, which can be
-shared with other Home Assistant users (view, edit, own push notification per person); projects; skills;
+shared with other Home Assistant users (view, edit, own push notification per person); dashboards made of reusable,
+colourful tiles (stat, chart, alerts, table, list, progress, risk matrix, gauge, 3D shapes, note) whose data comes either
+straight from Home Assistant (states, history, statistics, calendars, to-do lists – no model calls) or from a scheduled
+tile run in its own queue with a daily budget, shareable per person (view, edit, pass on) or with everybody; projects; skills;
 and a separate credential vault the model never sees. It works with any OpenAI-compatible API (preset: GWDG SAIA).
 Admins choose who may use it and whether keys are shared, assigned per user by the admin, or entered by each user.
 Scheduled tasks can run on a separate key (central or per user), with daily request/token usage of all tasks on that key.

@@ -14,6 +14,7 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .agent import Manager
 from .const import DOMAIN, EXT_MODELS_REFRESH, MODEL_POLL_SECONDS, PANEL_ELEMENT, PANEL_ICON, PANEL_TITLE, PANEL_URL, PRESETS, STATIC_URL, VERSION
+from .boards import Boards
 from .scheduler import Scheduler
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await manager.config.async_save()
     data["manager"] = manager
     manager.scheduler = Scheduler(hass, manager)
+    manager.boards = Boards(manager)  # Dashboards und Kacheln (boards.py)
 
     if not data.get("registered"):
         from . import http, ws
@@ -79,6 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await panel_custom.async_register_panel(hass, **panel_args)
 
     async def _start(_event=None) -> None:
+        await manager.boards.async_start()
         await manager.scheduler.async_start()
         # model list with status, load and new releases – now and every few minutes
         await manager.refresh_models(max_age=0)
@@ -120,6 +123,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             run.cancel.set()
         if manager.scheduler:
             await manager.scheduler.async_stop()
+        if getattr(manager, "boards", None):
+            await manager.boards.async_stop()
         for st in manager.users.values():
             await st.async_save_meta()
         await manager.billing.async_save()

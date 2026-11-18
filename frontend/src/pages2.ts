@@ -9,6 +9,11 @@ import { taskUsageCard, taskUsageCss } from "./taskusage";
 import { explainer, explainerCss, more } from "./simple";
 import { ensureConsent, ext, fmtEur, isExternal, priceText } from "./external";
 import { openFileViewer } from "./viewer";
+import { schedulePresets, runsPerDay } from "./pages3";
+
+const LS_TILES = "llmitmir.tasks.tiles";
+const showTileTasks = () => { try { return localStorage.getItem(LS_TILES) === "1"; } catch { return false; } };
+const tileTasks = () => store.data?.boards?.tile_tasks || [];
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   ${explainerCss}
@@ -81,7 +86,10 @@ export class Tasks extends StoreElement {
   }
   render() {
     const tasks = store.data?.tasks || [];
+    const tiles = tileTasks();
     return html`<div class="page"><div class="row"><h1 class="grow">${isSimple() ? t("Geplante Aufgaben") : t("Geplant")}</h1>
+      ${tiles.length ? html`<label class="row" style="gap:8px;font-size:13.5px;color:var(--lm-muted)" title="Aufgaben, die Dashboard-Kacheln mit Daten füllen">
+        ${switchEl(showTileTasks(), v => { try { localStorage.setItem(LS_TILES, v ? "1" : "0"); } catch { /* ignore */ } this.requestUpdate(); })} ${t("Kachel-Aufgaben")} (${tiles.length})</label>` : nothing}
       <button class="btn primary" @click=${() => navigate("/task/new")}>${icon("plus", 18)} ${t("Neue Aufgabe")}</button></div>
       ${isSimple() ? explainer("tasks", !tasks.length) : html`
       <div class="banner">${icon("hourglass")}<div><b>Geplante Aufgaben laufen mit Open-Weight-Modellen.</b> Sie starten in einer gemeinsamen Warteschlange und
@@ -108,7 +116,38 @@ export class Tasks extends StoreElement {
         <button class="iconbtn" title=${t("Jetzt ausführen")} @click=${async (e: Event) => { e.stopPropagation(); const r = await store.api.ws("task/run_now", { task_id: x.id });
           store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits oder wartet schon"); }}>${icon("play")}</button>
         ${switchEl(!!x.enabled, async (v) => { await store.api.ws("task/save", { task: { ...x, enabled: v } }); })}
-      </div>`) : html`<div class="hint">${isSimple() ? "Noch keine geplanten Aufgaben." : "Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import)."}</div>`}</div></div>`;
+      </div>`) : html`<div class="hint">${isSimple() ? "Noch keine geplanten Aufgaben." : "Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import)."}</div>`}</div>
+      ${tiles.length && showTileTasks() ? this.tileRows(tiles) : nothing}</div>`;
+  }
+
+  /** Tasks of dashboard tiles: own lane, own budget – changed through their tile. */
+  private tileRows(tiles: any[]) {
+    const runs = store.tileRuns;
+    const st = (x: any) => {
+      const r = runs[x.tile_key];
+      if (r === "running") return html`<span class="chip accent"><lm-spark size="14"></lm-spark> läuft</span>`;
+      if (r === "queued") return html`<span class="chip warn">${icon("wait", 13)} wartet</span>`;
+      if (x.paused === "unplaced") return html`<span class="chip">nicht platziert</span>`;
+      const l = x.last_run;
+      if (!l) return html`<span class="chip">noch nie gelaufen</span>`;
+      return l.status === "done" ? html`<span class="chip ok">${icon("check", 13)} ${fmtTime(l.finished)}</span>` : html`<span class="chip err">${icon("alert", 13)} ${fmtTime(l.finished)}</span>`;
+    };
+    const b = store.data?.boards?.budget || {};
+    return html`<h2>${t("Kachel-Aufgaben")}</h2>
+      <div class="hint" style="margin:-4px 0 10px">Sie füllen Dashboard-Kacheln mit Daten und laufen in einer eigenen Warteschlange – deine anderen Aufgaben warten nie auf sie.
+        ${b.limit ? `Heute ${b.used} von ${b.limit} Kachel-Läufen verbraucht.` : ""}</div>
+      <div class="list">${tiles.map((x: any) => html`<div class="item task" @click=${() => navigate(`/task/${x.id}`)}>
+        ${icon("mdi:view-grid-outline")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.tile_name || x.name}</span>
+          <span class="chip">≈ ${x.runs_per_day} Läufe/Tag</span></div>
+          <div class="hint">${x.schedule_text}${x.enabled && x.next_run ? ` · nächster Lauf ${fmtTime(x.next_run)}` : ""}</div>
+          <div class="st-narrow">${st(x)}</div></div>
+        <span class="st-wide">${st(x)}</span>
+        <button class="iconbtn" title="Kachel öffnen" @click=${(e: Event) => { e.stopPropagation(); navigate(`/dashboards?tile=${x.tile_key}`); }}>${icon("mdi:view-dashboard-outline")}</button>
+        <button class="iconbtn" title=${t("Jetzt ausführen")} @click=${async (e: Event) => { e.stopPropagation();
+          try { const r = await store.api.ws("tile/run", { key: x.tile_key }); store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits oder wartet schon"); }
+          catch (er: any) { store.notify(er.message); } }}>${icon("play")}</button>
+        ${switchEl(!!x.enabled, async (v) => { try { await store.api.ws("task/save", { task: { ...x, enabled: v } }); await store.loadBoards(); } catch (er: any) { store.notify(er.message); } })}
+      </div>`)}</div>`;
   }
 }
 
@@ -129,7 +168,16 @@ export class TaskPage extends StoreElement {
   private async loadPeople() {
     try { this.people = (await store.api.ws("task/people")).people || []; } catch { this.people = []; }
   }
+  @state() private tileRuns: any[] | null = null;
+  @state() private cron: any = null;
   private reload() {
+    const tt = tileTasks().find((y: any) => y.id === this.taskId);
+    if (tt) {
+      this.d = JSON.parse(JSON.stringify({ ...tt, tile: true }));
+      this.dirty = false; this.tileRuns = null;
+      store.api.ws("task/runs", { task_id: tt.id }).then(r => (this.tileRuns = r.runs || [])).catch(() => (this.tileRuns = []));
+      return;
+    }
     const x = (store.data?.tasks || []).find((y: any) => y.id === this.taskId);
     this.d = x ? JSON.parse(JSON.stringify(x)) : { name: "", prompt: "", schedule: { type: "daily", time: "08:00" }, enabled: true, notify: "always", allow_write: ["notify"], share: { users: [] } };
     if (!this.d.share) this.d.share = { users: [] };
@@ -151,6 +199,50 @@ export class TaskPage extends StoreElement {
   private async loadPreview() {
     try { this.preview = await store.api.ws("task/preview", { schedule: this.d.schedule }); } catch (e: any) { this.preview = { error: e.message }; }
   }
+  /** A tile's task: schedule, active, notification, project and model – the prompt is the tile's description. */
+  private tileTask(x: any) {
+    const d = store.data;
+    const cron = x.schedule?.cron || "";
+    const presets = schedulePresets(x.tile_id || x.name || "x", cron);
+    const preset = presets.find(p => p[2] === cron)?.[0] || "custom";
+    const perDay = cron ? runsPerDay(cron) : x.runs_per_day;
+    const tile = (d.boards?.tiles || []).find((y: any) => y.key === x.tile_key);
+    return html`<div class="page">
+      <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.tile_name || x.name}</h1>
+        <button class="btn" @click=${() => navigate(`/dashboards?tile=${x.tile_key}`)}>${icon("mdi:view-dashboard-outline", 16)} Kachel öffnen</button></div>
+      <div class="banner">${icon("info")}<div>Diese Aufgabe füllt die Kachel <b>${x.tile_name}</b> mit Daten. Ihr Auftrag ist die Beschreibung der Kachel –
+        ändern lässt er sich dort. Gelöscht wird sie zusammen mit der Kachel.${x.paused === "unplaced" ? html`<br><b>Pausiert:</b> Die Kachel liegt auf keinem Dashboard.` : nothing}</div></div>
+      <div class="form">
+        <div class="card"><b>${t("Zeitplan")}</b><div class="two" style="margin-top:10px">
+          <label class="f"><span>Wie oft?</span><select @change=${(e: any) => { const p = presets.find(q => q[0] === e.target.value); this.set("schedule", { type: "cron", cron: p ? p[2] : cron || presets[0][2] }); }}>
+            ${presets.map(([k, l]) => html`<option value=${k} ?selected=${preset === k}>${l}</option>`)}<option value="custom" ?selected=${preset === "custom"}>Eigener Zeitplan (Cron)</option></select></label>
+          ${preset === "custom" ? html`<label class="f"><span>Cron</span><input class="code" .value=${cron} @change=${async (e: any) => {
+            const c = e.target.value.trim(); this.set("schedule", { type: "cron", cron: c });
+            try { this.cron = await store.api.ws("task/preview", { schedule: { type: "cron", cron: c } }); } catch (er: any) { this.cron = { error: er.message }; } }}>
+            ${this.cron ? html`<span class="hint">${this.cron.error || this.cron.text}</span>` : nothing}</label>` : html`<div></div>`}</div>
+          <div class="hint" style="margin-top:8px">≈ ${isFinite(perDay) ? perDay : "?"} Läufe pro Tag · höchstens alle 15 Minuten${x.schedule_error ? ` · ⚠ ${x.schedule_error}` : ""}</div></div>
+        <div class="two">
+          <label class="f"><span>${t("Aktiv")}</span><div class="row" style="min-height:40px">${switchEl(!!x.enabled, v => this.set("enabled", v))}<span class="muted">${x.enabled ? t("Aktiv") : t("Pausiert")}</span></div></label>
+          <label class="f"><span>${isSimple() ? "Nachricht aufs Handy" : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
+            ${[["error", "nur bei Fehlern"], ["on_change", "wenn sich die Überschrift ändert, oder bei Fehlern"], ["always", "nach jedem Lauf"], ["never", "nie"]].map(([k, l]) => html`<option value=${k} ?selected=${x.notify === k}>${l}</option>`)}</select></label></div>
+        ${isSimple() ? nothing : html`<div class="two">
+          <label class="f"><span>${t("Projekte")}</span><select @change=${(e: any) => this.set("project_id", e.target.value || null)}>
+            <option value="">Ohne Projekt</option>${(d.projects || []).map((p: any) => html`<option value=${p.id} ?selected=${x.project_id === p.id}>${p.name}</option>`)}</select></label>
+          <label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
+            <option value="">${defaultLabel("agent")}</option>${(d.models || []).filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label></div>`}
+        <div class="card"><b>${t("Auftrag")}</b> <span class="hint">(aus der Kachel)</span><div class="md" style="margin-top:6px">${md(tile?.description || "")}</div></div>
+      </div>
+      <h2>${t("Läufe")}</h2><div class="list">${this.tileRuns === null ? html`<div class="hint">${t("Laden …")}</div>`
+        : this.tileRuns.length ? this.tileRuns.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
+          ${icon(c.status === "error" ? "alert" : "check", 18)}<span class="grow ellipsis">${c.title}</span><span class="hint">${fmtTime(c.updated)}</span></div>`)
+        : html`<div class="hint">Noch keine Läufe.</div>`}</div>
+      ${x.last_summary ? html`<h2>Letztes Ergebnis</h2><div class="card md">${md(x.last_summary)}</div>` : nothing}
+      ${this.dirty ? html`<div class="savebar"><button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>
+        <button class="btn primary" @click=${async () => { try { await store.api.ws("task/save", { task: this.d }); this.dirty = false; store.notify(t("Gespeichert")); await store.loadBoards(); this.reload(); }
+          catch (e: any) { store.notify(e.message); } }}>${t("Speichern")}</button></div>` : nothing}
+    </div>`;
+  }
+
   private async save() {
     try {
       const r = await store.api.ws("task/save", { task: this.d });
@@ -216,7 +308,7 @@ export class TaskPage extends StoreElement {
   /** A task somebody else shared without the right to change it: everything visible, nothing editable. */
   private readOnly(x: any) {
     const live = (store.data?.tasks || []).find((y: any) => y.id === x.id) || x;
-    const runs = (live.runs || []).map((id: string) => (store.data?.chats || []).find((c: any) => c.id === id)).filter(Boolean);
+    const runs = live.run_chats || (live.runs || []).map((id: string) => (store.data?.chats || []).find((c: any) => c.id === id)).filter(Boolean);
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/tasks")}>${icon("left")}</button><h1 class="grow">${x.name || "Aufgabe"}</h1></div>
       <div class="banner">${icon("info")}<div>Diese Aufgabe gehört <b>${x.owner_name || "jemand anderem"}</b>. Du kannst sie ansehen, aber nicht ändern.</div></div>
@@ -236,13 +328,16 @@ export class TaskPage extends StoreElement {
 
   render() {
     const x = this.d; if (!x) return nothing;
+    if (x.tile) return this.tileTask(x);
     if (x.shared && !x.can_edit) return this.readOnly(x);
     const d = store.data; const s = x.schedule || {};
-    const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
+    // confirm: always asks; dashboard_update belongs to the tasks of dashboard tiles only
+    const writeTools = Object.entries(d.tools || {}).filter(([n, v]: any) => v.write && !v.confirm && n !== "dashboard_update");
     // Runs and the last result come from the live task in the store, not from the edit copy in this.d,
     // so a run started here ("Jetzt ausführen" or on schedule) shows up without reopening the page.
     const live = (d.tasks || []).find((y: any) => y.id === x.id) || x;
-    const runs = (live.runs || []).map((id: string) => (d.chats || []).find((c: any) => c.id === id)).filter(Boolean);
+    const runs = (x.shared && live.run_chats) ? live.run_chats
+      : (live.runs || []).map((id: string) => (d.chats || []).find((c: any) => c.id === id)).filter(Boolean);
     const waiting = x.id ? d.queue?.position?.[x.id] : 0;
     const dn = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
     const simple = isSimple();

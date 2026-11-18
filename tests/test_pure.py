@@ -3279,3 +3279,172 @@ def test_ws_private_helpers_are_defined():
     defined = set(re.findall(r"^(?:async )?def (_\w+)\(", text, re.M)) | set(re.findall(r"^(_\w+) = ", text, re.M))
     assert "_inbox_view" in called
     assert called - defined == set()
+
+
+# ---------------------------------------------------------------- dashboards: rights (access.py)
+acc = load("access")
+dash = load("dashboards")
+
+
+def test_access_levels_and_all():
+    share = acc.update("own", acc.empty(), "own", [{"user_id": "a"}, {"user_id": "b", "edit": True}], None)
+    assert acc.rights("own", share, "own")["owner"]
+    assert acc.rights("own", share, "a") == {"owner": False, "view": True, "edit": False, "reshare": False}
+    assert acc.rights("own", share, "b")["edit"] and not acc.rights("own", share, "b")["reshare"]
+    assert not acc.rights("own", share, "c")["view"]
+    # für alle: everybody sees, also people added later
+    share = acc.update("own", share, "own", [{"user_id": "a"}, {"user_id": "b", "edit": True}], {"edit": False})
+    assert acc.rights("own", share, "neu")["view"] and not acc.rights("own", share, "neu")["edit"]
+    # a personal entry may give more than „für alle“
+    assert acc.rights("own", share, "b")["edit"]
+    assert acc.summary("own", share, {"a": "Anna", "b": "Ben"}).startswith("alle (ansehen)")
+
+
+def test_access_reshare_never_escalates_and_only_own_entries():
+    share = acc.update("own", acc.empty(), "own", [{"user_id": "a", "reshare": True}], None)
+    # a may pass on, but has no edit right – so neither has whom a adds
+    share = acc.update("own", share, "a", [{"user_id": "c", "edit": True, "reshare": True}])
+    assert share["users"]["c"] == {"edit": False, "reshare": True, "by": "a"}
+    # a cannot touch entries granted by the owner, nor set „für alle“
+    share = acc.update("own", share, "own", [{"user_id": "a", "reshare": True}, {"user_id": "c", "reshare": True},
+                                             {"user_id": "d"}])
+    assert share["users"]["c"]["by"] == "a"
+    share2 = acc.update("own", share, "a", [])  # a removes what a granted (c) – d stays
+    assert "c" not in share2["users"] and "d" in share2["users"]
+    with pytest.raises(PermissionError):
+        acc.update("own", share, "a", [], {"edit": False})
+    with pytest.raises(PermissionError):
+        acc.update("own", share, "d", [{"user_id": "x"}])
+    with pytest.raises(ValueError):
+        acc.update("own", share, "own", [{"user_id": "x"}], allowed={"a", "c", "d"})
+
+
+def test_access_revoke_cascades():
+    share = acc.update("own", acc.empty(), "own", [{"user_id": "a", "edit": True, "reshare": True}], None)
+    share = acc.update("own", share, "a", [{"user_id": "b", "edit": True, "reshare": True}])
+    share = acc.update("own", share, "b", [{"user_id": "c", "edit": True}])
+    assert set(share["users"]) == {"a", "b", "c"}
+    share = acc.set_notify("own", share, "c", True)
+    assert acc.notify_users("own", share) == ["c"]
+    # the owner takes a away: b (granted by a) and c (granted by b) go too, and so does c's notification
+    out = acc.update("own", share, "own", [])
+    assert out["users"] == {} and acc.notify_users("own", out) == []
+    # a only loses the right to pass on: b and c go, a stays
+    out = acc.update("own", share, "own", [{"user_id": "a", "edit": True}])
+    assert set(out["users"]) == {"a"}
+    with pytest.raises(PermissionError):
+        acc.set_notify("own", out, "zz", True)
+
+
+def test_access_levels_from_words():
+    assert acc.from_level("weiterteilen") == {"edit": True, "reshare": True}
+    assert acc.from_level("Bearbeiten") == {"edit": True, "reshare": False}
+    assert acc.from_level("ansehen") == {"edit": False, "reshare": False}
+    with pytest.raises(ValueError):
+        acc.from_level("besitzen")
+
+
+# ---------------------------------------------------------------- dashboards: grid, tiles, data
+def _ids():
+    n = iter(range(1, 1000))
+    return lambda p: f"{p}{next(n)}"
+
+
+def test_grid_compacts_without_overlap():
+    items = [{"pid": "a", "x": 0, "y": 5, "w": 4, "h": 3}, {"pid": "b", "x": 2, "y": 5, "w": 4, "h": 2},
+             {"pid": "c", "x": 8, "y": 9, "w": 4, "h": 2}]
+    out = {p["pid"]: p for p in dash.compact(items)}
+    assert (out["a"]["x"], out["a"]["y"]) == (0, 0)       # floats up
+    assert out["b"]["y"] == 3                              # pushed below a (they overlapped)
+    assert out["c"]["y"] == 0                              # free column: all the way up
+    pl = dash.clean_placements([{"tile_owner": "u1", "tile_id": "t1", "x": 11, "y": 0, "w": 1, "h": 99},
+                                {"tile_owner": "u1", "tile_id": "../x"}], _ids())
+    assert len(pl) == 1 and pl[0]["w"] == 2 and pl[0]["h"] == 8 and pl[0]["x"] == 10
+    assert dash.free_spot([{"x": 0, "y": 0, "w": 12, "h": 2}], 4, 2) == (0, 2)
+    with pytest.raises(ValueError):
+        dash.clean_placements([{"tile_owner": "u", "tile_id": f"t{i}"} for i in range(61)], _ids())
+
+
+def test_dashboard_and_tile_cleaning():
+    d = dash.clean_dashboard({"name": "  Postfach ", "palette": "nope", "icon": "javascript:x"}, None, "u1", _ids())
+    assert d["name"] == "Postfach" and d["palette"] == "aurora" and d["icon"].startswith("mdi:") and d["owner"] == "u1"
+    with pytest.raises(ValueError):
+        dash.clean_dashboard({"name": ""}, None, "u1", _ids())
+    t = dash.clean_tile({"name": "Strom", "kind": "stat", "color": "red;background:url(x)",
+                         "source": {"type": "ha", "mode": "history", "entities": ["sensor.strom", "bad id"]}},
+                        None, "u1", False, _ids())
+    assert t["color"] == "" and t["source"]["entities"] == ["sensor.strom"] and t["source"]["hours"] == 24
+    with pytest.raises(ValueError):  # gauge cannot show a history
+        dash.clean_tile({"name": "x", "kind": "gauge", "source": {"type": "ha", "mode": "history", "entities": ["sensor.a"]}},
+                        None, "u1", False, _ids())
+    with pytest.raises(PermissionError):  # templates: admins only
+        dash.clean_tile({"name": "x", "kind": "text", "source": {"type": "ha", "mode": "template", "template": "{{ 1 }}"}},
+                        None, "u1", False, _ids())
+    with pytest.raises(ValueError):  # a model tile needs its description (= the prompt)
+        dash.clean_tile({"name": "x", "kind": "list", "source": {"type": "model"}}, None, "u1", False, _ids())
+    old = dash.clean_tile({"name": "x", "kind": "list", "description": "Mails", "source": {"type": "model"}}, None, "u1", False, _ids())
+    with pytest.raises(ValueError):  # the source type cannot change afterwards
+        dash.clean_tile({"source": {"type": "ha", "mode": "state", "entities": ["sensor.a"]}}, old, "u1", False, _ids())
+
+
+def test_tile_data_validation_and_hardening():
+    out = dash.validate("list", {"status": "warn", "headline": "3 offen", "data": {"items": [
+        {"title": "A", "state": "offen", "url": "javascript:alert(1)"}, {"title": "B", "url": "https://x.org/a"}, {"title": ""}]}})
+    assert out["status"] == "warn" and len(out["data"]["items"]) == 2
+    assert out["data"]["items"][0]["url"] is None and out["data"]["items"][1]["url"] == "https://x.org/a"
+    md = dash.validate("text", {"data": {"markdown": "Hallo ![x](https://t.example/p.gif) <img src=x>"}})
+    assert "![" not in md["data"]["markdown"] and "<img" not in md["data"]["markdown"]
+    with pytest.raises(ValueError):
+        dash.validate("stat", {"data": {"value": "viele"}})
+    with pytest.raises(ValueError):
+        dash.validate("chart", {"data": {"series": []}})
+    ch = dash.validate("chart", {"data": {"type": "bar", "series": [{"name": "E", "points": [["2026-11-17", 3], [1763400000, 4], ["x", 1]]}]}})
+    assert len(ch["data"]["series"][0]["points"]) == 2
+    mx = dash.validate("matrix", {"data": {"items": [{"title": "A", "x": 3, "y": 4}, {"title": "B", "x": 3, "y": 4}, {"x": 9}]}})
+    assert mx["data"]["cells"] == [{"x": 3, "y": 4, "count": 2}]
+    sc = dash.validate("scene", {"data": {"objects": [{"shape": "box", "pos": [1], "color": "#fff"}, {"shape": "teapot"}]}})
+    assert sc["data"]["objects"][0]["pos"] == [1.0, 0.0, 0.0] and len(sc["data"]["objects"]) == 1
+    with pytest.raises(ValueError):
+        dash.validate("table", {"data": {"columns": [], "rows": []}})
+    big = {"data": {"markdown": "x" * 70_000}}
+    assert len(dash.validate("text", big)["data"]["markdown"]) == 4000
+
+
+def test_tile_series_kept_by_server():
+    r1 = dash.merge("stat", dash.validate("stat", {"data": {"value": 10}}), None, 100.0)
+    assert "delta" not in r1["data"] and r1["series"]["value"] == [[100.0, 10.0]]
+    r2 = dash.merge("stat", dash.validate("stat", {"data": {"value": 13}}), r1, 200.0)
+    assert r2["data"]["delta"] == "+3" and r2["data"]["trend"] == [10.0, 13.0]
+    c1 = dash.merge("chart", dash.validate("chart", {"data": {"series": [{"name": "E", "points": [[1, 1], [2, 2]]}]}}), None, 1.0)
+    c2 = dash.merge("chart", dash.validate("chart", {"data": {"append": True, "series": [{"name": "E", "points": [[2, 5], [3, 3]]}]}}), c1, 2.0)
+    assert c2["data"]["series"][0]["points"] == [[1.0, 1.0], [2.0, 5.0], [3.0, 3.0]]
+
+
+def test_tile_schedules_and_queue():
+    sched = dash.default_schedule("w9f8e7")
+    assert sched["cron"].endswith(" 7-22 * * *") and sched == dash.default_schedule("w9f8e7")
+    start = datetime(2026, 11, 16, 0, 0, tzinfo=TZ)
+    assert dash.runs_per_day(sched, start) == 16.0
+    dash.check_interval({"type": "hourly", "minute": 5}, start)
+    with pytest.raises(ValueError):
+        dash.check_interval({"type": "cron", "cron": "*/5 * * * *"}, start)
+    assert dash.min_gap({"type": "once", "at": "2026-12-01T08:00"}, start) is None
+    q = [("a", "t1", "geplant", None), ("a", "t2", "manuell", None), ("b", "t3", "geplant", None)]
+    assert dash.pick_fair(q, None) == 1          # a first, manual run of a before its scheduled one
+    assert dash.pick_fair(q, "a") == 2           # then it is b's turn
+    assert dash.pick_fair([("a", "t1", "geplant", None)], "a") == 0
+    assert dash.pick_fair([], None) == -1
+
+
+def test_tile_prompt_section_carries_schema_and_last_data():
+    tile = {"name": "Mails", "kind": "stat", "options": {"unit": "Mails"}}
+    txt = dash.prompt_section(tile, {"status": "ok", "headline": "3 neu", "data": {"value": 3}, "updated": 1763400000})
+    assert "dashboard_update" in txt and dash.SCHEMAS["stat"] in txt and "3 neu" in txt and "aktuellen Wert" in txt
+
+
+def test_tile_data_rejects_wrong_types():
+    with pytest.raises(ValueError, match="Liste"):
+        dash.validate("list", {"data": {"items": "kaputt"}})
+    with pytest.raises(ValueError, match="Liste"):
+        dash.validate("table", {"data": {"columns": [{"key": "a"}], "rows": {"a": 1}}})
+    assert dash.validate("list", {"data": {}})["data"]["items"] == []
