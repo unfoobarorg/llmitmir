@@ -1,5 +1,15 @@
 stages: [check]
 
+# Runner vm-gitlab-runner-02 der Gruppe ha-integrations (Docker, ohne
+# Secrets, im abgeschotteten Segment; home-ansible README 4.2). Ohne Tag
+# nimmt ihn kein Runner an.
+default:
+  tags: [ha-integrations-test]
+
+# test_ews_window_and_times rechnet mit Ortszeit (Europe/Berlin).
+variables:
+  TZ: Europe/Berlin
+
 python:
   stage: check
   image: python:3.13-slim
