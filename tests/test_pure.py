@@ -2085,7 +2085,7 @@ def test_mail_tools_use_ews_for_exchange():
     import asyncio
     import types
 
-    M = _pkg("tools.mail")
+    _pkg("tools.mail")  # registriert die Mail-Werkzeuge
     EW = _pkg("tools.mail_ews")
     calls = []
 
@@ -2298,7 +2298,7 @@ def test_ews_call_falls_back_to_ntlm(monkeypatch):
     import struct
 
     E = _pkg("ews")
-    N = _pkg("ntlm")
+    _pkg("ntlm")
     seen = []
 
     ti = bytes.fromhex("02000c0044006f006d00610069006e0000000000")

@@ -1,0 +1,5 @@
+# Tests ohne Home Assistant (tests/, Werkbank) und Lint – siehe .gitlab-ci.yml
+pytest==9.2.0
+pytest-cov==7.1.0
+aiohttp==3.14.5
+ruff==0.17.5

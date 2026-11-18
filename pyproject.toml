@@ -1,0 +1,33 @@
+# Nur Werkzeug-Einstellungen (Tests, Lint) – LLMitMir selbst wird als Home-Assistant-Integration ausgeliefert, nicht als Paket.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests_ha/ (echtes Home Assistant) braucht pytest-asyncio; tests/ läuft auch ohne.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+xfail_strict = true
+filterwarnings = [
+    "ignore:Unknown config option:pytest.PytestConfigWarning",
+]
+
+[tool.coverage.run]
+source = ["custom_components/llmitmir", "werkbank"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true
+
+[tool.ruff]
+line-length = 140
+target-version = "py313"
+extend-exclude = ["node_modules", "custom_components/llmitmir/frontend"]
+
+[tool.ruff.lint]
+# Fehlerklassen, die echte Fehler finden (undefinierte Namen, kaputte Syntax, Schleifen-Closures, verlorene Tasks …).
+# Stilregeln bewusst nicht: Der Code hat seinen eigenen, einheitlichen Stil.
+select = ["F", "E9", "B006", "B008", "B018", "B023", "B904", "PLE", "RUF006"]
+ignore = ["F401"]  # ungenutzte Importe meldet ruff gesondert (siehe Job lint, --select F401 als Hinweis)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B018"]
+"tests_ha/*" = ["B018"]

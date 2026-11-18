@@ -359,7 +359,23 @@ npm install
 npm run build      # baut custom_components/llmitmir/frontend/llmitmir-panel.js und THIRD_PARTY_LICENSES.txt (beide eingecheckt)
 npm run watch      # baut das Bundle bei jeder Änderung neu (ohne Lizenzdatei)
 npm run check      # TypeScript prüfen
+npm test           # Frontend-Logik (Raster, Vorlesetext, Achsen) mit dem Test-Runner von Node
 ```
+
+Tests (dieselben laufen in der CI, `.gitlab-ci.yml`):
+
+```bash
+pip install -r requirements_test.txt
+PYTHONPATH=. pytest                 # tests/: ohne Home Assistant (Logik, Sicherheit, Werkbank, Projektregeln)
+ruff check .
+# eigene Umgebung (Python 3.14, Home Assistant wird mitinstalliert):
+pip install -r requirements_test_ha.txt
+PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant: Einrichtung, Rechte, Trennung der Personen
+```
+
+Tests mit `xfail(strict=True)` beschreiben bekannte, noch offene Befunde. Ist einer behoben, schlägt der Test als
+„XPASS“ fehl – dann den Marker entfernen. Auf `dev` sind offene Befunde erlaubt, für `main`, Merge Requests nach `main`
+und Tags laufen die Tests mit `--runxfail`: Dort zählt jeder offene Befund als Fehler.
 
 Das Frontend ist TypeScript mit [Lit](https://lit.dev), gebündelt mit esbuild; Markdown über `marked` + `DOMPurify`.
 Der 3D-Roboter des Sprachgesprächs (`frontend/src/robot3d.ts`) ist eigenes WebGL ohne weitere Abhängigkeit; Mikrofon und
