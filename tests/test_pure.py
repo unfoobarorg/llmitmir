@@ -3247,3 +3247,22 @@ def test_subtask_permissions_are_central_but_scoped():
     assert subchats.remember_allow(s1, "shell") is True
     assert subchats.sub_allows(s1, "shell") and not subchats.sub_allows(s2, "shell") and not subchats.sub_allows(main, "shell")
     assert subchats.remember_allow(main, "shell") is False and "permissions" not in main
+
+
+
+def test_subtask_mode_prompt_and_context_threshold():
+    assert subchats.mode(None, simple=False) == "auto" and subchats.mode("", simple=True) == "ask"
+    assert subchats.mode("off", simple=False) == "off" and subchats.mode("quatsch", simple=False) == "auto"
+    assert subchats.prompt("off") == ""
+    assert "ausdrücklich" in subchats.prompt("ask")
+    auto = subchats.prompt("auto", {"context": 1000}, 100_000)
+    assert "Nicht aufteilen bei kurzen Fragen" in auto and "Kontext fast halb voll" not in auto
+    assert "Kontext fast halb voll" in subchats.prompt("auto", {"context": 60_000}, 100_000)
+    assert not subchats.context_full({"context": 50_000}, 100_000) and subchats.context_full({"context": 50_001}, 100_000)
+
+
+def test_subtask_usage_sum_over_tree():
+    idx = {"h": {"usage": {"prompt": 100, "completion": 10, "requests": 2}},
+           "s1": {"parent_id": "h", "created": 1, "usage": {"prompt": 50, "completion": 5, "requests": 1}},
+           "s2": {"parent_id": "h", "created": 2, "usage": {}}, "x": {"usage": {"prompt": 999}}}
+    assert subchats.tree_usage(idx, "h") == {"prompt": 150, "completion": 15, "requests": 3, "subs": 2}

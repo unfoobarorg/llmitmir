@@ -602,6 +602,11 @@ class Manager:
         st = self.users.get(user_id)
         return V.resolve(self.config.data.get("views"), user_id, st.meta["settings"].get("view") if st else None)
 
+    def sub_mode(self, user_id: str) -> str:
+        """Teilaufgaben: aus, nur auf Wunsch oder automatisch (subchats.mode)."""
+        st = self.users.get(user_id)
+        return SC.mode(st.meta["settings"].get("sub_mode") if st else None, self.simple(user_id))
+
     def simple(self, user_id: str) -> bool:
         """In the simple view nobody picks models: everything runs on the automatic choice."""
         return self.view(user_id)["view"] == V.SIMPLE
@@ -1408,6 +1413,10 @@ class Manager:
                                          "error": error, **({"offer": offer} if offer else {})})
             # drop a dangling empty streaming message
             chat["messages"] = [m for m in chat["messages"] if not (m.get("streaming") and not m.get("content"))]
+            # Nachträge von Teilaufgaben, die während des Laufs kamen, gehören jetzt in den Verlauf
+            for pend in chat.pop("sub_results_pending", None) or []:
+                chat["messages"].append(pend)
+                self.emit(user.id, {"type": "message", "chat_id": chat["id"], "message": pend})
             if chat.get("progress"):
                 # the run is over: nothing may keep spinning. Normally the list is closed (open steps count as done,
                 # failed ones stay failed); after a stop or an error the running step goes back to open.
@@ -1565,8 +1574,8 @@ class Manager:
         fut = self.sub_waiters.get(chat["id"])
         gemeldet = sub.pop("gemeldet", None)
         status = SC.final_status(final_status, error, limit_hit, limit_error)
-        if fut is None and not gemeldet:
-            # die Person hat selbst in der Teilaufgabe gearbeitet und nichts gemeldet: nur den Stand festhalten
+        if fut is None and (not sub.get("melden", True) or (final_status == "stopped" and not gemeldet)):
+            # die Person hat selbst in der Teilaufgabe gearbeitet und möchte nichts zurückmelden: nur den Stand festhalten
             sub["status"] = status
             await st.async_save_chat(chat, keep_updated=True)
             self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
@@ -1584,6 +1593,43 @@ class Manager:
         self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
         if fut is not None and not fut.done():
             fut.set_result(res)
+        elif fut is None:
+            # eigene Arbeit der Person in der Teilaufgabe: als Nachtrag an den Hauptchat (der startet davon nicht)
+            await self._append_sub_result(user.id, st, chat, res)
+
+    async def _append_sub_result(self, user_id: str, st: UserStore, sub: dict, res: dict) -> None:
+        """Eine Rückmeldung (Nachtrag) in den Verlauf des Hauptchats stellen – läuft dort gerade ein Lauf, erst an
+        dessen Ende, damit sie nicht zwischen einen Werkzeugaufruf und sein Ergebnis gerät."""
+        parent = await st.async_get_chat(sub.get("parent_id") or "")
+        if not parent:
+            return
+        msg = SC.result_message(sub, res, new_id("m"), now(), nachtrag=True)
+        if self.active_run(parent["id"]):
+            parent.setdefault("sub_results_pending", []).append(msg)
+            await st.async_save_chat(parent, keep_updated=True)
+            return
+        parent["messages"].append(msg)
+        await st.async_save_chat(parent)
+        self.emit(user_id, {"type": "message", "chat_id": parent["id"], "message": msg})
+        self.emit(user_id, {"type": "chat", "chat": st.chat_summary(parent)})
+
+    async def report_sub(self, user_id: str, chat_id: str) -> dict:
+        """„Jetzt melden“: die aktuelle Zusammenfassung einer Teilaufgabe sofort an den Hauptchat schicken."""
+        st = await self.user_store(user_id)
+        chat = await st.async_get_chat(chat_id)
+        if not chat or not SC.is_sub(chat):
+            raise ValueError("Keine Teilaufgabe")
+        if self.active_run(chat_id):
+            raise ValueError("Die Teilaufgabe arbeitet gerade – nach ihrer Antwort melden")
+        if not SC.last_answer(chat.get("messages")):
+            raise ValueError("Es gibt noch kein Ergebnis zum Melden")
+        sub = chat.setdefault("sub", SC.new_sub(""))
+        status = sub.get("status") if sub.get("status") in (SC.FERTIG, SC.GRENZE, SC.FEHLER) else SC.FERTIG
+        res = SC.result(await self._sub_summary(user_id, chat), None, status, "", now())
+        sub["ergebnis"] = res
+        await st.async_save_chat(chat, keep_updated=True)
+        await self._append_sub_result(user_id, st, chat, res)
+        return res
 
     def _check_run_quota(self, user_id: str, chat: dict, separate: bool) -> None:
         """Main provider: the personal daily quota. External models: the monthly limit in euros."""
@@ -1863,7 +1909,8 @@ class ToolContext:
             g.discard("progress")
         if SC.is_sub(self.chat):
             g.add("teilergebnis")   # eine Teilaufgabe meldet ihr Ergebnis, startet aber keine weiteren
-        elif self.task is None and self.chat["kind"] in (KIND_CHAT, KIND_COWORK):
+        elif (self.task is None and self.chat["kind"] in (KIND_CHAT, KIND_COWORK)
+              and self.manager.sub_mode(self.user_id) != SC.MODE_OFF):
             g.add("unterchat")      # Läufe geplanter Aufgaben starten keine Teilaufgaben
         return g
 
@@ -1959,6 +2006,11 @@ class ToolContext:
                 "Anzahl der Schritte + 1 auf, damit die Liste abgeschlossen ist, bevor du den Bericht schreibst.")
         if SC.is_sub(self.chat):
             parts.append(self.sub_prompt())
+        elif "unterchat" in self.groups():
+            sp = SC.prompt(self.manager.sub_mode(self.user_id), self.chat.get("usage"),
+                           self.manager.context_size(self.chat.get("model") or ""))
+            if sp:
+                parts.append(sp)
         if self.task is not None:
             perms = sorted(self.task_write_allowed())
             g = self.groups()

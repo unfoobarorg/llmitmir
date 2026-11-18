@@ -346,3 +346,70 @@ def remember_allow(chat: dict, tool: str) -> bool:
         return False
     chat.setdefault("permissions", {})[tool] = "allow"
     return True
+
+
+# ---------------------------------------------------------------- Automatik: wann aufgeteilt wird
+MODE_OFF, MODE_ASK, MODE_AUTO = "off", "ask", "auto"
+MODES = (MODE_OFF, MODE_ASK, MODE_AUTO)
+CONTEXT_SHARE = 0.5   # ab diesem Anteil am Kontextfenster: weitere größere Arbeit lieber in Teilaufgaben
+
+
+def mode(value: Any, simple: bool) -> str:
+    """Einstellung der Person: aus, nur auf Wunsch oder automatisch. Ohne Angabe: automatisch in der Expertenansicht,
+    in der einfachen Ansicht nur auf Wunsch."""
+    v = str(value or "").strip().lower()
+    if v in MODES:
+        return v
+    return MODE_ASK if simple else MODE_AUTO
+
+
+PROMPT_AUTO = (
+    "## Teilaufgaben\nGrößere Arbeit teilst du selbst in Teilaufgaben auf (`unterchat_starten`): Jede läuft als eigener "
+    "Chat mit eigenem Kontext und gibt dir nur eine Zusammenfassung zurück – so bleibt dieser Chat kurz, sparsam und "
+    "übersichtlich. Aufteilen, wenn\n"
+    "- die Aufgabe aus mehreren unabhängigen Teilen besteht (dann alle Teilaufgaben im selben Schritt starten, sie laufen "
+    "parallel),\n"
+    "- viel Material zu lesen ist (lange PDFs, viele Mails, Webrecherche je Eintrag),\n"
+    "- lange Werkbank-Arbeit ansteht.\n"
+    "Nicht aufteilen bei kurzen Fragen, bei wenigen Werkzeugaufrufen und bei Schritten, die aufeinander aufbauen. "
+    "Schreibe jeden Auftrag so, dass er ohne diesen Chat verständlich ist: Ziel, Material (Dateinamen, Links, Zeiträume), "
+    "gewünschte Form des Ergebnisses; längere Ergebnisse als Datei. Modell „sparsam“ genügt meist, „stark“ nur für "
+    "schwierige Teile. Erreicht eine Teilaufgabe eine Grenze, entscheide selbst: mit `unterchat_nachricht` weitermachen "
+    "lassen, den Rest übernehmen oder die Person fragen.")
+
+PROMPT_ASK = (
+    "## Teilaufgaben\nMit `unterchat_starten` kannst du Arbeit in Teilaufgaben mit eigenem Kontext auslagern. Die Person "
+    "möchte das nur auf Wunsch: Teile nur auf, wenn sie ausdrücklich darum bittet (z. B. „als Teilaufgabe“, „parallel“, "
+    "„in Unterchats“).")
+
+CONTEXT_HINT = (
+    "## Kontext fast halb voll\nDieser Chat nutzt schon über die Hälfte seines Kontextfensters. Weitere größere Arbeit "
+    "lieber in Teilaufgaben (`unterchat_starten`) auslagern, damit hier nur die Ergebnisse ankommen.")
+
+
+def context_full(usage: dict | None, size: int) -> bool:
+    """Liegt der Kontext des Chats über der Schwelle? (letzte Anfrage: Eingabe plus Ausgabe)"""
+    used = int((usage or {}).get("context") or 0)
+    return size > 0 and used > size * CONTEXT_SHARE
+
+
+def prompt(mode_value: str, usage: dict | None = None, size: int = 0) -> str:
+    """Der Abschnitt im Systemprompt des Hauptchats (leer, wenn Teilaufgaben aus sind)."""
+    if mode_value == MODE_OFF:
+        return ""
+    if mode_value == MODE_ASK:
+        return PROMPT_ASK
+    return PROMPT_AUTO + ("\n\n" + CONTEXT_HINT if context_full(usage, size) else "")
+
+
+def tree_usage(chats: dict | None, chat_id: str) -> dict:
+    """Verbrauch eines Hauptchats samt seiner Teilaufgaben (für die Summe in der Oberfläche)."""
+    out = {"prompt": 0, "completion": 0, "requests": 0, "subs": 0}
+    idx = chats or {}
+    for cid in tree(idx, chat_id):
+        u = (idx.get(cid) or {}).get("usage") or {}
+        for k in ("prompt", "completion", "requests"):
+            out[k] += int(u.get(k) or 0)
+        if cid != chat_id:
+            out["subs"] += 1
+    return out

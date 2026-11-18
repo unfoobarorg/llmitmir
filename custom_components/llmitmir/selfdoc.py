@@ -142,7 +142,11 @@ fragen. `unterchat_ergebnis` liest die letzte Zusammenfassung erneut. Eine Teila
 auch die Teilaufgaben an. Läufe geplanter Aufgaben starten keine Teilaufgaben. Freigaben, Änderungskarten und die \
 Frage nach mehr Schritten aus einer Teilaufgabe erscheinen auch im Hauptchat (mit Herkunft) und – wenn kein Panel offen \
 ist – als Push „Teilaufgabe braucht dich“; „Immer erlauben“ gilt dort nur für diese eine Teilaufgabe. Läuft eine Frage \
-ohne Antwort ab, macht die Teilaufgabe ohne die Aktion weiter.
+ohne Antwort ab, macht die Teilaufgabe ohne die Aktion weiter. Unter Einstellungen → Teilaufgaben wählt die Person \
+„automatisch“ (Standard in der Expertenansicht), „nur auf Wunsch“ (Standard in der einfachen Ansicht) oder „aus“. \
+Arbeitet die Person selbst in einer Teilaufgabe, erscheint das neue Ergebnis als Nachtrag im Hauptchat (Schalter \
+„Ergebnisse an den Hauptchat melden“, Knopf „Jetzt melden“). In der einfachen Ansicht sind Teilaufgaben in der \
+Seitenleiste unsichtbar; im Chat steht nur „Arbeitet an … Teilaufgaben“.
 
 ## Geplante Aufgaben (Seite „Geplant“)
 Felder: Name, Auftrag (der vollständige Prompt – er muss ohne Rückfragen ausführbar sein), Projekt (optional), Modell, \

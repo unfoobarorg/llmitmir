@@ -206,6 +206,21 @@ export class SettingsPage extends StoreElement {
         <div class="hint">Kosten je Monat, letzte 12 Monate. Das Limit legt der Admin fest; am Monatsersten beginnt es neu.</div></div>` : nothing}
     </div></section>`;
   }
+  /** Teilaufgaben: aus, nur auf Wunsch oder automatisch. */
+  private subSection() {
+    const s = this.s;
+    const cur = s.sub_mode || s.sub_mode_effective || "auto";
+    const opts: [string, string, string][] = [
+      ["auto", t("Automatisch"), t("LLMitMir teilt größere Aufgaben selbst in Teilaufgaben auf – mehrere unabhängige Teile, viel Lesematerial, lange Werkbank-Arbeit. Der Chat bleibt dadurch kurz und übersichtlich.")],
+      ["ask", t("Nur auf Wunsch"), t("Teilaufgaben nur, wenn du ausdrücklich darum bittest (z. B. „als Teilaufgabe“ oder „parallel“).")],
+      ["off", t("Aus"), t("Keine Teilaufgaben – alles läuft im Chat selbst. Von Hand abzweigen geht weiterhin.")]];
+    return html`<section><h2>${icon("subtask", 18)} ${t("Teilaufgaben")}</h2><div class="form">
+      ${opts.map(([k, l, h]) => html`<label class="opt ${cur === k ? "on" : ""}">
+        <input type="radio" name="submode" .checked=${cur === k} @change=${() => this.set("sub_mode", k)}>
+        <div class="grow"><b>${l}</b><div class="hint">${h}</div></div></label>`)}
+      <div class="hint">${t("Teilaufgaben arbeiten mit eigenem Kontext und melden nur eine Zusammenfassung zurück. Fragen, die du freigeben musst, erscheinen auch im Hauptchat.")}</div></div></section>`;
+  }
+
   private vorgabe(role: "chat" | "agent" | "sub") {
     const b = store.data.defaults.base?.[role] || {};
     return b.auto ? `Vorgabe – automatisch (derzeit ${modelName(b.model)})` : `Vorgabe (${modelName(b.model)})`;
@@ -258,6 +273,7 @@ export class SettingsPage extends StoreElement {
             ${d.user.is_admin ? html`Unter <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/admin"); }}>Admin → Benachrichtigungsgeräte</a> kannst du Geräte zuordnen.`
               : "Ein Admin von Home Assistant kann dein Handy mit deinem Benutzer verknüpfen."}</div>`}
         ${this.inboxSection()}</section>
+      ${this.subSection()}
       <section><h2>${icon("hourglass", 18)} Lebensdauer von Chats und Coworks</h2><div class="form">
         <label class="row hint" style="align-items:center"><input type="checkbox" style="width:auto" .checked=${rdays > 0}
           @change=${(e: any) => this.set("retention_days", e.target.checked ? (d.retention?.suggest || 30) : 0)}>

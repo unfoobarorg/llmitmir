@@ -99,6 +99,38 @@ Aufgabe anlegen) und die Frage nach mehr Schritten –, erscheint **auch im Haup
   ohne die Aktion weiter und nennt die Lücke in ihrem Ergebnis.
 - **Gespräch**: Im Sprachgespräch mit dem Hauptchat lassen sich auch Freigaben seiner Teilaufgaben beantworten.
 
+## Wann aufgeteilt wird
+
+Unter *Einstellungen → Teilaufgaben* wählt jede Person:
+
+| Einstellung | Wirkung |
+|---|---|
+| Automatisch (Standard in der Expertenansicht) | Ein fester Abschnitt im Systemprompt sagt dem Modell, wann es aufteilt: mehrere unabhängige Teile, viel Material (lange PDFs, viele Mails, Webrecherche je Eintrag), lange Werkbank-Arbeit – nicht bei kurzen Fragen und bei Schritten, die aufeinander aufbauen. |
+| Nur auf Wunsch (Standard in der einfachen Ansicht) | Die Werkzeuge sind da, das Modell teilt aber nur auf, wenn die Person ausdrücklich darum bittet. |
+| Aus | Keine Werkzeuge für Teilaufgaben; von Hand abzweigen geht weiterhin. |
+
+Liegt der Kontext des Hauptchats über der Hälfte des Kontextfensters, kommt bei „Automatisch“ ein Hinweis dazu:
+weitere größere Arbeit lieber in Teilaufgaben.
+
+## Weiterarbeiten in einer Teilaufgabe
+
+In jeder Teilaufgabe funktioniert der Composer normal. Oben steuert *Ergebnisse an den Hauptchat melden*
+(`sub.melden`, Standard: an), ob ein neues Ergebnis nach eigener Arbeit darin automatisch als **Nachtrag** im Hauptchat
+erscheint; *Jetzt melden* schickt die aktuelle Zusammenfassung sofort. Der Hauptchat startet deswegen nicht von selbst –
+er liest den Nachtrag beim nächsten Zug. Läuft im Hauptchat gerade ein Lauf, kommt der Nachtrag an dessen Ende in den
+Verlauf.
+
+## Einfache Ansicht
+
+Teilaufgaben laufen auch hier, die Seitenleiste zeigt sie aber nicht. Im Chat steht nur „Arbeitet an 3 Teilaufgaben …“;
+Freigaben erscheinen wie gewohnt im Chat.
+
+## Verbrauch
+
+Jede Teilaufgabe zählt ihren Verbrauch selbst (Karte im Hauptchat). Die Kopfzeile des Hauptchats zeigt, wie viele
+Teilaufgaben er hat (und wie viele gerade arbeiten) und die Summe der Tokens samt Teilaufgaben; bei einem Cowork steht
+sie auch unter *Info*.
+
 ## Lebensdauer, Projekte, Löschen
 
 - Teilaufgaben folgen ihrem Hauptchat: Löschen, Aufräumfrist und Projektwechsel wirken auf den ganzen Baum.

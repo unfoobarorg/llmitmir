@@ -152,6 +152,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
     s["inbox_mode"] = IB.clean_mode(st.meta["settings"].get("inbox_mode"))
     s["inbox_minutes"] = IB.minutes(st.meta["settings"])
     s["inbox_muted"] = IB.muted(st.meta["settings"])
+    # Teilaufgaben: was gerade gilt (auch ohne eigene Wahl)
+    s["sub_mode_effective"] = m.sub_mode(user.id)
     # The device this person actually uses (own choice, else their only device) – the panel shows its name
     devices = ND.apply_links(await ND.async_devices(hass), m.config.data.get("notify_devices"))
     device = ND.resolve(ND.for_user(devices, user.id), user.id, st.meta["settings"])
@@ -321,6 +323,12 @@ async def ws_chat_get(hass, conn, msg, m, user, st):
     return {"chat": chat, "files": files}
 
 
+@command(_t("chat/sub_report") | {vol.Required("chat_id"): str})
+async def ws_chat_sub_report(hass, conn, msg, m, user, st):
+    """„Jetzt melden“: die aktuelle Zusammenfassung einer Teilaufgabe sofort an den Hauptchat schicken."""
+    return await m.report_sub(user.id, msg["chat_id"])
+
+
 @command(_t("chat/branch") | {vol.Required("chat_id"): str, vol.Required("message_id"): str})
 async def ws_chat_branch(hass, conn, msg, m, user, st):
     """„Als Teilaufgabe weiterarbeiten“: aus einer Nachricht eine Teilaufgabe des Chats machen."""
@@ -347,7 +355,8 @@ async def ws_chat_create(hass, conn, msg, m, user, st):
 
 @command(_t("chat/update") | {vol.Required("chat_id"): str, vol.Optional("title"): str, vol.Optional("pinned"): bool,
                                vol.Optional("project_id"): vol.Any(str, None), vol.Optional("model"): str,
-                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("no_thinking"): bool})
+                               vol.Optional("tools"): vol.Any([str], None), vol.Optional("no_thinking"): bool,
+                               vol.Optional("sub_melden"): bool})
 async def ws_chat_update(hass, conn, msg, m, user, st):
     chat = await st.async_get_chat(msg["chat_id"])
     if not chat:
@@ -357,6 +366,8 @@ async def ws_chat_update(hass, conn, msg, m, user, st):
     for k in ("title", "pinned", "project_id", "model", "tools", "no_thinking"):
         if k in msg:
             chat[k] = msg[k][:120] if k == "title" else msg[k]
+    if "sub_melden" in msg and chat.get("sub") is not None:
+        chat["sub"]["melden"] = bool(msg["sub_melden"])  # „Ergebnisse an den Hauptchat melden“
     await st.async_save_chat(chat, keep_updated=True)  # moving/renaming does not make a chat "new"
     m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
     if "project_id" in msg:
@@ -734,6 +745,11 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     if "retention_days" in s:
         # Lebensdauer der Chats und Coworks außerhalb von Projekten (0 = unbegrenzt)
         cur["retention_days"] = RT.clean_days(s["retention_days"])
+    if "sub_mode" in s:
+        # Teilaufgaben: aus, nur auf Wunsch oder automatisch (leer = Standard der Ansicht)
+        if s["sub_mode"] not in (None, "", *SC.MODES):
+            raise ValueError("Ungültige Einstellung für Teilaufgaben")
+        cur["sub_mode"] = s["sub_mode"] or None
     if "permission_push" in s:
         # Wartende Freigaben aufs Handy melden, wenn kein Panel verbunden ist (Standard: an)
         cur["permission_push"] = bool(s["permission_push"])

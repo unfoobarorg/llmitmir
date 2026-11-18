@@ -27,6 +27,7 @@ const DOING: Record<string, string> = {
   ews: "Schaut in deinen Exchange-Kalender …", http: "Fragt einen Dienst ab …",
   files: "Liest Dateien …", skills: "Liest eine Anleitung …", werkbank: "Rechnet und erstellt Dateien …", notify: "Schickt eine Nachricht …",
   progress: "Plant die nächsten Schritte …", llmitmir: "Schaut in LLMitMir nach …", model: "Schaut sich den Anhang an …",
+  unterchat: "Verteilt die Arbeit …", teilergebnis: "Fasst das Ergebnis zusammen …",
 };
 const GROUP_PLAIN: Record<string, string> = {
   web: "das Internet", dav: "deine Nextcloud", ews: "dein Exchange-Kalender", http: "Abfragen bei anderen Diensten",
@@ -297,6 +298,7 @@ export class ChatView extends LitElement {
     .subres details summary { cursor: pointer; color: var(--lm-muted); font-size: 13px; }
     .subres .md { margin-top: 6px; max-height: 360px; overflow-y: auto; }
     .att.left { justify-content: flex-start; margin: 0; }
+    .subctl { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--lm-muted); padding: 0 4px; }
     .pfrom { font-size: 12.5px; color: var(--lm-muted); display: flex; align-items: center; gap: 5px; }
     .subcard { display: grid; gap: 6px; padding: 10px 12px; font-size: 13.5px; border-left: 3px solid var(--lm-accent); }
     .subcard + .step, .step + .subcard, .subcard + .subcard, .detail + .subcard { border-top: 1px solid var(--lm-line); }
@@ -404,9 +406,39 @@ export class ChatView extends LitElement {
     const sub = chat.sub || {};
     return html`<div class="subbar">
       <button class="btn ghost" @click=${() => navigate(`/chat/${chat.parent_id}`)}>${icon("back", 16)} ${t("Hauptchat")}: ›${parent?.title || t("Neuer Chat")}‹</button>
+      <div class="subctl">
+        <label class="row" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${sub.melden !== false}
+          @change=${(e: any) => this.setMelden(e.target.checked)}> ${t("Ergebnisse an den Hauptchat melden")}</label>
+        <button class="btn ghost tiny" ?disabled=${!!store.runs[chat.id]} @click=${() => this.reportNow()}>${icon("send", 14)} ${t("Jetzt melden")}</button>
+      </div>
       ${sub.auftrag ? html`<details class="auftrag"><summary>${icon("subtask", 15)} ${sub.von === "person" ? t("Ausgangspunkt") : t("Auftrag")}</summary>
         <div class="md">${md(sub.auftrag)}</div></details>` : nothing}
     </div>`;
+  }
+
+  private async setMelden(on: boolean) {
+    const c = this.chat; if (!c?.sub) return;
+    c.sub.melden = on; this.requestUpdate();
+    try { await store.api.ws("chat/update", { chat_id: c.id, sub_melden: on }); } catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  private async reportNow() {
+    try { await store.api.ws("chat/sub_report", { chat_id: this.chatId }); store.notify(t("An den Hauptchat gemeldet")); }
+    catch (e: any) { store.notify(String(e?.message || e)); }
+  }
+
+  /** Teilaufgaben dieses Chats (für Summe und den Hinweis in der einfachen Ansicht). */
+  private subsOf(chat: any): any[] { return (store.data?.chats || []).filter((c: any) => c.parent_id === chat.id); }
+
+  /** Kopfzeile des Hauptchats: wie viele Teilaufgaben, und was sie zusammen mit ihm verbraucht haben. */
+  private treeChip(chat: any) {
+    const subs = this.subsOf(chat);
+    if (!subs.length || chat.parent_id) return nothing;
+    const tok = (u: any) => (u?.prompt || 0) + (u?.completion || 0);
+    const total = tok(chat.usage) + subs.reduce((n: number, c: any) => n + tok(c.usage), 0);
+    const active = subs.filter((c: any) => store.runs[c.id] || c.sub_status === "wartet").length;
+    return html`<span class="chip" title=${t("Verbrauch mit Teilaufgaben: {n} Tokens", { n: fmtNum(total) })}>${icon("subtask", 14)}
+      ${active ? t("{a} von {n} aktiv", { a: active, n: subs.length }) : subs.length}${this.narrow ? "" : ` · ${fmtNum(total)} Tokens`}</span>`;
   }
 
   /** Rückmeldung einer Teilaufgabe im Hauptchat (Nachtrag nach eigener Arbeit darin). */
@@ -703,6 +735,9 @@ export class ChatView extends LitElement {
     else if (run.status === "retry") text = "Gerade ist viel los – gleich geht's weiter …";
     else if (run.status === "quota_wait") text = `Tageslimit erreicht – weiter in ${fmtDuration(d.seconds)}`;
     else if (run.status === "tool") text = DOING[d.tool ? store.data?.tools?.[d.tool]?.group : d.model ? "model" : ""] || "Arbeitet daran …";
+    // Teilaufgaben laufen im Hintergrund: nur eine Zeile, wie viele es sind
+    const busy = this.subsOf(chat).filter((c: any) => store.runs[c.id] || c.sub_status === "laeuft" || c.sub_status === "wartet").length;
+    if (busy && (run.status === "tool" || run.status === "waiting_sub_permission")) text = busy === 1 ? t("Arbeitet an einer Teilaufgabe …") : t("Arbeitet an {n} Teilaufgaben …", { n: busy });
     else if (d.switched_from) text = "Wechselt zu einer weniger ausgelasteten KI …";
     else {
       const verbs = (d.step || 1) > 1 ? ["Wertet aus", "Denkt nach", "Fasst zusammen"] : ["Denkt nach", "Überlegt", "Formuliert eine Antwort"];
@@ -768,6 +803,7 @@ export class ChatView extends LitElement {
         ${proj ? html`<span>${t("Projekte")}: <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/project/${proj.id}`); }}>${proj.name}</a></span>` : nothing}
         <span>${t("Modell")}: ${modelName(chat.model)}${chat.model_auto ? " (automatisch gewählt)" : ""}</span>
         <span>Anfragen: ${u.requests || 0} · Tokens: ${fmtNum((u.prompt || 0) + (u.completion || 0))}</span>
+        ${this.subsOf(chat).length ? html`<span>${t("Mit Teilaufgaben")}: ${fmtNum(this.subsOf(chat).reduce((n: number, c: any) => n + (c.usage?.prompt || 0) + (c.usage?.completion || 0), (u.prompt || 0) + (u.completion || 0)))} Tokens</span>` : nothing}
         <span>Erstellt: ${fmtTime(chat.created)}</span></div></div>
     </aside>`;
   }
@@ -794,6 +830,7 @@ export class ChatView extends LitElement {
           : html`<span class="title ellipsis" @click=${() => (this.editTitle = true)}>${chat.title || t("Neuer Chat")}</span>`}
         ${chat.parent_id ? html`<span class="chip accent">${icon("subtask", 14)} ${t("Teilaufgabe")}</span>` : nothing}
         ${isWork && !chat.parent_id && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
+        ${simple ? nothing : this.treeChip(chat)}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
         ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon("euro", 14)} ${simple ? "Ersatz-KI" : "extern"}</span>` : nothing}
         <span class="grow"></span>

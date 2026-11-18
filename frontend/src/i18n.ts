@@ -149,6 +149,18 @@ const EN: Record<string, string> = {
   "Wartet auf einen freien Platz": "Waiting for a free slot", "Folgeauftrag": "Follow-up", "Zusammenfassung ausblenden": "Hide summary",
   "Wartet auf Teilaufgaben …": "Waiting for subtasks …", "aus Teilaufgabe": "from subtask",
   "Teilaufgabe ›{t}‹ wartet auf dich": "Subtask ›{t}‹ is waiting for you",
+  "Ergebnisse an den Hauptchat melden": "Report results to the main chat", "Jetzt melden": "Report now",
+  "An den Hauptchat gemeldet": "Reported to the main chat", "Verbrauch mit Teilaufgaben: {n} Tokens": "Usage incl. subtasks: {n} tokens",
+  "{a} von {n} aktiv": "{a} of {n} active", "Mit Teilaufgaben": "Incl. subtasks",
+  "Arbeitet an einer Teilaufgabe …": "Working on a subtask …", "Arbeitet an {n} Teilaufgaben …": "Working on {n} subtasks …",
+  "Nur auf Wunsch": "Only on request", "Aus": "Off",
+  "LLMitMir teilt größere Aufgaben selbst in Teilaufgaben auf – mehrere unabhängige Teile, viel Lesematerial, lange Werkbank-Arbeit. Der Chat bleibt dadurch kurz und übersichtlich.":
+    "LLMitMir splits larger tasks into subtasks on its own – several independent parts, a lot of reading, long workbench jobs. The chat stays short and tidy.",
+  "Teilaufgaben nur, wenn du ausdrücklich darum bittest (z. B. „als Teilaufgabe“ oder „parallel“).": "Subtasks only when you ask for them explicitly (e.g. “as a subtask” or “in parallel”).",
+  "Keine Teilaufgaben – alles läuft im Chat selbst. Von Hand abzweigen geht weiterhin.": "No subtasks – everything runs in the chat itself. Branching off by hand still works.",
+  "Teilaufgaben arbeiten mit eigenem Kontext und melden nur eine Zusammenfassung zurück. Fragen, die du freigeben musst, erscheinen auch im Hauptchat.":
+    "Subtasks work with their own context and only report a summary back. Questions you need to approve also appear in the main chat.",
+  "Teilaufgaben": "Subtasks",
   "„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.": "“Turn on for this chat” only applies to this subtask.",
   "„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.": "“Always allow” only applies to this subtask – even when you answer here in the main chat.", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
 };
