@@ -2,7 +2,7 @@
   "domain": "llmitmir",
   "name": "LLMitMir",
   "codeowners": [
-    "@niko"
+    "@unfoobar"
   ],
   "config_flow": true,
   "dependencies": [
