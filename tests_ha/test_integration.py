@@ -333,6 +333,30 @@ async def test_workspace_html_is_never_served_as_a_page(hass, llmitmir, hass_ws_
     assert resp.headers["X-Content-Type-Options"] == "nosniff" and "sandbox" in resp.headers["Content-Security-Policy"]
 
 
+async def test_two_uploads_with_the_same_name_both_arrive(hass, llmitmir, hass_ws_client, hass_client, hass_admin_user):
+    """Zwei Screenshots „image.png“ in einem Chat: der zweite kommt als „image (2).png“ an, statt den ersten zu
+    überschreiben – sonst läse das Modell beim zweiten Mal wieder die alte Datei."""
+    from aiohttp import FormData
+
+    admin = await hass_ws_client(hass)
+    chat = await _ok(admin, "chat/create", kind="chat")
+    client = await hass_client()
+    names = []
+    for data in (b"eins", b"zwei"):
+        form = FormData()
+        form.add_field("scope", "chat")
+        form.add_field("owner", chat["id"])
+        form.add_field("filename", "image.png")
+        form.add_field("file", data, filename="image.png", content_type="image/png")
+        resp = await client.post("/api/llmitmir/upload", data=form)
+        assert resp.status == HTTPStatus.OK
+        names.append((await resp.json())["files"][0]["name"])
+    assert names == ["image.png", "image (2).png"]
+    st = await llmitmir["manager"].user_store(hass_admin_user.id)
+    assert [f["name"] for f in await st.async_list_files("chat", chat["id"])] == ["image (2).png", "image.png"]
+    assert await st.async_read_file("chat", chat["id"], "image.png") == b"eins"
+
+
 async def test_after_unload_the_panel_gets_a_clear_answer(hass, llmitmir, hass_ws_client, hass_client):
     """T7: Ohne geladenen Eintrag antworten Websocket und HTTP verständlich statt mit einem Serverfehler."""
     entry: MockConfigEntry = llmitmir["entry"]

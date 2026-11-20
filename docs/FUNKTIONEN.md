@@ -14,7 +14,8 @@
   Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter nicht
   darstellen kann, lässt sich herunterladen.
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
-  sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben) und **Spracheingabe**
+  sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben; zwei Anhänge mit demselben Namen
+  bleiben beide erhalten, der zweite heißt dann `image (2).png`) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
   Die Suche über der Liste findet auf Wunsch **auch in den Nachrichten** („Auch in Nachrichten suchen“) und zeigt je

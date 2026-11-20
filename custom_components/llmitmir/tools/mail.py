@@ -202,7 +202,7 @@ async def mail_read(ctx, a: dict):
             if len(att["data"]) > MAX_ATTACH:
                 saved.append({"name": att["name"], "fehler": "größer als 25 MB"})
                 continue
-            saved.append(await ctx.store.async_write_file("chat", ctx.files_id, att["name"], att["data"]))
+            saved.append(await ctx.store.async_write_file("chat", ctx.files_id, att["name"], att["data"], unique=True))
         await ctx.emit_files()
         out["gespeichert"] = saved
     return out

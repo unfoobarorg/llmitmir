@@ -2,6 +2,13 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.0.1 – gleiche Dateinamen bleiben erhalten
+
+- **Mehrere Screenshots mit demselben Namen** in einem Chat überschrieben sich: der zweite Upload landete auf dem
+  ersten, das Modell las beim zweiten Mal wieder die alte Datei. Jetzt legt LLMitMir den zweiten als `image (2).png`
+  an, den dritten als `image (3).png` – im Chat und bei gespeicherten Mail-Anhängen. In Projekten und Skills ersetzt
+  ein Upload gleichen Namens weiterhin die Datei, dort ist das die Absicht.
+
 ## 1.0.0 – erste stabile Version
 
 LLMitMir ist stabil: geprüft auf Sicherheit, Datenschutz und Technik, mit Tests gegen Home Assistant 2025.1 bis
