@@ -53,6 +53,23 @@ def safe_name(name: str) -> str:
     return name[:180]
 
 
+def _write_unique(directory: str, name: str, data: bytes) -> str:
+    """Schreibt die Datei unter einem freien Namen: „bild.png“, „bild (2).png“, „bild (3).png“ …
+    Anlegen mit O_EXCL, damit zwei gleichzeitige Uploads nicht denselben Namen bekommen."""
+    stem, ext = os.path.splitext(name)
+    for n in range(1, 1000):
+        candidate = name if n == 1 else f"{stem} ({n}){ext}"
+        path = os.path.join(directory, candidate)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+        except FileExistsError:
+            continue
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        return path
+    raise ValueError("zu viele Dateien mit demselben Namen")
+
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "provider": {"preset": "saia", "name": "SAIA (GWDG / KISSKI)", "base_url": "https://chat-ai.academiccloud.de/v1",
                  "transcription_model": "whisper-large-v3"},
@@ -339,16 +356,22 @@ class UserStore:
 
         return await self.hass.async_add_executor_job(_ls)
 
-    async def async_write_file(self, scope: str, owner: str, name: str, data: bytes) -> dict:
+    async def async_write_file(self, scope: str, owner: str, name: str, data: bytes, unique: bool = False) -> dict:
+        """Datei ablegen. ``unique``: nie eine vorhandene Datei überschreiben, sondern „bild (2).png“ anlegen –
+        so bleiben zwei Screenshots mit demselben Namen beide erhalten (Uploads, Mail-Anhänge)."""
         path = self.file_path(scope, owner, name)
+        d = self.file_dir(scope, owner)
 
-        def _w() -> None:
+        def _w() -> str:
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "wb") as fh:
-                fh.write(data)
+            if not unique:
+                with open(path, "wb") as fh:
+                    fh.write(data)
+                return path
+            return _write_unique(os.path.dirname(path), os.path.basename(path), data)
 
-        await self.hass.async_add_executor_job(_w)
-        return {"name": os.path.relpath(path, self.file_dir(scope, owner)).replace(os.sep, "/"), "size": len(data)}
+        written = await self.hass.async_add_executor_job(_w)
+        return {"name": os.path.relpath(written, d).replace(os.sep, "/"), "size": len(data)}
 
     async def async_read_file(self, scope: str, owner: str, name: str) -> bytes:
         path = self.file_path(scope, owner, name)

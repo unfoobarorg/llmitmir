@@ -106,7 +106,9 @@ class UploadView(_Base):
             return self.json_message("Skill unbekannt", HTTPStatus.NOT_FOUND)
         if scope not in ("chat", "project", "skill"):
             return self.json_message("Unbekannter Bereich", HTTPStatus.BAD_REQUEST)
-        return self.json({"files": [await st.async_write_file(scope, owner, name, data)]})
+        # Im Chat nie überschreiben: zwei Screenshots mit demselben Namen bleiben beide erhalten („bild (2).png“).
+        # In Projekten und Skills ersetzt ein Upload gleichen Namens die Datei – dort ist das die Absicht.
+        return self.json({"files": [await st.async_write_file(scope, owner, name, data, unique=scope == "chat")]})
 
 
 class FileView(_Base):
