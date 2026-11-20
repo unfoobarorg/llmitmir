@@ -1,11 +1,17 @@
-// Usage-billed external models (Claude via Microsoft Foundry or the Anthropic API): explanation, consent, prices.
+// External models: usage-billed ones (Claude via Microsoft Foundry or the Anthropic API) and those the main provider
+// marks as external (SAIA forwards some models to commercial vendors). Same rules for both – explanation, consent,
+// locked Zugänge; prices only exist for the billed ones.
 import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { base, icon, tokens, safeElement, confirmDialog } from "./ui";
 import { store } from "./api";
 import { t } from "./i18n";
 
-export const isExternal = (id: string | null | undefined) => /^(foundry|anthropic):/.test(id || "");
+/** A usage-billed external model (own provider of LLMitMir, costs money per request). */
+export const isBilled = (id: string | null | undefined) => /^(foundry|anthropic):/.test(id || "");
+/** Any external model: billed, or marked external by the main provider. */
+export const isExternal = (id: string | null | undefined) =>
+  isBilled(id) || !!(id && (store.data?.models || []).find((x: any) => x.id === id)?.external);
 export const ext = () => store.data?.external || {};
 
 export const fmtEur = (v: number, digits = 2) =>
@@ -25,10 +31,12 @@ const operatorOf = (modelId?: string) => {
 /** The full explanation – shown once before the first use and on the settings page. */
 export function externalExplanation(operator?: string) {
   const e = ext();
+  const where = operator || (e.has_access && e.main_external ? "einem kommerziellen Anbieter (z. B. Microsoft Azure, OpenAI oder Anthropic)"
+    : e.main_external ? "einem kommerziellen Anbieter, an den der Hauptanbieter weiterleitet" : "einem externen Anbieter (Microsoft Azure oder Anthropic)");
   return html`<div class="extx">
-    <p><b>Was ist anders?</b> Diese Modelle laufen nicht beim Hauptanbieter dieser Installation (z. B. dem Rechenzentrum der GWDG),
-      sondern bei <b>${operator || "einem externen Anbieter (Microsoft Azure oder Anthropic)"}</b>. Sie sind sehr leistungsfähig, kosten aber
-      bei jeder Anfrage Geld.</p>
+    <p><b>Was ist anders?</b> Diese Modelle laufen nicht im Rechenzentrum des Hauptanbieters dieser Installation (z. B. der GWDG),
+      sondern bei <b>${where}</b>.${e.has_access ? " Sie sind sehr leistungsfähig; die über LLMitMir eingerichteten kosten bei jeder Anfrage Geld." : ""}
+      ${e.main_external ? " Auch Modelle, die der Hauptanbieter selbst als „extern“ kennzeichnet, gehören dazu – er reicht deine Anfragen an einen kommerziellen Anbieter weiter." : ""}</p>
     <p><b>Was wird dorthin geschickt?</b> Deine Nachrichten, der bisherige Verlauf des Chats, Anhänge, Projektanweisungen, deine persönlichen
       Hinweise, Skill-Texte und die Ergebnisse der Werkzeuge – zum Beispiel Werte aus Home Assistant oder Dateien aus freigegebenen Zugängen.</p>
     <p><b>Was nie dorthin geht:</b> Passwörter und Schlüssel aus deinen Zugängen. Zugänge, die du nicht ausdrücklich für externe Modelle
@@ -36,9 +44,9 @@ export function externalExplanation(operator?: string) {
     <p class="warn">${icon("shield", 18)}<span><b>Bitte gib dort keine sensiblen Informationen preis:</b> keine Gesundheitsdaten, Passwörter,
       Kontodaten oder persönlichen Daten anderer Menschen.</span></p>
     <p><b>Speicherung:</b> Der Anbieter darf Anfragen eine begrenzte Zeit aufbewahren (bei Claude bis zu 30 Tage, z. B. zur Erkennung von
-      Missbrauch); zum Trainieren von KI-Modellen werden sie nicht verwendet.</p>
-    <p><b>Kosten:</b> Der Admin hat dir ein Monatslimit von ${fmtEur(e.limit_eur || 0)} gegeben; diesen Monat sind ${fmtEur(e.month_eur || 0)}
-      verbraucht. LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest oder eine Aufgabe es im Notfall darf.</p>
+      Missbrauch); zum Trainieren von KI-Modellen werden sie nicht verwendet.${e.main_external ? " Bei weitergeleiteten Modellen gelten die Bedingungen, die der Hauptanbieter mit dem Anbieter vereinbart hat." : ""}</p>
+    <p>${e.has_access ? html`<b>Kosten:</b> Der Admin hat dir ein Monatslimit von ${fmtEur(e.limit_eur || 0)} gegeben; diesen Monat sind ${fmtEur(e.month_eur || 0)}
+      verbraucht.${e.main_external ? " Für die als extern gekennzeichneten Modelle des Hauptanbieters rechnet LLMitMir keine Kosten ab." : ""} ` : nothing}LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest${e.has_access ? " oder eine Aufgabe es im Notfall darf" : ""}.</p>
   </div>`;
 }
 
@@ -75,7 +83,7 @@ export async function confirmExternal(modelId: string, withHistory: boolean): Pr
   if (!(await ensureConsent(op))) return false;
   if (first) return true;  // the full explanation was just accepted
   const cost = m?.price ? ` Ein Schritt kostet grob ${fmtEur(stepCost(m.price), 3)}.` : "";
-  return confirmDialog(`${m?.name || "Dieses Modell"} läuft kostenpflichtig bei ${op}.${withHistory ? " Der bisherige Verlauf dieses Chats wird mitgeschickt." : ""}${cost} Bitte keine sensiblen Daten eingeben.`, "Weiter");
+  return confirmDialog(`${m?.name || "Dieses Modell"} läuft ${isBilled(modelId) ? "kostenpflichtig " : ""}bei ${op}.${withHistory ? " Der bisherige Verlauf dieses Chats wird mitgeschickt." : ""}${cost} Bitte keine sensiblen Daten eingeben.`, "Weiter");
 }
 
 @safeElement("lm-extinfo")
@@ -94,7 +102,7 @@ export class ExtInfo extends LitElement {
   private done(v: boolean) { this.dispatchEvent(new CustomEvent("done", { detail: v })); }
   render() {
     return html`<div class="back" @click=${(e: Event) => e.target === e.currentTarget && this.done(false)}>
-      <div class="box" role="dialog" aria-modal="true"><h2>${icon("euro", 22)} Kostenpflichtige externe KI-Modelle</h2>
+      <div class="box" role="dialog" aria-modal="true"><h2>${icon(ext().has_access ? "euro" : "external", 22)} ${ext().has_access ? "Kostenpflichtige externe KI-Modelle" : "Externe KI-Modelle"}</h2>
         ${externalExplanation(this.operator || undefined)}
         <label><input type="checkbox" .checked=${this.read} @change=${(e: any) => (this.read = e.target.checked)}>
           Ich habe das gelesen und gebe in Chats mit externen Modellen keine sensiblen Informationen ein.</label>

@@ -262,10 +262,32 @@ class Manager:
     def ext_model(self, key: str) -> dict | None:
         return next((m for m in self.ext_models() if m["key"] == key), None)
 
+    def is_external(self, key: str) -> bool:
+        """The model runs outside the main provider's own data centre: a usage-billed external provider (Foundry,
+        Anthropic API) or a model the main provider itself marks as external (SAIA forwards some to commercial vendors).
+        The same rules apply to both – never picked automatically, released per person by the admin, consent, Zugänge
+        locked unless released, project lock. Costs and the monthly limit only exist for the billed ones
+        (``PV.is_external``): how SAIA buys its external models and at what price is not known."""
+        if PV.is_external(key):
+            return True
+        return bool(key) and bool(self.model_info(key).get("external"))
+
+    def external_operator(self, key: str) -> str:
+        """Where an external model runs, for sentences like "läuft bei …"."""
+        if PV.is_external(key):
+            return PV.INFO[PV.split(key)[0]]["operator"]
+        name = (self.config.data.get("provider") or {}).get("name") or "den Hauptanbieter"
+        return f"einem kommerziellen Anbieter (weitergeleitet über {name})"
+
+    def user_main_ext_models(self, user_id: str) -> list[str]:
+        """Models of the main provider marked external that the admin released for this person."""
+        return [m["id"] for m in self.live_models() if m.get("external") and MS.usable(m)
+                and self.may_use_model(user_id, m["id"])]
+
     def may_use_model(self, user_id: str, key: str) -> bool:
         """Admin's per-person model choice: external models only for listed people, main models for all unless listed."""
         acc = (self.config.data.get("model_access") or {}).get(key)
-        if PV.is_external(key):
+        if self.is_external(key):
             return bool(acc) and user_id in acc
         return acc is None or user_id in acc
 
@@ -314,8 +336,11 @@ class Manager:
         return {"order": order, "usable": usable, "why": why, "state": state, "emergency": PV.emergency(state)}
 
     def model_selectable(self, user_id: str, key: str, task: bool = False, ps: dict | None = None) -> tuple[bool, str]:
-        """Can this person run this (external) model right now? Main models: always (their own checks apply)."""
+        """Can this person run this (external) model right now? Main models: always (their own checks apply); those
+        the main provider marks external only if the admin released them for this person."""
         if not PV.is_external(key):
+            if self.is_external(key) and not self.may_use_model(user_id, key):
+                return False, "Dieses externe Modell ist für dich nicht freigegeben."
             return True, ""
         m = self.ext_model(key)
         if not m or not m["price"]:
@@ -342,10 +367,10 @@ class Manager:
 
     def check_external(self, user_id: str, key: str, task: bool = False) -> None:
         """Raise a plain-language error if a run may not use this external model."""
-        if not PV.is_external(key):
+        if not self.is_external(key):
             return
         if not self.has_consent(user_id):
-            raise QuotaError("Für kostenpflichtige externe Modelle fehlt noch deine Zustimmung (Hinweis im Chat oder unter Einstellungen).")
+            raise QuotaError("Für externe Modelle fehlt noch deine Zustimmung (Hinweis im Chat oder unter Einstellungen).")
         ok, why = self.model_selectable(user_id, key, task)
         if not ok:
             raise QuotaError(why)
@@ -369,9 +394,14 @@ class Manager:
         """What the panel shows a person about external models."""
         ps = self.provider_state(user_id)
         models = self.user_ext_models(user_id)
-        return {"has_access": bool(models) and self.ext_limit(user_id) > 0, "consent": self.has_consent(user_id),
+        billed = bool(models) and self.ext_limit(user_id) > 0
+        main_ext = bool(self.user_main_ext_models(user_id))
+        # has_access: usage-billed models (fallback, costs); main_external: external models of the main provider (no
+        # costs known); any_access: either – consent, Zugänge and the project lock matter
+        return {"has_access": billed, "main_external": main_ext, "any_access": billed or main_ext,
+                "consent": self.has_consent(user_id),
                 # an external provider is switched on: Zugänge show their lock for external models
-                "configured": any(p.get("enabled") for p in ps["order"] if p["id"] != PV.MAIN),
+                "configured": any(p.get("enabled") for p in ps["order"] if p["id"] != PV.MAIN) or main_ext,
                 "month_eur": round(self.ext_month(user_id), 4), "limit_eur": self.ext_limit(user_id),
                 "emergency": ps["emergency"], "main_usable": ps["usable"].get(PV.MAIN, True),
                 "main_why": ps["why"].get(PV.MAIN, ""),
@@ -429,6 +459,7 @@ class Manager:
                         "output": info.get("output") or ["text"],
                         "status": "unavailable" if info.get("gone") else info.get("status", "ready"),
                         "context": self.context_size(mid), "tools": info.get("tools", True),
+                        "external": bool(info.get("external")),
                         "demand": MS.effective_demand(info) if info.get("demand") is not None or info.get("slow") else None,
                         "busy": MS.busy(info), "slow": bool(info.get("slow")), "created": info.get("created"),
                         "new": bool(info.get("first_seen")) and t - info["first_seen"] < NEW_MODEL_DAYS * 86400,
@@ -438,7 +469,8 @@ class Manager:
     def models_for_user(self, user_id: str) -> list[dict]:
         """The models a person can pick, cheapest first: the main provider's (free for the person) and the external
         ones the admin gave them – those with ``locked`` while their provider is only unlocked in an emergency."""
-        main = [dict(m, provider=PV.MAIN, external=False, price=None, blended=0.0)
+        main = [dict(m, provider=PV.MAIN, billed=False, price=None, blended=0.0,
+                     **({"operator": self.external_operator(m["id"])} if m["external"] else {}))
                 for m in self.models_for_users() if self.may_use_model(user_id, m["id"])]
         ps = self.provider_state(user_id)
         ext = []
@@ -450,7 +482,7 @@ class Manager:
                         "status": "ready", "context": m["context"], "tools": True, "demand": None, "busy": False,
                         "slow": False, "created": None, "new": False, "quality": {r: 0 for r in MS.ROLES},
                         "provider": pid, "provider_name": m["provider_name"], "operator": PV.INFO[pid]["operator"],
-                        "external": True, "price": {"in": p["in"], "out": p["out"]}, "blended": m["blended"],
+                        "external": True, "billed": True, "price": {"in": p["in"], "out": p["out"]}, "blended": m["blended"],
                         "mode": self.provider_cfg(pid).get("mode"), "locked": not ps["state"].get(pid, {}).get("unlocked"),
                         "usable": bool(ps["usable"].get(pid)), "why": "" if ok else why})
         return sorted(main + ext, key=lambda x: x["blended"])  # stable: free models keep their order
@@ -482,7 +514,7 @@ class Manager:
         return MS.alternative(self.live_models(), chat.get("model") or "", role, need_image=imgs)
 
     def _check_chat_external(self, user_id: str, st: UserStore, chat: dict, model: str) -> None:
-        if not PV.is_external(model):
+        if not self.is_external(model):
             return
         proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
         if proj.get("no_external"):
@@ -710,11 +742,12 @@ class Manager:
         d = (self.config.data.get("models") or {}).get("defaults") or {}
         admin = d.get(role) if d.get(role) not in (None, "", AUTO) else None
         for explicit in (mine, admin):
-            if explicit and not PV.is_external(explicit) and self.model_usable(explicit):
+            if explicit and not self.is_external(explicit) and self.model_usable(explicit):
                 return explicit, False
         auto = MS.pick(self.live_models(), role)
         if auto:
             return auto, True
+        mine, admin = (x if x and not self.is_external(x) else None for x in (mine, admin))
         fallback = mine or admin or self.preset().get("defaults", {}).get(role) or self.preset().get("defaults", {}).get("chat") or ""
         return fallback, False
 
@@ -848,7 +881,7 @@ class Manager:
             model, proj = None, {}  # simple view: always the automatic model, also for projects and tasks
         if model == default and auto and not proj.get(f"model_{role}"):
             model = None  # the panel sends the default it shows; it stays "automatic"
-        if model and PV.is_external(model):
+        if model and self.is_external(model):
             try:
                 if proj.get("no_external"):
                     raise QuotaError("Dieses Projekt ist für externe Modelle gesperrt.")
@@ -857,7 +890,8 @@ class Manager:
                 if kind != KIND_TASK_RUN:
                     raise
                 model = None  # a scheduled task whose external model cannot be used now runs on the main provider
-        fixed = model or (proj.get(f"model_{role}") if self.model_usable(proj.get(f"model_{role}") or "") else None)
+        pm = proj.get(f"model_{role}") or ""
+        fixed = model or (pm if self.model_usable(pm) and not self.is_external(pm) else None)
         chat = {"id": new_id("c"), "kind": kind, "title": title or "", "project_id": project_id, "task_id": task_id,
                 "model": fixed or default, "model_auto": not fixed and auto,
                 "created": now(), "updated": now(), "pinned": False, "status": "idle",
@@ -1138,10 +1172,10 @@ class Manager:
             if is_sub:
                 steps = MAX_STEPS_SUB
             proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
-            if PV.is_external(chat.get("model") or ""):
+            if self.is_external(chat.get("model") or ""):
                 ok, why = self.model_selectable(user.id, chat["model"], task is not None)
                 if not self.has_consent(user.id):
-                    ok, why = False, "Für kostenpflichtige externe Modelle fehlt noch deine Zustimmung."
+                    ok, why = False, "Für externe Modelle fehlt noch deine Zustimmung."
                 if proj.get("no_external"):
                     ok, why = False, f"Das Projekt „{proj.get('name')}“ ist für externe Modelle gesperrt."
                 if not ok and (simple or task is not None or chat.get("model_fallback")):
@@ -1399,10 +1433,11 @@ class Manager:
                              "usage": {"prompt": usage.get("prompt_tokens"), "completion": usage.get("completion_tokens"),
                                        "reasoning": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")},
                              "model": chat["model"] if ext else (acc.model or chat["model"])})
+                if self.is_external(chat["model"]):
+                    chat["external_used"] = True  # also SAIA's external models: the task card shows it
                 if ext:
                     amsg["provider"] = PV.split(chat["model"])[0]
                     amsg["claude_blocks"] = (acc.claude or {}).get("blocks") or []
-                    chat["external_used"] = True
                     if (acc.claude or {}).get("stop_reason") == "refusal" and not content:
                         amsg["content"] = content = "_Das Modell hat diese Anfrage aus Sicherheitsgründen abgelehnt._"
                 calls = [] if final else acc.calls()  # tool calls on the last step are ignored
@@ -1500,8 +1535,8 @@ class Manager:
         uid = ctx.user_id
         model, auto, note = SC.pick_model(choice, ctx.chat.get("model") or "", bool(ctx.chat.get("model_auto")),
                                           self.default_model(uid, "sub"), self.default_model(uid, "agent"),
-                                          PV.is_external, self.model_usable)
-        if PV.is_external(model):
+                                          self.is_external, self.model_usable)
+        if self.is_external(model):
             try:
                 self._check_chat_external(uid, ctx.store, ctx.chat, model)
             except QuotaError as e:
@@ -1744,7 +1779,7 @@ class Manager:
         run.switch_to, run.hint = None, None
         run.switch.clear()
         chat["model"] = new
-        chat["model_auto"] = run.switch_auto and bool(chat.get("model_auto")) and not PV.is_external(new)
+        chat["model_auto"] = run.switch_auto and bool(chat.get("model_auto")) and not self.is_external(new)
         auto, run.switch_auto = run.switch_auto, False
         await st.async_save_chat(chat)
         self.emit(run.user_id, {"type": "chat", "chat": st.chat_summary(chat)})
@@ -1933,7 +1968,13 @@ class ToolContext:
 
     @property
     def external(self) -> bool:
-        """The run currently uses a usage-billed external model (can change mid-run)."""
+        """The run currently uses an external model – usage-billed or marked external by the main provider (can change
+        mid-run). Decides the rules: Zugänge, redaction, no editing of Zugänge."""
+        return self.manager.is_external(self.chat.get("model") or "")
+
+    @property
+    def billed(self) -> bool:
+        """The run currently uses a usage-billed external provider (Claude via Foundry or the Anthropic API)."""
         return PV.is_external(self.chat.get("model") or "")
 
     @property
@@ -2008,7 +2049,7 @@ class ToolContext:
     def system_prompt(self) -> str:
         n = dt_util.now()
         name = self.user.name or "die Person"
-        ext = self.external
+        ext = self.billed
         # external models (Claude) need a system prompt that stays the same within a chat: the time of day is part of
         # each message instead (see claude_request)
         when = (f"Heute ist {WEEKDAYS[n.weekday()]}, der {n:%d.%m.%Y} ({self.hass.config.time_zone}); die Uhrzeit "
@@ -2145,6 +2186,13 @@ class ToolContext:
                          + json.dumps(creds, ensure_ascii=False)
                          + ("\n\nBei diesen Zugängen hat die letzte Prüfung einen Fehler ergeben – nenne ihn der Person, "
                             "statt es weiter zu versuchen:\n" + "\n".join(broken) if broken else ""))
+        if self.external and not ext:
+            parts.append(
+                "## Externes Modell\nDu läufst gerade als externes Modell bei "
+                f"{self.manager.external_operator(self.chat['model'])}, nicht im Rechenzentrum des Hauptanbieters. "
+                "Zugänge, die nicht ausdrücklich für externe Modelle freigegeben sind, stehen dir nicht zur Verfügung; "
+                "Ergebnisse aus solchen Zugängen sind im Verlauf entfernt. Fehlt dir deshalb etwas, sag das klar, statt "
+                "es zu umgehen.")
         if ext:
             pid = PV.split(self.chat["model"])[0]
             parts.append(
@@ -2177,8 +2225,7 @@ class ToolContext:
         results from Zugänge closed to external models removed, and no stored secret anywhere in it."""
         tz = dt_util.get_default_time_zone()
         model = self.chat["model"]
-        locked = self.locked_creds()
-        locked_names = {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked}
+        locked_names = self._locked_names()
         prepared: list[dict] = []
         for m in self.chat["messages"]:
             if m.get("error") or m.get("streaming"):
@@ -2204,12 +2251,7 @@ class ToolContext:
                                  # thinking blocks only go back to the model (and platform) that wrote them
                                  "claude_blocks": m.get("claude_blocks") if m.get("model") == model else None})
             elif m["role"] == "tool":
-                content = m.get("content") or ""
-                used = _creds_in_args(m.get("args") or {})
-                hit = sorted(n for n in used if n.casefold() in locked_names)
-                if hit:
-                    content = (f"[Ergebnis entfernt: Der Zugang „{hit[0]}“ ist für externe Modelle gesperrt. "
-                               "Die Person kann ihn unter Zugänge freigeben.]")
+                content = self._tool_content(m, locked_names)
                 prepared.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": content,
                                  "error": m.get("status") == "error", "notes": m.get("notes")})
             elif m["role"] == "sub_result":
@@ -2218,8 +2260,26 @@ class ToolContext:
                "tool_choice": {"type": "none"} if final and tools else None}
         return C.scrub_obj(req, self._secrets)
 
+    def _locked_names(self) -> set[str]:
+        """Names and ids of the Zugänge closed to the current (external) model, case-folded."""
+        locked = self.locked_creds()
+        return {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked}
+
+    @staticmethod
+    def _tool_content(m: dict, locked_names: set[str]) -> str:
+        """A tool result as the model sees it: removed if it came from a Zugang closed to external models."""
+        content = m.get("content") or ""
+        if locked_names:
+            hit = sorted(n for n in _creds_in_args(m.get("args") or {}) if n.casefold() in locked_names)
+            if hit:
+                content = (f"[Ergebnis entfernt: Der Zugang „{hit[0]}“ ist für externe Modelle gesperrt. "
+                           "Die Person kann ihn unter Zugänge freigeben.]")
+        return content
+
     def api_messages(self) -> list[dict]:
         model = self.chat["model"]
+        ext = self.external  # an external model of the main provider: same rules as for Claude
+        locked_names = self._locked_names() if ext else set()
         info = self.manager.model_info(model)
         vision = "image" in (info.get("input") or [])
         out: list[dict] = [{"role": "system", "content": self.system_prompt()}]
@@ -2249,10 +2309,12 @@ class ToolContext:
                     am["tool_calls"] = m["tool_calls"]
                 out.append(am)
             elif m["role"] == "tool":
-                out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": m.get("content") or ""})
+                out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": self._tool_content(m, locked_names)})
             elif m["role"] == "sub_result":
                 # Rückmeldung einer Teilaufgabe: nur die Zusammenfassung, nie deren Verlauf
                 out.append({"role": "user", "content": SC.api_text(m)})
+        if ext:
+            out = C.scrub_obj(out, self._secrets)  # no stored secret goes out, wherever it might appear
         return _fit_context(out, self.manager.context_size(model))
 
     def _image_cache(self, name: str) -> str | None:
@@ -2273,7 +2335,7 @@ class ToolContext:
 
     # -- helpers used by tools
     async def complete(self, model: str, messages: list[dict], label: str = "", **kw) -> str:
-        if self.external:
+        if self.billed:
             model = self.chat["model"]  # the person chose the external model; its data stays there (and it reads images)
         await self.manager._status(self.run, "tool", {"label": label or "Modell", "model": model})
         return await self.manager.complete(self.user_id, model, messages, interactive=self.task is None,

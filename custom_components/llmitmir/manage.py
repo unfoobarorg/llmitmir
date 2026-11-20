@@ -83,7 +83,7 @@ def build_credential(st, c: dict) -> dict:
                 valid_until=str(c.get("valid_until") or old.get("valid_until") or "")[:10],
                 secret_fields=list(c.get("secret_fields") or old.get("secret_fields") or []),
                 project_ids=list(c["project_ids"] or []) if "project_ids" in c else list(old.get("project_ids") or []),
-                # released for usage-billed external models (Claude)? Closed unless the person opens it explicitly.
+                # released for external models (Claude, or models the main provider marks external)? Closed unless the person opens it explicitly.
                 external=bool(c["external"]) if "external" in c else bool(old.get("external")),
                 # weitere Server, an die der Zugang ohne Rückfrage gehen darf (die aus den Adressfeldern gelten immer)
                 hosts=C.clean_hosts(c["hosts"]) if "hosts" in c else list(old.get("hosts") or []),

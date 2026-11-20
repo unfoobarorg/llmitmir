@@ -547,7 +547,7 @@ async def ws_project_save(hass, conn, msg, m, user, st):
     keep = ("name", "description", "instructions", "icon", "color", "credentials", "skills", "credentials_only",
             "skills_only", "model_chat", "model_agent", "tool_groups", "permissions", "no_external", "retention_days")
     for k in ("model_chat", "model_agent"):
-        if PV.is_external(p.get(k) or ""):
+        if m.is_external(p.get(k) or ""):
             raise ValueError("Externe Modelle lassen sich nicht als Standard eines Projekts festlegen – nur im Chat auswählen.")
     proj = dict(old, **{k: p[k] for k in keep if k in p}, id=pid, updated=now())
     # Das Kennzeichen „von LLMitMir angelegt“ (Projekt „Gespräche“) bleibt, auch wenn die Person das Projekt
@@ -707,9 +707,12 @@ async def ws_task_save(hass, conn, msg, m, user, st):
     editor = old is not None and owner_id != user.id
     if not editor:
         ext = m.external_view(user.id)
-        if (t.get("external_fallback") or PV.is_external(t.get("model") or "")) and not (ext["has_access"] and ext["consent"]):
+        tm = t.get("model") or ""
+        if (t.get("external_fallback") or PV.is_external(tm)) and not (ext["has_access"] and ext["consent"]):
             raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
-        if PV.is_external(t.get("model") or "") and not m.may_use_model(user.id, t["model"]):
+        if m.is_external(tm) and not ext["consent"]:
+            raise ValueError("Für externe Modelle fehlt noch deine Zustimmung (Einstellungen → Externe Modelle).")
+        if m.is_external(tm) and not m.may_use_model(user.id, tm):
             raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
     new_prompt = False
     if editor:
@@ -951,7 +954,7 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     s = msg["settings"]
     cur = st.meta["settings"]
     for k in ("model_chat", "model_agent", "model_sub"):
-        if PV.is_external(s.get(k) or ""):
+        if m.is_external(s.get(k) or ""):
             raise ValueError("Externe Modelle lassen sich nicht als Standard festlegen – nur im Chat oder bei einer Aufgabe auswählen.")
     for k in ("model_chat", "model_agent", "model_sub", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:

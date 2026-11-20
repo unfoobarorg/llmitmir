@@ -300,6 +300,16 @@
   **Abrechnung**: Jede Anfrage wird dauerhaft mit Tokens und Euro-Kosten je Person und Modell gebucht (Anthropic-Listenpreise mit
   einstellbarem Dollarkurs oder eigene Preise); der Admin setzt je Person ein **Monatslimit in Euro** und sieht die Kosten aller Personen
   über die letzten zwölf Monate. Claude wird mit adaptivem Denken, Prompt-Caching und unverändert zurückgespielten Denkblöcken genutzt.
+- **Externe Modelle des Hauptanbieters**: Auch Open-Weight-Anbieter bieten Modelle an, die gar nicht bei ihnen laufen – SAIA leitet
+  sie an kommerzielle Anbieter weiter und kennzeichnet sie als „External“ (im Namen; erkannt werden außerdem ein Feld
+  `external: true` und Kennungen wie bei SAIA: `claude-…` sowie `openai-…` außer den offenen `openai-gpt-oss-…`). LLMitMir behandelt sie
+  **genauso wie die externen Modelle oben**: nie automatisch gewählt (auch nicht als Vorgabe, im Gespräch oder als Ausweichmodell bei
+  Last), nur für Personen, die der Admin unter *Admin → Modelle → Externe Modelle des Hauptanbieters* anhakt, erst nach der
+  Zustimmung, Zugänge nur mit Freigabe für externe Modelle (Ergebnisse gesperrter Zugänge werden aus dem Verlauf entfernt, jede
+  Anfrage geschwärzt), Zugänge lassen sich mit ihnen nicht bearbeiten, Projektsperre, Teilaufgaben nur, wenn das Modell für den
+  Hauptchat ausdrücklich gewählt ist. Im Modellmenü stehen sie als eigene Gruppe „Extern (über den Hauptanbieter)“. **Nur die Kosten
+  entfallen:** Wie und zu welchem Preis der Anbieter diese Modelle einkauft, ist nicht bekannt – sie werden nicht in Euro gebucht, haben
+  kein Monatslimit und zählen wie alle Modelle des Hauptanbieters zum normalen Kontingent.
 - **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
   geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link (Freigaben importierter Aufgaben legt man beim Einschalten selbst fest). Chatverläufe kommen aus dem offiziellen
   Datenexport von claude.ai (ZIP hochladen).

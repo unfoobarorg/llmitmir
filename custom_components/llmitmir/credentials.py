@@ -467,7 +467,7 @@ def note_use(cred: dict, model: str | None = None, external: bool = False, ts: f
     """Zaehlt eine Nutzung des Zugangs fuer die Anzeige auf der Seite „Zugaenge“.
 
     ``uses``/``last_used`` zaehlen jede Nutzung durch ein Werkzeug, ``ext_uses``/``ext_last`` nur die durch
-    kostenpflichtige externe Modelle (dort zusaetzlich ``ext_uses_since`` seit der letzten Geheimnis-Aenderung).
+    externe Modelle (kostenpflichtig oder vom Hauptanbieter als extern gekennzeichnet; dort zusaetzlich ``ext_uses_since`` seit der letzten Geheimnis-Aenderung).
     """
     import time
 

@@ -766,7 +766,7 @@ export class Voice extends StoreElement {
   private settings() {
     const s = this.tts;
     if (!s) ttsSetup(store.api.hass, store.data?.speech).then(r => (this.tts = r));
-    const models = (store.data?.models || []).filter((m: any) => m.status !== "unavailable" && !(m.external && (m.locked || !m.usable)));
+    const models = (store.data?.models || []).filter((m: any) => m.status !== "unavailable" && !(m.billed && (m.locked || !m.usable)));
     return html`<div class="sheet" @click=${(e: Event) => e.target === e.currentTarget && (this.sheet = false)}>
       <div class="sheetcard">
         <div class="row"><b class="grow">${t("Gespräch")} – ${t("Einstellungen")}</b>
@@ -799,7 +799,7 @@ export class Voice extends StoreElement {
         ${isSimple() ? nothing : html`<label class="f"><span>${t("Modell")}</span>
           <select @change=${(e: any) => this.pickModel(e.target.value)}>
             <option value="" ?selected=${!this.cfg.model}>${t("Automatisch – das schnellste passende Modell")}${store.data?.defaults?.voice ? ` (${modelName(store.data.defaults.voice)})` : ""}</option>
-            ${models.map((m: any) => html`<option value=${m.id} ?selected=${this.cfg.model === m.id}>${m.name}${m.external ? " · €" : ""}</option>`)}</select>
+            ${models.map((m: any) => html`<option value=${m.id} ?selected=${this.cfg.model === m.id}>${m.name}${m.billed ? " · €" : m.external ? " · extern" : ""}</option>`)}</select>
           <span class="hint" style="font-weight:400">${t("Gilt ab der nächsten Nachricht. Kostenpflichtige Modelle sind mit € markiert.")}</span></label>`}
         ${store.data?.transcription ? nothing : html`<div class="hint">${icon("info", 15)} ${t("Beim Anbieter ist kein Modell für die Spracherkennung eingetragen – deshalb hört der Browser zu.")}</div>`}
       </div></div>`;
