@@ -187,8 +187,8 @@ def pick_model(choice: Any, main_model: str, main_auto: bool, sparsam: str, star
     """Modell einer neuen Teilaufgabe: (Modell, automatisch, Hinweis für den Hauptchat).
 
     ``sparsam`` nimmt die beste Wahl der Rolle „sub“, ``stark`` die der Rolle „agent“, ``wie_hauptchat`` das Modell
-    des Hauptchats; sonst eine Modell-ID. Kostenpflichtige externe Modelle nur, wenn die Person sie für den Hauptchat
-    ausdrücklich gewählt hat – sonst geht es sparsam weiter."""
+    des Hauptchats; sonst eine Modell-ID. Externe Modelle (kostenpflichtig oder vom Hauptanbieter als extern
+    gekennzeichnet) nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat – sonst geht es sparsam weiter."""
     c = str(choice or "sparsam").strip()
     key = c.lower().replace("-", "_").replace(" ", "_")
     main_ext_chosen = is_external(main_model or "") and not main_auto
@@ -204,7 +204,7 @@ def pick_model(choice: Any, main_model: str, main_auto: bool, sparsam: str, star
     else:
         model, auto, note = sparsam, True, f"Modell „{c}“ ist nicht verfügbar – die Teilaufgabe läuft sparsam."
     if model and is_external(model) and not main_ext_chosen:
-        model, auto, note = sparsam, True, ("Kostenpflichtige externe Modelle nur, wenn die Person sie für den Hauptchat "
+        model, auto, note = sparsam, True, ("Externe Modelle nur, wenn die Person sie für den Hauptchat "
                                             "gewählt hat – die Teilaufgabe läuft sparsam.")
     return model or sparsam, auto, note
 

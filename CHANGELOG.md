@@ -2,6 +2,19 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.0.2 – externe Modelle des Hauptanbieters
+
+### Datenschutz
+- **Externe Modelle des Hauptanbieters:** Modelle, die SAIA an kommerzielle Anbieter weiterleitet (im Namen als
+  „External“ gekennzeichnet), gelten jetzt als extern – mit denselben Regeln wie Claude über Foundry oder die
+  Anthropic-API: nie automatisch gewählt (auch nicht als Vorgabe, im Gespräch oder bei Last), nur für Personen, die der
+  Admin freigibt, erst nach der Zustimmung, nur für externe Modelle freigegebene Zugänge (Ergebnisse gesperrter Zugänge
+  aus dem Verlauf entfernt, Anfragen geschwärzt), Projektsperre, Teilaufgaben nur auf ausdrücklichen Wunsch. Kosten bucht
+  LLMitMir für sie nicht, weil der Einkaufsweg und -preis unbekannt sind.
+
+**Beim Update beachten:** Solche Modelle sind zunächst für niemanden freigegeben. Wer sie nutzen soll, hakt der Admin
+unter *Admin → Modelle → Externe Modelle des Hauptanbieters* an; die Person stimmt beim ersten Mal zu.
+
 ## 1.0.1 – gleiche Dateinamen bleiben erhalten
 
 - **Mehrere Screenshots mit demselben Namen** in einem Chat überschrieben sich: der zweite Upload landete auf dem

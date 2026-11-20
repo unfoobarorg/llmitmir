@@ -58,9 +58,9 @@ Der Hauptchat hat drei Werkzeuge:
 
 `sparsam` ist die beste Wahl der neuen Rolle `sub` (Werkzeugaufrufe zuverlässig, Tempo und geringe Größe zählen mehr als
 bei `agent`), `stark` die beste `agent`-Wahl, `wie_hauptchat` das Modell des Hauptchats. Das Modell für Teilaufgaben
-lässt sich unter *Einstellungen → Modelle* (persönlich) und *Admin → Modelle* festlegen. Kostenpflichtige externe
-Modelle nimmt eine Teilaufgabe nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat; die Sperre externer
-Modelle im Projekt und das Monatslimit gelten wie überall.
+lässt sich unter *Einstellungen → Modelle* (persönlich) und *Admin → Modelle* festlegen. Externe Modelle (kostenpflichtig
+oder vom Hauptanbieter als extern gekennzeichnet) nimmt eine Teilaufgabe nur, wenn die Person sie für den Hauptchat
+ausdrücklich gewählt hat; die Sperre externer Modelle im Projekt und das Monatslimit gelten wie überall.
 
 ### Grenzen
 

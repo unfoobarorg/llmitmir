@@ -409,6 +409,27 @@ def test_new_releases_are_estimated_and_preferred():
     assert not ms.candidates([{"id": "bge-m3-embedding", "status": "ready"}], "chat")
 
 
+def test_models_the_provider_marks_external_are_recognised_and_never_picked():
+    # SAIA kennzeichnet weitergeleitete Modelle im Namen (so prueft es auch die Oberflaeche von Chat AI)
+    assert ms.marked_external({"id": "openai-gpt-5.2", "name": "GPT-5.2 (External)"})
+    assert ms.marked_external({"id": "irgendwas", "name": "Irgendwas (external)"})
+    assert ms.marked_external({"id": "x", "external": True})
+    assert ms.marked_external({"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5"})  # Kennung wie im SAIA-Backend
+    assert not ms.marked_external({"id": "openai-gpt-oss-120b", "name": "GPT OSS 120B"})  # offenes Modell
+    assert not ms.marked_external({"id": "glm-5.3", "name": "GLM 5.3"})
+    ext = {"id": "openai-gpt-5.2", "name": "GPT-5.2 (External)", "status": "ready", "demand": 0, "created": 1799999999,
+           "input": ["text", "image"], "output": ["text", "thought"]}
+    known, _ = ms.merge_known([], SAIA + [ext], 1000.0)
+    assert next(m for m in known if m["id"] == "openai-gpt-5.2")["external"]
+    assert not next(m for m in known if m["id"] == "glm-5.3")["external"]
+    # LLMitMir waehlt es nie selbst – auch nicht als Ausweichmodell oder im Gespraech, selbst wenn es frei und stark waere
+    strong = [dict(m, demand=5) for m in known if not m["external"]] + [dict(ext, external=True)]
+    assert all(ms.pick(strong, r) != "openai-gpt-5.2" for r in ms.ROLES)
+    alt = ms.alternative(strong, "glm-5.3", "chat")
+    assert alt is None or alt["id"] != "openai-gpt-5.2"
+    assert ms.pick_voice(strong) != "openai-gpt-5.2"
+
+
 def test_merge_known_marks_new_and_gone():
     old, _ = ms.merge_known([], SAIA, 1000.0)
     assert all(m["first_seen"] == 0 for m in old)  # the first list is not "new"
@@ -3146,6 +3167,7 @@ def test_subchats_pick_model():
     assert model == "small" and auto and "nicht verfügbar" in note
     # externe Modelle nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat
     assert pick("ext:claude", "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert "Externe Modelle nur" in pick("ext:claude", "big", True, "small", "strong", ext, ok)[2]
     assert pick("wie_hauptchat", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
     assert pick("ext:claude", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
 

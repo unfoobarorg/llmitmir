@@ -5,7 +5,7 @@ import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles,
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { modelById, modelName } from "./modelpick";
-import { offerCard, isExternal, externalCss } from "./external";
+import { offerCard, isBilled, isExternal, externalCss } from "./external";
 import { openFileViewer } from "./viewer";
 import type { SendDetail } from "./composer";
 import "./composer";
@@ -52,7 +52,7 @@ const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellung
 
 /** Simple view: text of an external model is only shown once its step is over. Claude announces nearly every tool call
  *  with a sentence ("Ich schaue kurz nach …"); streamed live, it flashed up and vanished again when the tool call came. */
-const heldBack = (m: any) => !!m?.streaming && isExternal(m.model);
+const heldBack = (m: any) => !!m?.streaming && isBilled(m.model);
 
 const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
 
@@ -590,7 +590,7 @@ export class ChatView extends LitElement {
     if (run.status === "tool" && String(d.tool || "").startsWith("unterchat_")) text = t("Wartet auf Teilaufgaben …");
     if (run.status === "retry") text = `Modell ausgelastet – neuer Versuch in ${d.seconds} s (Versuch ${d.attempt})`;
     if (run.status === "quota_wait") text = `Limit des Schlüssels erreicht – geht in ${fmtDuration(d.seconds)} weiter`;
-    if (run.status === "thinking" && d.switched_from) text = isExternal(chat.model) && d.auto
+    if (run.status === "thinking" && d.switched_from) text = isBilled(chat.model) && d.auto
       ? `Hauptanbieter nicht nutzbar – weiter mit ${modelName(chat.model)} (kostenpflichtig) – denkt nach …`
       : `${d.auto ? "Automatisch gewechselt" : "Gewechselt"} von ${modelName(d.switched_from)} zu ${modelName(chat.model)} – denkt nach …`;
     const el = (this.now / 1000) - (run.started || this.now / 1000);
@@ -850,7 +850,7 @@ export class ChatView extends LitElement {
         ${isWork && !chat.parent_id && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
         ${simple ? nothing : this.treeChip(chat)}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
-        ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon("euro", 14)} ${simple ? "Ersatz-KI" : "extern"}</span>` : nothing}
+        ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft ${isBilled(chat.model) ? "kostenpflichtig " : ""}bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon(isBilled(chat.model) ? "euro" : "external", 14)} ${simple && isBilled(chat.model) ? "Ersatz-KI" : "extern"}</span>` : nothing}
         <span class="grow"></span>
         ${chat.kind !== "task_run" ? html`<button class="btn ghost talk" title=${t("Im Gespräch sprechen")}
           @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)}${this.narrow ? "" : ` ${t("Gespräch")}`}</button>` : nothing}
@@ -886,7 +886,7 @@ export class ChatView extends LitElement {
           .tools=${chat.tools ?? null} .projectId=${chat.project_id} .noThinking=${!!chat.no_thinking}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
           @send=${this.send} @stop=${this.stop} @nothinking=${this.setNoThinking}></lm-composer>
-        <div class="note">${isExternal(chat.model) ? `Läuft kostenpflichtig bei ${modelById(chat.model)?.operator || "einem externen Anbieter"} – bitte keine sensiblen Daten eingeben.`
+        <div class="note">${isExternal(chat.model) ? `Läuft ${isBilled(chat.model) ? "kostenpflichtig " : ""}bei ${modelById(chat.model)?.operator || "einem externen Anbieter"} – bitte keine sensiblen Daten eingeben.`
           : chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter." : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
       </div>
     </div>

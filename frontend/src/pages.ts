@@ -307,9 +307,10 @@ export class ProjectPage extends StoreElement {
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
           ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.credentials_only} @change=${(e: any) => this.set("credentials_only", e.target.checked)}> Nur diese Zugänge erlauben</label></div>
-        ${d.external?.has_access || p.no_external ? html`<div class="card"><h3>${icon("euro", 18)} Externe Modelle</h3>
-          <label class="row hint"><input type="checkbox" style="width:auto" .checked=${!!p.no_external} @change=${(e: any) => this.set("no_external", e.target.checked)}> Nie an kostenpflichtige externe Modelle senden</label>
-          <div class="hint" style="margin-top:6px">Für Projekte mit sensiblen Inhalten: Chats und Aufgaben dieses Projekts laufen dann nur beim Hauptanbieter – auch im Notfall.</div></div>` : nothing}
+        ${d.external?.any_access || p.no_external ? html`<div class="card"><h3>${icon("external", 18)} Externe Modelle</h3>
+          <label class="row hint"><input type="checkbox" style="width:auto" .checked=${!!p.no_external} @change=${(e: any) => this.set("no_external", e.target.checked)}> Nie an externe Modelle senden</label>
+          <div class="hint" style="margin-top:6px">Für Projekte mit sensiblen Inhalten: Chats und Aufgaben dieses Projekts laufen dann nur im Rechenzentrum des Hauptanbieters –
+            weder mit kostenpflichtigen externen Modellen (auch nicht im Notfall) noch mit Modellen, die der Hauptanbieter als extern kennzeichnet.</div></div>` : nothing}
         <div class="card"><h3>${icon("skill", 18)} ${t("Skills")}</h3><div class="chips">
           ${(d.skills || []).map((s: any) => html`<button class=${(p.skills || []).includes(s.id) ? "on" : ""} @click=${() => this.toggle("skills", s.id)}>${s.name}</button>`)}
           ${!(d.skills || []).length ? html`<span class="hint">Noch keine Skills angelegt.</span>` : nothing}</div>

@@ -29,7 +29,7 @@ export const loadDot = (m: any, size = 8) => {
 export function alternative(current: string, role: Role, needImage = false): any | null {
   const cur = modelById(current);
   const qCur = cur?.quality?.[role] || 0;
-  const cand = models().filter(m => m.id !== current && m.status !== "unavailable" && !m.busy && (m.quality?.[needImage ? "vision" : role] || 0) > 0
+  const cand = models().filter(m => m.id !== current && !m.external && m.status !== "unavailable" && !m.busy && (m.quality?.[needImage ? "vision" : role] || 0) > 0
     && (!needImage || (m.input || []).includes("image")));
   if (!cand.length) return null;
   const pen = (m: any) => (m.demand >= 3 ? 3 : m.demand >= 2 ? 1 : 0);

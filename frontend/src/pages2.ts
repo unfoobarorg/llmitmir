@@ -7,7 +7,7 @@ import { t } from "./i18n";
 import { defaultLabel } from "./modelpick";
 import { taskUsageCard, taskUsageCss } from "./taskusage";
 import { explainer, explainerCss, more } from "./simple";
-import { ensureConsent, ext, fmtEur, isExternal, priceText } from "./external";
+import { ensureConsent, ext, fmtEur, isBilled, isExternal, priceText } from "./external";
 import { openFileViewer } from "./viewer";
 import { schedulePresets, runsPerDay } from "./pages3";
 
@@ -109,7 +109,7 @@ export class Tasks extends StoreElement {
           ${x.limit_hit && x.heavy ? html`<span class="chip warn" title="Auch 150 Schritte haben für einen Lauf nicht gereicht">${icon("alert", 13)} 150 Schritte erschöpft</span>` : nothing}
           ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} braucht Werkbank</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} nutzt Werkbank</span>` : nothing}
           ${x.external_fallback ? html`<span class="chip" title="Darf im Notfall auf kostenpflichtige externe Modelle ausweichen">${icon("euro", 13)} Notfall extern</span>` : nothing}
-          ${x.last_run?.external ? html`<span class="chip warn" title="Der letzte Lauf lief über ein externes Modell">${icon("euro", 13)} zuletzt extern</span>` : nothing}</div>
+          ${x.last_run?.external ? html`<span class="chip warn" title="Der letzte Lauf lief über ein externes Modell">${icon(isBilled(x.last_run.external) ? "euro" : "external", 13)} zuletzt extern</span>` : nothing}</div>
           <div class="hint">${x.schedule_text}${x.enabled && x.next_run ? ` · nächster Lauf ${fmtTime(x.next_run)}` : ""}${x.schedule_error ? ` · ⚠ ${x.schedule_error}` : ""}</div>
           <div class="st-narrow">${this.status(x)}</div></div>
         <span class="st-wide">${this.status(x)}</span>
@@ -410,8 +410,10 @@ export class TaskPage extends StoreElement {
               this.set("model", v); }}>
             <option value="">${defaultLabel("agent")}</option>
             ${(d.models || []).filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}
-            ${(d.models || []).some((m: any) => m.external) ? html`<optgroup label="Kostenpflichtig (extern)">${(d.models || []).filter((m: any) => m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}${m.locked ? " – nur im Notfall" : ""}</option>`)}</optgroup>` : nothing}</select>
-            ${isExternal(x.model) ? html`<span class="hint">${icon("euro", 13)} Jeder Lauf kostet Geld (${priceText((d.models || []).find((m: any) => m.id === x.model)?.price)}). Ist das Modell gerade nicht wählbar, läuft die Aufgabe beim Hauptanbieter.</span>` : nothing}</label>
+            ${(d.models || []).some((m: any) => m.external && !m.billed) ? html`<optgroup label="Extern (über den Hauptanbieter)">${(d.models || []).filter((m: any) => m.external && !m.billed).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</optgroup>` : nothing}
+            ${(d.models || []).some((m: any) => m.billed) ? html`<optgroup label="Kostenpflichtig (extern)">${(d.models || []).filter((m: any) => m.billed).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}${m.locked ? " – nur im Notfall" : ""}</option>`)}</optgroup>` : nothing}</select>
+            ${isBilled(x.model) ? html`<span class="hint">${icon("euro", 13)} Jeder Lauf kostet Geld (${priceText((d.models || []).find((m: any) => m.id === x.model)?.price)}). Ist das Modell gerade nicht wählbar, läuft die Aufgabe beim Hauptanbieter.</span>`
+              : isExternal(x.model) ? html`<span class="hint">${icon("external", 13)} Läuft bei einem kommerziellen Anbieter, an den der Hauptanbieter weiterleitet; nur für externe Modelle freigegebene Zugänge. Ist das Modell gerade nicht wählbar, läuft die Aufgabe mit dem Standardmodell.</span>` : nothing}</label>
         </div>`}
         ${this.fallbackCard(x)}
         ${this.stepsCard(x)}
@@ -604,7 +606,7 @@ export class Credentials extends StoreElement {
   render() {
     const cs = store.data?.credentials || [];
     const types = store.data?.credential_types || {};
-    const extShown = !!(ext().configured || ext().has_access || cs.some((c: any) => c.external || c.ext_uses));
+    const extShown = !!(ext().configured || ext().any_access || cs.some((c: any) => c.external || c.ext_uses));
     // Skills and projects that point at the Zugang – not a usage counter, that is c.uses
     const refs = (id: string) => [...(store.data?.skills || []).filter((s: any) => (s.credentials || []).includes(id)).map((s: any) => s.name),
       ...(store.data?.projects || []).filter((p: any) => (p.credentials || []).includes(id)).map((p: any) => p.name)];
@@ -625,8 +627,8 @@ export class Credentials extends StoreElement {
         ${c.check && !c.check.ok ? html`<div class="cred-err">${c.check.message}</div>` : nothing}</div>
         <div class="tags">
         ${checkChip(c)}
-        ${extShown ? (c.external ? html`<span class="chip warn" title="Für kostenpflichtige externe Modelle freigegeben">${icon("euro", 13)} extern frei</span>`
-          : html`<span class="chip" title="Für kostenpflichtige externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
+        ${extShown ? (c.external ? html`<span class="chip warn" title="Für externe Modelle freigegeben">${icon("external", 13)} extern frei</span>`
+          : html`<span class="chip" title="Für externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
         ${useChip(c)}
         ${extUseChip(c)}
         ${expiryChip(c)}
@@ -739,11 +741,11 @@ export class CredentialPage extends StoreElement {
             ${icon("shield", 16)} ${this.checking ? t("Prüfe …") : t("Jetzt prüfen")}</button>
             <span class="hint">Meldet sich mit einer Leseanfrage an, ändert nichts.</span></div></div>` : nothing}
         ${c.id ? html`<div class="hint">${useText(c)}</div>` : nothing}
-        ${ext().configured || ext().has_access || c.external || c.ext_uses ? html`<div class="card"><b>${icon("euro", 16)} Kostenpflichtige externe Modelle</b>
+        ${ext().configured || ext().any_access || c.external || c.ext_uses ? html`<div class="card"><b>${icon("external", 16)} Externe Modelle</b>
           <div class="form" style="margin-top:8px;gap:8px">
             <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!c.external}
-              @change=${() => this.set("external", false)}><span><b>Gesperrt</b> (Standard)<br><span class="hint">Externe Modelle (Claude bei Microsoft Azure oder Anthropic)
-              sehen diesen Zugang gar nicht, können ihn nicht nutzen, und frühere Ergebnisse aus ihm werden aus dem Verlauf entfernt.</span></span></label>
+              @change=${() => this.set("external", false)}><span><b>Gesperrt</b> (Standard)<br><span class="hint">Externe Modelle (Claude bei Microsoft Azure oder Anthropic und Modelle,
+              die der Hauptanbieter als extern kennzeichnet) sehen diesen Zugang gar nicht, können ihn nicht nutzen, und frühere Ergebnisse aus ihm werden aus dem Verlauf entfernt.</span></span></label>
             <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!!c.external}
               @change=${() => this.set("external", true)}><span><b>Freigegeben</b><br><span class="hint">Externe Modelle dürfen ihn nutzen; was sie damit abrufen
               (z. B. Dateien, Termine), geht an den externen Anbieter. Das Passwort selbst bekommt nie ein Modell zu sehen. Nur für Zugänge ohne sensible Inhalte.</span></span></label>

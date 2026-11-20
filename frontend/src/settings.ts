@@ -189,22 +189,22 @@ export class SettingsPage extends StoreElement {
   }
   private externalSection() {
     const e = store.data?.external || {};
-    if (!e.has_access && !e.consent) return nothing;
+    if (!e.any_access && !e.consent) return nothing;
     const months: any[] = this.history?.external?.months || [];
     const max = Math.max(0.01, ...months.map(m => m.eur));
     const names = this.history?.external?.names || {};
     const cur = months[months.length - 1];
-    return html`<section><h2>${icon("euro", 18)} Kostenpflichtige externe Modelle</h2><div class="card form">
+    return html`<section><h2>${icon(e.has_access ? "euro" : "external", 18)} ${e.has_access ? "Externe Modelle (auch kostenpflichtig)" : "Externe Modelle"}</h2><div class="card form">
       ${externalExplanation()}
       <div class="row" style="flex-wrap:wrap">${e.consent ? html`<span class="chip ok">${icon("check", 13)} Du hast zugestimmt</span>
           <button class="btn ghost" @click=${async () => { await store.api.ws("external/consent", { accept: false }); await store.load(); store.notify("Zustimmung zurückgenommen"); }}>Zustimmung zurücknehmen</button>
           <span class="hint">Danach sind externe Modelle für dich gesperrt; Aufgaben weichen nicht mehr aus.</span>`
         : html`<button class="btn primary" @click=${async () => { if (await ensureConsent()) store.notify("Zugestimmt"); }}>Lesen und zustimmen …</button>`}</div>
-      <div><div class="row"><b class="grow">Diesen Monat</b><span>${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)}</span></div>
+      ${e.has_access || months.some(m => m.eur > 0) ? html`<div><div class="row"><b class="grow">Diesen Monat</b><span>${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)}</span></div>
         <div style="height:6px;border-radius:4px;background:var(--lm-hover);overflow:hidden;margin-top:6px"><div style="height:100%;width:${Math.min(100, Math.round(100 * (e.month_eur || 0) / (e.limit_eur || 1)))}%;background:var(--lm-accent)"></div></div>
         ${cur && Object.keys(cur.models || {}).length ? html`<div class="hint" style="margin-top:6px">${Object.entries(cur.models).map(([k, v]: any) => `${names[k] || k}: ${fmtEur(v.eur)} (${v.requests} Anfragen)`).join(" · ")}</div>` : nothing}</div>
       ${months.some(m => m.eur > 0) ? html`<div><div class="bars" style="height:80px">${months.map(m => html`<div title="${m.month}: ${fmtEur(m.eur)} · ${m.requests} Anfragen" style="height:${Math.max(2, (m.eur / max) * 74)}px"></div>`)}</div>
-        <div class="hint">Kosten je Monat, letzte 12 Monate. Das Limit legt der Admin fest; am Monatsersten beginnt es neu.</div></div>` : nothing}
+        <div class="hint">Kosten je Monat, letzte 12 Monate. Das Limit legt der Admin fest; am Monatsersten beginnt es neu.</div></div>` : nothing}` : nothing}
     </div></section>`;
   }
   /** Teilaufgaben: aus, nur auf Wunsch oder automatisch. */
@@ -494,6 +494,25 @@ export class AdminPage extends StoreElement {
             ${st.last_error && !st.blocked ? html`<span class="hint" style="color:var(--lm-err)">${st.last_error}</span>` : nothing}</div>`}
         </div>`; })}</div></section>`;
   }
+  /** Models the main provider marks as external (SAIA forwards them to commercial vendors): released per person, like
+   *  the billed external models – but without prices, LLMitMir cannot know them. */
+  private mainExtSection(users: any[], known: any[]) {
+    const models = known.filter((m: any) => m.external && !m.gone);
+    if (!models.length) return nothing;
+    const acc = this.a.model_access || {};
+    const setAcc = (key: string, uid: string, on: boolean) => {
+      const cur = new Set<string>(acc[key] || []); on ? cur.add(uid) : cur.delete(uid);
+      this.set("model_access", { ...acc, [key]: [...cur] });
+    };
+    return html`<h3 style="margin-top:16px">${icon("external", 16)} Externe Modelle des Hauptanbieters: Freigaben</h3>
+      <div class="hint" style="margin-bottom:8px">Diese Modelle laufen nicht im Rechenzentrum des Anbieters, sondern werden an kommerzielle Anbieter weitergeleitet.
+        LLMitMir behandelt sie wie die kostenpflichtigen externen Modelle: nie automatisch gewählt, nur für hier angehakte Personen, erst nach deren Zustimmung,
+        Zugänge nur mit Freigabe für externe Modelle, Projekte lassen sich sperren. Kosten bucht LLMitMir für sie nicht – wie und zu welchem Preis der Anbieter
+        sie einkauft, ist nicht bekannt; sie zählen zum normalen Kontingent.</div>
+      <div class="tw"><table class="matrix"><tr><th>Modell</th>${users.map((u: any) => html`<th>${u.name}</th>`)}</tr>
+        ${models.map((m: any) => html`<tr><td>${m.name}<div class="hint">${m.id}</div></td>
+          ${users.map((u: any) => html`<td><input type="checkbox" .checked=${(acc[m.id] || []).includes(u.id)} @change=${(e: any) => setAcc(m.id, u.id, e.target.checked)}></td>`)}</tr>`)}</table></div>`;
+  }
   private extModelsSection(users: any[]) {
     const a = this.a; const b = a.billing || {}; const models = a.ext_models || [];
     if (!models.length) return nothing;
@@ -661,7 +680,7 @@ export class AdminPage extends StoreElement {
         <div class="two">${[["chat", "Standard Chat"], ["agent", "Standard Cowork/Aufgaben"], ["vision", "Bilder & Scans lesen"], ["sub", "Teilaufgaben (sparsam)"]].map(([r, l]) => html`<label class="f"><span>${l}</span>
           <select @change=${(e: any) => this.set("models", { ...a.models, defaults: { ...defs, [r]: e.target.value } })}>
             <option value="" ?selected=${!defs[r] || defs[r] === "auto"}>Automatisch (derzeit ${live[a.auto_models?.[r]]?.name || a.auto_models?.[r] || "–"})</option>
-            ${known.map((m: any) => html`<option value=${m.id} ?selected=${defs[r] === m.id}>${m.name}</option>`)}</select></label>`)}</div>
+            ${known.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${defs[r] === m.id}>${m.name}</option>`)}</select></label>`)}</div>
         <div class="hint" style="margin-top:6px">„Automatisch“ nimmt das am besten geeignete freigegebene Modell, das gerade nicht überlastet ist: Die Liste
           samt Auslastung wird alle drei Minuten neu geladen (zählt bei SAIA nicht zum Limit), neu erschienene Modelle werden anhand ihrer Vorgänger
           eingeschätzt. Hängt ein Modell im Chat, empfiehlt LLMitMir einen Wechsel; geplante Aufgaben mit automatischem Modell wechseln selbst.</div>
@@ -670,12 +689,13 @@ export class AdminPage extends StoreElement {
         <div class="tw" style="margin-top:12px"><table><tr><th>Freigegeben</th><th>Modell</th><th>Auslastung</th><th title="Eignung 0–100 für Chat / Cowork & Aufgaben / Bilder / Teilaufgaben">Eignung</th><th>Fähigkeiten</th><th>Kontext</th></tr>
           ${known.map((m: any) => { const lv = live[m.id] || m; const l = load(lv); const q = lv.quality || {}; return html`<tr><td><input type="checkbox" .checked=${enabled.has(m.id)} @change=${(e: any) => {
             const s = new Set(enabled); e.target.checked ? s.add(m.id) : s.delete(m.id); this.set("models", { ...a.models, enabled: [...s] }); }}></td>
-            <td>${m.name}${lv.new ? html` <span class="chip accent">neu</span>` : nothing}<div class="hint">${m.id}${m.gone ? " · nicht mehr angeboten" : m.status !== "ready" && m.status ? ` · ${m.status}` : ""}</div></td>
+            <td>${m.name}${lv.new ? html` <span class="chip accent">neu</span>` : nothing}${m.external ? html` <span class="chip warn" title="Der Anbieter leitet dieses Modell an einen kommerziellen Anbieter weiter">${icon("external", 12)} extern</span>` : nothing}<div class="hint">${m.id}${m.gone ? " · nicht mehr angeboten" : m.status !== "ready" && m.status ? ` · ${m.status}` : ""}</div></td>
             <td class="hint"><span class="row" style="gap:6px;flex-wrap:nowrap">${loadDot(lv)}${l ? l.text : "–"}</span></td>
             <td class="hint" style="white-space:nowrap">${q.chat || "–"} / ${q.agent || "–"} / ${q.vision || "–"} / ${q.sub || "–"}</td>
             <td class="hint">${(m.input || []).join(", ")} → ${(m.output || []).join(", ")}</td>
             <td><input type="number" style="width:110px" placeholder=${String(a.known_context[m.id] || 128000)} .value=${a.models.context?.[m.id] ?? ""}
-              @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`; })}</table></div></section>
+              @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`; })}</table></div>
+        ${this.mainExtSection(users, known)}</section>
       <section><h2>${icon("mdi:console", 18)} Werkbank</h2>
         ${werkbankInfo(!!a.werkbank?.url && !!a.werkbank?.token, this.guide, () => (this.guide = !this.guide), true)}
         <div class="two" style="margin-top:12px">

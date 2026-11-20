@@ -7,6 +7,10 @@ Measured on 06.11.2026: demand 3 answered within a second, demand 5 sometimes at
 demand 6 never within 60 s. LLMitMir's own observations (a model just hung, or just answered quickly) refine this. Quality is not reported anywhere, so it comes from
 a curated table; models released later are estimated from their siblings in the same family (a newer version of a
 family counts slightly better than the one it follows) or, failing that, from their size.
+
+Some models of an open-weight provider are not open-weight at all: SAIA forwards them to a commercial vendor (OpenAI via
+Microsoft Azure, Anthropic …) and marks them as external. LLMitMir treats them like its own usage-billed external models
+(never picked automatically, per-person release, consent, locked Zugänge, project lock) – only their costs are unknown.
 """
 from __future__ import annotations
 
@@ -169,6 +173,21 @@ def _sub_quality(model_id: str, info: dict) -> int:
     return int(max(1, min(99, a + bonus)))
 
 
+# SAIA's own web interface (Chat AI) decides "external" by the model name ("… (External)"); its backend also by the id:
+# ``claude-…`` and ``openai-…`` except the open-weight ``openai-gpt-oss-…``.
+_EXTERNAL_NAME = re.compile(r"\bextern(al)?\b", re.I)
+
+
+def marked_external(x: dict) -> bool:
+    """The provider forwards this model to a commercial vendor outside its own data centre."""
+    if x.get("external") is True or str(x.get("external")).lower() == "true":
+        return True
+    if _EXTERNAL_NAME.search(str(x.get("name") or "")):
+        return True
+    mid = str(x.get("id") or "").lower().split("/")[-1]
+    return mid.startswith("claude") or (mid.startswith("openai-") and not mid.startswith("openai-gpt-oss"))
+
+
 def usable(info: dict) -> bool:
     return (info.get("status") or "ready") == "ready" and not info.get("gone")
 
@@ -263,7 +282,8 @@ def pick_voice(models: Iterable[dict], measured: dict[str, tuple[float, int]] | 
 
 
 def candidates(models: Iterable[dict], role: str) -> list[dict]:
-    return [m for m in models if usable(m) and _can(m, role) and quality(m["id"], role, m) > 0]
+    """Models LLMitMir may pick by itself for a role – never an external one (those only on explicit request)."""
+    return [m for m in models if usable(m) and not m.get("external") and _can(m, role) and quality(m["id"], role, m) > 0]
 
 
 def pick(models: Iterable[dict], role: str, load_aware: bool = True) -> str | None:
@@ -311,6 +331,7 @@ def merge_known(old: list[dict], fresh: list[dict], now: float) -> tuple[list[di
             new.append(mid)
         out.append({"id": mid, "name": x.get("name") or mid, "input": x.get("input") or ["text"],
                     "output": x.get("output") or ["text"], "status": x.get("status") or "ready",
+                    "external": marked_external(x),
                     "demand": x.get("demand"), "created": x.get("created") or p.get("created"),
                     "first_seen": (p.get("first_seen") or 0) if p else (now if old else 0)})
     for mid, p in prev.items():
