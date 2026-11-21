@@ -1,5 +1,6 @@
 """Unit tests for the parts that do not need a running Home Assistant."""
 import importlib.util
+import inspect
 import pathlib
 import sys
 from datetime import datetime, timedelta, timezone
@@ -2970,13 +2971,15 @@ def test_voice_model_prefers_fast_models_that_can_use_tools():
 
 
 # ---------------------------------------------------------------- Freigabe aufs Handy (F6)
-def test_permission_push_only_when_nobody_watches():
-    """Eine wartende Freigabe meldet sich nur, wenn kein Panel offen ist und die Person es will."""
+def test_permission_push_always_when_needed():
+    """Eine wartende Freigabe meldet sich immer – ein offenes Panel irgendwo unterdrueckt sie nicht mehr."""
     info = {"tool": "shell", "label": "Befehl ausführen", "args": {"befehl": "ls -la"}}
-    assert permnote.should_notify({}, False, info) is True          # Standard: an
-    assert permnote.should_notify({}, True, info) is False          # jemand sieht zu
-    assert permnote.should_notify({"permission_push": False}, False, info) is False
-    assert permnote.should_notify({}, False, None) is False         # nichts zu melden
+    assert permnote.should_notify({}, info) is True                 # Standard: an
+    assert permnote.should_notify({"permission_push": True}, info) is True
+    assert permnote.should_notify({"permission_push": False}, info) is False   # ausdrueckliche Abwahl
+    assert permnote.should_notify({}, None) is False                # nichts zu melden
+    # die Signatur kennt kein "watching" mehr: ein Panel-Zustand laesst sich gar nicht mehr uebergeben
+    assert "watching" not in inspect.signature(permnote.should_notify).parameters
 
 
 def test_permission_push_text_names_the_command():
@@ -3430,6 +3433,32 @@ def test_tile_data_validation_and_hardening():
         dash.validate("table", {"data": {"columns": [], "rows": []}})
     big = {"data": {"markdown": "x" * 70_000}}
     assert len(dash.validate("text", big)["data"]["markdown"]) == 4000
+
+
+def test_table_footer_and_column_emphasis():
+    """Fusszeile, Fettdruck und Spaltenfarbe: bereinigt wie eine Zeile, unbrauchbare Angaben fallen weg."""
+    out = dash.validate("table", {"data": {
+        "columns": [{"key": "posten", "label": "Posten", "type": "text", "strong": True},
+                    {"key": "betrag", "label": "Betrag", "type": "number", "color": "#3f8f5b"},
+                    {"key": "notiz", "label": "Notiz", "color": "rot"},
+                    {"key": "falsch", "label": "Falsch", "strong": "ja"}],
+        "rows": [{"posten": "Fenster", "betrag": 1234.5, "notiz": "x", "unbekannt": "weg"}],
+        "footer": {"posten": "Summe", "betrag": 1234.5, "notiz": "  zu lang  ", "unbekannt": "weg"}}})
+    cols = {c["key"]: c for c in out["data"]["columns"]}
+    assert cols["posten"]["strong"] is True and "strong" not in cols["falsch"]   # nur ein echtes true zaehlt
+    assert cols["betrag"]["color"] == "#3f8f5b" and cols["betrag"]["type"] == "number"
+    assert "color" not in cols["notiz"]                                          # ungueltige Farbe verworfen
+    # Fusszeile: gleiche Schluesselpruefung wie eine Zeile, Zahlen bleiben Zahlen, Text wird gekuerzt
+    assert out["data"]["footer"] == {"posten": "Summe", "betrag": 1234.5, "notiz": "zu lang"}
+    # die Fusszeile ist nicht sortierbar und wird von "sort" nicht erfasst
+    assert out["data"]["sort"] is None
+    # ohne Fusszeile bleibt alles wie bisher
+    plain = dash.validate("table", {"data": {"columns": [{"key": "a", "label": "A"}], "rows": [{"a": "1"}]}})
+    assert plain["data"]["footer"] is None and plain["data"]["rows"] == [{"a": "1"}]
+    # kein Objekt als Fusszeile: einfach keine Fusszeile, die Kachel bleibt stehen
+    assert dash.validate("table", {"data": {"columns": [{"key": "a"}], "rows": [], "footer": "Summe"}})["data"]["footer"] is None
+    # die Spaltenfarbe braucht ein volles #rrggbb (kein Kurz-Hex, kein Name)
+    assert "color" not in dash.validate("table", {"data": {"columns": [{"key": "a", "color": "#fff"}], "rows": []}})["data"]["columns"][0]
 
 
 def test_tile_series_kept_by_server():

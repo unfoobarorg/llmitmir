@@ -182,6 +182,11 @@
     pausieren, solange die Kachel nirgends liegt. „Nur bei Änderung“ überspringt Läufe, wenn sich gewählte Entitäten
     nicht geändert haben. Ein Lauf ohne gültige Daten gilt als Fehler; Verlauf und Delta führt der Server, alte Läufe
     werden aufgeräumt (die letzten 10 bleiben). Unter *Geplant* erscheinen sie nur mit dem Schalter „Kachel-Aufgaben“.
+  - **Tabellen**: Spalten mit Text, Datum, Zahl (rechtsbündig) oder Chip, sortierbar per Klick auf die Kopfzeile. Je
+    Spalte lassen sich Zellen **fett** setzen (`strong`) und **einfärben** (`color`, `#rrggbb`). Eine optionale
+    **Fußzeile** (`footer`) zeigt eine Summenzeile: abgesetzt wie die Kopfzeile, fett, mit oberer Trennlinie, und beim
+    Scrollen langer Tabellen unten stehen bleibend. Fett und Farbe gelten dort genauso; die Fußzeile wird nicht
+    mitsortiert.
   - **Teilen**: Dashboards und Kacheln je Person mit *ansehen*, *bearbeiten* oder *bearbeiten und weiter teilen*, oder
     für alle (auch künftige Personen). Weitergegeben wird nie mehr, als man selbst darf; wer ein Recht verliert, nimmt
     alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
@@ -264,9 +269,11 @@
   Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
 - **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60
   Minuten *ohne diese Aktion weitermacht* – sie auslässt, den Rest erledigt und im Ergebnis nennt, was fehlt.
-- **Freigaben aufs Handy**: Wartet eine Freigabe und ist gerade kein Panel offen, kommt eine Push-Nachricht mit Chat,
-  Werkzeug und – bei einem Befehl – dessen ersten Zeilen. Wer zusieht, bekommt keine zusätzliche Meldung; abschaltbar
-  in den Einstellungen.
+- **Freigaben aufs Handy**: Wartet eine Freigabe, kommt eine Push-Nachricht mit Chat, Werkzeug und – bei einem Befehl –
+  dessen ersten Zeilen. Sie kommt auch dann, wenn das Panel gerade offen ist: Ein offenes Panel heißt nicht, dass die
+  Person hinsieht (Tablet zu Hause, Handy unterwegs), und eine veraltete Verbindung darf die Meldung nicht dauerhaft
+  verschlucken. Abschaltbar in den Einstellungen; fehlt ein Benachrichtigungsgerät oder scheitert das Senden, steht das
+  als Warnung im Protokoll, statt still zu bleiben.
 - **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
   Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
   noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*
