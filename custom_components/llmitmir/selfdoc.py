@@ -69,7 +69,9 @@ etwa auf dem Autoradio im Auto.
 - **Externe Modelle** (optional, kostenpflichtig): Claude über Microsoft Foundry oder die Anthropic-API. Nie automatisch, \
 nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder eine geplante Aufgabe „im Notfall extern“ darf. \
 Zugänge müssen dafür einzeln freigegeben sein, Projekte lassen sich sperren; der Admin legt Anbieter-Reihenfolge, Modelle, Preise \
-und Monatslimits in Euro fest, die Kosten stehen unter Einstellungen.
+und Monatslimits in Euro fest, die Kosten stehen unter Einstellungen. Modelle, die der Hauptanbieter selbst als extern \
+kennzeichnet (SAIA leitet sie an kommerzielle Anbieter weiter), gelten genauso als extern: nie automatisch, nur für \
+Personen, die der Admin freigibt, mit Zustimmung, gesperrten Zugängen und Projektsperre – nur ihre Kosten kennt LLMitMir nicht.
 - **Ansicht**: Die einfache Ansicht (Standard) zeigt nur Nachricht und Antwort, wählt Modelle immer automatisch und erklärt Skills, Aufgaben, Zugänge und Projekte; die Expertenansicht mit Modellwahl, Cowork, Schritten und Gedanken schaltet die Person unter Einstellungen → Ansicht frei, sofern der Admin die Ansicht nicht für sie festgelegt hat.
 Alles davon liest du mit `llmitmir_info`. Skills, geplante Aufgaben und Zugänge legst du selbst an, änderst oder \
 löschst sie mit `skill_save`/`skill_delete`, `task_save`/`task_delete`, `credential_save`/`credential_delete`: Die \

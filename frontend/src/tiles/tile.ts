@@ -159,6 +159,10 @@ export class TileEl extends LitElement {
       white-space: nowrap; border-bottom: 1px solid var(--lm-line); color: var(--lm-muted); }
     td { padding: 5px 6px; border-bottom: 1px solid color-mix(in srgb, var(--lm-line) 60%, transparent); vertical-align: top; overflow-wrap: anywhere; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.strong { font-weight: 600; }
+    /* Fusszeile: abgesetzt wie die Kopfzeile, bleibt beim Scrollen langer Tabellen unten stehen */
+    tfoot td { position: sticky; bottom: 0; background: var(--lm-panel); font-weight: 600; border-top: 1px solid var(--lm-line);
+      border-bottom: 0; }
     .txt { font-size: 13.5px; line-height: 1.5; }
     .tip { position: absolute; z-index: 5; pointer-events: none; background: var(--lm-raise); color: var(--lm-text); border: 1px solid var(--lm-line);
       border-radius: 9px; padding: 6px 8px; font-size: 12px; white-space: pre; box-shadow: 0 6px 20px rgba(0,0,0,.18); transform: translate(-50%, calc(-100% - 10px)); }

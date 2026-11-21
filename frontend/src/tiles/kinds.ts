@@ -5,6 +5,7 @@ import { icon, md } from "../ui";
 import {
   arcPath, areaPath, barPath, domainOf, fmtAxisTime, fmtNumber, fmtTick, fmtWhen, linePath, niceTicks, scale, seriesColor,
 } from "./svg";
+import { cellClass, cellColor } from "./table";
 
 export interface Ctx {
   w: number; h: number;          // content area in px
@@ -210,9 +211,16 @@ function table(rec: any, c: Ctx) {
       return sort.dir === "asc" ? r : -r;
     });
   }
+  // Fett und Farbe gelten je Spalte – in der Fußzeile genauso wie im Body
+  const td = (col: any, v: any, extra = "") => {
+    const col2 = cellColor(col.color);
+    return html`<td class=${cellClass(col, extra)} style=${col2 ? `color:${col2}` : nothing}>${cell(v, col.type)}</td>`;
+  };
+  const footer = d.footer && typeof d.footer === "object" ? d.footer : null;
   return html`<div class="tw"><table><thead><tr>${cols.map(col => html`<th @click=${() => c.setSort?.(col.key)} class=${col.type === "number" ? "num" : ""}>
       ${col.label}${sort?.key === col.key ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</th>`)}</tr></thead>
-    <tbody>${rows.map(r => html`<tr>${cols.map(col => html`<td class=${col.type === "number" ? "num" : ""}>${cell(r[col.key], col.type)}</td>`)}</tr>`)}</tbody></table></div>`;
+    <tbody>${rows.map(r => html`<tr>${cols.map(col => td(col, r[col.key]))}</tr>`)}</tbody>
+    ${footer ? html`<tfoot><tr>${cols.map(col => td(col, footer[col.key], "tf"))}</tr></tfoot>` : nothing}</table></div>`;
 }
 
 function text(rec: any) {

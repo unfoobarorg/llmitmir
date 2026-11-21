@@ -14,7 +14,8 @@
   Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter nicht
   darstellen kann, lässt sich herunterladen.
 - **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
-  sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben) und **Spracheingabe**
+  sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben; zwei Anhänge mit demselben Namen
+  bleiben beide erhalten, der zweite heißt dann `image (2).png`) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
   zehn Chats, bietet sie *Chats auswählen* an: mehrere Chats markieren (einzeln oder alle) und in einem Zug löschen.
   Die Suche über der Liste findet auf Wunsch **auch in den Nachrichten** („Auch in Nachrichten suchen“) und zeigt je
@@ -181,6 +182,11 @@
     pausieren, solange die Kachel nirgends liegt. „Nur bei Änderung“ überspringt Läufe, wenn sich gewählte Entitäten
     nicht geändert haben. Ein Lauf ohne gültige Daten gilt als Fehler; Verlauf und Delta führt der Server, alte Läufe
     werden aufgeräumt (die letzten 10 bleiben). Unter *Geplant* erscheinen sie nur mit dem Schalter „Kachel-Aufgaben“.
+  - **Tabellen**: Spalten mit Text, Datum, Zahl (rechtsbündig) oder Chip, sortierbar per Klick auf die Kopfzeile. Je
+    Spalte lassen sich Zellen **fett** setzen (`strong`) und **einfärben** (`color`, `#rrggbb`). Eine optionale
+    **Fußzeile** (`footer`) zeigt eine Summenzeile: abgesetzt wie die Kopfzeile, fett, mit oberer Trennlinie, und beim
+    Scrollen langer Tabellen unten stehen bleibend. Fett und Farbe gelten dort genauso; die Fußzeile wird nicht
+    mitsortiert.
   - **Teilen**: Dashboards und Kacheln je Person mit *ansehen*, *bearbeiten* oder *bearbeiten und weiter teilen*, oder
     für alle (auch künftige Personen). Weitergegeben wird nie mehr, als man selbst darf; wer ein Recht verliert, nimmt
     alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
@@ -263,9 +269,11 @@
   Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
 - **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60
   Minuten *ohne diese Aktion weitermacht* – sie auslässt, den Rest erledigt und im Ergebnis nennt, was fehlt.
-- **Freigaben aufs Handy**: Wartet eine Freigabe und ist gerade kein Panel offen, kommt eine Push-Nachricht mit Chat,
-  Werkzeug und – bei einem Befehl – dessen ersten Zeilen. Wer zusieht, bekommt keine zusätzliche Meldung; abschaltbar
-  in den Einstellungen.
+- **Freigaben aufs Handy**: Wartet eine Freigabe, kommt eine Push-Nachricht mit Chat, Werkzeug und – bei einem Befehl –
+  dessen ersten Zeilen. Sie kommt auch dann, wenn das Panel gerade offen ist: Ein offenes Panel heißt nicht, dass die
+  Person hinsieht (Tablet zu Hause, Handy unterwegs), und eine veraltete Verbindung darf die Meldung nicht dauerhaft
+  verschlucken. Abschaltbar in den Einstellungen; fehlt ein Benachrichtigungsgerät oder scheitert das Senden, steht das
+  als Warnung im Protokoll, statt still zu bleiben.
 - **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
   Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
   noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*
@@ -299,6 +307,16 @@
   **Abrechnung**: Jede Anfrage wird dauerhaft mit Tokens und Euro-Kosten je Person und Modell gebucht (Anthropic-Listenpreise mit
   einstellbarem Dollarkurs oder eigene Preise); der Admin setzt je Person ein **Monatslimit in Euro** und sieht die Kosten aller Personen
   über die letzten zwölf Monate. Claude wird mit adaptivem Denken, Prompt-Caching und unverändert zurückgespielten Denkblöcken genutzt.
+- **Externe Modelle des Hauptanbieters**: Auch Open-Weight-Anbieter bieten Modelle an, die gar nicht bei ihnen laufen – SAIA leitet
+  sie an kommerzielle Anbieter weiter und kennzeichnet sie als „External“ (im Namen; erkannt werden außerdem ein Feld
+  `external: true` und Kennungen wie bei SAIA: `claude-…` sowie `openai-…` außer den offenen `openai-gpt-oss-…`). LLMitMir behandelt sie
+  **genauso wie die externen Modelle oben**: nie automatisch gewählt (auch nicht als Vorgabe, im Gespräch oder als Ausweichmodell bei
+  Last), nur für Personen, die der Admin unter *Admin → Modelle → Externe Modelle des Hauptanbieters* anhakt, erst nach der
+  Zustimmung, Zugänge nur mit Freigabe für externe Modelle (Ergebnisse gesperrter Zugänge werden aus dem Verlauf entfernt, jede
+  Anfrage geschwärzt), Zugänge lassen sich mit ihnen nicht bearbeiten, Projektsperre, Teilaufgaben nur, wenn das Modell für den
+  Hauptchat ausdrücklich gewählt ist. Im Modellmenü stehen sie als eigene Gruppe „Extern (über den Hauptanbieter)“. **Nur die Kosten
+  entfallen:** Wie und zu welchem Preis der Anbieter diese Modelle einkauft, ist nicht bekannt – sie werden nicht in Euro gebucht, haben
+  kein Monatslimit und zählen wie alle Modelle des Hauptanbieters zum normalen Kontingent.
 - **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
   geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link (Freigaben importierter Aufgaben legt man beim Einschalten selbst fest). Chatverläufe kommen aus dem offiziellen
   Datenexport von claude.ai (ZIP hochladen).

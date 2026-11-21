@@ -75,3 +75,30 @@ def test_meta_files_are_private(tmp_path):
         return os.stat(os.path.join(st.base, "meta.json")).st_mode & 0o777
 
     assert asyncio.run(run()) == 0o600
+
+
+def test_two_uploads_with_the_same_name_keep_both_files(tmp_path):
+    """Zwei Screenshots „image.png“ in einem Chat: der zweite überschreibt den ersten nicht, sondern wird
+    „image (2).png“ – sonst läse das Modell zweimal dieselbe Datei."""
+    async def run():
+        st = storage.UserStore(_Hass(tmp_path), "u1")
+        await st.async_load()
+        a = await st.async_write_file("chat", "c1", "image.png", b"eins", unique=True)
+        b = await st.async_write_file("chat", "c1", "image.png", b"zwei", unique=True)
+        c = await st.async_write_file("chat", "c1", "image.png", b"drei", unique=True)
+        return a["name"], b["name"], c["name"], await st.async_read_file("chat", "c1", a["name"]), \
+            await st.async_read_file("chat", "c1", b["name"])
+
+    assert asyncio.run(run()) == ("image.png", "image (2).png", "image (3).png", b"eins", b"zwei")
+
+
+def test_without_unique_a_file_is_replaced_as_before(tmp_path):
+    """Projektdateien und Ergebnisse behalten ihr Verhalten: gleicher Name ersetzt die Datei."""
+    async def run():
+        st = storage.UserStore(_Hass(tmp_path), "u1")
+        await st.async_load()
+        await st.async_write_file("project", "p1", "plan.md", b"alt")
+        info = await st.async_write_file("project", "p1", "plan.md", b"neu")
+        return info["name"], await st.async_read_file("project", "p1", "plan.md")
+
+    assert asyncio.run(run()) == ("plan.md", b"neu")

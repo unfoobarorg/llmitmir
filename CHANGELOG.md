@@ -2,6 +2,50 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.1.0 – Tabellen mit Fußzeile, Freigaben melden sich immer
+
+### Dashboards
+- **Fußzeile für Tabellen:** Eine Tabellen-Kachel nimmt jetzt ein optionales `footer` an – ein Objekt mit denselben
+  Schlüsseln wie eine Zeile, gerendert als Summenzeile unter der Tabelle. Sie wird wie eine Zeile bereinigt (nur
+  bekannte Spalten, Text auf 200 Zeichen gekürzt, Zahlen bleiben Zahlen), ist abgesetzt wie die Kopfzeile (fett, obere
+  Trennlinie, Hintergrund der Kachel) und bleibt beim Scrollen langer Tabellen unten stehen. Sortiert wird sie nicht.
+- **Spalten fett und farbig:** Jede Spalte kann `strong: true` (Zellen fett) und `color: "#rrggbb"` (Textfarbe)
+  tragen; beides gilt im Body und in der Fußzeile. Eine unbrauchbare Farbangabe wird verworfen, statt die Kachel
+  scheitern zu lassen. Der Schema-Text im Kachel-Lauf nennt die neuen Felder, das Modell kennt sie also.
+
+### Freigaben
+- **Push-Nachricht kommt immer, wenn die Person gebraucht wird:** Bisher blieb sie aus, sobald für die Person
+  irgendein Panel verbunden war – wer LLMitMir auf dem Tablet offen hatte, aber am Handy unterwegs war, erfuhr nichts,
+  und der Lauf stand bis zu einer Stunde. Diese Unterdrückung ist entfernt: Jede wartende Freigabe meldet sich
+  (schreibendes Werkzeug, Änderung bestätigen, „mehr Schritte?“, Freigaben aus Teilaufgaben). Abgeschaltet wird sie nur
+  noch ausdrücklich in den Einstellungen.
+- **Sendefehler werden sichtbar:** Fehlt ein Benachrichtigungsgerät oder scheitert das Senden, steht das als Warnung im
+  Protokoll statt nur als Debug-Zeile. Die Freigabe scheitert dadurch weiterhin nie.
+
+**Beim Update beachten:** Wer die Meldung nicht will, schaltet sie unter *Einstellungen → Darstellung & Bedienung* ab
+(„Aufs Handy melden, wenn eine Freigabe auf Antwort wartet“). Ohne Benachrichtigungsgerät bleibt sie aus – das steht
+jetzt im Protokoll.
+
+## 1.0.2 – externe Modelle des Hauptanbieters
+
+### Datenschutz
+- **Externe Modelle des Hauptanbieters:** Modelle, die SAIA an kommerzielle Anbieter weiterleitet (im Namen als
+  „External“ gekennzeichnet), gelten jetzt als extern – mit denselben Regeln wie Claude über Foundry oder die
+  Anthropic-API: nie automatisch gewählt (auch nicht als Vorgabe, im Gespräch oder bei Last), nur für Personen, die der
+  Admin freigibt, erst nach der Zustimmung, nur für externe Modelle freigegebene Zugänge (Ergebnisse gesperrter Zugänge
+  aus dem Verlauf entfernt, Anfragen geschwärzt), Projektsperre, Teilaufgaben nur auf ausdrücklichen Wunsch. Kosten bucht
+  LLMitMir für sie nicht, weil der Einkaufsweg und -preis unbekannt sind.
+
+**Beim Update beachten:** Solche Modelle sind zunächst für niemanden freigegeben. Wer sie nutzen soll, hakt der Admin
+unter *Admin → Modelle → Externe Modelle des Hauptanbieters* an; die Person stimmt beim ersten Mal zu.
+
+## 1.0.1 – gleiche Dateinamen bleiben erhalten
+
+- **Mehrere Screenshots mit demselben Namen** in einem Chat überschrieben sich: der zweite Upload landete auf dem
+  ersten, das Modell las beim zweiten Mal wieder die alte Datei. Jetzt legt LLMitMir den zweiten als `image (2).png`
+  an, den dritten als `image (3).png` – im Chat und bei gespeicherten Mail-Anhängen. In Projekten und Skills ersetzt
+  ein Upload gleichen Namens weiterhin die Datei, dort ist das die Absicht.
+
 ## 1.0.0 – erste stabile Version
 
 LLMitMir ist stabil: geprüft auf Sicherheit, Datenschutz und Technik, mit Tests gegen Home Assistant 2025.1 bis

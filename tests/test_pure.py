@@ -1,5 +1,6 @@
 """Unit tests for the parts that do not need a running Home Assistant."""
 import importlib.util
+import inspect
 import pathlib
 import sys
 from datetime import datetime, timedelta, timezone
@@ -407,6 +408,27 @@ def test_new_releases_are_estimated_and_preferred():
     assert 60 <= ms.quality(other["id"], "chat", other) <= 83
     assert ms.quality("bge-m3-embedding", "chat", {"id": "bge-m3-embedding"}) > 0
     assert not ms.candidates([{"id": "bge-m3-embedding", "status": "ready"}], "chat")
+
+
+def test_models_the_provider_marks_external_are_recognised_and_never_picked():
+    # SAIA kennzeichnet weitergeleitete Modelle im Namen (so prueft es auch die Oberflaeche von Chat AI)
+    assert ms.marked_external({"id": "openai-gpt-5.2", "name": "GPT-5.2 (External)"})
+    assert ms.marked_external({"id": "irgendwas", "name": "Irgendwas (external)"})
+    assert ms.marked_external({"id": "x", "external": True})
+    assert ms.marked_external({"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5"})  # Kennung wie im SAIA-Backend
+    assert not ms.marked_external({"id": "openai-gpt-oss-120b", "name": "GPT OSS 120B"})  # offenes Modell
+    assert not ms.marked_external({"id": "glm-5.3", "name": "GLM 5.3"})
+    ext = {"id": "openai-gpt-5.2", "name": "GPT-5.2 (External)", "status": "ready", "demand": 0, "created": 1799999999,
+           "input": ["text", "image"], "output": ["text", "thought"]}
+    known, _ = ms.merge_known([], SAIA + [ext], 1000.0)
+    assert next(m for m in known if m["id"] == "openai-gpt-5.2")["external"]
+    assert not next(m for m in known if m["id"] == "glm-5.3")["external"]
+    # LLMitMir waehlt es nie selbst – auch nicht als Ausweichmodell oder im Gespraech, selbst wenn es frei und stark waere
+    strong = [dict(m, demand=5) for m in known if not m["external"]] + [dict(ext, external=True)]
+    assert all(ms.pick(strong, r) != "openai-gpt-5.2" for r in ms.ROLES)
+    alt = ms.alternative(strong, "glm-5.3", "chat")
+    assert alt is None or alt["id"] != "openai-gpt-5.2"
+    assert ms.pick_voice(strong) != "openai-gpt-5.2"
 
 
 def test_merge_known_marks_new_and_gone():
@@ -2949,13 +2971,15 @@ def test_voice_model_prefers_fast_models_that_can_use_tools():
 
 
 # ---------------------------------------------------------------- Freigabe aufs Handy (F6)
-def test_permission_push_only_when_nobody_watches():
-    """Eine wartende Freigabe meldet sich nur, wenn kein Panel offen ist und die Person es will."""
+def test_permission_push_always_when_needed():
+    """Eine wartende Freigabe meldet sich immer – ein offenes Panel irgendwo unterdrueckt sie nicht mehr."""
     info = {"tool": "shell", "label": "Befehl ausführen", "args": {"befehl": "ls -la"}}
-    assert permnote.should_notify({}, False, info) is True          # Standard: an
-    assert permnote.should_notify({}, True, info) is False          # jemand sieht zu
-    assert permnote.should_notify({"permission_push": False}, False, info) is False
-    assert permnote.should_notify({}, False, None) is False         # nichts zu melden
+    assert permnote.should_notify({}, info) is True                 # Standard: an
+    assert permnote.should_notify({"permission_push": True}, info) is True
+    assert permnote.should_notify({"permission_push": False}, info) is False   # ausdrueckliche Abwahl
+    assert permnote.should_notify({}, None) is False                # nichts zu melden
+    # die Signatur kennt kein "watching" mehr: ein Panel-Zustand laesst sich gar nicht mehr uebergeben
+    assert "watching" not in inspect.signature(permnote.should_notify).parameters
 
 
 def test_permission_push_text_names_the_command():
@@ -3146,6 +3170,7 @@ def test_subchats_pick_model():
     assert model == "small" and auto and "nicht verfügbar" in note
     # externe Modelle nur, wenn die Person sie für den Hauptchat ausdrücklich gewählt hat
     assert pick("ext:claude", "big", True, "small", "strong", ext, ok)[0] == "small"
+    assert "Externe Modelle nur" in pick("ext:claude", "big", True, "small", "strong", ext, ok)[2]
     assert pick("wie_hauptchat", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
     assert pick("ext:claude", "ext:claude", False, "small", "strong", ext, ok)[0] == "ext:claude"
 
@@ -3408,6 +3433,32 @@ def test_tile_data_validation_and_hardening():
         dash.validate("table", {"data": {"columns": [], "rows": []}})
     big = {"data": {"markdown": "x" * 70_000}}
     assert len(dash.validate("text", big)["data"]["markdown"]) == 4000
+
+
+def test_table_footer_and_column_emphasis():
+    """Fusszeile, Fettdruck und Spaltenfarbe: bereinigt wie eine Zeile, unbrauchbare Angaben fallen weg."""
+    out = dash.validate("table", {"data": {
+        "columns": [{"key": "posten", "label": "Posten", "type": "text", "strong": True},
+                    {"key": "betrag", "label": "Betrag", "type": "number", "color": "#3f8f5b"},
+                    {"key": "notiz", "label": "Notiz", "color": "rot"},
+                    {"key": "falsch", "label": "Falsch", "strong": "ja"}],
+        "rows": [{"posten": "Fenster", "betrag": 1234.5, "notiz": "x", "unbekannt": "weg"}],
+        "footer": {"posten": "Summe", "betrag": 1234.5, "notiz": "  zu lang  ", "unbekannt": "weg"}}})
+    cols = {c["key"]: c for c in out["data"]["columns"]}
+    assert cols["posten"]["strong"] is True and "strong" not in cols["falsch"]   # nur ein echtes true zaehlt
+    assert cols["betrag"]["color"] == "#3f8f5b" and cols["betrag"]["type"] == "number"
+    assert "color" not in cols["notiz"]                                          # ungueltige Farbe verworfen
+    # Fusszeile: gleiche Schluesselpruefung wie eine Zeile, Zahlen bleiben Zahlen, Text wird gekuerzt
+    assert out["data"]["footer"] == {"posten": "Summe", "betrag": 1234.5, "notiz": "zu lang"}
+    # die Fusszeile ist nicht sortierbar und wird von "sort" nicht erfasst
+    assert out["data"]["sort"] is None
+    # ohne Fusszeile bleibt alles wie bisher
+    plain = dash.validate("table", {"data": {"columns": [{"key": "a", "label": "A"}], "rows": [{"a": "1"}]}})
+    assert plain["data"]["footer"] is None and plain["data"]["rows"] == [{"a": "1"}]
+    # kein Objekt als Fusszeile: einfach keine Fusszeile, die Kachel bleibt stehen
+    assert dash.validate("table", {"data": {"columns": [{"key": "a"}], "rows": [], "footer": "Summe"}})["data"]["footer"] is None
+    # die Spaltenfarbe braucht ein volles #rrggbb (kein Kurz-Hex, kein Name)
+    assert "color" not in dash.validate("table", {"data": {"columns": [{"key": "a", "color": "#fff"}], "rows": []}})["data"]["columns"][0]
 
 
 def test_tile_series_kept_by_server():

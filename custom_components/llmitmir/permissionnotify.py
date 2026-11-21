@@ -1,8 +1,9 @@
 """Push-Nachricht, wenn eine Freigabe auf Antwort wartet (rein, unit-getestet).
 
-Ein Lauf bleibt stehen, bis die Person eine Freigabe beantwortet – bis zu einer Stunde. Wer das Panel
-geschlossen hat, merkt davon nichts. Deshalb meldet LLMitMir eine wartende Freigabe aufs Handy, aber nur,
-wenn gerade niemand zusieht (kein Panel verbunden) und die Person es nicht abgeschaltet hat.
+Ein Lauf bleibt stehen, bis die Person eine Freigabe beantwortet – bis zu einer Stunde. Deshalb meldet
+LLMitMir jede wartende Freigabe aufs Handy, auch wenn irgendwo ein Panel offen ist: Ein offenes Panel heißt
+nicht, dass die Person gerade hinsieht (Tablet zu Hause, Handy unterwegs), und eine veraltete Verbindung
+darf die Meldung nicht dauerhaft verschlucken. Abgeschaltet wird sie nur ausdrücklich in den Einstellungen.
 
 Der Text nennt, was gefragt wird, und – bei einem Befehl – die ersten Zeilen davon, damit die Entscheidung
 ohne Öffnen des Chats möglich ist. Fragt eine Teilaufgabe (Unterchat), heißt die Meldung „Teilaufgabe braucht dich“,
@@ -81,13 +82,12 @@ def message(info: dict, chat_title: str = "", simple: bool = False) -> tuple[str
     return title[:100], text
 
 
-def should_notify(settings: dict, watching: bool, info: dict | None = None) -> bool:
+def should_notify(settings: dict, info: dict | None = None) -> bool:
     """Ob diese Freigabe eine Push-Nachricht bekommt.
 
-    ``watching`` heißt: für diese Person ist gerade ein Panel verbunden – dann sieht sie die Frage selbst.
+    Immer, wenn eine Freigabe auf Antwort wartet – ein verbundenes Panel unterdrueckt die Meldung nicht mehr.
+    Nur ein ausdrueckliches ``permission_push: false`` schaltet sie ab.
     """
-    if watching:
-        return False
     if not enabled(settings):
         return False
     return bool(info)
