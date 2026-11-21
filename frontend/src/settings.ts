@@ -337,7 +337,7 @@ export class SettingsPage extends StoreElement {
           </select>
           <span class="hint">Gilt für Chat und Cowork. „Ohne die Aktion weitermachen“ heißt: LLMitMir lässt sie aus, erledigt den Rest und nennt im Ergebnis, was fehlt. In geplanten Aufgaben entscheiden die Freigaben der Aufgabe.</span></label>
         <label class="row"><input type="checkbox" style="width:auto" .checked=${s.permission_push !== false} @change=${(e: any) => this.set("permission_push", e.target.checked)}> Aufs Handy melden, wenn eine Freigabe auf Antwort wartet</label>
-        <div class="hint">Nur wenn gerade kein Panel offen ist – wer zusieht, sieht die Frage ohnehin. Die Meldung nennt den Chat und, bei einem Befehl, die ersten Zeilen davon.</div></div></section>
+        <div class="hint">Kommt auch dann, wenn das Panel gerade offen ist – ein offenes Panel heißt nicht, dass du hinsiehst. Die Meldung nennt den Chat und, bei einem Befehl, die ersten Zeilen davon.</div></div></section>
       ${perms.length ? html`<section><h2>${icon("lock", 18)} Dauerhafte Freigaben (ohne Projekt)</h2>
         ${perms.map(([n, v]) => html`<div class="row" style="padding:4px 0"><span class="grow">${d.tools[n]?.label || n}: ${v === "allow" ? "erlaubt" : v === "deny" ? "verboten" : "fragen"}</span>
           <button class="btn ghost" @click=${() => { const p = { ...s.permissions }; delete p[n]; this.set("permissions", p); }}>Zurücksetzen</button></div>`)}</section>` : nothing}

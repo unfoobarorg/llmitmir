@@ -1827,16 +1827,16 @@ class Manager:
 
     # ------------------------------------------------------------- permissions
     async def _permission_push(self, run: Run, info: dict) -> None:
-        """Eine wartende Freigabe aufs Handy melden – nur wenn niemand zusieht (permissionnotify).
+        """Eine wartende Freigabe aufs Handy melden (permissionnotify).
 
-        Wer das Panel offen hat, sieht die Frage selbst; dann bleibt es still. Ein Fehler beim Senden darf
-        die Freigabe nie verhindern.
+        Immer, wenn eine Freigabe auf Antwort wartet – ein offenes Panel irgendwo heißt nicht, dass die Person
+        hinsieht. Ein Fehler beim Senden darf die Freigabe nie verhindern, wird aber als Warnung sichtbar:
+        Sonst bliebe unbemerkt, dass kein Gerät verknüpft ist oder der Dienst fehlt.
         """
         st = self.users.get(run.user_id)
         if not st:
             return
-        watching = bool(self.subscribers.get(run.user_id))
-        if not PN.should_notify(st.meta["settings"], watching, info):
+        if not PN.should_notify(st.meta["settings"], info):
             return
         try:
             from . import notifydevices as ND
@@ -1844,14 +1844,16 @@ class Manager:
             devices = ND.apply_links(await ND.async_devices(self.hass), self.config.data.get("notify_devices"))
             device = ND.resolve(ND.for_user(devices, run.user_id), run.user_id, st.meta["settings"])
             if not device:
+                _LOGGER.warning("LLMitMir: Freigabe wartet, aber für %s ist kein Benachrichtigungsgerät hinterlegt – "
+                                "die Push-Nachricht bleibt aus (Einstellungen → Benachrichtigungsgerät).", run.user_id)
                 return
             chat = await st.async_get_chat(run.chat_id) or {}
             # aus einer Teilaufgabe: Titel nennt die Teilaufgabe, der Link führt in den Hauptchat
             root = info.get("root_chat_id") or run.chat_id
             title, text = PN.message(info, chat.get("title") or "", self.simple(run.user_id))
             await ND.async_send(self.hass, device, title, text, url=f"/llmitmir/chat/{root}", tag=PN.tag(root))
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("LLMitMir: Push für wartende Freigabe fehlgeschlagen", exc_info=True)
+        except Exception:  # noqa: BLE001 - die Freigabe darf an einem Sendefehler nie scheitern
+            _LOGGER.warning("LLMitMir: Push für wartende Freigabe fehlgeschlagen", exc_info=True)
 
     async def _sub_permission_context(self, run: Run, info: dict) -> tuple[dict, Run | None, dict | None]:
         """Freigabe aus einer Teilaufgabe: Herkunft ergänzen (root_chat_id, sub_title, root_title), die Teilaufgabe auf

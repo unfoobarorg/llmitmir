@@ -269,9 +269,11 @@
   Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
 - **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60
   Minuten *ohne diese Aktion weitermacht* – sie auslässt, den Rest erledigt und im Ergebnis nennt, was fehlt.
-- **Freigaben aufs Handy**: Wartet eine Freigabe und ist gerade kein Panel offen, kommt eine Push-Nachricht mit Chat,
-  Werkzeug und – bei einem Befehl – dessen ersten Zeilen. Wer zusieht, bekommt keine zusätzliche Meldung; abschaltbar
-  in den Einstellungen.
+- **Freigaben aufs Handy**: Wartet eine Freigabe, kommt eine Push-Nachricht mit Chat, Werkzeug und – bei einem Befehl –
+  dessen ersten Zeilen. Sie kommt auch dann, wenn das Panel gerade offen ist: Ein offenes Panel heißt nicht, dass die
+  Person hinsieht (Tablet zu Hause, Handy unterwegs), und eine veraltete Verbindung darf die Meldung nicht dauerhaft
+  verschlucken. Abschaltbar in den Einstellungen; fehlt ein Benachrichtigungsgerät oder scheitert das Senden, steht das
+  als Warnung im Protokoll, statt still zu bleiben.
 - **Benachrichtigungen an das eigene Gerät**: Welches Handy eine Push-Nachricht bekommt, ist keine freie Auswahl mehr.
   Home Assistant weiß, welche Person die App auf einem Gerät eingerichtet hat; jede Person wählt in den Einstellungen nur
   noch unter **ihren eigenen Geräten** (mit ihren lesbaren Namen, nie mit Kennungen). Unter *Admin → Benachrichtigungsgeräte*
