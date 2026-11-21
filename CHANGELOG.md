@@ -2,6 +2,17 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.1.0 – Tabellen mit Fußzeile, Fettdruck und Farbe
+
+### Dashboards
+- **Fußzeile für Tabellen:** Eine Tabellen-Kachel nimmt jetzt ein optionales `footer` an – ein Objekt mit denselben
+  Schlüsseln wie eine Zeile, gerendert als Summenzeile unter der Tabelle. Sie wird wie eine Zeile bereinigt (nur
+  bekannte Spalten, Text auf 200 Zeichen gekürzt, Zahlen bleiben Zahlen), ist abgesetzt wie die Kopfzeile (fett, obere
+  Trennlinie, Hintergrund der Kachel) und bleibt beim Scrollen langer Tabellen unten stehen. Sortiert wird sie nicht.
+- **Spalten fett und farbig:** Jede Spalte kann `strong: true` (Zellen fett) und `color: "#rrggbb"` (Textfarbe)
+  tragen; beides gilt im Body und in der Fußzeile. Eine unbrauchbare Farbangabe wird verworfen, statt die Kachel
+  scheitern zu lassen. Der Schema-Text im Kachel-Lauf nennt die neuen Felder, das Modell kennt sie also.
+
 ## 1.0.2 – externe Modelle des Hauptanbieters
 
 ### Datenschutz

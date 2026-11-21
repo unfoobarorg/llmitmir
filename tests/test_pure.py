@@ -3432,6 +3432,32 @@ def test_tile_data_validation_and_hardening():
     assert len(dash.validate("text", big)["data"]["markdown"]) == 4000
 
 
+def test_table_footer_and_column_emphasis():
+    """Fusszeile, Fettdruck und Spaltenfarbe: bereinigt wie eine Zeile, unbrauchbare Angaben fallen weg."""
+    out = dash.validate("table", {"data": {
+        "columns": [{"key": "posten", "label": "Posten", "type": "text", "strong": True},
+                    {"key": "betrag", "label": "Betrag", "type": "number", "color": "#3f8f5b"},
+                    {"key": "notiz", "label": "Notiz", "color": "rot"},
+                    {"key": "falsch", "label": "Falsch", "strong": "ja"}],
+        "rows": [{"posten": "Fenster", "betrag": 1234.5, "notiz": "x", "unbekannt": "weg"}],
+        "footer": {"posten": "Summe", "betrag": 1234.5, "notiz": "  zu lang  ", "unbekannt": "weg"}}})
+    cols = {c["key"]: c for c in out["data"]["columns"]}
+    assert cols["posten"]["strong"] is True and "strong" not in cols["falsch"]   # nur ein echtes true zaehlt
+    assert cols["betrag"]["color"] == "#3f8f5b" and cols["betrag"]["type"] == "number"
+    assert "color" not in cols["notiz"]                                          # ungueltige Farbe verworfen
+    # Fusszeile: gleiche Schluesselpruefung wie eine Zeile, Zahlen bleiben Zahlen, Text wird gekuerzt
+    assert out["data"]["footer"] == {"posten": "Summe", "betrag": 1234.5, "notiz": "zu lang"}
+    # die Fusszeile ist nicht sortierbar und wird von "sort" nicht erfasst
+    assert out["data"]["sort"] is None
+    # ohne Fusszeile bleibt alles wie bisher
+    plain = dash.validate("table", {"data": {"columns": [{"key": "a", "label": "A"}], "rows": [{"a": "1"}]}})
+    assert plain["data"]["footer"] is None and plain["data"]["rows"] == [{"a": "1"}]
+    # kein Objekt als Fusszeile: einfach keine Fusszeile, die Kachel bleibt stehen
+    assert dash.validate("table", {"data": {"columns": [{"key": "a"}], "rows": [], "footer": "Summe"}})["data"]["footer"] is None
+    # die Spaltenfarbe braucht ein volles #rrggbb (kein Kurz-Hex, kein Name)
+    assert "color" not in dash.validate("table", {"data": {"columns": [{"key": "a", "color": "#fff"}], "rows": []}})["data"]["columns"][0]
+
+
 def test_tile_series_kept_by_server():
     r1 = dash.merge("stat", dash.validate("stat", {"data": {"value": 10}}), None, 100.0)
     assert "delta" not in r1["data"] and r1["series"]["value"] == [[100.0, 10.0]]

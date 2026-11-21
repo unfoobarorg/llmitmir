@@ -50,6 +50,7 @@ ITEM_STATES = ("offen", "erledigt", "blockiert")
 CHART_TYPES = ("line", "area", "bar", "donut")
 SHAPES = ("box", "sphere", "cylinder", "torus")
 COLUMN_TYPES = ("text", "date", "number", "chip")
+CELL_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 RULE_OPS = ("below", "above", "equals", "not")
 
 MIN_W, MAX_W, MIN_H, MAX_H = 2, GRID_COLS, 2, 8
@@ -98,8 +99,10 @@ SCHEMAS = {
              'hängt LLMitMir die Punkte an die gespeicherte Reihe an (nur neue Punkte schicken); bei "donut" sind die '
              'Punkte [["Name", Wert], …]',
     "alert": '{"items": [{"severity": "info|warn|critical", "title": "…", "text": "…", "since": Zeitstempel, "url": "https://…"}]}',
-    "table": '{"columns": [{"key": "betreff", "label": "Betreff", "type": "text|date|number|chip"}], "rows": [{"betreff": "…"}], '
-             '"sort": {"key": "betreff", "dir": "asc|desc"}}',
+    "table": '{"columns": [{"key": "betreff", "label": "Betreff", "type": "text|date|number|chip", "strong": true, '
+             '"color": "#3f8f5b"}], "rows": [{"betreff": "…"}], "footer": {"betreff": "Summe", "betrag": 1234.56}, '
+             '"sort": {"key": "betreff", "dir": "asc|desc"}} – "strong"/"color" gelten je Spalte (auch in der '
+             'Fußzeile), "footer" ist eine Summenzeile unter der Tabelle',
     "list": '{"items": [{"title": "…", "state": "offen|erledigt|blockiert", "meta": "…", "url": "https://…"}]}',
     "progress": '{"percent": 62, "steps": [{"label": "…", "done": true}], "milestones": [{"label": "…", "at": Zeitstempel}]}',
     "matrix": '{"axes": {"x": "Wahrscheinlichkeit", "y": "Auswirkung"}, "items": [{"title": "…", "x": 1-5, "y": 1-5, '
@@ -396,6 +399,12 @@ def _vec(v, default: float) -> list[float]:
     return out + [default] * (3 - len(out))
 
 
+def _table_row(r: dict, keys: set[str]) -> dict:
+    """Eine Tabellenzeile (oder die Fusszeile): nur bekannte Spalten, Zahlen bleiben Zahlen, Text wird gekuerzt."""
+    return {k: (v if isinstance(v, (int, float)) and not isinstance(v, bool) else _text(v, 200))
+            for k, v in r.items() if k in keys}
+
+
 def _validate_data(kind: str, d: dict) -> dict:
     if kind == "stat":
         v = _num(d.get("value"))
@@ -456,18 +465,23 @@ def _validate_data(kind: str, d: dict) -> dict:
         cols = []
         for c in _list(d, "columns", 12):
             if isinstance(c, dict) and re.match(r"^[A-Za-z0-9_äöüÄÖÜß-]{1,40}$", str(c.get("key") or "")):
-                cols.append({"key": str(c["key"]), "label": _text(c.get("label") or c["key"], 40),
-                             "type": c.get("type") if c.get("type") in COLUMN_TYPES else "text"})
+                col = {"key": str(c["key"]), "label": _text(c.get("label") or c["key"], 40),
+                       "type": c.get("type") if c.get("type") in COLUMN_TYPES else "text"}
+                # Hervorhebung je Spalte: nur ein echtes true zaehlt, eine unbrauchbare Farbe faellt weg
+                # (die Kachel bleibt stehen, statt an einer Farbangabe zu scheitern)
+                if c.get("strong") is True:
+                    col["strong"] = True
+                if isinstance(c.get("color"), str) and CELL_COLOR_RE.match(c["color"].strip()):
+                    col["color"] = c["color"].strip()
+                cols.append(col)
         if not cols:
             raise ValueError("table braucht „columns“ mit key und label.")
         keys = {c["key"] for c in cols}
-        rows = []
-        for r in _list(d, "rows", MAX_ROWS):
-            if isinstance(r, dict):
-                rows.append({k: (v if isinstance(v, (int, float)) and not isinstance(v, bool) else _text(v, 200))
-                             for k, v in r.items() if k in keys})
+        rows = [_table_row(r, keys) for r in _list(d, "rows", MAX_ROWS) if isinstance(r, dict)]
+        # Fusszeile (Summenzeile): dieselbe Pruefung wie eine Zeile, aber ohne Sortierung
+        footer = _table_row(d["footer"], keys) if isinstance(d.get("footer"), dict) else None
         sort = d.get("sort") if isinstance(d.get("sort"), dict) and d["sort"].get("key") in keys else None
-        return {"columns": cols, "rows": rows,
+        return {"columns": cols, "rows": rows, "footer": footer,
                 "sort": {"key": sort["key"], "dir": "asc" if sort.get("dir") == "asc" else "desc"} if sort else None}
     if kind == "matrix":
         axes = d.get("axes") if isinstance(d.get("axes"), dict) else {}

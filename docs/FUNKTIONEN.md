@@ -182,6 +182,11 @@
     pausieren, solange die Kachel nirgends liegt. „Nur bei Änderung“ überspringt Läufe, wenn sich gewählte Entitäten
     nicht geändert haben. Ein Lauf ohne gültige Daten gilt als Fehler; Verlauf und Delta führt der Server, alte Läufe
     werden aufgeräumt (die letzten 10 bleiben). Unter *Geplant* erscheinen sie nur mit dem Schalter „Kachel-Aufgaben“.
+  - **Tabellen**: Spalten mit Text, Datum, Zahl (rechtsbündig) oder Chip, sortierbar per Klick auf die Kopfzeile. Je
+    Spalte lassen sich Zellen **fett** setzen (`strong`) und **einfärben** (`color`, `#rrggbb`). Eine optionale
+    **Fußzeile** (`footer`) zeigt eine Summenzeile: abgesetzt wie die Kopfzeile, fett, mit oberer Trennlinie, und beim
+    Scrollen langer Tabellen unten stehen bleibend. Fett und Farbe gelten dort genauso; die Fußzeile wird nicht
+    mitsortiert.
   - **Teilen**: Dashboards und Kacheln je Person mit *ansehen*, *bearbeiten* oder *bearbeiten und weiter teilen*, oder
     für alle (auch künftige Personen). Weitergegeben wird nie mehr, als man selbst darf; wer ein Recht verliert, nimmt
     alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
