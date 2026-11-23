@@ -3499,3 +3499,40 @@ def test_tile_data_rejects_wrong_types():
     with pytest.raises(ValueError, match="Liste"):
         dash.validate("table", {"data": {"columns": [{"key": "a"}], "rows": {"a": 1}}})
     assert dash.validate("list", {"data": {}})["data"]["items"] == []
+
+
+# ------------------------------------------------------------------ Sprachausgabe: kein blockierender Import im Event-Loop
+speech = load("speech")
+
+
+def test_speech_available_does_not_import_edge_tts(monkeypatch):
+    """``available()`` läuft im Event-Loop: nur nachsehen, nicht importieren (der Import lädt Zertifikate)."""
+    monkeypatch.delitem(sys.modules, "edge_tts", raising=False)
+    seen = []
+    monkeypatch.setattr(speech.importlib.util, "find_spec", lambda name: seen.append(name) or object())
+    monkeypatch.setattr(speech.importlib, "import_module", lambda name: pytest.fail("Import im Event-Loop"))
+    assert speech.available() is True and seen == ["edge_tts"]
+    monkeypatch.setattr(speech.importlib.util, "find_spec", lambda name: None)
+    assert speech.available() is False
+
+
+def test_speech_imports_edge_tts_in_executor(monkeypatch):
+    import asyncio
+    import threading
+    import types
+
+    monkeypatch.delitem(sys.modules, "edge_tts", raising=False)
+    fake = types.ModuleType("edge_tts")
+    where = []
+
+    def import_module(name):
+        where.append(threading.get_ident())
+        return fake
+
+    monkeypatch.setattr(speech.importlib, "import_module", import_module)
+
+    async def run():
+        return await speech._edge_tts(), threading.get_ident()
+
+    mod, loop_thread = asyncio.run(run())
+    assert mod is fake and where and where[0] != loop_thread
