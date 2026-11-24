@@ -72,6 +72,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Trusted-AI-Zentrale: Export, Auffälligkeiten, Entzug | `auditexport.py` (HA-frei; WS `admin/agent_stop`, `admin/revoke`, `admin/anomalies`, `admin/audit_export_test`) |
 | MCP-Konnektoren | `mcp.py` (HA-frei; Werkzeuge je Lauf in `ToolContext.mcp_tools`, WS `admin/mcp_tools`) |
 | Datenregeln, Wächter | `datarules.py` (HA-frei; eingehängt in `ToolContext._data_guard` vor dem Werkzeug) |
+| Chats mit internen Daten sperren | `datalock.py` (HA-frei; markiert in `ToolContext.execute`, Sperre in `Manager.chat_lock`, letzte Schranke in `ToolContext._guard_external` vor jeder Anfrage) |
 | Konnektoren, Nextcloud Login Flow v2 | `connectors.py` (HA-frei; WS `connector/*` in `ws.py`, Seite `frontend/src/connectors.ts`) |
 | Zentrale Skills, Skill-Richtlinien | `skillcheck.py` (Prüflogik HA-frei; `check_skill`/`recheck_all` mit dem Manager) |
 | Freigabe von Zugängen je Agent, Art des Zugangs | `policy.py` (HA-frei; eingehängt in `ToolContext._approve_creds`) |

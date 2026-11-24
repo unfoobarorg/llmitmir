@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
+from . import datalock as DL
 from . import subchats as SC
 from . import policy as P
 from .const import (BILLING_STORE_KEY, CONFIG_STORE_KEY, EWS_STORE_KEY, KEY_SHARED, STORAGE_VERSION,
@@ -277,7 +278,9 @@ class UserStore:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",
                                         "updated", "pinned", "status", "usage", "tools", "last_seen", "voice",
                                         "no_thinking", "tile_id")} | SC.summary_fields(chat) | {
-            "messages": len(chat.get("messages") or []), "queued": len(chat.get("queued") or [])}
+            "messages": len(chat.get("messages") or []), "queued": len(chat.get("queued") or []),
+            # interne Daten im Verlauf: externe Modelle gesperrt (datalock.py)
+            DL.KEY: DL.summary(chat)}
 
     async def async_save_chat(self, chat: dict, keep_updated: bool = False) -> None:
         if not keep_updated or not chat.get("updated"):

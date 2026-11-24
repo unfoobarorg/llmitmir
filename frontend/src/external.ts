@@ -14,6 +14,25 @@ export const isExternal = (id: string | null | undefined) =>
   isBilled(id) || !!(id && (store.data?.models || []).find((x: any) => x.id === id)?.external);
 export const ext = () => store.data?.external || {};
 
+/** Interne Daten im Verlauf (datalock.py): Warum dieser Chat kein externes Modell annimmt – leer, wenn er frei ist
+ *  oder der Admin die Sperre abgeschaltet hat. Eine Teilaufgabe ist gesperrt, sobald ihr Hauptchat es ist. */
+export function chatLock(chat: any): string {
+  if (!chat || ext().lock_chats === false) return "";
+  const chats: any[] = store.data?.chats || [];
+  const own = chats.find(c => c.id === chat.id)?.internal_only || chat.internal_only;
+  const parent = chat.parent_id ? chats.find(c => c.id === chat.parent_id)?.internal_only : null;
+  if (!own && !parent) return "";
+  const label: Record<string, string> = { cred: t("Zugang"), rule: t("Datenregel"), skill: t("Skill") };
+  const names: string[] = [];
+  for (const r of [...(own?.reasons || []), ...(parent?.reasons || [])]) {
+    const n = label[r.kind] ? `${label[r.kind]} „${r.name}“` : "";
+    if (n && !names.includes(n)) names.push(n);
+  }
+  const list = names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
+  return t("Dieser Chat enthält interne Daten") + (list ? ` (${list})` : "") + ". "
+    + t("Externe Modelle sind hier gesperrt – für ein externes Modell einen neuen Chat beginnen.");
+}
+
 export const fmtEur = (v: number, digits = 2) =>
   (Number(v || 0)).toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: Math.max(digits, 2) }) + " €";
 

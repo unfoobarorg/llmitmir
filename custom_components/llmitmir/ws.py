@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from . import voice as VO
 from . import audit as AU
 from . import policy as P
+from . import datalock as DL
 from . import skillcheck as SK
 from . import connectors as CN
 from . import mcp as MCP
@@ -362,6 +363,8 @@ async def _chat_for(m, user, chat_id: str) -> tuple[Any, dict]:
 @command(_t("chat/get") | {vol.Required("chat_id"): str})
 async def ws_chat_get(hass, conn, msg, m, user, st):
     cst, chat = await _chat_for(m, user, msg["chat_id"])
+    if cst is st:
+        await m.ensure_lock(st, chat)  # alter Verlauf: einmal nach internen Daten durchsuchen (Schloss im Modellmenü)
     # eine Teilaufgabe zeigt die Dateien ihres Hauptchats (gemeinsamer Arbeitsbereich)
     files = await cst.async_list_files("chat", SC.root_id(chat))
     return {"chat": chat, "files": files}
@@ -1210,7 +1213,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
         "audit": {"retention_days": m.audit_retention(), "export": AX.view((cfg.get("audit") or {}).get("export") or {}),
                   "export_state": m.export_state},
-        "credentials_policy": {"allow_central": M.allow_central(m), "free_credentials": CN.free_allowed(cfg)},
+        "credentials_policy": {"allow_central": M.allow_central(m), "free_credentials": CN.free_allowed(cfg),
+                               "lock_chats": DL.enabled(cfg)},
         "idm": IDM.view(cfg.get("idm") or {}),
         "auth_providers": sorted({p.type for p in m.hass.auth.auth_providers}),
         "connectors": cfg.get("connectors") or [],
@@ -1376,7 +1380,9 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
     if "credentials_policy" in c:
         cp = c["credentials_policy"] or {}
         cfg["credentials_policy"] = {"allow_central": bool(cp.get("allow_central")),
-                                     "free_credentials": cp.get("free_credentials", True) is not False}
+                                     "free_credentials": cp.get("free_credentials", True) is not False,
+                                     # Chats mit internen Daten für externe Modelle sperren (datalock.py), Standard: an
+                                     "lock_chats": cp.get("lock_chats", True) is not False}
     if "connectors" in c:
         cfg["connectors"] = CN.clean(c["connectors"])
         for st_ in list(m.users.values()):  # verbundene Zugänge an geänderte feste Felder angleichen

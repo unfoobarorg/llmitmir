@@ -5,7 +5,7 @@ import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles,
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { modelById, modelName } from "./modelpick";
-import { offerCard, isBilled, isExternal, externalCss } from "./external";
+import { offerCard, isBilled, isExternal, externalCss, chatLock, ext } from "./external";
 import { openFileViewer } from "./viewer";
 import type { SendDetail } from "./composer";
 import "./composer";
@@ -899,11 +899,12 @@ export class ChatView extends LitElement {
         ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} Nach unten</button></div>`}
         <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .draftKey=${chat.id}
-          .tools=${chat.tools ?? null} .projectId=${chat.project_id} .noThinking=${!!chat.no_thinking}
+          .tools=${chat.tools ?? null} .projectId=${chat.project_id} .noThinking=${!!chat.no_thinking} .lockText=${chatLock(chat)}
           placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
           @send=${this.send} @stop=${this.stop} @nothinking=${this.setNoThinking}></lm-composer>
         <div class="note">${isExternal(chat.model) ? `Läuft ${isBilled(chat.model) ? "kostenpflichtig " : ""}bei ${modelById(chat.model)?.operator || "einem externen Anbieter"} – bitte keine sensiblen Daten eingeben.`
-          : chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter." : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
+          : chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter."
+          : ext().any_access && chatLock(chat) ? t("Interne Daten im Chat – externe Modelle sind hier gesperrt.") : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
       </div>
     </div>
     ${isWork && !simple && !this.narrow ? this.side(chat) : nothing}

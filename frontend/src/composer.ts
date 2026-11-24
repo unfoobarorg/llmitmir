@@ -42,6 +42,8 @@ export class Composer extends LitElement {
   @property() draftKey = "";
   /** „Schnell antworten“: ohne Denkphase – eine Eigenschaft des Chats, nicht der Installation. */
   @property({ type: Boolean }) noThinking = false;
+  /** Interne Daten im Verlauf: Grund, warum externe Modelle gesperrt sind (leer = frei, external.chatLock). */
+  @property() lockText = "";
   @state() private text = "";
   @state() private files: File[] = [];
   @state() private rec: VoiceRecorder | null = null;
@@ -341,19 +343,24 @@ export class Composer extends LitElement {
     const free = list.filter(m => !m.external); const paid = list.filter(m => m.billed);
     // external models of the main provider (SAIA forwards them to commercial vendors): free for the person, same rules
     const outside = list.filter(m => m.external && !m.billed);
-    const row = (m: any) => { const l = load(m); const off = m.billed && (m.locked || !m.usable);
+    // interne Daten im Verlauf: kein externes Modell mehr (das aktuelle bleibt sichtbar, falls der Chat noch darauf steht)
+    const sealed = (m: any) => !!this.lockText && m.external && m.id !== this.model;
+    const row = (m: any) => { const l = load(m); const off = sealed(m) || (m.billed && (m.locked || !m.usable));
+      const why = sealed(m) ? t("Gesperrt: interne Daten im Chat") : m.why || "";
       return html`<button class="mi ${m.id === this.model ? "sel" : ""}" ?data-close=${!off} ?disabled=${off} style=${off ? "opacity:.55;cursor:default" : ""}
-        title=${off ? m.why || "" : ""} @click=${() => { if (!off) this.pickModel(m.id); }}>
-        <div class="grow"><div class="row">${m.billed ? icon(off ? "lock" : "euro", 14) : m.external ? icon("external", 14) : loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
+        title=${off ? why : ""} @click=${() => { if (!off) this.pickModel(m.id); }}>
+        <div class="grow"><div class="row">${sealed(m) ? icon("lock", 14) : m.billed ? icon(off ? "lock" : "euro", 14) : m.external ? icon("external", 14) : loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
           ${m.id === rec && m.id !== def ? html`<span class="badge" style="color:var(--lm-accent)">Empfohlen</span>` : nothing}
           ${m.new ? html`<span class="badge" style="color:var(--lm-accent)">neu</span>` : nothing}
           ${m.billed && m.locked ? html`<span class="badge">nur im Notfall</span>` : nothing}
           ${m.status === "unavailable" ? html`<span class="badge" style="color:var(--lm-err)">nicht verfügbar</span>` : nothing}</div>
-          <div class="sub">${m.billed ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} je Schritt${off && m.why ? html` · ${m.why}` : nothing}`
+          <div class="sub">${m.billed ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} je Schritt${off && why ? html` · ${why}` : nothing}`
             : html`${m.external ? "extern · " : ""}${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? "Bilder · " : ""}${(m.output || []).includes("thought") ? "denkt nach · " : ""}${fmtNum(m.context)} Kontext`}</div></div>
         ${m.id === this.model ? icon("check", 18) : nothing}</button>`; };
+    const lockNote = this.lockText && (outside.length || paid.length)
+      ? html`<div class="hint" style="padding:2px 10px 6px;display:flex;gap:6px">${icon("lock", 14)}<span>${this.lockText}</span></div>` : nothing;
     return html`<div class="mh">${t("Modell")}</div>
-      ${free.map(row)}
+      ${free.map(row)}${lockNote ? html`<div class="msep"></div>${lockNote}` : nothing}
       ${outside.length ? html`<div class="msep"></div><div class="mh">Extern (über den Hauptanbieter)</div>${outside.map(row)}
         <div class="hint" style="padding:2px 10px 6px">Der Hauptanbieter leitet diese Modelle an kommerzielle Anbieter weiter – keine sensiblen Daten eingeben.
           Zugänge gibt es dort nur, wenn du sie für externe Modelle freigegeben hast.</div>` : nothing}
@@ -372,7 +379,7 @@ export class Composer extends LitElement {
   /** The main provider is down: say so and point to the emergency models that are unlocked now (expert view). */
   private emergencyHint() {
     const e = ext();
-    if (this.simple || this.busy || !e.emergency || isExternal(this.model) || this.dismissed.has("__emergency")) return nothing;
+    if (this.simple || this.busy || !e.emergency || isExternal(this.model) || this.lockText || this.dismissed.has("__emergency")) return nothing;
     const paid = this.models.filter(m => m.billed && !m.locked && m.usable);
     if (!paid.length) return nothing;
     const cheapest = paid.sort((a, b) => (a.blended || 0) - (b.blended || 0))[0];

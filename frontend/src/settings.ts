@@ -462,6 +462,9 @@ export class AdminPage extends StoreElement {
         @change=${(e: any) => this.set("credentials_policy", { ...cp, free_credentials: e.target.checked })}>
         <div><b>Eigene Zugänge ohne Konnektor erlauben</b><div class="hint">Aus: Neue Systeme lassen sich nur noch über die Konnektoren unten verbinden.
           Vorhandene eigene Zugänge bleiben nutzbar.</div></div></label>
+      <label class="opt ${cp.lock_chats !== false ? "on" : ""}" style="margin-top:8px"><input type="checkbox" .checked=${cp.lock_chats !== false}
+        @change=${(e: any) => this.set("credentials_policy", { ...cp, lock_chats: e.target.checked })}>
+        <div><b>${t("Chats mit internen Daten für externe Modelle sperren")}</b><div class="hint">${t("An (empfohlen): Sobald in einem Chat ein Zugang ohne Freigabe für externe Modelle benutzt, eine Datenregel nur für interne Modelle durchgelassen oder ein Skill „nur für interne Modelle“ geladen wurde, nimmt dieser Chat samt Teilaufgaben kein externes Modell mehr an – auch nicht als Notfall-Ausweichmodell. Aus: Wie bisher werden beim Wechsel nur die Ergebnisse solcher Zugänge aus dem Verlauf entfernt; was ein Modell daraus geschrieben hat (Antworten, Dateien, Ergebnisse von Teilaufgaben), geht mit.")}</div></div></label>
       ${rows.length ? html`<div class="tw" style="margin-top:10px"><table><tr><th>Person</th><th class="num">eigene</th><th class="num">persönliche</th><th class="num">zentrale</th><th class="num">ohne Art</th></tr>
         ${rows.map((u: any) => html`<tr><td>${u.name}</td><td class="num">${sc[u.id].dedicated}</td><td class="num">${sc[u.id].personal}</td>
           <td class="num" style=${sc[u.id].central ? "color:var(--lm-warn)" : ""}>${sc[u.id].central}</td><td class="num">${sc[u.id].none}</td></tr>`)}</table></div>
