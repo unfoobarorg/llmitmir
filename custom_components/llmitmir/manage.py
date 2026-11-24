@@ -4,6 +4,7 @@ from __future__ import annotations
 from . import credentials as C
 from . import sharing as SH
 from . import policy as P
+from . import skillcheck as SK
 from .const import ORIGIN_DASHBOARD
 from .cron import schedule_to_cron
 from .storage import new_id, now
@@ -17,12 +18,18 @@ async def save_skill(m, user_id: str, st, s: dict) -> dict:
     name = str(s.get("name") or old.get("name") or "").strip()
     if not name:
         raise ValueError("Name fehlt")
+    if SK.name_conflict(name, m.config.data):
+        raise ValueError(f"„{name}“ ist der Name einer zentralen Vorgabe dieser Installation – bitte einen anderen Namen wählen.")
     skill = dict(old, id=sid, name=name[:80], description=str(s.get("description") or "")[:1024],
                  body=str(s.get("body") or ""), credentials=list(s.get("credentials") or []),
                  enabled=bool(s.get("enabled", True)), updated=now())
+    if SK.policies(m.config.data):
+        # bis die Prüfung durch ist, sieht kein Modell den Skill (skillcheck.py); alte Befunde bleiben zum Vergleich
+        skill["check"] = dict(old.get("check") or {}, pending=True, state="pending", hash="")
     st.meta["skills"][sid] = skill
     await st.async_save_meta()
     m.emit(user_id, {"type": "meta", "section": "skills"})
+    SK.schedule(m, user_id, st, sid)
     return skill
 
 

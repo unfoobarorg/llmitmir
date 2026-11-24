@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from . import credentials as C
 from . import docpreview as DP
 from . import speech as SP
+from . import skillcheck as SK
 from .const import DOMAIN, KIND_CHAT
 from .storage import new_id, now, safe_name
 
@@ -404,8 +405,12 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
                 res["warnings"].append(f"Zugang „{n}“ nicht gefunden")
         return out
 
+    checked: list[str] = []
     for s in items("skills"):
         if not s.get("name"):
+            continue
+        if SK.name_conflict(s["name"], m.config.data):
+            res["warnings"].append(f"Skill „{s['name']}“ nicht übernommen: Den Namen trägt eine zentrale Vorgabe dieser Installation.")
             continue
         old = _by_name(meta["skills"], s["name"])
         if old and skip_existing:
@@ -415,6 +420,9 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
         meta["skills"][sid] = {"id": sid, "name": s["name"][:80], "description": str(s.get("description") or "")[:1024],
                                "body": str(s.get("body") or ""), "credentials": cred_ids(s.get("credentials")),
                                "enabled": True, "created": (old or {}).get("created", now()), "updated": now(), "imported": True}
+        if SK.policies(m.config.data):
+            meta["skills"][sid]["check"] = {"pending": True, "state": "pending", "hash": ""}  # erst nach der Prüfung nutzbar
+        checked.append(sid)
         for f in s.get("files") or []:
             if f.get("name") and f.get("content") is not None:
                 await st.async_write_file("skill", sid, f["name"], str(f["content"]).encode("utf-8"))
@@ -490,6 +498,8 @@ async def import_bundle(hass: HomeAssistant, m, user, st, b: dict, skip_existing
         res["chats"] += 1
     st.meta["imported_uuids"] = sorted(seen)
     await st.async_save_meta()
+    for sid in checked:
+        SK.schedule(m, user.id, st, sid)  # importierte Skills gegen die Richtlinien prüfen (skillcheck.py)
     return res
 
 

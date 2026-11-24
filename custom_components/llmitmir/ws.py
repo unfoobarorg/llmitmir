@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from . import voice as VO
 from . import audit as AU
 from . import policy as P
+from . import skillcheck as SK
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -1129,6 +1130,9 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
         "audit": {"retention_days": m.audit_retention()},
         "credentials_policy": {"allow_central": M.allow_central(m)},
+        # zentrale Skills und Skill-Richtlinien (skillcheck.py) – nur in dieser Admin-Ansicht sichtbar
+        "central_skills": cfg.get("central_skills") or [], "skill_policies": cfg.get("skill_policies") or [],
+        "skill_presets": SK.PRESETS,
         "cred_scopes": _cred_scopes(m, users),
     }
 
@@ -1275,6 +1279,14 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         except (TypeError, ValueError):
             raise ValueError("Budget und gleichzeitige Läufe sind ganze Zahlen.") from None
         cfg["dashboards"] = {"tile_budget": budget, "tile_parallel": parallel}
+    recheck = False
+    if "central_skills" in c or "skill_policies" in c:
+        before = SK.config_hash(cfg)
+        if "central_skills" in c:
+            cfg["central_skills"] = SK.clean_central(c["central_skills"])
+        if "skill_policies" in c:
+            cfg["skill_policies"] = SK.clean_policies(c["skill_policies"])
+        recheck = SK.config_hash(cfg) != before
     if "credentials_policy" in c:
         cfg["credentials_policy"] = {"allow_central": bool((c["credentials_policy"] or {}).get("allow_central"))}
     if "audit" in c:
@@ -1289,6 +1301,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
     for uid in list(m.subscribers):
         m.emit(uid, {"type": "meta", "section": "all"})
     m.emit_models()
+    if recheck:  # Richtlinien oder zentrale Skills geändert: alle Skills neu prüfen (im Hintergrund)
+        SK.start(m, SK.recheck_all(m), "llmitmir skill recheck")
     return _admin_view(m, await _users(hass), await _devices(hass, m))
 
 
@@ -1343,6 +1357,22 @@ async def ws_admin_audit(hass, conn, msg, m, user, st):
     res["names"] = await _names(m, [i for i in ids if i])
     res["retention_days"] = m.audit_retention()
     return res
+
+
+@command(_t("admin/skill_checks"), admin=True)
+async def ws_admin_skill_checks(hass, conn, msg, m, user, st):
+    """Skills mit Befunden oder ausstehender Prüfung (alle Personen) – Name und Befund, nie der Text des Skills."""
+    stores = await m.all_stores()
+    names = await _names(m, list(stores))
+    total = sum(len(s.meta["skills"]) for s in stores.values())
+    return {"rows": SK.overview(stores, names), "total": total}
+
+
+@command(_t("admin/skill_recheck"), admin=True)
+async def ws_admin_skill_recheck(hass, conn, msg, m, user, st):
+    """Alle Skills sofort neu prüfen (im Hintergrund)."""
+    SK.start(m, SK.recheck_all(m, only_due=False), "llmitmir skill recheck")
+    return {"started": True}
 
 
 @command(_t("admin/audit_agents"), admin=True)

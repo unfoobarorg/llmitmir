@@ -485,7 +485,8 @@ export class Skills extends StoreElement {
       <div class="list">${sk.length ? sk.map((s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
         ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description}</div></div>
         ${(s.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${s.credentials.length}</span>` : nothing}
-        ${s.enabled === false ? html`<span class="chip">aus</span>` : nothing}</div>`) : html`<div class="hint">Noch keine Skills.</div>`}</div></div>`;
+        ${s.enabled === false ? html`<span class="chip">aus</span>` : nothing}
+        ${checkStateChip(s)}</div>`) : html`<div class="hint">Noch keine Skills.</div>`}</div></div>`;
   }
 }
 
@@ -528,6 +529,7 @@ export class SkillPage extends StoreElement {
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/skills")}>${icon("left")}</button><h1 class="grow">${s.id ? s.name : t("Neuer Skill")}</h1>
         ${switchEl(s.enabled !== false, v => this.set("enabled", v))}</div>
+      ${checkBanner(s)}
       <div class="form">
         <label class="f"><span>${t("Name")}</span><input .value=${s.name} @input=${(e: any) => this.set("name", e.target.value)}></label>
         <label class="f"><span>${simple ? "Wann soll LLMitMir diese Anleitung benutzen?" : html`${t("Beschreibung")} – wann soll der Skill benutzt werden?`}</span><textarea rows="3" .value=${s.description}
@@ -580,6 +582,26 @@ function expiryChip(c: any) {
 }
 
 /** Letzte Prüfung der Zugangsdaten: grün, wenn sie durchging, rot, wenn nicht. */
+/** Ergebnis der Skill-Richtlinien (skillcheck.py) als Chip in der Liste. */
+function checkStateChip(s: any) {
+  const c = s.check || {};
+  if (c.state === "blocked") return html`<span class="chip err" title=${(c.findings || []).map((f: any) => f.reason).join("; ")}>${icon("lock", 13)} ${t("gesperrt")}</span>`;
+  if (c.state === "pending") return html`<span class="chip warn">${icon("hourglass", 13)} ${t("wird geprüft")}</span>`;
+  if (c.state === "warn") return html`<span class="chip warn" title=${(c.findings || []).map((f: any) => f.reason).join("; ")}>${icon("info", 13)} ${t("Hinweis")}</span>`;
+  return nothing;
+}
+
+/** Befunde der Skill-Richtlinien auf der Seite des Skills. */
+function checkBanner(s: any) {
+  const c = s?.check || {};
+  if (!c.state || c.state === "ok") return nothing;
+  const head = c.state === "blocked" ? t("Dieser Skill ist gesperrt – eine Richtlinie des Admins verbietet ihn. Kein Modell sieht ihn, bis du ihn änderst.")
+    : c.state === "pending" ? (c.error ? t("Die Prüfung war gerade nicht möglich und wird wiederholt. Bis dahin ist der Skill gesperrt.") : t("Der Skill wird gerade gegen die Richtlinien des Admins geprüft."))
+    : t("Hinweis aus den Richtlinien des Admins:");
+  return html`<div class="checkbox ${c.state === "blocked" ? "err" : "warn"}" style="margin-bottom:12px">${icon(c.state === "blocked" ? "lock" : "info", 18)}
+    <div><b>${head}</b>${(c.findings || []).map((f: any) => html`<div>${f.name}: ${f.reason}</div>`)}</div></div>`;
+}
+
 /** Art des Zugangs als Chip: fehlt, persönlich (abgeraten), zentral (gesperrt, wenn der Admin es nicht erlaubt). */
 function scopeChip(c: any) {
   const pol = store.data?.cred_policy || {};

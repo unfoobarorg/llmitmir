@@ -10,8 +10,9 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CoreState, HomeAssistant
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_time_change, async_track_time_interval
 
+from . import skillcheck as SK
 from .agent import Manager
 from .const import DOMAIN, EXT_MODELS_REFRESH, MODEL_POLL_SECONDS, PANEL_ELEMENT, PANEL_ICON, PANEL_TITLE, PANEL_URL, PRESETS, STATIC_URL, VERSION
 from .boards import Boards
@@ -112,6 +113,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await manager.audit.async_purge()  # Zugriffsprotokoll nach der Frist des Admins
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Aufräumen des Zugriffsprotokolls fehlgeschlagen")
+
+        # Skill-Richtlinien (skillcheck.py): nachts alles prüfen, was fällig ist (geänderte Richtlinien, ausstehend)
+        async def _skills(_now=None) -> None:
+            try:
+                await SK.recheck_all(manager)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Nächtliche Skill-Prüfung fehlgeschlagen")
+
+        entry.async_on_unload(async_track_time_change(hass, _skills, hour=3, minute=17, second=0))
 
         hass.async_create_background_task(_purge(), "llmitmir retention")
         entry.async_on_unload(async_track_time_interval(hass, _purge, timedelta(hours=1)))

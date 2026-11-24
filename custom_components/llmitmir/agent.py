@@ -19,6 +19,7 @@ from homeassistant.util import dt as dt_util
 
 from . import audit as AU
 from . import policy as P
+from . import skillcheck as SK
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -2197,16 +2198,21 @@ class ToolContext:
                 "In /workspace liegen die Anhänge, in skills/<Name>/ die Skill-Dateien, in projekt/ die Projektdateien. "
                 "Ergebnisse holst du mit `werkbank_fetch` in den Arbeitsbereich, damit die Person sie herunterladen kann. "
                 "Lange Läufe (Whisper, große Dateien) mit passendem timeout_s starten.")
+        rules = SK.always_text(self.manager.config.data)
+        if rules:
+            parts.append(rules)  # zentrale Vorgaben des Admins: vor allem, was die Person oder das Projekt festlegt
         mem = (self.store.meta.get("memory") or "").strip()
         if mem:
             parts.append(f"## Über die Person (persönliche Hinweise)\n{mem[:8000]}")
         if self.project:
             parts.append(f"## Projekt „{self.project.get('name')}“\n{(self.project.get('instructions') or '').strip()[:20000]}")
         skills = [s for s in self.store.meta["skills"].values()
-                  if s.get("enabled", True) and (self.allowed_skills is None or s["id"] in self.allowed_skills)]
-        if skills and "skills" in self.groups():
+                  if SK.usable(s) and (self.allowed_skills is None or s["id"] in self.allowed_skills)]
+        shared = SK.on_demand(self.manager.config.data)  # zentrale Skills „bei Bedarf“ gelten für alle
+        if (skills or shared) and "skills" in self.groups():
             parts.append("## Skills\nLade einen Skill mit `skill_load`, bevor du an seinem Thema arbeitest:\n"
-                         + "\n".join(f"- **{s['name']}**: {s.get('description', '')[:400]}" for s in skills))
+                         + "\n".join([f"- **{s['name']}** (zentral): {s.get('description', '')[:400]}" for s in shared]
+                                      + [f"- **{s['name']}**: {s.get('description', '')[:400]}" for s in skills]))
         creds = C.describe_for_model(self.creds, self.allowed_creds)
         if creds and self.groups() & {"dav", "http"}:
             broken = [f"- {c.get('name')}: {CK.summary(c)}" for c in self.creds.values()

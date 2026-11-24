@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import posixpath
 
+from .. import skillcheck as SK
 from .. import credentials as C
 from . import Tool, obj, register
 
@@ -19,8 +20,8 @@ async def _session(ctx):
                 data = await ctx.store.async_read_file("chat", ctx.files_id, f["name"])
                 await wb.put(ctx.files_id, f"/workspace/{f['name']}", data)
             for s in ctx.store.meta["skills"].values():
-                if ctx.allowed_skills is not None and s["id"] not in ctx.allowed_skills:
-                    continue
+                if (ctx.allowed_skills is not None and s["id"] not in ctx.allowed_skills) or not SK.usable(s):
+                    continue  # gesperrte oder noch nicht geprüfte Skills kommen nicht in die Sandbox (skillcheck.py)
                 for f in await ctx.store.async_list_files("skill", s["id"]):
                     data = await ctx.store.async_read_file("skill", s["id"], f["name"])
                     safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in s["name"])
