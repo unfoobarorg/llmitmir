@@ -404,7 +404,7 @@ export class AdminPage extends StoreElement {
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
         model_access: a.model_access, billing: a.billing, dashboards: a.dashboards, credentials_policy: a.credentials_policy,
-        central_skills: a.central_skills, skill_policies: a.skill_policies } });
+        central_skills: a.central_skills, skill_policies: a.skill_policies, connectors: a.connectors } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -458,6 +458,10 @@ export class AdminPage extends StoreElement {
         @change=${(e: any) => this.set("credentials_policy", { ...cp, allow_central: e.target.checked })}>
         <div><b>Zentrale Systemzugänge erlauben (nur im Notfall)</b><div class="hint">Aus: Zugänge der Art „zentraler Systemzugang“ lassen sich nicht anlegen,
           und vorhandene sind gesperrt – kein Modell sieht oder nutzt sie.</div></div></label>
+      <label class="opt ${cp.free_credentials !== false ? "on" : ""}" style="margin-top:8px"><input type="checkbox" .checked=${cp.free_credentials !== false}
+        @change=${(e: any) => this.set("credentials_policy", { ...cp, free_credentials: e.target.checked })}>
+        <div><b>Eigene Zugänge ohne Konnektor erlauben</b><div class="hint">Aus: Neue Systeme lassen sich nur noch über die Konnektoren unten verbinden.
+          Vorhandene eigene Zugänge bleiben nutzbar.</div></div></label>
       ${rows.length ? html`<div class="tw" style="margin-top:10px"><table><tr><th>Person</th><th class="num">eigene</th><th class="num">persönliche</th><th class="num">zentrale</th><th class="num">ohne Art</th></tr>
         ${rows.map((u: any) => html`<tr><td>${u.name}</td><td class="num">${sc[u.id].dedicated}</td><td class="num">${sc[u.id].personal}</td>
           <td class="num" style=${sc[u.id].central ? "color:var(--lm-warn)" : ""}>${sc[u.id].central}</td><td class="num">${sc[u.id].none}</td></tr>`)}</table></div>
@@ -466,6 +470,44 @@ export class AdminPage extends StoreElement {
   @state() private checks: any = null;
   private setList(k: string, i: number, patch: any) { this.set(k, (this.a[k] || []).map((x: any, j: number) => (j === i ? { ...x, ...patch } : x))); }
   private dropItem(k: string, i: number) { this.set(k, (this.a[k] || []).filter((_: any, j: number) => j !== i)); }
+  /** Konnektoren: Vorlagen für Zugänge, die jede Person mit dem eigenen Konto verbindet (connectors.py). */
+  private connectorsSection() {
+    const list: any[] = this.a.connectors || [];
+    const types: Record<string, any> = store.data?.credential_types || {};
+    const fixedEditor = (x: any, i: number) => {
+      const ty = types[x.type] || { fields: [], secret: [] };
+      const sec = new Set<string>(ty.secret || []);
+      const hidden = new Set<string>([...(ty.hidden || []), ...(ty.obsolete || [])]);
+      const fs: string[] = (ty.fields || []).filter((f: string) => !sec.has(f) && !hidden.has(f));
+      return html`<div class="two">${fs.map(f => html`<label class="f"><span>${(ty.labels || {})[f] || f} <span class="hint">(fest; leer = trägt die Person ein)</span></span>
+        <input .value=${(x.fixed || {})[f] || ""} placeholder=${(ty.placeholders || {})[f] || ""}
+          @input=${(e: any) => this.setList("connectors", i, { fixed: { ...(x.fixed || {}), [f]: e.target.value } })}></label>`)}</div>`;
+    };
+    return html`<section><h2>${icon("share", 18)} Konnektoren</h2>
+      <div class="hint" style="margin-bottom:10px">Vorbereitete Anbindungen an andere Systeme. Du legst Typ, feste Felder (z. B. die Adresse) und erlaubte Server fest;
+        jede Person verbindet nur ihr eigenes Konto auf der Seite „Konnektoren“ – daraus entsteht ein Zugang in ihrem Nutzerkontext. Beim <b>Nextcloud Login Flow</b>
+        meldet sich die Person im Browser bei der Nextcloud an, und LLMitMir bekommt ein eigenes App-Passwort. Die Anleitung bekommt das Modell, sobald der Konnektor
+        verbunden ist. Ausgeschaltete Konnektoren sperren ihre Zugänge.</div>
+      <div class="prov">${list.map((x: any, i: number) => html`<div class="card ${x.enabled === false ? "off" : ""}">
+        <div class="head"><input style="flex:1;min-width:160px" placeholder="Name" .value=${x.name || ""} @input=${(e: any) => this.setList("connectors", i, { name: e.target.value })}>
+          <select style="width:auto" @change=${(e: any) => this.setList("connectors", i, { type: e.target.value, fixed: {}, login: "form" })}>
+            ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${x.type === k}>${v.label}</option>`)}</select>
+          <select style="width:auto" @change=${(e: any) => this.setList("connectors", i, { login: e.target.value })}>
+            <option value="form" ?selected=${x.login !== "nextcloud_flow"}>Anmeldung per Formular</option>
+            ${x.type === "webdav" ? html`<option value="nextcloud_flow" ?selected=${x.login === "nextcloud_flow"}>Nextcloud Login Flow</option>` : nothing}</select>
+          <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${x.enabled !== false} @change=${(e: any) => this.setList("connectors", i, { enabled: e.target.checked })}> aktiv</label>
+          <button class="iconbtn" title="Entfernen" @click=${() => this.dropItem("connectors", i)}>${icon("trash", 16)}</button></div>
+        <input placeholder="Beschreibung für die Personen" .value=${x.description || ""} @input=${(e: any) => this.setList("connectors", i, { description: e.target.value })}>
+        ${fixedEditor(x, i)}
+        ${types[x.type]?.services ? html`<div class="row" style="flex-wrap:wrap;gap:10px">${Object.entries(types[x.type].services).map(([k, l]: any) => html`<label class="row hint" style="gap:6px">
+          <input type="checkbox" style="width:auto" .checked=${(x.services || types[x.type].default_services || []).includes(k)}
+            @change=${(e: any) => { const cur = new Set<string>(x.services || types[x.type].default_services || []); e.target.checked ? cur.add(k) : cur.delete(k); this.setList("connectors", i, { services: [...cur] }); }}> ${l}</label>`)}</div>` : nothing}
+        <input placeholder="Weitere erlaubte Server (Komma-getrennt, auch *.example.org)" .value=${(x.hosts || []).join(", ")}
+          @change=${(e: any) => this.setList("connectors", i, { hosts: e.target.value.split(/[\s,;]+/).map((h: string) => h.trim()).filter(Boolean) })}>
+        <textarea rows="3" placeholder="Anleitung für das Modell (optional): wie mit diesem System gearbeitet wird" .value=${x.instructions || ""}
+          @input=${(e: any) => this.setList("connectors", i, { instructions: e.target.value })}></textarea></div>`)}</div>
+      <button class="btn" style="margin-top:8px" @click=${() => this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }])}>${icon("plus", 16)} Konnektor hinzufügen</button></section>`;
+  }
   /** Zentrale Skills: gelten für alle, in der Oberfläche der Personen unsichtbar (skillcheck.py). */
   private centralSkillsSection() {
     const list: any[] = this.a.central_skills || [];
@@ -733,6 +775,7 @@ export class AdminPage extends StoreElement {
       ${this.extModelsSection(users)}
       ${this.costsSection(users)}
       ${this.credPolicySection(users)}
+      ${this.connectorsSection()}
       ${this.centralSkillsSection()}
       ${this.skillPoliciesSection()}
       <section><h2>${icon("user", 18)} Wer darf LLMitMir nutzen?</h2>

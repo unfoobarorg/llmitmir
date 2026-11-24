@@ -667,7 +667,9 @@ export class Credentials extends StoreElement {
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Zugänge")}</h1>
       ${cs.length ? html`<button class="btn" ?disabled=${this.checking} @click=${this.checkAll}>
         ${icon("shield", 18)} ${this.checking ? t("Prüfe …") : t("Alle prüfen")}</button>` : nothing}
-      <button class="btn primary" @click=${() => navigate("/credential/new")}>${icon("plus", 18)} ${t("Neuer Zugang")}</button></div>
+      ${(store.data?.connectors || []).length ? html`<button class="btn" @click=${() => navigate("/connectors")}>${icon("share", 18)} ${t("Konnektoren")}</button>` : nothing}
+      ${store.data?.cred_policy?.free_credentials !== false ? html`<button class="btn primary" @click=${() => navigate("/credential/new")}>${icon("plus", 18)} ${t("Neuer Zugang")}</button>` : nothing}</div>
+      ${store.data?.cred_policy?.free_credentials === false ? html`<div class="hint" style="margin-bottom:12px">${t("Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet – neue Systeme verbindest du unter Konnektoren.")}</div>` : nothing}
       ${broken.length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
         <div><b>${broken.length === 1 ? "Ein Zugang funktioniert nicht" : `${broken.length} Zugänge funktionieren nicht`}:</b>
         ${broken.map((c: any) => c.name).join(", ")}. Öffne den Zugang und trag das neue Passwort bzw. den neuen Token ein –
@@ -680,7 +682,7 @@ export class Credentials extends StoreElement {
         ${c.check && !c.check.ok ? html`<div class="cred-err">${c.check.message}</div>` : nothing}</div>
         <div class="tags">
         ${checkChip(c)}
-        ${scopeChip(c)}
+        ${c.connector_id ? html`<span class="chip" title=${t("Verbunden über einen Konnektor")}>${icon("share", 13)} ${(store.data?.connectors || []).find((k: any) => k.id === c.connector_id)?.name || t("Konnektor (aus)")}</span>` : scopeChip(c)}
         ${extShown ? (c.external ? html`<span class="chip warn" title="Für externe Modelle freigegeben">${icon("external", 13)} extern frei</span>`
           : html`<span class="chip" title="Für externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
         ${useChip(c)}
@@ -714,7 +716,7 @@ export class CredentialPage extends StoreElement {
     if (this.revealed && this.d.fields[k] === "•••") this.d = { ...this.d, fields: { ...this.d.fields, [k]: this.revealed.fields[k] } };
   }
   private async save() {
-    if (!this.d.scope) { store.notify(t("Bitte die Art des Zugangs wählen.")); return; }
+    if (!this.d.scope && !this.d.connector_id) { store.notify(t("Bitte die Art des Zugangs wählen.")); return; }
     try { const r = await store.api.ws("credential/save", { credential: this.d }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
       if (this.credId === "new") navigate(`/credential/${r.id}`, true); else this.reload(); } catch (e: any) { store.notify(e.message); }
   }
@@ -760,7 +762,9 @@ export class CredentialPage extends StoreElement {
     const own = [...ty.fields, ...Object.entries(svcFields).filter(([k]) => svc.includes(k)).flatMap(([, v]) => v)]
       .filter(k => !hidden.has(k));
     const keys = [...own, ...Object.keys(c.fields || {}).filter(k => !own.includes(k) && !auto.has(k))];
-    const readonly = new Set<string>(ty.readonly || []);
+    // Konnektor-Zugang: die festen Felder des Admins sind nicht änderbar
+    const kn = c.connector_id ? (store.data?.connectors || []).find((k: any) => k.id === c.connector_id) : null;
+    const readonly = new Set<string>([...(ty.readonly || []), ...Object.keys(kn?.fixed || {})]);
     const labels: Record<string, string> = { url: "URL", username: "Benutzername", password: "Passwort", token: "Token", share_token: "Freigabe-Token",
       header: "Header-Name", key: "Schlüssel", chat_ids: "Chat-IDs", imap_host: "IMAP-Server", smtp_host: "SMTP-Server", ...(ty.labels || {}) };
     const placeholders: Record<string, string> = ty.placeholders || {};
@@ -768,13 +772,13 @@ export class CredentialPage extends StoreElement {
       <div class="row"><button class="iconbtn" @click=${() => navigate("/credentials")}>${icon("left")}</button><h1 class="grow">${c.id ? c.name : t("Neuer Zugang")}</h1></div>
       <div class="form">
         <div class="two"><label class="f"><span>${t("Name")}</span><input .value=${c.name} placeholder="z. B. Hof Nextcloud" @input=${(e: any) => this.set("name", e.target.value)}></label>
-          <label class="f"><span>${t("Typ")}</span><select @change=${(e: any) => {
+          <label class="f"><span>${t("Typ")}</span><select ?disabled=${!!c.connector_id} @change=${(e: any) => {
             const nt = types[e.target.value] || {};
             this.d = { ...this.d, type: e.target.value, services: nt.services ? (this.d.services ?? nt.default_services ?? []) : undefined,
               name: this.d.name || (e.target.value === "gwdg" ? "GWDG-Exchange" : e.target.value === "ews" ? "Exchange" : "") }; this.dirty = true; }}>
             ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${c.type === k}>${v.label}</option>`)}</select></label></div>
-        ${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}
-        ${this.scopeSection(c)}
+        ${c.connector_id ? html`<div class="checkbox">${icon("share", 18)}<div>${t("Verbunden über den Konnektor „{name}“. Adresse und Einstellungen legt der Admin fest; Anmeldedaten änderst du unter Konnektoren.", { name: (store.data?.connectors || []).find((k: any) => k.id === c.connector_id)?.name || "?" })}</div></div>`
+          : html`${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}${this.scopeSection(c)}`}
         ${Object.keys(svcDefs).length ? html`<div class="f"><span>${t("Verwenden für")}</span>
           <div class="svcgrid">${Object.entries(svcDefs).map(([k, l]) => html`<label class="row" style="gap:6px;white-space:nowrap">
             <input type="checkbox" style="width:auto" .checked=${svc.includes(k)} @change=${(e: any) => this.set("services",

@@ -16,6 +16,7 @@ from . import voice as VO
 from . import audit as AU
 from . import policy as P
 from . import skillcheck as SK
+from . import connectors as CN
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -230,7 +231,9 @@ async def _bootstrap(hass, m, user, st) -> dict:
         "werkbank": {"configured": m.werkbank is not None},
         # Zugänge (policy.py): Arten, Tipps je Typ und ob der Admin zentrale Systemzugänge erlaubt
         "cred_policy": {"allow_central": M.allow_central(m), "scopes": P.SCOPE_LABELS, "tips": P.TYPE_TIPS,
-                        "hint": P.GENERAL_HINT},
+                        "hint": P.GENERAL_HINT, "free_credentials": CN.free_allowed(m.config.data)},
+        # Konnektoren (connectors.py): was der Admin vorbereitet hat – ohne die Anleitung für das Modell
+        "connectors": [CN.public_view(k) for k in CN.enabled(m.config.data)],
     }
 
 
@@ -628,6 +631,79 @@ async def ws_cred_save(hass, conn, msg, m, user, st):
     if cred.get("type") != "other":
         hass.async_create_task(_check_one(m, st, user.id, cred["id"]))
     return mask_credential(cred, C.secret_fields(cred))
+
+
+# ---------------------------------------------------------------- Konnektoren (connectors.py)
+def _connector(m, cid: str) -> dict:
+    k = CN.by_id(m.config.data, cid)
+    if not k or not k.get("enabled", True):
+        raise ValueError("Diesen Konnektor gibt es nicht (mehr).")
+    return k
+
+
+async def _connect(hass, m, user_id: str, st, k: dict, fields: dict) -> dict:
+    existing = CN.connection_of(st.meta["credentials"], k["id"])
+    name = existing["name"] if existing else CN.unique_name(st.meta["credentials"], k["name"])
+    cred = await M.save_credential(m, user_id, st, CN.connection_raw(k, fields, existing, name), connector=k)
+    if cred.get("type") != "other":
+        hass.async_create_task(_check_one(m, st, user_id, cred["id"]))
+    return cred
+
+
+@command(_t("connector/connect") | {vol.Required("connector_id"): str, vol.Optional("fields"): dict})
+async def ws_connector_connect(hass, conn, msg, m, user, st):
+    """Konnektor mit den eigenen Anmeldedaten verbinden (oder sie erneuern) – feste Felder setzt der Konnektor."""
+    k = _connector(m, msg["connector_id"])
+    cred = await _connect(hass, m, user.id, st, k, msg.get("fields") or {})
+    return mask_credential(cred, C.secret_fields(cred))
+
+
+@command(_t("connector/flow_start") | {vol.Required("connector_id"): str})
+async def ws_connector_flow_start(hass, conn, msg, m, user, st):
+    """Nextcloud Login Flow v2: Anmeldeseite öffnen lassen, im Hintergrund auf das App-Passwort warten."""
+    k = _connector(m, msg["connector_id"])
+    if k["login"] != CN.LOGIN_NEXTCLOUD:
+        raise ValueError("Dieser Konnektor wird mit einem Formular verbunden.")
+    for fid in [f for f, x in m.flows.items() if now() - x["started"] > 3600]:
+        m.flows.pop(fid, None)
+    info = await CN.flow_start(m.session, CN.nextcloud_base(k["fixed"]["url"]))
+    fid = new_id("f")
+    m.flows[fid] = {"user": user.id, "connector_id": k["id"], "status": "waiting", "started": now()}
+    hass.async_create_background_task(_flow_run(hass, m, user.id, fid, k, info), f"llmitmir login flow {fid}")
+    return {"flow_id": fid, "login": info["login"]}
+
+
+async def _flow_run(hass, m, user_id: str, fid: str, k: dict, info: dict) -> None:
+    flow = m.flows[fid]
+    try:
+        while not CN.flow_expired(flow["started"]):
+            await asyncio.sleep(CN.FLOW_INTERVAL)
+            if flow.get("status") != "waiting":
+                return  # abgebrochen
+            try:
+                res = await CN.flow_poll(m.session, info["endpoint"], info["token"])
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                continue  # kurz nicht erreichbar: weiter warten
+            if res:
+                st = await m.user_store(user_id)
+                cred = await _connect(hass, m, user_id, st, k, res)
+                flow.update(status="done", credential_id=cred["id"])
+                break
+        else:
+            flow["status"] = "expired"
+    except Exception as e:  # noqa: BLE001 - die Person soll den Grund sehen
+        flow.update(status="error", error=f"{e}"[:300])
+    m.emit(user_id, {"type": "connector_flow", "flow_id": fid, "status": flow["status"]})
+
+
+@command(_t("connector/flow_status") | {vol.Required("flow_id"): str, vol.Optional("cancel"): bool})
+async def ws_connector_flow_status(hass, conn, msg, m, user, st):
+    flow = m.flows.get(msg["flow_id"])
+    if not flow or flow["user"] != user.id:
+        raise ValueError("Unbekannte Anmeldung")
+    if msg.get("cancel") and flow["status"] == "waiting":
+        flow["status"] = "cancelled"
+    return {k: flow.get(k) for k in ("status", "error", "credential_id")}
 
 
 @command(_t("credential/reveal") | {vol.Required("credential_id"): str})
@@ -1129,7 +1205,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "dashboards": {"tile_budget": (cfg.get("dashboards") or {}).get("tile_budget", TILE_RUN_BUDGET),
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
         "audit": {"retention_days": m.audit_retention()},
-        "credentials_policy": {"allow_central": M.allow_central(m)},
+        "credentials_policy": {"allow_central": M.allow_central(m), "free_credentials": CN.free_allowed(cfg)},
+        "connectors": cfg.get("connectors") or [],
         # zentrale Skills und Skill-Richtlinien (skillcheck.py) – nur in dieser Admin-Ansicht sichtbar
         "central_skills": cfg.get("central_skills") or [], "skill_policies": cfg.get("skill_policies") or [],
         "skill_presets": SK.PRESETS,
@@ -1288,7 +1365,14 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
             cfg["skill_policies"] = SK.clean_policies(c["skill_policies"])
         recheck = SK.config_hash(cfg) != before
     if "credentials_policy" in c:
-        cfg["credentials_policy"] = {"allow_central": bool((c["credentials_policy"] or {}).get("allow_central"))}
+        cp = c["credentials_policy"] or {}
+        cfg["credentials_policy"] = {"allow_central": bool(cp.get("allow_central")),
+                                     "free_credentials": cp.get("free_credentials", True) is not False}
+    if "connectors" in c:
+        cfg["connectors"] = CN.clean(c["connectors"])
+        for st_ in list(m.users.values()):  # verbundene Zugänge an geänderte feste Felder angleichen
+            if CN.sync(st_.meta, cfg):
+                await st_.async_save_meta()
     if "audit" in c:
         cfg["audit"] = {"retention_days": AU.clean_retention((c["audit"] or {}).get("retention_days"))}
     if "models" in c:

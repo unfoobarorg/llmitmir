@@ -123,7 +123,7 @@ async def test_central_credentials_only_with_the_admins_permission(setup):
                                                               "fields": {"url": "https://x.example", "token": "s" * 24}})
     assert central["id"] in ctx({"id": "pc9", "kind": "cowork"}).creds
     view = await _ok(admin, "admin/save", config={"credentials_policy": {"allow_central": False}})
-    assert view["credentials_policy"] == {"allow_central": False}
+    assert view["credentials_policy"]["allow_central"] is False
     assert central["id"] not in ctx({"id": "pc9", "kind": "cowork"}).creds   # gesperrt: kein Modell sieht ihn
     boot = await _ok(admin, "bootstrap")
     assert boot["cred_policy"]["allow_central"] is False and "dedicated" in boot["cred_policy"]["scopes"]

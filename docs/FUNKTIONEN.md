@@ -218,6 +218,18 @@
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
   LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
   Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Erlaubte Server*.
+- **Konnektoren** (Seite *Konnektoren*, eingerichtet unter *Admin → Konnektoren*): vom Admin vorbereitete Anbindungen nach
+  dem Vorbild von Claude und Copilot. Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte
+  Server, bei GWDG/EWS die Dienste, die Anmeldeart und optional eine Anleitung für das Modell fest. Jede Person verbindet
+  nur ihr eigenes Konto: per Formular (nur die Felder, die der Admin offen lässt) oder bei Nextcloud per **Login Flow v2** –
+  sie meldet sich im Browser bei der Nextcloud an und erlaubt den Zugriff, LLMitMir bekommt ein eigenes App-Passwort in
+  ihrem Nutzerkontext (das eigentliche Passwort sieht es nie; die Anmeldeseite muss auf der Nextcloud selbst liegen).
+  Daraus entsteht ein Zugang der Art „eigener Zugang“ mit Verweis auf den Konnektor; die festen Felder setzt LLMitMir bei
+  jedem Speichern und nach jeder Änderung des Admins neu, Formular und Chat können sie nicht ändern. Ist ein Konnektor
+  ausgeschaltet oder gelöscht, sind seine Zugänge gesperrt. Die Anleitung des Konnektors steht im Systemprompt, sobald der
+  Zugang im Lauf sichtbar ist. Mit dem Schalter *Eigene Zugänge ohne Konnektor erlauben* (Vorgabe an) kann der Admin
+  freie Zugänge abschalten – vorhandene bleiben nutzbar, neue gehen nur noch über Konnektoren. Freigabe je Agent gilt für
+  Konnektor-Zugänge genauso.
 - **Freigabe je Agent**: Ein Zugang ist in einem Chat oder Cowork erst nutzbar, wenn die Person ihn freigibt. Beim
   ersten Gebrauch erscheint eine Karte „Zugang „X“ verwenden?“ (auch als Push und im Sprachgespräch): **Einmal
   erlauben** (nur dieser Aufruf), **Für diesen Chat/dieses Cowork erlauben** (gilt für alle weiteren Läufe darin) oder
