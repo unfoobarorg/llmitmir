@@ -2,7 +2,7 @@
 
 export const AGENT_KINDS: Record<string, { label: string; icon: string }> = {
   chat: { label: "Chat", icon: "chat" }, cowork: { label: "Cowork", icon: "cowork" }, voice: { label: "Gespräch", icon: "voice" },
-  sub: { label: "Teilaufgabe", icon: "subtask" }, skill: { label: "Skill-Prüfung", icon: "skill" }, task: { label: "Geplante Aufgabe", icon: "task" }, tile: { label: "Kachel", icon: "dashboard" },
+  sub: { label: "Teilaufgabe", icon: "subtask" }, skill: { label: "Skill-Prüfung", icon: "skill" }, admin: { label: "Admin", icon: "admin" }, task: { label: "Geplante Aufgabe", icon: "task" }, tile: { label: "Kachel", icon: "dashboard" },
 };
 export const MODEL_CLASSES: Record<string, string> = { main: "Hauptanbieter", external: "extern (Hauptanbieter)", billed: "extern, kostenpflichtig" };
 export const OUTCOMES: Record<string, string> = { ok: "ausgeführt", error: "Fehler", denied: "abgelehnt" };
@@ -41,6 +41,7 @@ export const credsText = (ev: any) => (ev?.creds || []).map((c: any) => c.name).
 /** Was mit dem Aufruf geschah, in Worten: Ergebnis und, wo es etwas sagt, wer entschieden hat. */
 export function outcomeText(ev: any): string {
   if (ev?.kind === "run") return "Lauf gestartet";
+  if (ev?.kind === "admin_action") return ({ revoke: "Freigaben entzogen", agent_stop: "Agent angehalten", export_test: "Export-Test" } as any)[ev.tool] || "Admin-Eingriff";
   if (ev?.kind === "data_rule") return ev.outcome === "denied" ? "durch Datenregel gesperrt" : "Datenregel: erlaubt";
   if (ev?.kind === "skill_check") return ev.outcome === "denied" ? "Skill gesperrt" : "Befund";
   const o = OUTCOMES[ev?.outcome] || ev?.outcome || "";

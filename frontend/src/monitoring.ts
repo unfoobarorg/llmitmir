@@ -29,7 +29,9 @@ const styles = css`:host { display: block; height: 100%; overflow-y: auto; }
 
 @safeElement("lm-monitoring")
 export class MonitoringPage extends StoreElement {
-  @state() private tab: "events" | "agents" = "events";
+  @state() private tab: "events" | "agents" | "control" = "events";
+  @state() private ctl: any = null;
+  @state() private rv: { user: string; cred: string; projects: boolean } = { user: "", cred: "", projects: false };
   @state() private days = 7;
   @state() private f: Record<string, any> = {};
   @state() private res: any = null;
@@ -47,9 +49,15 @@ export class MonitoringPage extends StoreElement {
         const filters = { ...this.f, since: Date.now() / 1000 - this.days * 86400 };
         this.res = await store.api.ws("admin/audit", { filters });
         if (!this.retDirty) this.retention = this.res.retention_days;
-      } else {
+      } else if (this.tab === "agents") {
         this.agents = await store.api.ws("admin/audit_agents");
         if (!this.retDirty) this.retention = this.agents.retention_days;
+      } else {
+        const [admin, agents, anomalies] = await Promise.all([store.api.ws("admin/get"), store.api.ws("admin/audit_agents"), store.api.ws("admin/anomalies")]);
+        this.agents = agents;
+        this.ctl = { users: admin.users.filter((u: any) => u.is_active), export: admin.audit.export || {}, state: admin.audit.export_state || {},
+          anomalies: anomalies.items, creds: null };
+        if (!this.retDirty) this.retention = admin.audit.retention_days;
       }
     } catch (e: any) { store.notify(e.message); }
     this.busy = false;
@@ -136,6 +144,78 @@ export class MonitoringPage extends StoreElement {
     </table></div>`;
   }
 
+  private async stopAgent(id: string) {
+    try { const r = await store.api.ws("admin/agent_stop", { agent_id: id }); store.notify(`${r.stopped} Lauf/Läufe angehalten`); this.load(); }
+    catch (e: any) { store.notify(e.message); }
+  }
+  private async revoke() {
+    if (!this.rv.user) return;
+    try {
+      const r = await store.api.ws("admin/revoke", { user_id: this.rv.user, credential_id: this.rv.cred || null, projects: this.rv.projects });
+      store.notify(`Entzogen: ${r.chats} Chats, ${r.tasks} Aufgaben${this.rv.projects ? `, ${r.projects} Projekte` : ""}`);
+    } catch (e: any) { store.notify(e.message); }
+  }
+  private setExp(path: string, v: any) {
+    const [a, b] = path.split(".");
+    const ex = { ...(this.ctl.export || {}) };
+    if (b) ex[a] = { ...(ex[a] || {}), [b]: v }; else ex[a] = v;
+    this.ctl = { ...this.ctl, export: ex, expDirty: true };
+  }
+  private async saveExport(test = false) {
+    try {
+      if (this.ctl.expDirty) { await store.api.ws("admin/save", { config: { audit: { export: this.ctl.export } } }); this.ctl = { ...this.ctl, expDirty: false }; }
+      if (test) { const r = await store.api.ws("admin/audit_export_test"); this.ctl = { ...this.ctl, state: r.state }; }
+      store.notify(test ? "Test gesendet – Ergebnis unten" : t("Gespeichert"));
+    } catch (e: any) { store.notify(e.message); }
+  }
+  private controlTab() {
+    const c = this.ctl; const a = this.agents;
+    if (!c || !a) return html`<lm-spark></lm-spark>`;
+    const running = (a.agents || []).filter((x: any) => (a.running || []).includes(x.id));
+    const ex = c.export || {}; const wh = ex.webhook || {}; const sl = ex.syslog || {};
+    const kinds: string[] = ex.kinds || ["run", "tool", "host_approval", "cred_approval", "skill_check", "data_rule", "admin_action"];
+    const allKinds: [string, string][] = [["run", "Laufbeginn"], ["tool", "Werkzeugaufrufe"], ["host_approval", "fremde Server"], ["cred_approval", "Zugangs-Freigaben"],
+      ["skill_check", "Skill-Prüfungen"], ["data_rule", "Datenregeln"], ["admin_action", "Admin-Eingriffe"]];
+    const st = (k: string) => c.state?.[k] ? html`<div class="hint">${c.state[k].error ? html`<span class="denied">Letzter Versuch ${fmtTime(c.state[k].at)}: ${c.state[k].error}</span>` : `Zuletzt ${fmtTime(c.state[k].at)}: ${c.state[k].sent} Ereignisse`}</div>` : nothing;
+    return html`
+      <section><h2>${icon("robot", 18)} Laufende Agenten</h2>
+        ${running.length ? html`<div class="tw"><table><tr><th>Agent</th><th>Person</th><th>seit</th><th></th></tr>
+          ${running.map((x: any) => html`<tr><td>${this.agentCell(x.id, x)}</td><td>${a.names?.[x.owner] || shortId(x.owner)}</td><td class="nw">${fmtTime(x.last_seen)}</td>
+            <td><button class="btn ghost danger" @click=${() => this.stopAgent(x.id)}>${icon("stop", 14)} Anhalten</button></td></tr>`)}</table></div>`
+          : html`<div class="hint">Gerade läuft kein Agent.</div>`}</section>
+      <section><h2>${icon("alert", 18)} Auffälligkeiten (24 Stunden)</h2>
+        ${c.anomalies.length ? html`<div class="tw"><table>${c.anomalies.map((i: any) => html`<tr><td class="nw">${i.user_name || shortId(i.user)}</td><td>${i.text}</td>
+            <td><button class="btn ghost" @click=${() => { this.tab = "events"; this.f = { user: i.user }; this.days = 1; this.load(); }}>Zugriffe</button></td></tr>`)}</table></div>`
+          : html`<div class="hint">Nichts Auffälliges: keine ungewöhnlich vielen Aufrufe oder Sperren, keine neuen Server, keine nächtliche Aktivität in Chats.</div>`}
+        <div class="hint">Admins bekommen Auffälligkeiten jeden Morgen um 6:07 als Karte auf der Startseite.</div></section>
+      <section><h2>${icon("key", 18)} Freigaben entziehen</h2>
+        <div class="hint" style="margin-bottom:8px">Nimmt „für diesen Chat erlaubt“ in allen Chats und Coworks und die Zugangslisten geplanter Aufgaben und Kacheln zurück – für einen Zugang
+          oder alle Zugänge einer Person. Danach fragt LLMitMir wieder nach; Aufgaben nutzen den Zugang erst, wenn die Person ihn neu erlaubt.</div>
+        <div class="filters">
+          <select @change=${async (e: any) => { this.rv = { ...this.rv, user: e.target.value, cred: "" }; }}>
+            <option value="">Person wählen</option>${c.users.map((u: any) => html`<option value=${u.id} ?selected=${this.rv.user === u.id}>${u.name}</option>`)}</select>
+          <input type="text" placeholder="Zugangs-ID (leer = alle Zugänge)" .value=${this.rv.cred} @input=${(e: any) => (this.rv = { ...this.rv, cred: e.target.value.trim() })}>
+          <label class="cb"><input type="checkbox" .checked=${this.rv.projects} @change=${(e: any) => (this.rv = { ...this.rv, projects: e.target.checked })}> auch Vorab-Freigaben in Projekten</label>
+          <button class="btn danger" ?disabled=${!this.rv.user} @click=${() => this.revoke()}>Entziehen</button></div>
+        <div class="hint">Die Zugangs-ID steht im Reiter „Agenten“ und in den Zugriffen (Filter „Zugang“ nimmt auch den Namen).</div></section>
+      <section><h2>${icon("upload", 18)} Export in Drittsysteme</h2>
+        <div class="hint" style="margin-bottom:8px">Jedes Ereignis geht zusätzlich an die gewählten Ziele – dieselben Metadaten wie hier, nie Inhalte.</div>
+        <div class="card" style="display:grid;gap:8px">
+          <label class="cb"><input type="checkbox" .checked=${!!wh.enabled} @change=${(e: any) => this.setExp("webhook.enabled", e.target.checked)}> <b>Webhook (JSON per POST)</b></label>
+          <div class="filters"><input type="text" style="min-width:260px" placeholder="https://siem.example.org/llmitmir" .value=${wh.url || ""} @input=${(e: any) => this.setExp("webhook.url", e.target.value)}>
+            <input type="text" placeholder="Header (Authorization)" .value=${wh.header || ""} @input=${(e: any) => this.setExp("webhook.header", e.target.value)}>
+            <input type="password" autocomplete="off" placeholder="Token (optional)" .value=${wh.token || ""} @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }}
+              @input=${(e: any) => this.setExp("webhook.token", e.target.value)}></div>${st("webhook")}
+          <label class="cb"><input type="checkbox" .checked=${!!sl.enabled} @change=${(e: any) => this.setExp("syslog.enabled", e.target.checked)}> <b>Syslog (RFC 5424)</b></label>
+          <div class="filters"><input type="text" placeholder="Server" .value=${sl.host || ""} @input=${(e: any) => this.setExp("syslog.host", e.target.value)}>
+            <input type="text" style="width:90px" placeholder="Port" .value=${String(sl.port || "")} @input=${(e: any) => this.setExp("syslog.port", e.target.value)}>
+            <select @change=${(e: any) => this.setExp("syslog.protocol", e.target.value)}>${["udp", "tcp", "tls"].map(p => html`<option value=${p} ?selected=${(sl.protocol || "udp") === p}>${p.toUpperCase()}</option>`)}</select></div>${st("syslog")}
+          <div class="filters">${allKinds.map(([k, l]) => html`<label class="cb"><input type="checkbox" .checked=${kinds.includes(k)}
+            @change=${(e: any) => this.setExp("kinds", e.target.checked ? [...kinds, k] : kinds.filter(x => x !== k))}> ${l}</label>`)}</div>
+          <div class="row" style="gap:8px"><button class="btn primary" ?disabled=${!c.expDirty} @click=${() => this.saveExport()}>${t("Speichern")}</button>
+            <button class="btn" @click=${() => this.saveExport(true)}>Test senden</button></div></div></section>`;
+  }
+
   render() {
     return html`<div class="page">
       <div class="row"><button class="btn ghost" @click=${() => navigate("/admin")}>${icon("back", 16)} ${t("Admin")}</button></div>
@@ -144,9 +224,9 @@ export class MonitoringPage extends StoreElement {
         Werkzeug, Zugang, Server und Pfad, Entitäten, Modell, Ergebnis und wer freigegeben hat. Inhalte (Texte, Suchbegriffe, Dateien,
         Empfänger, Chat-Titel) stehen nie im Protokoll. Jeder Chat, jedes Cowork und jede Teilaufgabe ist ein eigener Agent; eine geplante
         Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent.</div>
-      <div class="tabs">${([["events", t("Zugriffe")], ["agents", t("Agenten")]] as const).map(([k, l]) =>
+      <div class="tabs">${([["events", t("Zugriffe")], ["agents", t("Agenten")], ["control", t("Zentrale")]] as const).map(([k, l]) =>
         html`<button class=${this.tab === k ? "on" : ""} @click=${() => { this.tab = k; this.load(); }}>${l}</button>`)}</div>
-      ${this.tab === "events" ? this.eventsTab() : this.agentsTab()}
+      ${this.tab === "events" ? this.eventsTab() : this.tab === "agents" ? this.agentsTab() : this.controlTab()}
       <section style="margin-top:26px"><h2>${icon("hourglass", 18)} Aufbewahrung</h2>
         <div class="row" style="flex-wrap:wrap;gap:8px"><input type="number" min="7" max="3650" style="width:110px" .value=${String(this.retention)}
           @input=${(e: any) => { this.retention = e.target.value; this.retDirty = true; }}> <span>Tage</span>

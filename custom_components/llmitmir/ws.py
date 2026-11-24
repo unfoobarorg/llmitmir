@@ -18,6 +18,7 @@ from . import policy as P
 from . import skillcheck as SK
 from . import connectors as CN
 from . import mcp as MCP
+from . import auditexport as AX
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -1205,7 +1206,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "sdk": claude_available(),
         "dashboards": {"tile_budget": (cfg.get("dashboards") or {}).get("tile_budget", TILE_RUN_BUDGET),
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
-        "audit": {"retention_days": m.audit_retention()},
+        "audit": {"retention_days": m.audit_retention(), "export": AX.view((cfg.get("audit") or {}).get("export") or {}),
+                  "export_state": m.export_state},
         "credentials_policy": {"allow_central": M.allow_central(m), "free_credentials": CN.free_allowed(cfg)},
         "connectors": cfg.get("connectors") or [],
         # zentrale Skills und Skill-Richtlinien (skillcheck.py) – nur in dieser Admin-Ansicht sichtbar
@@ -1375,7 +1377,12 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
             if CN.sync(st_.meta, cfg):
                 await st_.async_save_meta()
     if "audit" in c:
-        cfg["audit"] = {"retention_days": AU.clean_retention((c["audit"] or {}).get("retention_days"))}
+        a_old, a_new = dict(cfg.get("audit") or {}), c["audit"] or {}
+        if "retention_days" in a_new:
+            a_old["retention_days"] = AU.clean_retention(a_new.get("retention_days"))
+        if "export" in a_new:
+            a_old["export"] = AX.clean(a_new["export"], a_old.get("export"))
+        cfg["audit"] = a_old
     if "models" in c:
         mm = dict(cfg.get("models") or {})
         for k in ("enabled", "defaults", "context", "auto_enable_new"):
@@ -1473,6 +1480,77 @@ async def ws_admin_skill_recheck(hass, conn, msg, m, user, st):
     """Alle Skills sofort neu prüfen (im Hintergrund)."""
     SK.start(m, SK.recheck_all(m, only_due=False), "llmitmir skill recheck")
     return {"started": True}
+
+
+# ---------------------------------------------------------------- Trusted-AI-Zentrale (auditexport.py)
+def _admin_agent(user) -> dict:
+    return {"id": f"admin-{user.id}", "kind": "admin", "owner": user.id}
+
+
+@command(_t("admin/agent_stop") | {vol.Required("agent_id"): str}, admin=True)
+async def ws_admin_agent_stop(hass, conn, msg, m, user, st):
+    """Einen laufenden Agenten anhalten (alle seine Läufe samt Teilaufgaben)."""
+    runs = [r for r in list(m.runs.values()) if r.agent_id == msg["agent_id"]]
+    for r in runs:
+        m.stop(r.user_id, r.id)
+    m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="agent_stop", target={"object": msg["agent_id"]},
+                   outcome="ok", decision="rule")
+    return {"stopped": len(runs)}
+
+
+@command(_t("admin/revoke") | {vol.Required("user_id"): str, vol.Optional("credential_id"): vol.Any(None, str),
+                               vol.Optional("projects"): bool}, admin=True)
+async def ws_admin_revoke(hass, conn, msg, m, user, st):
+    """Freigaben zentral entziehen: „für diesen Chat erlaubt“ in allen Chats, die Zugangslisten der Aufgaben und auf
+    Wunsch die Vorab-Freigabe in Projekten – für einen Zugang oder alle Zugänge einer Person."""
+    other = await m.user_store(msg["user_id"])
+    ids = {msg["credential_id"]} if msg.get("credential_id") else set(other.meta["credentials"])
+    counts = {"chats": 0, "tasks": 0, "projects": 0}
+    for cid in list(other.meta["chats"]):
+        chat = await other.async_get_chat(cid)
+        if chat is not None and AX.revoke(chat, ids, "cred_ok"):
+            await other.async_save_chat(chat, keep_updated=True)
+            counts["chats"] += 1
+    for t in other.meta["tasks"].values():
+        if AX.revoke(t, ids, "cred_allow"):
+            counts["tasks"] += 1
+    if msg.get("projects"):
+        for p in other.meta["projects"].values():
+            if AX.revoke(p, ids, "credentials"):
+                counts["projects"] += 1
+    await other.async_save_meta()
+    m.emit(msg["user_id"], {"type": "meta", "section": "all"})
+    names = sorted(other.meta["credentials"][i]["name"] for i in ids if i in other.meta["credentials"])
+    m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="revoke",
+                   target={"object": AU.clip(", ".join(names) or "alle", 120)},
+                   creds=[{"id": i, "name": AU.clip(other.meta["credentials"][i]["name"], 80), "type": ""}
+                          for i in sorted(ids) if i in other.meta["credentials"]][:20], outcome="ok", decision="rule")
+    return counts
+
+
+@command(_t("admin/anomalies"), admin=True)
+async def ws_admin_anomalies(hass, conn, msg, m, user, st):
+    """Auffälligkeiten der letzten 24 Stunden (gegenüber den 14 Tagen davor)."""
+    return await _anomalies(hass, m)
+
+
+async def _anomalies(hass, m) -> dict:
+    from homeassistant.util import dt as dt_util
+
+    await m.audit.async_flush()
+    now_ts = time.time()
+    events = await hass.async_add_executor_job(m.audit.files.read_since, now_ts - 15 * 86400)
+    items = AX.anomalies(events, now_ts, tz_hour=lambda ts: dt_util.as_local(dt_util.utc_from_timestamp(ts)).hour)
+    names = await _names(m, [i["user"] for i in items if i.get("user")])
+    return {"items": [dict(i, user_name=names.get(i.get("user"), "")) for i in items]}
+
+
+@command(_t("admin/audit_export_test"), admin=True)
+async def ws_admin_audit_export_test(hass, conn, msg, m, user, st):
+    """Ein Test-Ereignis an die eingestellten Ziele schicken und den Zustand zurückgeben."""
+    ev = AU.make_event(AU.EV_ADMIN, _admin_agent(user), "", tool="export_test", outcome="ok", decision="auto")
+    await m.export_events([ev], force=True)
+    return {"state": m.export_state}
 
 
 @command(_t("admin/audit_agents"), admin=True)

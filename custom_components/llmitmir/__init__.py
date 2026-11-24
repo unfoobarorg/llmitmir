@@ -123,6 +123,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         entry.async_on_unload(async_track_time_change(hass, _skills, hour=3, minute=17, second=0))
 
+        # Trusted-AI-Zentrale (auditexport.py): morgens Auffälligkeiten als Karte für die Admins
+        async def _anomalies(_now=None) -> None:
+            try:
+                await _tell_admins_anomalies(hass, manager)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Prüfung auf Auffälligkeiten fehlgeschlagen")
+
+        entry.async_on_unload(async_track_time_change(hass, _anomalies, hour=6, minute=7, second=0))
+
         hass.async_create_background_task(_purge(), "llmitmir retention")
         entry.async_on_unload(async_track_time_interval(hass, _purge, timedelta(hours=1)))
 
@@ -138,6 +147,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _flush))
     return True
+
+
+async def _tell_admins_anomalies(hass, manager) -> None:
+    import time as _time
+
+    from . import inbox as IB
+    from .storage import new_id
+    from .ws import _anomalies
+
+    items = (await _anomalies(hass, manager))["items"]
+    if not items:
+        return
+    text = "; ".join(f"{i.get('user_name') or 'jemand'}: {i['text']}" for i in items)[:600]
+    for u in await hass.auth.async_get_users():
+        if not u.is_admin or not u.is_active or u.system_generated:
+            continue
+        st = await manager.user_store(u.id)
+        ts = _time.time()
+        entry = {"id": new_id("n"), "chat_id": "", "task": "Monitoring", "status": "error",
+                 "title": f"{len(items)} Auffälligkeit{'en' if len(items) != 1 else ''} im Zugriffsprotokoll", "text": text,
+                 "link": "/admin/monitoring"}
+        st.meta["inbox"] = IB.add(st.meta.get("inbox"), entry, ts)
+        await st.async_save_meta()
+        manager.emit(u.id, {"type": "inbox", "items": IB.prune(st.meta["inbox"], ts, IB.minutes(st.meta["settings"]))})
 
 
 async def _flush_all(manager) -> None:
