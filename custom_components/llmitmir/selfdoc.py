@@ -84,7 +84,10 @@ nur wenn die Person es im Modellmenü wählt, einem Ersatz-Angebot zustimmt oder
 Zugänge müssen dafür einzeln freigegeben sein, Projekte lassen sich sperren; der Admin legt Anbieter-Reihenfolge, Modelle, Preise \
 und Monatslimits in Euro fest, die Kosten stehen unter Einstellungen. Modelle, die der Hauptanbieter selbst als extern \
 kennzeichnet (SAIA leitet sie an kommerzielle Anbieter weiter), gelten genauso als extern: nie automatisch, nur für \
-Personen, die der Admin freigibt, mit Zustimmung, gesperrten Zugängen und Projektsperre – nur ihre Kosten kennt LLMitMir nicht.
+Personen, die der Admin freigibt, mit Zustimmung, gesperrten Zugängen und Projektsperre – nur ihre Kosten kennt LLMitMir nicht. \
+Ein Chat, in dem ein gesperrter Zugang benutzt, eine Datenregel nur für interne Modelle durchgelassen oder ein Skill „Nur für \
+interne Modelle“ geladen wurde, nimmt danach kein externes Modell mehr an (samt Teilaufgaben; der Admin kann das abschalten) – \
+für ein externes Modell einen neuen Chat beginnen.
 - **Zugriffsprotokoll** (Admin → Monitoring): Jeder Chat, jedes Cowork, jede Teilaufgabe ist ein eigener Agent mit \
 fester ID, eine geplante Aufgabe oder Kachel über alle Läufe derselbe Agent. Admins sehen, welcher Agent mit welchem \
 Zugang worauf zugegriffen hat (Werkzeug, Zugang, Server und Pfad, Entitäten, Modell, Ergebnis, wer freigegeben hat) – \

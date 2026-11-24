@@ -205,6 +205,16 @@ const EN: Record<string, string> = {
   "Automatisch aus den Adressen des Zugangs: {hosts}.": "Automatically from the credential's addresses: {hosts}.",
   "Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.":
     "More servers this credential may go to without asking – comma-separated, *.example.org works too. For any other server LLMitMir asks first; scheduled tasks refuse.",
+  // Interne Daten im Verlauf (datalock.py)
+  "Zugang": "Credential", "Datenregel": "Data rule", "Skill": "Skill", "intern": "internal",
+  "Dieser Chat enthält interne Daten": "This chat contains internal data",
+  "Externe Modelle sind hier gesperrt – für ein externes Modell einen neuen Chat beginnen.": "External models are locked here – start a new chat to use an external model.",
+  "Gesperrt: interne Daten im Chat": "Locked: internal data in this chat",
+  "Interne Daten im Chat – externe Modelle sind hier gesperrt.": "Internal data in this chat – external models are locked here.",
+  "Nur für interne Modelle": "Internal models only",
+  "Externe Modelle sehen diesen Skill nicht und können ihn nicht laden. Wird er in einem Chat geladen, nimmt dieser Chat danach kein externes Modell mehr an. Für Anleitungen mit internen Inhalten (Namen, Abläufe, Zahlen).": "External models don't see this skill and can't load it. Once it is loaded in a chat, that chat no longer accepts external models. For instructions with internal content (names, procedures, figures).",
+  "Chats mit internen Daten für externe Modelle sperren": "Lock chats with internal data for external models",
+  "An (empfohlen): Sobald in einem Chat ein Zugang ohne Freigabe für externe Modelle benutzt, eine Datenregel nur für interne Modelle durchgelassen oder ein Skill „nur für interne Modelle“ geladen wurde, nimmt dieser Chat samt Teilaufgaben kein externes Modell mehr an – auch nicht als Notfall-Ausweichmodell. Aus: Wie bisher werden beim Wechsel nur die Ergebnisse solcher Zugänge aus dem Verlauf entfernt; was ein Modell daraus geschrieben hat (Antworten, Dateien, Ergebnisse von Teilaufgaben), geht mit.": "On (recommended): as soon as a chat used a credential not released for external models, passed a data rule only for internal models, or loaded an “internal models only” skill, that chat and its subtasks no longer accept external models – not even as an emergency fallback. Off: as before, switching only removes the results of such credentials from the history; whatever a model wrote from them (answers, files, subtask results) goes along.",
 };
 
 let lang = "de";

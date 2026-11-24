@@ -22,6 +22,8 @@ async def _session(ctx):
             for s in ctx.store.meta["skills"].values():
                 if (ctx.allowed_skills is not None and s["id"] not in ctx.allowed_skills) or not SK.usable(s):
                     continue  # gesperrte oder noch nicht geprüfte Skills kommen nicht in die Sandbox (skillcheck.py)
+                if s.get("internal_only") and not ctx.has_internal():
+                    continue  # „nur für interne Modelle“: erst, wenn der Skill geladen und der Chat damit markiert ist
                 for f in await ctx.store.async_list_files("skill", s["id"]):
                     data = await ctx.store.async_read_file("skill", s["id"], f["name"])
                     safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in s["name"])

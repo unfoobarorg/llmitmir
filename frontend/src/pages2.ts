@@ -485,6 +485,7 @@ export class Skills extends StoreElement {
       <div class="list">${sk.length ? sk.map((s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
         ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description}</div></div>
         ${(s.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${s.credentials.length}</span>` : nothing}
+        ${s.internal_only ? html`<span class="chip" title=${t("Nur für interne Modelle")}>${icon("lock", 13)} ${t("intern")}</span>` : nothing}
         ${s.enabled === false ? html`<span class="chip">aus</span>` : nothing}
         ${checkStateChip(s)}</div>`) : html`<div class="hint">Noch keine Skills.</div>`}</div></div>`;
   }
@@ -514,7 +515,10 @@ export class SkillPage extends StoreElement {
   render() {
     const s = this.d; if (!s) return nothing;
     const simple = isSimple();
-    const extra = html`<div class="card"><b>${t("Zugänge")}, die dieser Skill nutzt</b><div class="chips" style="margin-top:8px">
+    const intern = ext().configured || ext().any_access || s.internal_only ? html`<div class="card">
+          <label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:3px" .checked=${!!s.internal_only}
+            @change=${(e: any) => this.set("internal_only", e.target.checked)}><span><b>${icon("lock", 15)} ${t("Nur für interne Modelle")}</b><br><span class="hint">${t("Externe Modelle sehen diesen Skill nicht und können ihn nicht laden. Wird er in einem Chat geladen, nimmt dieser Chat danach kein externes Modell mehr an. Für Anleitungen mit internen Inhalten (Namen, Abläufe, Zahlen).")}</span></span></label></div>` : nothing;
+    const extra = html`${intern}<div class="card"><b>${t("Zugänge")}, die dieser Skill nutzt</b><div class="chips" style="margin-top:8px">
           ${(store.data?.credentials || []).map((c: any) => html`<button class=${(s.credentials || []).includes(c.id) ? "on" : ""}
             @click=${() => { const set = new Set(s.credentials || []); set.has(c.id) ? set.delete(c.id) : set.add(c.id); this.set("credentials", [...set]); }}>${c.name}</button>`)}
           ${!(store.data?.credentials || []).length ? html`<span class="hint">Noch keine Zugänge.</span>` : nothing}</div></div>
@@ -537,7 +541,7 @@ export class SkillPage extends StoreElement {
         ${simple ? html`<label class="f"><span>Anleitung – was soll LLMitMir dabei wissen und beachten?</span><textarea rows="14" .value=${s.body}
           placeholder="Schreib es so auf, als würdest du es einem neuen Kollegen erklären." @input=${(e: any) => this.set("body", e.target.value)}></textarea>
           <span class="hint">Passwörter gehören nicht hierher, sondern unter ${t("Zugänge")}.</span></label>
-          ${more(extra, "Mehr Optionen: Zugänge, Dateien")}` : html`
+          ${more(extra, s.internal_only ? "Mehr Optionen: nur intern, Zugänge, Dateien" : "Mehr Optionen: Zugänge, Dateien")}` : html`
         <div><div class="row"><b class="grow">Anleitung (Markdown, wie SKILL.md)</b><div class="tabs">
           <button class=${this.tab === "edit" ? "on" : ""} @click=${() => (this.tab = "edit")}>Bearbeiten</button>
           <button class=${this.tab === "view" ? "on" : ""} @click=${() => (this.tab = "view")}>Vorschau</button></div></div>
@@ -822,7 +826,8 @@ export class CredentialPage extends StoreElement {
           <div class="form" style="margin-top:8px;gap:8px">
             <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!c.external}
               @change=${() => this.set("external", false)}><span><b>Gesperrt</b> (Standard)<br><span class="hint">Externe Modelle (Claude bei Microsoft Azure oder Anthropic und Modelle,
-              die der Hauptanbieter als extern kennzeichnet) sehen diesen Zugang gar nicht, können ihn nicht nutzen, und frühere Ergebnisse aus ihm werden aus dem Verlauf entfernt.</span></span></label>
+              die der Hauptanbieter als extern kennzeichnet) sehen diesen Zugang gar nicht, können ihn nicht nutzen, und frühere Ergebnisse aus ihm werden aus dem Verlauf entfernt.
+              ${ext().lock_chats !== false ? "Ein Chat, in dem er benutzt wurde, nimmt danach gar kein externes Modell mehr an." : ""}</span></span></label>
             <label class="row" style="gap:10px;align-items:flex-start"><input type="radio" name="extcred" style="width:auto;margin-top:3px" .checked=${!!c.external}
               @change=${() => this.set("external", true)}><span><b>Freigegeben</b><br><span class="hint">Externe Modelle dürfen ihn nutzen; was sie damit abrufen
               (z. B. Dateien, Termine), geht an den externen Anbieter. Das Passwort selbst bekommt nie ein Modell zu sehen. Nur für Zugänge ohne sensible Inhalte.</span></span></label>

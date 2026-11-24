@@ -22,6 +22,7 @@ from . import policy as P
 from . import skillcheck as SK
 from . import connectors as CN
 from . import datarules as DR
+from . import datalock as DL
 from . import mcp as MCP
 from . import auditexport as AX
 from . import maintenance as MT
@@ -448,6 +449,8 @@ class Manager:
         # costs known); any_access: either – consent, Zugänge and the project lock matter
         return {"has_access": billed, "main_external": main_ext, "any_access": billed or main_ext,
                 "consent": self.has_consent(user_id),
+                # Chats mit internen Daten nehmen kein externes Modell an (datalock.py): das Modellmenü sperrt sie
+                "lock_chats": DL.enabled(self.config.data),
                 # an external provider is switched on: Zugänge show their lock for external models
                 "configured": any(p.get("enabled") for p in ps["order"] if p["id"] != PV.MAIN) or main_ext,
                 "month_eur": round(self.ext_month(user_id), 4), "limit_eur": self.ext_limit(user_id),
@@ -567,13 +570,67 @@ class Manager:
         proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
         if proj.get("no_external"):
             raise QuotaError(f"Das Projekt „{proj.get('name')}“ ist für externe Modelle gesperrt.")
+        if rs := self.chat_lock(st, chat):
+            raise QuotaError(DL.why(rs))
         self.check_external(user_id, model, task=chat.get("kind") == KIND_TASK_RUN)
+
+    # ------------------------------------------------------------- interne Daten im Verlauf (datalock.py)
+    def chat_lock(self, st: UserStore, chat: dict) -> list[dict]:
+        """Gründe, aus denen dieser Chat kein externes Modell annimmt: eigene Markierung oder die seines Hauptchats.
+        Leer, wenn er frei ist oder der Admin die Sperre abgeschaltet hat (dann gilt nur das Herausfiltern)."""
+        if not DL.enabled(self.config.data):
+            return []
+        root = None
+        if chat.get("parent_id"):
+            root = st.cached_chat(chat["parent_id"]) or st.meta["chats"].get(chat["parent_id"])
+        return DL.effective(chat, root)
+
+    async def mark_internal(self, st: UserStore, chat: dict, found: list[tuple[str, str]]) -> None:
+        """Einen Chat als „enthält interne Daten“ markieren – und seinen Hauptchat mit, denn beide teilen Arbeitsbereich
+        und Sandbox, und Ergebnisse der Teilaufgabe fließen in den Hauptchat."""
+        if not found:
+            return
+        ts = now()
+        changed = False
+        for kind, name in found:
+            changed = DL.mark(chat, kind, name, ts) or changed
+        if changed:
+            self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(chat)})
+        if chat.get("parent_id"):
+            root = await st.async_get_chat(chat["parent_id"])
+            if root is not None and DL.merge(root, chat, ts):
+                await st.async_save_chat(root, keep_updated=True)
+                self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(root)})
+
+    async def ensure_lock(self, st: UserStore, chat: dict) -> None:
+        """Chats von vor der Sperre tragen keine Markierung: den Verlauf des Chats, seines Hauptchats und der
+        Teilaufgaben einmal nach internen Daten durchsuchen (datalock.scan)."""
+        root = chat if not chat.get("parent_id") else (await st.async_get_chat(chat["parent_id"]) or chat)
+        if chat.get(DL.KEY) and root.get(DL.KEY):
+            return  # schon markiert oder schon durchsucht
+        family = [root]
+        for cid in SC.children(st.meta["chats"], root["id"]):
+            c = chat if cid == chat.get("id") else await st.async_get_chat(cid)
+            if c is not None:
+                family.append(c)
+        if not any(c is chat for c in family):
+            family.append(chat)
+        creds, skills, ts = st.meta["credentials"], st.meta["skills"], now()
+        dirty = [c for c in family if DL.scan(c, creds, skills, ts)]
+        for c in family:
+            if c is not root and DL.locked(c) and DL.merge(root, c, ts) and not any(x is root for x in dirty):
+                dirty.append(root)
+        for c in dirty:
+            await st.async_save_chat(c, keep_updated=True)
+            self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(c)})
 
     async def switch_model(self, user_id: str, chat_id: str, model: str) -> dict:
         """Change the model of a chat; a running answer is restarted on the new model at the current step."""
         st0 = await self.user_store(user_id)
         chat0 = await st0.async_get_chat(chat_id)
         if chat0:
+            if self.is_external(model):
+                await self.ensure_lock(st0, chat0)
             self._check_chat_external(user_id, st0, chat0, model)
         run = self.active_run(chat_id)
         if run and run.user_id == user_id:
@@ -949,7 +1006,7 @@ class Manager:
                 # sobald das Ergebnis da ist (updated > last_seen).
                 "last_seen": 0 if kind == KIND_TASK_RUN else now(),
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
-                "progress": [], "tools": tools}
+                "progress": [], "tools": tools, DL.KEY: DL.fresh()}
         if voice and kind == KIND_CHAT:
             chat["voice"] = True  # als Sprachgespräch begonnen (Ansicht „Gespräch“); sonst ein normaler Chat
         await st.async_save_chat(chat)
@@ -979,7 +1036,8 @@ class Manager:
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": parent.get("tools"),
                 "granted_groups": list(parent.get("granted_groups") or []),
-                "sub": SC.new_sub(auftrag, von, call_id=call_id, model_choice=model_choice)}
+                "sub": SC.new_sub(auftrag, von, call_id=call_id, model_choice=model_choice),
+                DL.KEY: DL.fresh()}  # gesperrt ist sie trotzdem, solange ihr Hauptchat es ist (DL.effective)
         if sub_tools is not None:
             chat["sub_tools"] = list(sub_tools)
         if parent.get("no_thinking"):
@@ -1232,12 +1290,15 @@ class Manager:
             if is_sub:
                 steps = MAX_STEPS_SUB
             proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
+            await self.ensure_lock(st, chat)
             if self.is_external(chat.get("model") or ""):
                 ok, why = self.model_selectable(user.id, chat["model"], task is not None)
                 if not self.has_consent(user.id):
                     ok, why = False, "Für externe Modelle fehlt noch deine Zustimmung."
                 if proj.get("no_external"):
                     ok, why = False, f"Das Projekt „{proj.get('name')}“ ist für externe Modelle gesperrt."
+                if rs := self.chat_lock(st, chat):
+                    ok, why = False, DL.why(rs)
                 if not ok and (simple or task is not None or chat.get("model_fallback")):
                     # an emergency model that cannot be used any more: back to the main provider
                     chat["model"], chat["model_auto"] = self._default(user.id, role)
@@ -1273,7 +1334,7 @@ class Manager:
                 chat["model_voice"] = spoken
             key, separate = self.run_key(user.id, st, task is not None)
             if may_fallback and not PV.is_external(chat["model"]) and not self.provider_usable(user.id, PV.MAIN, True)[0]:
-                fb = self._fallback_for(user.id, proj)
+                fb = self._fallback_for(user.id, proj, st, chat)
                 if fb:
                     _LOGGER.info("Run %s: main provider not usable, task moves to %s", run.id, fb)
                     self._enter_fallback(run, chat, fb)
@@ -1362,7 +1423,7 @@ class Manager:
                     if long_quota or long_429:
                         if long_429:
                             self.provider.key_state(key).block(15 * 60, "Limit erreicht (HTTP 429)")
-                        fb = self._fallback_for(user.id, proj)
+                        fb = self._fallback_for(user.id, proj, st, chat)
                         if fb:
                             _LOGGER.info("Run %s: main provider blocked, task moves to %s", run.id, fb)
                             self._enter_fallback(run, chat, fb)
@@ -1467,7 +1528,7 @@ class Manager:
                         continue
                     except (QuotaExhausted, ProviderError):
                         if not ext and may_fallback and not run.cancel.is_set():
-                            fb = self._fallback_for(user.id, proj)
+                            fb = self._fallback_for(user.id, proj, st, chat)
                             if fb:
                                 _LOGGER.info("Run %s: main provider failed, task moves to %s", run.id, fb)
                                 self._enter_fallback(run, chat, fb)
@@ -1789,8 +1850,8 @@ class Manager:
             raise QuotaError(f"Dein Monatslimit für kostenpflichtige Modelle ist erreicht ({_eur(spent)} von {_eur(lim)}). "
                              "Der Admin kann es erhöhen; am Monatsersten beginnt es neu.")
 
-    def _fallback_for(self, user_id: str, proj: dict) -> str | None:
-        if proj.get("no_external") or not self.has_consent(user_id):
+    def _fallback_for(self, user_id: str, proj: dict, st: UserStore, chat: dict) -> str | None:
+        if proj.get("no_external") or not self.has_consent(user_id) or self.chat_lock(st, chat):
             return None
         return self.fallback_model(user_id, task=True)
 
@@ -1802,7 +1863,7 @@ class Manager:
     def _offer(self, user_id: str, st: UserStore, chat: dict) -> dict | None:
         """After the main provider failed in a chat: the external models the person may switch to now."""
         proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
-        if proj.get("no_external"):
+        if proj.get("no_external") or self.chat_lock(st, chat):
             return None
         ps = self.provider_state(user_id)
         if ps["usable"].get(PV.MAIN):
@@ -1841,6 +1902,10 @@ class Manager:
         old, new = chat["model"], run.switch_to or chat["model"]
         run.switch_to, run.hint = None, None
         run.switch.clear()
+        if new != old and self.is_external(new) and self.chat_lock(st, chat):
+            # inzwischen sind interne Daten in den Chat gekommen (z. B. aus einer Teilaufgabe): kein externes Modell
+            _LOGGER.info("Run %s: chat %s holds internal data, stays on %s instead of %s", run.id, chat["id"], old, new)
+            new = old
         chat["model"] = new
         chat["model_auto"] = run.switch_auto and bool(chat.get("model_auto")) and not self.is_external(new)
         auto, run.switch_auto = run.switch_auto, False
@@ -2022,7 +2087,7 @@ class ToolContext:
         self.project = store.meta["projects"].get(chat.get("project_id") or "") or None
         self.project_id = self.project["id"] if self.project else None
         self.allowed_creds: set[str] | None = set(self.project.get("credentials") or []) if self.project and self.project.get("credentials_only") else None
-        self.allowed_skills: set[str] | None = set(self.project.get("skills") or []) if self.project and self.project.get("skills_only") else None
+        self._allowed_skills: set[str] | None = set(self.project.get("skills") or []) if self.project and self.project.get("skills_only") else None
         # Kachel-Lauf (boards.py): die Kachel und ihr letzter Datensatz, vor dem ersten Schritt geladen
         self.tile: dict | None = None
         self.tile_record: dict | None = None
@@ -2060,6 +2125,30 @@ class ToolContext:
         central = bool((cfg.get("credentials_policy") or {}).get("allow_central"))
         return {k: c for k, c in allc.items()
                 if not P.locked(c, central) and not CN.locked(c, cfg) and (not self.external or c.get("external"))}
+
+    @property
+    def allowed_skills(self) -> set[str] | None:
+        """Eigene Skills, die dieser Lauf sehen darf (None = alle): die des Projekts (falls es nur bestimmte erlaubt),
+        und ein externes Modell nie die mit „Nur für interne Modelle“ (datalock.py)."""
+        if not self.external:
+            return self._allowed_skills
+        return {sid for sid, s in self.store.meta["skills"].items()
+                if not s.get("internal_only") and (self._allowed_skills is None or sid in self._allowed_skills)}
+
+    def has_internal(self) -> bool:
+        """Sind interne Daten in diesem Chat oder seinem Hauptchat – unabhängig davon, ob die Sperre an ist?"""
+        pid = self.chat.get("parent_id")
+        root = (self.store.cached_chat(pid) or self.store.meta["chats"].get(pid)) if pid else None
+        return bool(DL.effective(self.chat, root))
+
+    def internal_locked(self) -> list[dict]:
+        """Gründe, aus denen dieser Chat kein externes Modell annimmt (leer = frei oder Sperre abgeschaltet)."""
+        return self.manager.chat_lock(self.store, self.chat)
+
+    def _guard_external(self) -> None:
+        """Letzte Schranke vor einer Anfrage an ein externes Modell: ein Chat mit internen Daten geht nicht hinaus."""
+        if self.external and (rs := self.internal_locked()):
+            raise QuotaError(DL.why(rs))
 
     def locked_creds(self) -> dict[str, dict]:
         """Zugänge closed to external models (empty for runs on the main provider)."""
@@ -2340,6 +2429,7 @@ class ToolContext:
     def claude_request(self, tools: list[dict], final: bool) -> dict:
         """The chat for Claude: deterministic (same chat → same request), Claude's own answers replayed unchanged,
         results from Zugänge closed to external models removed, and no stored secret anywhere in it."""
+        self._guard_external()
         tz = dt_util.get_default_time_zone()
         model = self.chat["model"]
         locked_names = self._locked_names()
@@ -2378,9 +2468,14 @@ class ToolContext:
         return C.scrub_obj(req, self._secrets)
 
     def _locked_names(self) -> set[str]:
-        """Names and ids of the Zugänge closed to the current (external) model, case-folded."""
+        """Names and ids of the Zugänge closed to the current (external) model, case-folded – plus the ids of deleted
+        Zugänge recorded at tool calls (whether they were released for external models is no longer known)."""
         locked = self.locked_creds()
-        return {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked}
+        if not self.external:
+            return set()
+        allc = self.store.meta["credentials"]
+        gone = {str(i).casefold() for m in self.chat["messages"] for i in m.get("cred_ids") or [] if i not in allc}
+        return {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked} | gone
 
     @staticmethod
     def _tool_content(m: dict, locked_names: set[str], external: bool = False) -> str:
@@ -2392,12 +2487,16 @@ class ToolContext:
                     "externe Modelle. Bei Bedarf erneut abrufen – dann prüft der Wächter.]")
         if locked_names:
             hit = sorted(n for n in _creds_in_args(m.get("args") or {}) if n.casefold() in locked_names)
+            if not hit:
+                # beim Aufruf festgehaltene IDs: greifen auch nach dem Umbenennen oder Löschen des Zugangs
+                hit = sorted(str(i) for i in m.get("cred_ids") or [] if str(i).casefold() in locked_names)
             if hit:
                 content = (f"[Ergebnis entfernt: Der Zugang „{hit[0]}“ ist für externe Modelle gesperrt. "
                            "Die Person kann ihn unter Zugänge freigeben.]")
         return content
 
     def api_messages(self) -> list[dict]:
+        self._guard_external()
         model = self.chat["model"]
         ext = self.external  # an external model of the main provider: same rules as for Claude
         locked_names = self._locked_names() if ext else set()
@@ -2505,6 +2604,18 @@ class ToolContext:
         msg = await self._execute(call)
         if self._ext_block and msg.get("status") == "ok":
             msg["ext_block"] = self._ext_block  # beim Wechsel auf ein externes Modell aus dem Verlauf entfernen
+        allc = self.store.meta["credentials"]
+        ids = [c["id"] for c in (C.find(allc, n) for n in sorted(_creds_in_args(msg.get("args") or {}))) if c]
+        if ids:
+            msg["cred_ids"] = ids  # übersteht Umbenennen und Löschen des Zugangs (Herausfiltern, Markierung)
+        try:
+            # der Chat selbst ist danach sicher markiert; scheitern kann nur das Nachziehen des Hauptchats
+            found = DL.hits(msg, allc, self.store.meta["skills"])
+            if any(k == DL.KIND_SKILL for k, _n in found):
+                self._wb_ready = self._wb_synced = False  # die Dateien des Skills dürfen jetzt in die Sandbox
+            await self.manager.mark_internal(self.store, self.chat, found)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Markierung „interne Daten“ für den Hauptchat fehlgeschlagen")
         try:
             self._audit_call(msg)
         except Exception:  # noqa: BLE001 - das Protokoll darf keinen Aufruf scheitern lassen

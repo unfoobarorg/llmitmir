@@ -23,7 +23,9 @@ async def save_skill(m, user_id: str, st, s: dict) -> dict:
         raise ValueError(f"„{name}“ ist der Name einer zentralen Vorgabe dieser Installation – bitte einen anderen Namen wählen.")
     skill = dict(old, id=sid, name=name[:80], description=str(s.get("description") or "")[:1024],
                  body=str(s.get("body") or ""), credentials=list(s.get("credentials") or []),
-                 enabled=bool(s.get("enabled", True)), updated=now())
+                 enabled=bool(s.get("enabled", True)),
+                 # „Nur für interne Modelle“ (datalock.py); fehlt das Feld (Änderung im Chat), bleibt es, wie es war
+                 internal_only=bool(s.get("internal_only", old.get("internal_only", False))), updated=now())
     if SK.policies(m.config.data):
         # bis die Prüfung durch ist, sieht kein Modell den Skill (skillcheck.py); alte Befunde bleiben zum Vergleich
         skill["check"] = dict(old.get("check") or {}, pending=True, state="pending", hash="")

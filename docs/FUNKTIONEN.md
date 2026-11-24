@@ -198,7 +198,9 @@
   einschaltet, bekommt 30 Tage vorgeschlagen, jede andere Zahl (bis 3650) geht auch. Gezählt ab der letzten Benutzung,
   geprüft stündlich und beim Start; gelöscht werden Chat, Anhänge, Arbeitsbereich und Sandbox. Angeheftete Chats und
   die Läufe geplanter Aufgaben bleiben. Das automatisch angelegte Projekt „Gespräche“ bringt seine Frist (14 Tage) mit.
-- **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
+- **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf. Mit
+  **„Nur für interne Modelle“** sehen externe Modelle einen Skill gar nicht, und ein Chat, der ihn geladen hat, nimmt kein
+  externes Modell mehr an (siehe „Chats mit internen Daten für externe Modelle sperren“).
 - **Zentrale Skills** (*Admin → Zentrale Skills*): gelten für alle Personen, erscheinen in deren Oberfläche nicht (die
   Inhalte sind nicht geheim). *Immer aktiv* steht als „Verbindliche Vorgaben dieser Installation“ im Systemprompt jedes
   Laufs, vor persönlichen Hinweisen und Projekt-Anweisungen und mit Vorrang vor ihnen, vor eigenen Skills und vor Bitten im
@@ -248,7 +250,7 @@
   nicht, das Modell bekommt nur den Grund; scheitert die Prüfung, ist ebenfalls gesperrt. Entscheidungen gelten im Lauf
   weiter (Zwischenspeicher) und stehen im Monitoring (`data_rule`). Gilt eine Regel nur für externe Modelle und läuft ein
   Modell des Hauptanbieters, prüft der Wächter nicht – das Ergebnis wird markiert und beim Wechsel auf ein externes Modell
-  aus dem Verlauf entfernt; Dateien, die ein Abruf im Arbeitsbereich ablegt (`speichern_als`), prüft er dagegen immer wie
+  aus dem Verlauf entfernt, und der Chat nimmt danach kein externes Modell mehr an (siehe „Chats mit internen Daten“); Dateien, die ein Abruf im Arbeitsbereich ablegt (`speichern_als`), prüft er dagegen immer wie
   für ein externes Modell. Werkbank-Befehle und freie HTTP-Anfragen mit Zugängen eines Konnektors mit Datenregeln sind
   gesperrt. Ordnerlisten (`dav_list`, `mail_folders`) gelten als Metadaten und werden nicht geprüft. Das Modell kennt die
   Regeln aus der Anleitung des Konnektors (Labels setzt es nie selbst), verlassen wird sich darauf nicht.
@@ -435,6 +437,25 @@
   Hauptchat ausdrücklich gewählt ist. Im Modellmenü stehen sie als eigene Gruppe „Extern (über den Hauptanbieter)“. **Nur die Kosten
   entfallen:** Wie und zu welchem Preis der Anbieter diese Modelle einkauft, ist nicht bekannt – sie werden nicht in Euro gebucht, haben
   kein Monatslimit und zählen wie alle Modelle des Hauptanbieters zum normalen Kontingent.
+- **Chats mit internen Daten für externe Modelle sperren** (`datalock.py`): Beim Wechsel auf ein externes Modell geht der
+  ganze Verlauf mit. Ergebnisse gesperrter Zugänge nimmt LLMitMir zwar heraus, aber was ein Modell daraus gemacht hat
+  (Zusammenfassungen in seinen Antworten, Argumente späterer Aufrufe, Dateien im Arbeitsbereich, Ergebnisse von
+  Teilaufgaben), lässt sich nicht zuverlässig herauslösen. Deshalb bekommt ein Chat eine **dauerhafte Markierung**, sobald
+  darin erfolgreich ein Werkzeug mit einem Zugang ohne Freigabe für externe Modelle lief (auch MCP-Werkzeuge eines
+  Konnektors), der Wächter eine Datenregel nur für externe Modelle nicht geprüft hat, weil ein internes Modell lief, oder
+  ein eigener Skill **„Nur für interne Modelle“** gelesen wurde. Die Markierung bleibt, auch wenn der Zugang später
+  freigegeben wird, und gilt für die ganze Familie: Eine Teilaufgabe markiert ihren Hauptchat mit (gemeinsamer
+  Arbeitsbereich, Ergebnisse fließen zurück) und ist gesperrt, solange ihr Hauptchat es ist. Ein markierter Chat nimmt
+  **kein externes Modell** mehr an – nicht von Hand (im Modellmenü ausgegraut, mit Schloss und Grund), nicht als
+  Ersatz-Angebot oder Notfall-Ausweichmodell, nicht bei geplanten Aufgaben; als letzte Schranke baut der Lauf keine
+  Anfrage an ein externes Modell. Für ein externes Modell beginnt man einen neuen Chat. Chats von vor dieser Version
+  durchsucht LLMitMir beim Öffnen oder beim nächsten Lauf einmal nach denselben Spuren. Der Admin kann die Sperre unter
+  *Admin → Zugänge* abschalten (Standard: an); dann gilt nur das Herausfiltern. Unabhängig davon merkt sich jeder
+  Werkzeug-Aufruf die IDs der benutzten Zugänge (`cred_ids`), damit das Herausfiltern auch nach dem Umbenennen oder Löschen
+  eines Zugangs greift. Skills „nur für interne Modelle“ sehen externe Modelle nicht (weder in der Liste noch über
+  `skill_load`, `skill_file` oder `llmitmir_info`), können sie nicht ändern, und ihre Dateien kommen erst in die Sandbox,
+  wenn der Chat markiert ist. **Nicht abgedeckt:** was die Person selbst in den Chat schreibt oder hochlädt, und
+  Home-Assistant-Daten (Zustände, Verlauf), die nicht über Zugänge laufen.
 - **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
   geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link (Freigaben importierter Aufgaben legt man beim Einschalten selbst fest). Chatverläufe kommen aus dem offiziellen
   Datenexport von claude.ai (ZIP hochladen).

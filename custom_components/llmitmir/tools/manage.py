@@ -66,7 +66,10 @@ def _req_name(a: dict) -> str:
 def _skill_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     name = _req_name(a)
     old = _find(ctx.store.meta["skills"], name, ctx.allowed_skills)
-    if old is None and _find(ctx.store.meta["skills"], name) is not None:
+    if old is None and (hidden := _find(ctx.store.meta["skills"], name)) is not None:
+        if hidden.get("internal_only") and ctx.external:
+            raise ValueError(f"Skill „{name}“ ist nur für interne Modelle – mit einem externen Modell lässt er sich "
+                             "nicht ändern. Die Person kann das auf der Seite „Skills“ selbst tun.")
         raise ValueError(f"Skill „{name}“ ist in diesem Projekt nicht freigegeben.")
     cur = old or {}
     if old is None and not str(a.get("anleitung") or "").strip():
