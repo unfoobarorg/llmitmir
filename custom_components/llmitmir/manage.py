@@ -5,6 +5,7 @@ from . import credentials as C
 from . import sharing as SH
 from . import policy as P
 from . import skillcheck as SK
+from . import connectors as CN
 from .const import ORIGIN_DASHBOARD
 from .cron import schedule_to_cron
 from .storage import new_id, now
@@ -121,8 +122,25 @@ def build_credential(st, c: dict, allow_central: bool = False, require_scope: bo
     return cred
 
 
-async def save_credential(m, user_id: str, st, c: dict) -> dict:
+def check_free(m, old: dict | None) -> None:
+    """Neue freie Zugänge (ohne Konnektor) nur, wenn der Admin sie erlaubt."""
+    if not old and not CN.free_allowed(m.config.data):
+        raise ValueError("Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet. Verbinde stattdessen einen Konnektor "
+                         "(Seite „Konnektoren“).")
+
+
+async def save_credential(m, user_id: str, st, c: dict, connector: dict | None = None) -> dict:
+    """Zugang speichern. Mit ``connector`` entsteht bzw. ändert sich eine Verbindung (connectors.py): dessen feste
+    Felder gelten immer; ein vorhandener Konnektor-Zugang behält seine festen Felder, egal was das Formular schickt."""
+    old = st.meta["credentials"].get(c.get("id") or "")
+    if connector is None:
+        check_free(m, old)
     cred = build_credential(st, c, allow_central=allow_central(m))
+    k = connector or CN.by_id(m.config.data, (old or {}).get("connector_id"))
+    if connector is not None:
+        cred["connector_id"] = connector["id"]
+    if k is not None and cred.get("connector_id") == k["id"]:
+        CN.enforce(cred, k)
     st.meta["credentials"][cred["id"]] = cred
     await st.async_save_meta()
     m.emit(user_id, {"type": "meta", "section": "credentials"})

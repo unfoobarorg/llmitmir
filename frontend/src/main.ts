@@ -11,6 +11,7 @@ import "./pages2";
 import "./pages3";
 import "./settings";
 import "./monitoring";
+import "./connectors";
 import "./voice";
 
 const LS = "llmitmir.sidebar";
@@ -549,6 +550,7 @@ export class LLMitMirPanel extends LitElement {
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
         ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
         ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
+        ${(store.data?.connectors || []).length ? ni("/connectors", "share", t("Konnektoren"), p === "connectors") : nothing}
         ${ni("/credentials", "key", t("Zugänge"), p === "credentials" || p === "credential")}
       </div>
       ${this.selecting ? nothing : this.selectStart()}
@@ -582,6 +584,7 @@ export class LLMitMirPanel extends LitElement {
       case "skills": return this.wrap(html`<lm-skills></lm-skills>`);
       case "skill": return this.wrap(html`<lm-skill .skillId=${id}></lm-skill>`);
       case "credentials": return this.wrap(html`<lm-credentials></lm-credentials>`);
+      case "connectors": return this.wrap(html`<lm-connectors></lm-connectors>`);
       case "credential": return this.wrap(html`<lm-credential .credId=${id}></lm-credential>`);
       case "settings": return this.wrap(html`<lm-settings></lm-settings>`);
       case "admin": return this.wrap(id === "monitoring" ? html`<lm-monitoring></lm-monitoring>` : html`<lm-admin></lm-admin>`);

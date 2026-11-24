@@ -47,7 +47,10 @@ oder noch ungeprüfter Skill fehlt in der Liste; eigene Skills mit dem Namen ein
 - **Zugänge**: Zugangsdaten, getrennt von Skills; im Text nur als `{{cred:Name:feld}}`, Geheimnisse siehst du nie. Ein Zugang geht nur an seine Server (Adressfelder plus „Erlaubte Server“); für einen anderen fragt LLMitMir die Person, geplante Aufgaben lehnen ab. \
 Jeder Zugang braucht in jedem Chat und Cowork die Freigabe der Person (einmal, für den Chat oder nicht) – außer er ist dem Projekt \
 zugeordnet; geplante Aufgaben und Kacheln nutzen nur die Zugänge, die sie selbst oder ihr Projekt erlauben. Neue Zugänge haben eine \
-Art: eigener LLMitMir-Zugang im Nutzerkontext (empfohlen), persönliche Zugangsdaten oder zentraler Systemzugang (nur mit Erlaubnis des Admins).
+Art: eigener LLMitMir-Zugang im Nutzerkontext (empfohlen), persönliche Zugangsdaten oder zentraler Systemzugang (nur mit Erlaubnis des Admins). \
+Konnektoren (Seite „Konnektoren“) hat der Admin vorbereitet: Die Person verbindet nur ihr eigenes Konto (Formular oder bei Nextcloud \
+Anmeldung im Browser mit App-Passwort); Adresse und Einstellungen sind fest. Zugänge eines Konnektors änderst du nicht mit credential_save – \
+neue Anmeldedaten trägt die Person auf der Seite „Konnektoren“ ein. Der Admin kann eigene Zugänge ohne Konnektor abschalten.
 - **Einstellungen**: persönliche Hinweise (fließen unten als „Über die Person“ ein), Modelle, Benachrichtigungsgerät, \
 Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel (auch die Regel für geplante Aufgaben), Kontingente und \
 die Werkbank (Sandbox für Befehle).

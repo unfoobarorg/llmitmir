@@ -222,6 +222,11 @@ def _cred_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     old = _find(ctx.creds, name, ctx.allowed_creds)
     if old is None and _find(ctx.creds, name) is not None:
         raise ValueError(f"Zugang „{name}“ ist in diesem Projekt nicht freigegeben.")
+    if old is None:
+        M.check_free(ctx.manager, None)
+    if old is not None and old.get("connector_id") and (a.get("typ") or a.get("felder")):
+        raise ValueError(f"„{old['name']}“ gehört zu einem Konnektor – Adresse und Typ legt der Admin fest. Neue Anmeldedaten "
+                         "trägt die Person auf der Seite „Konnektoren“ ein.")
     if old is None and not a.get("typ"):
         raise ValueError(f"Für einen neuen Zugang braucht es „typ“ ({', '.join(C.TYPES)}).")
     fields = {str(k): str(v) for k, v in (a.get("felder") or {}).items() if v is not None}

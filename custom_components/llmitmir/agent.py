@@ -20,6 +20,7 @@ from homeassistant.util import dt as dt_util
 from . import audit as AU
 from . import policy as P
 from . import skillcheck as SK
+from . import connectors as CN
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -133,6 +134,8 @@ class Manager:
         # Teilaufgaben: Plätze je Person und wer auf welches Ergebnis wartet (Unterchat-ID -> Future)
         self.sub_slots = SC.Slots(SUB_PARALLEL)
         self.sub_waiters: dict[str, asyncio.Future] = {}
+        # Nextcloud Login Flow (connectors.py): Flow-ID -> Zustand (wartet, verbunden, Fehler)
+        self.flows: dict[str, dict] = {}
         # Zugriffsprotokoll (audit.py): welcher Agent mit welchem Zugang worauf – nur Metadaten, nur für Admins
         self.audit = AU.AuditService(hass, hass.config.path(".storage", AU.AUDIT_DIR), self.audit_retention)
         load_all()
@@ -588,6 +591,8 @@ class Manager:
         if st is None:
             st = UserStore(self.hass, user_id)
             await st.async_load()
+            if CN.sync(st.meta, self.config.data):  # Konnektoren seit dem letzten Laden geändert
+                st.schedule_save(5)
             self.users[user_id] = st
         return st
 
@@ -2012,9 +2017,10 @@ class ToolContext:
         """Zugänge the tools may use: with an external model only those released for external models; zentrale
         Systemzugänge nur, wenn der Admin sie erlaubt (policy.py)."""
         allc = self.store.meta["credentials"]
-        central = bool((self.manager.config.data.get("credentials_policy") or {}).get("allow_central"))
+        cfg = self.manager.config.data
+        central = bool((cfg.get("credentials_policy") or {}).get("allow_central"))
         return {k: c for k, c in allc.items()
-                if not P.locked(c, central) and (not self.external or c.get("external"))}
+                if not P.locked(c, central) and not CN.locked(c, cfg) and (not self.external or c.get("external"))}
 
     def locked_creds(self) -> dict[str, dict]:
         """Zugänge closed to external models (empty for runs on the main provider)."""
@@ -2227,6 +2233,11 @@ class ToolContext:
                          + json.dumps(creds, ensure_ascii=False)
                          + ("\n\nBei diesen Zugängen hat die letzte Prüfung einen Fehler ergeben – nenne ihn der Person, "
                             "statt es weiter zu versuchen:\n" + "\n".join(broken) if broken else ""))
+        if creds and self.groups() & {"dav", "http", "ews", "mail"}:
+            visible = {k: c for k, c in self.creds.items() if self.allowed_creds is None or k in self.allowed_creds}
+            conn = CN.prompt_section(visible, self.manager.config.data)
+            if conn:
+                parts.append(conn)
         if self.external and not ext:
             parts.append(
                 "## Externes Modell\nDu läufst gerade als externes Modell bei "

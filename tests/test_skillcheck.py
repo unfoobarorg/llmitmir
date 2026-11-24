@@ -44,8 +44,9 @@ def test_static_findings():
                          {"name": "Kurz", "kind": "max_length", "value": 100, "action": "notify"},
                          {"name": "Server", "kind": "forbidden_hosts", "hosts": "*.bad.example"},
                          {"name": "Geheimnisse", "kind": "secrets", "action": "block"}])
+    fake = "glpat" + "-" + "abcdefghijklmnopqrstuvwxyz"  # zusammengesetzt: im Repo steht kein Token (test_release)
     skill = {"name": "Upload", "description": "lädt hoch", "body": "Nutze ftp://files.example und https://x.bad.example/a. "
-                                                                   "token: glpat-abcdefghijklmnopqrstuvwxyz " + "x" * 60}
+                                                                   f"token: {fake} " + "x" * 60}
     found = {f["name"]: f for f in SK.static_findings(skill, SK.policies(cfg))}
     assert set(found) == {"Kein FTP", "Kurz", "Server", "Geheimnisse"}
     assert "ftp://files.example" in found["Kein FTP"]["reason"] and "x.bad.example" in found["Server"]["reason"]
