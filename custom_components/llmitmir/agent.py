@@ -22,6 +22,7 @@ from . import policy as P
 from . import skillcheck as SK
 from . import connectors as CN
 from . import datarules as DR
+from . import mcp as MCP
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -49,7 +50,7 @@ from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
 from .storage import BillingStore, ConfigStore, EwsStore, UserStore, new_id, now
-from .tools import GROUPS, REGISTRY, as_text, finish_progress, load_all
+from .tools import GROUPS, REGISTRY, Tool, as_text, finish_progress, load_all
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -2041,6 +2042,8 @@ class ToolContext:
             g.discard("mail")  # E-Mail nur mit einem Zugang, der ins Postfach darf
         if self.manager.werkbank is None:
             g.discard("werkbank")
+        if self.mcp_tools():
+            g.add("mcp")  # freigegebene Werkzeuge von MCP-Servern verbundener Konnektoren
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
         if SC.is_sub(self.chat):
@@ -2073,7 +2076,31 @@ class ToolContext:
 
     def tool_specs(self) -> list[dict]:
         g = self.groups() | self.askable_groups()
-        return [t.spec() for t in REGISTRY.values() if t.group in g]
+        specs = [t.spec() for t in REGISTRY.values() if t.group in g]
+        if "mcp" in g:
+            specs += [x[0].spec() for x in self.mcp_tools().values()]
+        return specs
+
+    def mcp_tools(self) -> dict[str, tuple]:
+        """Werkzeuge der MCP-Server, die über sichtbare Zugänge verbunden sind: Name -> (Tool, Zugang, Konnektor,
+        eingefrorenes Werkzeug). Beschreibung und Parameter stammen aus der Freigabe des Admins, nie vom Server."""
+        cfg = self.manager.config.data
+        out: dict[str, tuple] = {}
+        for c in self.creds.values():
+            if self.allowed_creds is not None and c["id"] not in self.allowed_creds:
+                continue
+            k = CN.by_id(cfg, c.get("connector_id"))
+            if not k or not k.get("enabled", True) or not (k.get("mcp") or {}).get("tools"):
+                continue
+            for t in k["mcp"]["tools"]:
+                if not t.get("enabled", True):
+                    continue
+                name = MCP.tool_name(k, t["name"])
+                tool = Tool(name, "mcp", f"[{k['name']} – MCP-Server] {t['description']}"[:1100], t["input_schema"],
+                            _mcp_handler(c["id"], k, t), write=bool(t.get("write")), label=f"{k['name']}: {t['name']}",
+                            icon="mdi:connection")
+                out[name] = (tool, c, k, t)
+        return out
 
     def refresh_secrets(self) -> None:
         self._secrets = C.secret_values(self.store.meta["credentials"])
@@ -2452,7 +2479,7 @@ class ToolContext:
 
     def _audit_call(self, msg: dict) -> None:
         name = msg.get("name") or ""
-        tool = REGISTRY.get(name)
+        tool = REGISTRY.get(name) or ((self.mcp_tools().get(name) or (None,))[0] if name.startswith("mcp_") else None)
         group = tool.group if tool else ""
         if not tool or not AU.should_log(name, group):
             return
@@ -2477,7 +2504,8 @@ class ToolContext:
     async def _execute(self, call: dict) -> dict:
         fn = call.get("function") or {}
         name = fn.get("name") or ""
-        tool = REGISTRY.get(name)
+        dyn = self.mcp_tools().get(name) if name.startswith("mcp_") else None
+        tool = REGISTRY.get(name) or (dyn[0] if dyn else None)
         msg = {"id": new_id("m"), "role": "tool", "tool_call_id": call.get("id"), "name": name, "created": now()}
         try:
             args = json.loads(fn.get("arguments") or "{}") if (fn.get("arguments") or "").strip() else {}
@@ -2486,6 +2514,8 @@ class ToolContext:
         except ValueError:
             msg.update(content="Fehler: Argumente sind kein gültiges JSON-Objekt.", status="error")
             return msg
+        if dyn:
+            args = dict(args, zugang=dyn[1]["name"])  # der Zugang des Konnektors: Freigabe, Datenregeln, Protokoll
         msg["args"] = json.loads(C.scrub(json.dumps(args, ensure_ascii=False), self._secrets))
         if tool and tool.redact:
             msg["args"] = tool.redact(self, msg["args"])
@@ -2795,6 +2825,21 @@ class ToolContext:
         else:
             self.store.meta["settings"].setdefault("permissions", {})[name] = PERM_ALLOW
         self.store.schedule_save(0.5)
+
+
+def _mcp_handler(cred_id: str, k: dict, t: dict):
+    """Aufruf eines eingefrorenen MCP-Werkzeugs mit dem Zugang der Person (nur bekannte Argumente gehen hinaus)."""
+    async def handler(ctx: "ToolContext", a: dict):
+        c = ctx.creds.get(cred_id)
+        if not c:
+            raise PermissionError("Der Zugang dieses Konnektors ist hier nicht verfügbar.")
+        try:
+            text, is_error = await MCP.Client(ctx.session, k["fixed"]["url"], c).call(
+                t["name"], MCP.clean_arguments(a, t["input_schema"]))
+        except MCP.McpError as e:
+            return f"Fehler: {e}"
+        return f"Fehler: {text}" if is_error else (text or "(keine Ausgabe)")
+    return handler
 
 
 def _creds_in_args(args: dict) -> set[str]:

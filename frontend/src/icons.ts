@@ -61,6 +61,8 @@ export {
   mdiImageOutline,
   mdiInformationOutline,
   mdiKeyOutline,
+  mdiConnection,
+  mdiShieldCheckOutline,
   mdiLockOutline,
   mdiMagnify,
   mdiMenu,

@@ -17,6 +17,7 @@ from . import audit as AU
 from . import policy as P
 from . import skillcheck as SK
 from . import connectors as CN
+from . import mcp as MCP
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -1441,6 +1442,21 @@ async def ws_admin_audit(hass, conn, msg, m, user, st):
     res["names"] = await _names(m, [i for i in ids if i])
     res["retention_days"] = m.audit_retention()
     return res
+
+
+@command(_t("admin/mcp_tools") | {vol.Required("url"): str, vol.Required("auth_type"): vol.In(list(MCP.TYPES)),
+                                  vol.Optional("fields"): dict}, admin=True)
+async def ws_admin_mcp_tools(hass, conn, msg, m, user, st):
+    """Werkzeuge eines MCP-Servers abrufen – als Vorschlag zum Freigeben (alle aus). Die Anmeldedaten gelten nur für
+    diesen Abruf und werden nicht gespeichert."""
+    cred = {"type": msg["auth_type"], "fields": {str(k): str(v) for k, v in (msg.get("fields") or {}).items()}}
+    try:
+        tools = await MCP.Client(m.session, msg["url"].strip(), cred, timeout=30).list_tools()
+    except MCP.McpError as e:
+        raise ValueError(str(e)) from None
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        raise ValueError(f"MCP-Server nicht erreichbar: {type(e).__name__}") from None
+    return {"tools": MCP.from_server(tools)}
 
 
 @command(_t("admin/skill_checks"), admin=True)

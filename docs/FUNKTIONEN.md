@@ -230,6 +230,15 @@
   Zugang im Lauf sichtbar ist. Mit dem Schalter *Eigene Zugänge ohne Konnektor erlauben* (Vorgabe an) kann der Admin
   freie Zugänge abschalten – vorhandene bleiben nutzbar, neue gehen nur noch über Konnektoren. Freigabe je Agent gilt für
   Konnektor-Zugänge genauso.
+- **MCP-Server als Konnektor** (*Admin → Konnektoren*, Typ Bearer-Token, API-Key oder Basic Auth, Haken „MCP-Server“):
+  Die feste Adresse ist der MCP-Endpunkt (Streamable HTTP, nur https). Der Admin ruft die Werkzeuge einmal ab (mit
+  seinem Token, nur für den Abruf) und gibt sie einzeln frei, je Werkzeug „schreibt“ ja/nein (Vorschlag aus
+  `readOnlyHint`). Die Liste ist **eingefroren**: Beschreibungen und Parameter stammen aus der Freigabe, nicht vom Server –
+  neue oder veränderte Werkzeuge gelten erst nach erneutem Abrufen und Freigeben (Schutz vor eingeschleusten Texten).
+  Jede Person verbindet den Konnektor mit ihrem eigenen Token. Die Werkzeuge heißen `mcp_<Konnektor>_<Werkzeug>`, stehen
+  in der Werkzeuggruppe „Konnektoren (MCP)“ (im Chat und Cowork nach Rückfrage einschalten, in Aufgaben über deren
+  Werkzeuge) und laufen durch Freigabe je Agent (der Zugang des Konnektors), Schreib-Freigaben, Datenregeln und
+  Zugriffsprotokoll; an den Server gehen nur Argumente aus dem eingefrorenen Schema. Anmeldung per OAuth folgt später.
 - **Datenregeln je Konnektor** (*Admin → Konnektoren → Datenregeln*): Regel = Geltungsbereich (Pfad oder Ordner mit `*`
   und `**`, z. B. `/Gruppen/Finanzen/**`; leer = ganzer Konnektor) + **Anweisung in Worten** + für welche Modelle (nur
   externe oder alle). Beispiel: „Nur Dateien mit Tag public oder internal dürfen an externe Modelle, nie restricted;
