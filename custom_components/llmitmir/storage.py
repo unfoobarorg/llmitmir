@@ -101,6 +101,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "audit": {"retention_days": 180},
     # Zugänge (policy.py): zentrale Systemzugänge nur, wenn der Admin sie erlaubt (Vorgabe: aus)
     "credentials_policy": {"allow_central": False},
+    # zentrale Skills und Skill-Richtlinien je Installation (skillcheck.py)
+    "central_skills": [],
+    "skill_policies": [],
 }
 
 

@@ -199,6 +199,20 @@
   geprüft stündlich und beim Start; gelöscht werden Chat, Anhänge, Arbeitsbereich und Sandbox. Angeheftete Chats und
   die Läufe geplanter Aufgaben bleiben. Das automatisch angelegte Projekt „Gespräche“ bringt seine Frist (14 Tage) mit.
 - **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
+- **Zentrale Skills** (*Admin → Zentrale Skills*): gelten für alle Personen, erscheinen in deren Oberfläche nicht (die
+  Inhalte sind nicht geheim). *Immer aktiv* steht als „Verbindliche Vorgaben dieser Installation“ im Systemprompt jedes
+  Laufs, vor persönlichen Hinweisen und Projekt-Anweisungen und mit Vorrang vor ihnen, vor eigenen Skills und vor Bitten im
+  Chat (Stilrichtlinien, Gebote und Verbote). *Bei Bedarf* steht mit „(zentral)“ in der Skill-Liste des Modells und wird mit
+  `skill_load` geladen. Eigene Skills mit dem Namen eines zentralen Skills lassen sich weder anlegen noch importieren.
+- **Skill-Richtlinien** (*Admin → Skill-Richtlinien*): Prüfungen für alle eigenen Skills – Muster (regulärer Ausdruck),
+  Höchstlänge, verbotene Server, Geheimnisse im Klartext oder ein Prüfauftrag in Worten an ein Modell des Hauptanbieters
+  (nie extern; der Skill gilt dabei als zu prüfender Text). Je Richtlinie eine Aktion: **sperren** (kein Modell sieht den
+  Skill, auch nicht in der Werkbank; die Person sieht den Grund in Liste und Skill und bekommt eine Karte auf der
+  Startseite), **Person benachrichtigen** oder **nur protokollieren**. Vorlagen: Widerspruch zu zentralen Vorgaben,
+  Geheimnisse, Effizienz, Länge. Geprüft wird beim Speichern (auch im Chat), beim Import, sofort nach jeder Änderung der
+  Richtlinien oder zentralen Skills und nachts um 3:17 alles Fällige. Solange eine sperrende Modell-Prüfung aussteht oder
+  scheitert, bleibt der Skill gesperrt. Befunde stehen im Monitoring (`skill_check`) und in einer Übersicht auf der
+  Admin-Seite (Person, Skill, Befund – ohne den Text des Skills).
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt. Ein Zugang
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt

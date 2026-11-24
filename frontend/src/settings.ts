@@ -403,7 +403,8 @@ export class AdminPage extends StoreElement {
         notify_devices: { overrides: a.notify_overrides || {} },
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
-        model_access: a.model_access, billing: a.billing, dashboards: a.dashboards, credentials_policy: a.credentials_policy } });
+        model_access: a.model_access, billing: a.billing, dashboards: a.dashboards, credentials_policy: a.credentials_policy,
+        central_skills: a.central_skills, skill_policies: a.skill_policies } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -461,6 +462,62 @@ export class AdminPage extends StoreElement {
         ${rows.map((u: any) => html`<tr><td>${u.name}</td><td class="num">${sc[u.id].dedicated}</td><td class="num">${sc[u.id].personal}</td>
           <td class="num" style=${sc[u.id].central ? "color:var(--lm-warn)" : ""}>${sc[u.id].central}</td><td class="num">${sc[u.id].none}</td></tr>`)}</table></div>
         <div class="hint">Gezählt werden die Personen, die LLMitMir seit dem letzten Start benutzt haben. Inhalte der Zugänge siehst du hier nicht.</div>` : nothing}</section>`;
+  }
+  @state() private checks: any = null;
+  private setList(k: string, i: number, patch: any) { this.set(k, (this.a[k] || []).map((x: any, j: number) => (j === i ? { ...x, ...patch } : x))); }
+  private dropItem(k: string, i: number) { this.set(k, (this.a[k] || []).filter((_: any, j: number) => j !== i)); }
+  /** Zentrale Skills: gelten für alle, in der Oberfläche der Personen unsichtbar (skillcheck.py). */
+  private centralSkillsSection() {
+    const list: any[] = this.a.central_skills || [];
+    return html`<section><h2>${icon("skill", 18)} Zentrale Skills</h2>
+      <div class="hint" style="margin-bottom:10px">Gelten für alle Personen und alle Läufe und erscheinen in deren Oberfläche nicht. <b>Immer aktiv</b>
+        steht im Systemprompt jedes Laufs – mit Vorrang vor persönlichen Hinweisen, Projekt-Anweisungen, eigenen Skills und Bitten im Chat
+        (z. B. Stilrichtlinien, Gebote und Verbote). <b>Bei Bedarf</b> lädt das Modell wie einen eigenen Skill. Eigene Skills mit demselben Namen
+        lassen sich nicht anlegen; widersprechende fängt eine Skill-Richtlinie ab (Vorlage „Widerspruch zu zentralen Vorgaben“). Die Inhalte sind nicht geheim.</div>
+      <div class="prov">${list.map((x: any, i: number) => html`<div class="card ${x.enabled === false ? "off" : ""}">
+        <div class="head"><input style="flex:1;min-width:160px" placeholder="Name" .value=${x.name || ""} @input=${(e: any) => this.setList("central_skills", i, { name: e.target.value })}>
+          <select style="width:auto" @change=${(e: any) => this.setList("central_skills", i, { mode: e.target.value })}>
+            <option value="always" ?selected=${x.mode !== "on_demand"}>immer aktiv</option><option value="on_demand" ?selected=${x.mode === "on_demand"}>bei Bedarf</option></select>
+          <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${x.enabled !== false} @change=${(e: any) => this.setList("central_skills", i, { enabled: e.target.checked })}> aktiv</label>
+          <button class="iconbtn" title="Entfernen" @click=${() => this.dropItem("central_skills", i)}>${icon("trash", 16)}</button></div>
+        ${x.mode === "on_demand" ? html`<input placeholder="Beschreibung: wann der Skill gilt" .value=${x.description || ""} @input=${(e: any) => this.setList("central_skills", i, { description: e.target.value })}>` : nothing}
+        <textarea rows="5" placeholder="Anleitung (Markdown)" .value=${x.body || ""} @input=${(e: any) => this.setList("central_skills", i, { body: e.target.value })}></textarea></div>`)}</div>
+      <button class="btn" style="margin-top:8px" @click=${() => this.set("central_skills", [...list, { name: "", mode: "always", body: "", enabled: true }])}>${icon("plus", 16)} Zentralen Skill hinzufügen</button></section>`;
+  }
+  /** Skill-Richtlinien: Prüfungen aller eigenen Skills mit Aktion (sperren, benachrichtigen, protokollieren). */
+  private skillPoliciesSection() {
+    const list: any[] = this.a.skill_policies || [];
+    const kinds: [string, string][] = [["regex", "Muster (regulärer Ausdruck)"], ["max_length", "Höchstlänge"], ["forbidden_hosts", "Verbotene Server"],
+      ["secrets", "Geheimnisse im Klartext"], ["model", "Prüfauftrag an ein Modell"]];
+    const acts: [string, string][] = [["block", "sperren"], ["notify", "Person benachrichtigen"], ["log", "nur protokollieren"]];
+    const param = (x: any, i: number) => x.kind === "regex" ? html`<input class="code" placeholder="z. B. ftp://\S+" .value=${x.pattern || ""} @input=${(e: any) => this.setList("skill_policies", i, { pattern: e.target.value })}>`
+      : x.kind === "max_length" ? html`<input type="number" min="100" placeholder="Zeichen" .value=${String(x.value ?? "")} @input=${(e: any) => this.setList("skill_policies", i, { value: Number(e.target.value) })}>`
+      : x.kind === "forbidden_hosts" ? html`<input placeholder="evil.example, *.example.org" .value=${x.hosts || ""} @input=${(e: any) => this.setList("skill_policies", i, { hosts: e.target.value })}>`
+      : x.kind === "model" ? html`<textarea rows="2" placeholder="Prüfauftrag in Worten – läuft nur auf dem Hauptanbieter" .value=${x.prompt || ""} @input=${(e: any) => this.setList("skill_policies", i, { prompt: e.target.value })}></textarea>`
+      : html`<div class="hint">Erkennt Tokens, Schlüssel und Passwörter im Text des Skills (Platzhalter {{cred:…}} sind erlaubt).</div>`;
+    const c = this.checks;
+    return html`<section><h2>${icon("shield", 18)} Skill-Richtlinien</h2>
+      <div class="hint" style="margin-bottom:10px">Jeder eigene Skill wird beim Speichern, beim Import und nachts (wenn sich Richtlinien oder zentrale Skills geändert haben)
+        geprüft. <b>Sperren</b>: Kein Modell sieht den Skill, die Person erfährt den Grund. Solange eine sperrende Modell-Prüfung aussteht oder scheitert, bleibt der Skill gesperrt.
+        <b>Benachrichtigen</b>: Karte auf der Startseite der Person. Jeder Befund steht im Monitoring. Modell-Prüfungen laufen auf dem Hauptanbieter und zählen zum Kontingent der Person.</div>
+      <div class="prov">${list.map((x: any, i: number) => html`<div class="card ${x.enabled === false ? "off" : ""}">
+        <div class="head"><input style="flex:1;min-width:160px" placeholder="Name" .value=${x.name || ""} @input=${(e: any) => this.setList("skill_policies", i, { name: e.target.value })}>
+          <select style="width:auto" @change=${(e: any) => this.setList("skill_policies", i, { kind: e.target.value })}>${kinds.map(([k, l]) => html`<option value=${k} ?selected=${x.kind === k}>${l}</option>`)}</select>
+          <select style="width:auto" @change=${(e: any) => this.setList("skill_policies", i, { action: e.target.value })}>${acts.map(([k, l]) => html`<option value=${k} ?selected=${(x.action || "log") === k}>${l}</option>`)}</select>
+          <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${x.enabled !== false} @change=${(e: any) => this.setList("skill_policies", i, { enabled: e.target.checked })}> aktiv</label>
+          <button class="iconbtn" title="Entfernen" @click=${() => this.dropItem("skill_policies", i)}>${icon("trash", 16)}</button></div>
+        ${param(x, i)}</div>`)}</div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">
+        <button class="btn" @click=${() => this.set("skill_policies", [...list, { name: "", kind: "regex", action: "log", enabled: true }])}>${icon("plus", 16)} Richtlinie</button>
+        ${(this.a.skill_presets || []).map((p: any) => html`<button class="btn ghost" title="Vorlage hinzufügen" @click=${() => this.set("skill_policies", [...list, { ...p, enabled: true }])}>${icon("plus", 14)} ${p.name}</button>`)}</div>
+      <div class="card" style="margin-top:12px"><div class="row"><b class="grow">Ergebnisse</b>
+        <button class="btn ghost" @click=${async () => { try { this.checks = await store.api.ws("admin/skill_checks"); } catch (e: any) { store.notify(e.message); } }}>${icon("retry", 15)} Laden</button>
+        <button class="btn ghost" @click=${async () => { try { await store.api.ws("admin/skill_recheck"); store.notify("Prüfung gestartet"); } catch (e: any) { store.notify(e.message); } }}>${icon("play", 15)} Alle jetzt prüfen</button></div>
+        ${c ? (c.rows.length ? html`<div class="tw"><table><tr><th>Person</th><th>Skill</th><th>Zustand</th><th>Befunde</th></tr>
+          ${c.rows.map((r: any) => html`<tr><td>${r.user_name}</td><td>${r.skill}</td>
+            <td><span class="chip ${r.state === "blocked" ? "err" : r.state === "pending" ? "warn" : ""}">${({ blocked: "gesperrt", pending: "Prüfung steht aus", warn: "Hinweis", ok: "ok" } as any)[r.state] || r.state}</span></td>
+            <td>${r.findings.map((f: any) => html`<div><b>${f.name}:</b> ${f.reason}</div>`)}${r.error ? html`<div class="hint">Prüfung nicht möglich: ${r.error}</div>` : nothing}</td></tr>`)}</table></div>`
+          : html`<div class="hint">Keine Befunde bei ${c.total} Skills.</div>`) : html`<div class="hint">Gespeicherte Richtlinien greifen sofort; „Laden“ zeigt Skills mit Befunden (ohne deren Text).</div>`}</div></section>`;
   }
   @state() private provBusy = "";
   private setProv(pid: string, patch: any) { this.set("providers", this.a.providers.map((p: any) => (p.id === pid ? { ...p, ...patch } : p))); }
@@ -676,6 +733,8 @@ export class AdminPage extends StoreElement {
       ${this.extModelsSection(users)}
       ${this.costsSection(users)}
       ${this.credPolicySection(users)}
+      ${this.centralSkillsSection()}
+      ${this.skillPoliciesSection()}
       <section><h2>${icon("user", 18)} Wer darf LLMitMir nutzen?</h2>
         <div class="tw"><table><tr><th></th><th>Person</th><th>Anfragen/Tag</th><th>Tokens/Tag</th><th>Heute</th></tr>
           ${users.map((u: any) => { const q = a.quota_users[u.id] || {}; const us = a.usage_today[u.id];

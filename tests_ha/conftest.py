@@ -49,7 +49,7 @@ def fake_panel_dependencies(hass):
 
 
 @pytest.fixture
-async def llmitmir(hass, hass_admin_user):
+async def llmitmir(hass, hass_admin_user, tmp_path):
     """LLMitMir eingerichtet wie nach dem Einrichtungsdialog (SAIA, ein gemeinsamer Schlüssel, noch keiner gesetzt).
 
     Das Panel selbst braucht das Frontend-Paket von Home Assistant, das in Tests fehlt – registriert wird es hier
@@ -65,6 +65,10 @@ async def llmitmir(hass, hass_admin_user):
             patch("homeassistant.components.frontend.async_remove_panel"):
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
-        yield {"entry": entry, "register_panel": reg, "manager": hass.data[DOMAIN]["manager"]}
+        manager = hass.data[DOMAIN]["manager"]
+        # Zugriffsprotokoll je Test in ein eigenes Verzeichnis – der Konfigurationsordner des Harness bleibt bestehen
+        manager.audit.files.base = str(tmp_path / "audit")
+        manager.audit.agents = {}
+        yield {"entry": entry, "register_panel": reg, "manager": manager}
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
