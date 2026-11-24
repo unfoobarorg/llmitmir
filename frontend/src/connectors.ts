@@ -96,6 +96,7 @@ export class ConnectorsPage extends StoreElement {
       ${k.description ? html`<div class="hint">${k.description}</div>` : nothing}
       ${Object.keys(k.fixed || {}).length ? html`<div class="fixed">${Object.entries(k.fixed).map(([f, v]) => html`<div>${LABELS[f] || f}: ${v}</div>`)}</div>` : nothing}
       ${bad ? html`<div class="hint" style="color:var(--lm-err)">${c.check.message}</div>` : nothing}
+      ${(k.rules || []).length ? html`<div class="hint">${icon("shield", 13)} ${t("Datenregeln:")} ${k.rules.map((r: any) => r.name + (r.scope ? ` (${r.scope})` : "")).join(", ")}</div>` : nothing}
       ${flow ? html`<div class="checkbox">${icon(flow.status === "waiting" ? "hourglass" : "alert", 18)}<div>
           ${flow.status === "waiting" ? html`${t("Melde dich im neuen Fenster bei der Nextcloud an und erlaube den Zugriff. LLMitMir bekommt dann ein eigenes App-Passwort – dein Passwort sieht es nie.")}
             <div class="row" style="margin-top:6px"><a href=${flow.login} target="_blank" rel="noopener">${t("Anmeldeseite erneut öffnen")}</a>

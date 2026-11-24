@@ -21,6 +21,7 @@ import urllib.parse
 from typing import Any
 
 from . import credentials as C
+from . import datarules as DR
 
 LOGIN_FORM, LOGIN_NEXTCLOUD = "form", "nextcloud_flow"
 LOGINS = (LOGIN_FORM, LOGIN_NEXTCLOUD)
@@ -87,7 +88,7 @@ def clean(raw: Any) -> list[dict]:
         out.append({"id": _cid(k, i), "name": name, "type": typ, "description": _clip(k.get("description"), 500),
                     "fixed": fixed, "login": login, "hosts": C.clean_hosts(k.get("hosts") or []),
                     "services": services, "instructions": _clip(k.get("instructions"), INSTRUCTIONS_MAX),
-                    "enabled": k.get("enabled", True) is not False})
+                    "rules": DR.clean_rules(k.get("rules"), name), "enabled": k.get("enabled", True) is not False})
     if len(out) > MAX_CONNECTORS:
         raise ValueError(f"Höchstens {MAX_CONNECTORS} Konnektoren.")
     return out
@@ -118,7 +119,9 @@ def public_view(k: dict) -> dict:
     """Was jede Person vom Konnektor sieht (ohne Anleitung für das Modell)."""
     return {"id": k["id"], "name": k["name"], "type": k["type"], "description": k.get("description", ""),
             "login": k["login"], "fixed": dict(k.get("fixed") or {}), "user_fields": user_fields(k["type"], k.get("fixed") or {}),
-            "services": k.get("services")}
+            "services": k.get("services"),
+            # Datenregeln: Personen sehen, dass es welche gibt und wofür (Name und Bereich), nicht als Schalter
+            "rules": [{"name": r["name"], "scope": r.get("scope", "")} for r in k.get("rules") or [] if r.get("enabled", True)]}
 
 
 def connection_raw(k: dict, fields: dict, existing: dict | None = None, name: str | None = None) -> dict:
@@ -175,8 +178,12 @@ def prompt_section(creds: dict, cfg: dict) -> str:
     parts = []
     for c in creds.values():
         k = by_id(cfg, c.get("connector_id"))
-        if k and k.get("enabled", True) and k.get("instructions"):
-            parts.append(f"### {k['name']} (Zugang „{c['name']}“)\n{k['instructions']}")
+        if not k or not k.get("enabled", True):
+            continue
+        rules = DR.prompt_lines([r for r in k.get("rules") or [] if r.get("enabled", True)])
+        body = "\n\n".join(x for x in (k.get("instructions") or "", rules) if x)
+        if body:
+            parts.append(f"### {k['name']} (Zugang „{c['name']}“)\n{body}")
     if not parts:
         return ""
     return ("## Konnektoren\nDiese Anbindungen hat der Admin vorbereitet; die Anleitungen gelten für die Arbeit mit "

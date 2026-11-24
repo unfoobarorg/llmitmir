@@ -505,8 +505,28 @@ export class AdminPage extends StoreElement {
         <input placeholder="Weitere erlaubte Server (Komma-getrennt, auch *.example.org)" .value=${(x.hosts || []).join(", ")}
           @change=${(e: any) => this.setList("connectors", i, { hosts: e.target.value.split(/[\s,;]+/).map((h: string) => h.trim()).filter(Boolean) })}>
         <textarea rows="3" placeholder="Anleitung für das Modell (optional): wie mit diesem System gearbeitet wird" .value=${x.instructions || ""}
-          @input=${(e: any) => this.setList("connectors", i, { instructions: e.target.value })}></textarea></div>`)}</div>
+          @input=${(e: any) => this.setList("connectors", i, { instructions: e.target.value })}></textarea>
+        ${this.rulesEditor(x, i)}</div>`)}</div>
       <button class="btn" style="margin-top:8px" @click=${() => this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }])}>${icon("plus", 16)} Konnektor hinzufügen</button></section>`;
+  }
+  /** Datenregeln eines Konnektors (datarules.py): Bereich, Anweisung in Worten, für welche Modelle. */
+  private rulesEditor(x: any, i: number) {
+    const rules: any[] = x.rules || [];
+    const setRule = (j: number, patch: any) => this.setList("connectors", i, { rules: rules.map((r: any, n: number) => (n === j ? { ...r, ...patch } : r)) });
+    return html`<details ?open=${rules.length > 0}><summary class="hint" style="cursor:pointer">${icon("shield", 14)} Datenregeln (${rules.length})</summary>
+      <div class="hint" style="margin:6px 0">Bevor ein Werkzeug Inhalte aus dem Bereich abruft, prüft ein Wächter auf dem Hauptanbieter die Anweisung anhand der Metadaten
+        (bei Nextcloud: Tags, Typ, Größe, Besitzer) – nie anhand der Inhalte. Gesperrt heißt: kein Abruf. Bereich mit * und **, z. B. /Gruppen/Finanzen/** – leer = ganzer Konnektor.
+        Rohzugriffe (Werkbank-Befehle, freie HTTP-Anfragen) sind für Konnektoren mit Datenregeln gesperrt; Ordnerlisten gelten als Metadaten.</div>
+      ${rules.map((r: any, j: number) => html`<div class="card" style="display:grid;gap:6px;margin-bottom:6px">
+        <div class="head"><input style="flex:1;min-width:120px" placeholder="Name" .value=${r.name || ""} @input=${(e: any) => setRule(j, { name: e.target.value })}>
+          <input style="flex:1;min-width:160px" class="code" placeholder="Bereich, z. B. /Gruppen/Finanzen/**" .value=${r.scope || ""} @input=${(e: any) => setRule(j, { scope: e.target.value })}>
+          <select style="width:auto" @change=${(e: any) => setRule(j, { applies: e.target.value })}>
+            <option value="external" ?selected=${r.applies !== "all"}>nur externe Modelle</option><option value="all" ?selected=${r.applies === "all"}>alle Modelle</option></select>
+          <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${r.enabled !== false} @change=${(e: any) => setRule(j, { enabled: e.target.checked })}> aktiv</label>
+          <button class="iconbtn" title="Entfernen" @click=${() => this.setList("connectors", i, { rules: rules.filter((_: any, n: number) => n !== j) })}>${icon("trash", 16)}</button></div>
+        <textarea rows="2" placeholder="Anweisung, z. B.: Nur Dateien mit Tag public oder internal dürfen an externe Modelle, nie restricted. Ungelabelte Dateien sind für alle Modelle gesperrt."
+          .value=${r.instruction || ""} @input=${(e: any) => setRule(j, { instruction: e.target.value })}></textarea></div>`)}
+      <button class="btn ghost" @click=${() => this.setList("connectors", i, { rules: [...rules, { name: "", scope: "", applies: "external", instruction: "", enabled: true }] })}>${icon("plus", 14)} Datenregel</button></details>`;
   }
   /** Zentrale Skills: gelten für alle, in der Oberfläche der Personen unsichtbar (skillcheck.py). */
   private centralSkillsSection() {

@@ -46,7 +46,8 @@ EV_TOOL = "tool"                # ein Werkzeugaufruf mit Ziel und Ergebnis
 EV_HOST = "host_approval"       # Zugang an einen nicht erlaubten Server: Entscheidung
 EV_CRED = "cred_approval"       # Zugang in einem Chat/Cowork verwenden: Entscheidung der Person
 EV_SKILL = "skill_check"        # Befund einer Skill-Richtlinie (skillcheck.py)
-EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST, EV_CRED, EV_SKILL)
+EV_RULE = "data_rule"           # Entscheidung des Wächters über eine Datenregel (datarules.py)
+EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST, EV_CRED, EV_SKILL, EV_RULE)
 
 # Modellklassen
 MC_MAIN, MC_EXTERNAL, MC_BILLED = "main", "external", "billed"
