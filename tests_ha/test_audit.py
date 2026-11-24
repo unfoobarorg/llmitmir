@@ -35,10 +35,10 @@ async def test_tool_calls_are_logged_per_agent_without_contents(hass, llmitmir, 
                                                     "secret_fields": ["token"]})
     hass.states.async_set("light.kueche", "on")
     st = await m.user_store(uid)
-    chat = {"id": "c1", "kind": "chat", "model": "glm-5.3", "title": SECRET, "messages": []}
-    run = Run(id="r1", user_id=uid, chat_id="c1", kind="chat")
+    chat = {"id": "ac1", "kind": "chat", "model": "glm-5.3", "title": SECRET, "messages": []}
+    run = Run(id="r1", user_id=uid, chat_id="ac1", kind="chat")
     ctx = ToolContext(m, hass_admin_user, st, chat, run, None)
-    assert ctx.agent == {"id": "agt-c1", "kind": "chat", "owner": uid}
+    assert ctx.agent == {"id": "agt-ac1", "kind": "chat", "owner": uid}
 
     ok = await ctx.execute(_call("ha_states", {"filter": SECRET}))
     assert ok["status"] == "ok"
@@ -50,7 +50,7 @@ async def test_tool_calls_are_logged_per_agent_without_contents(hass, llmitmir, 
     assert denied["status"] == "denied"
     await ctx.execute(_call("progress_update", {"schritte": [SECRET]}, "t3"))  # intern: nicht protokolliert
 
-    res = await _ok(admin, "admin/audit", filters={"agent": "agt-c1"})
+    res = await _ok(admin, "admin/audit", filters={"agent": "agt-ac1", "kind": "tool"})
     events = res["events"]
     assert [e["tool"] for e in events] == ["http_request", "ha_states"]
     http, states = events
@@ -58,13 +58,17 @@ async def test_tool_calls_are_logged_per_agent_without_contents(hass, llmitmir, 
     assert http["creds"][0]["name"] == "Wetter-API"
     assert http["target"] == {"host": "api.wetter.example", "path": "/v2/data", "method": "GET"}
     assert states["outcome"] == "ok" and states["decision"] == "auto" and states["model_class"] == "main"
-    assert all(e["agent"] == "agt-c1" and e["user"] == uid and e["run"] == "r1" for e in events)
+    assert all(e["agent"] == "agt-ac1" and e["user"] == uid and e["run"] == "r1" for e in events)
     assert SECRET not in json.dumps(res)
-    assert res["names"][uid] and res["summary"]["denied"] == 1 and res["agents"]["agt-c1"]["calls"] == 2
-    assert [e["tool"] for e in (await _ok(admin, "admin/audit", filters={"only_creds": True}))["events"]] == ["http_request"]
+    assert res["names"][uid] and res["summary"]["denied"] == 1 and res["agents"]["agt-ac1"]["calls"] == 2
+    assert [e["tool"] for e in (await _ok(admin, "admin/audit", filters={"only_creds": True, "agent": "agt-ac1",
+                                                                         "kind": "tool"}))["events"]] == ["http_request"]
+    # der Zugang brauchte eine Freigabe im Chat (1.3.0): auch diese Entscheidung steht im Protokoll
+    cred = (await _ok(admin, "admin/audit", filters={"agent": "agt-ac1", "kind": "cred_approval"}))["events"]
+    assert [(e["decision"], e["creds"][0]["name"]) for e in cred] == [("denied", "Wetter-API")]
 
     agents = await _ok(admin, "admin/audit_agents")
-    assert [a["id"] for a in agents["agents"]] == ["agt-c1"] and agents["agents"][0]["creds"]
+    assert "agt-ac1" in [a["id"] for a in agents["agents"]] and next(a for a in agents["agents"] if a["id"] == "agt-ac1")["creds"]
 
 
 async def test_audit_is_for_admins_only_and_retention_is_checked(hass, llmitmir, hass_ws_client, hass_admin_user,

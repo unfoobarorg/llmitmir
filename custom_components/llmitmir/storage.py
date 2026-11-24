@@ -24,6 +24,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util.file import write_utf8_file_atomic
 
 from . import subchats as SC
+from . import policy as P
 from .const import (BILLING_STORE_KEY, CONFIG_STORE_KEY, EWS_STORE_KEY, KEY_SHARED, STORAGE_VERSION,
                     TASK_KEY_SAME, TILE_PARALLEL, TILE_RUN_BUDGET)
 
@@ -98,6 +99,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "dashboards": {"tile_budget": TILE_RUN_BUDGET, "tile_parallel": TILE_PARALLEL},
     # Zugriffsprotokoll (audit.py): Aufbewahrung in Tagen
     "audit": {"retention_days": 180},
+    # Zugänge (policy.py): zentrale Systemzugänge nur, wenn der Admin sie erlaubt (Vorgabe: aus)
+    "credentials_policy": {"allow_central": False},
 }
 
 
@@ -209,7 +212,11 @@ class UserStore:
         # Benachrichtigungen auf der Startseite (inbox.py) – eine Liste, kein Verzeichnis
         if not isinstance(meta.get("inbox"), list):
             meta["inbox"] = []
+        # 1.3.0: Zugänge brauchen eine Freigabe je Agent – bestehende Aufgaben behalten die Zugänge, die es gibt
+        migrated = P.migrate_tasks(meta)
         self.meta = meta
+        if migrated:
+            self.schedule_save(5)
 
     def _write(self, rel: str, data: Any) -> None:
         path = os.path.join(self.base, rel)
@@ -256,6 +263,10 @@ class UserStore:
             if len(self._chat_cache) > 30:
                 self._chat_cache.pop(next(iter(self._chat_cache)))
         return chat
+
+    def cached_chat(self, chat_id: str | None) -> dict | None:
+        """Ein Chat, der gerade im Speicher ist (z. B. der laufende Hauptchat einer Teilaufgabe) – ohne Laden."""
+        return self._chat_cache.get(chat_id or "")
 
     def chat_summary(self, chat: dict) -> dict:
         return {k: chat.get(k) for k in ("id", "kind", "title", "project_id", "task_id", "model", "model_auto", "created",

@@ -679,6 +679,7 @@ export class Voice extends StoreElement {
     const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change?.aktion] || "ändern";
     const what = p.change ? t("Soll ich {w} „{n}“ {v}?", { w: CHANGE_WHAT[p.change.art] || p.change.art, n: p.change.name, v: verb })
       : p.steps || p.tool === "more_steps" ? t("Das waren schon viele Schritte. Soll ich weitermachen?")
+      : p.cred ? t("Darf ich deinen Zugang {n} verwenden?", { n: p.cred })
       : p.group ? t("Darf ich dafür {g} benutzen?", { g: p.group_label || p.group })
       : t("Darf ich das tun: {l}?", { l: p.label || p.tool });
     if (p.change || p.steps || p.tool === "more_steps") return `${what} ${t("Sag Ja oder Nein.")}`;

@@ -205,7 +205,8 @@ class Boards:
         if pend and full:
             out["pending_approval"] = {k: pend.get(k) for k in ("by", "at", "prompt_before", "tile_description_before")}
         if full:
-            out.update(project_id=task.get("project_id"), model=task.get("model"), runs=list(task.get("runs") or [])[:TILE_KEEP_RUNS])
+            out.update(project_id=task.get("project_id"), model=task.get("model"), runs=list(task.get("runs") or [])[:TILE_KEEP_RUNS],
+                       cred_allow=list(task.get("cred_allow") or []))
         return out
 
     def tile_view(self, owner: str, t: dict, uid: str, names: dict, st=None) -> dict:
@@ -475,6 +476,8 @@ class Boards:
                     t_in[k] = raw[k] or (None if k in ("project_id", "model") else ("error" if k == "notify" else False))
             if "enabled" in raw:
                 t_in["enabled"] = bool(raw["enabled"])
+            if raw.get("cred_allow") is not None:
+                t_in["cred_allow"] = raw["cred_allow"]  # Zugänge, die der Kachel-Lauf nutzen darf (policy.py)
         if t_in["notify"] not in ("always", "on_change", "error", "never"):
             t_in["notify"] = "error"
         built = M.build_task(st, t_in, owner_id=owner)

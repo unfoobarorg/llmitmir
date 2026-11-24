@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from . import voice as VO
 from . import audit as AU
+from . import policy as P
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -226,6 +227,9 @@ async def _bootstrap(hass, m, user, st) -> dict:
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
+        # Zugänge (policy.py): Arten, Tipps je Typ und ob der Admin zentrale Systemzugänge erlaubt
+        "cred_policy": {"allow_central": M.allow_central(m), "scopes": P.SCOPE_LABELS, "tips": P.TYPE_TIPS,
+                        "hint": P.GENERAL_HINT},
     }
 
 
@@ -1124,7 +1128,24 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "dashboards": {"tile_budget": (cfg.get("dashboards") or {}).get("tile_budget", TILE_RUN_BUDGET),
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
         "audit": {"retention_days": m.audit_retention()},
+        "credentials_policy": {"allow_central": M.allow_central(m)},
+        "cred_scopes": _cred_scopes(m, users),
     }
+
+
+def _cred_scopes(m, users) -> dict:
+    """Je Person: wie viele Zugänge welcher Art sie hat (geladene Personen) – für den Überblick des Admins."""
+    out = {}
+    for u in users:
+        st = m.users.get(u.id)
+        if not st:
+            continue
+        counts = {s: 0 for s in P.SCOPES} | {"none": 0}
+        for c in st.meta["credentials"].values():
+            counts[c.get("scope") if c.get("scope") in P.SCOPES else "none"] += 1
+        if any(counts.values()):
+            out[u.id] = counts
+    return out
 
 
 def _provider_view(m, p: dict) -> dict:
@@ -1254,6 +1275,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         except (TypeError, ValueError):
             raise ValueError("Budget und gleichzeitige Läufe sind ganze Zahlen.") from None
         cfg["dashboards"] = {"tile_budget": budget, "tile_parallel": parallel}
+    if "credentials_policy" in c:
+        cfg["credentials_policy"] = {"allow_central": bool((c["credentials_policy"] or {}).get("allow_central"))}
     if "audit" in c:
         cfg["audit"] = {"retention_days": AU.clean_retention((c["audit"] or {}).get("retention_days"))}
     if "models" in c:

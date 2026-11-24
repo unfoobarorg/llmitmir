@@ -54,7 +54,9 @@ def message(info: dict, chat_title: str = "", simple: bool = False) -> tuple[str
     Einfache Ansicht: ein Satz in Alltagssprache. Expertenansicht: Chat, Werkzeug und Eingabe.
     """
     label = _one_line(info.get("label") or info.get("group_label") or info.get("tool") or "eine Aktion")
-    if info.get("change"):
+    if info.get("cred"):
+        label = f"Zugang ›{_one_line(info['cred'])}‹ verwenden ({label})"
+    elif info.get("change"):
         label = f"Änderung: {label}"
     elif info.get("tool") == "more_steps":
         label = "Weitere Schritte verwenden?"

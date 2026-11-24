@@ -8,6 +8,7 @@ from __future__ import annotations
 from .. import changes as CH
 from .. import credentials as C
 from .. import manage as M
+from .. import policy as P
 from .. import sharing as SH
 from . import REGISTRY, Tool, obj, register
 
@@ -159,6 +160,7 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     if a.get("braucht_werkbank") is not None:
         requires = ["werkbank"] if a["braucht_werkbank"] else []
     heavy = bool(a["besonders_aufwaendig"]) if a.get("besonders_aufwaendig") is not None else bool(cur.get("heavy"))
+    cred_allow = a["zugaenge"] if a.get("zugaenge") is not None else list(cur.get("cred_allow") or [])
     new_name = str(a.get("neuer_name") or "").strip() or (cur.get("name") or name)
     other = _find(ctx.store.meta["tasks"], new_name)
     if other is not None and other is not old:
@@ -171,7 +173,7 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
            "schedule": a.get("zeitplan") or cur.get("schedule"),
            "enabled": bool(a["aktiv"]) if a.get("aktiv") is not None else cur.get("enabled", True),
            "allow_write": perms, "tool_groups": cur.get("tool_groups"), "notify": notify, "requires": requires,
-           "requires_note": cur.get("requires_note") or "", "heavy": heavy}
+           "requires_note": cur.get("requires_note") or "", "heavy": heavy, "cred_allow": cred_allow}
     if a.get("_share_users") is not None:
         raw["share"] = {"users": a["_share_users"]}
     try:
@@ -186,7 +188,7 @@ async def task_save_preview(ctx, a: dict) -> dict:
     names = {u["user_id"]: u["name"] for u in (a["_share_users"] or [])}
     old, new = _task_plan(ctx, a)
     names.update({uid: await ctx.manager.user_name(uid) for uid in SH.users((old or {}).get("share"))})
-    meta = {"user_names": names}
+    meta = {"user_names": names, "creds": ctx.store.meta["credentials"], "projects": ctx.store.meta["projects"]}
     ch = CH.build("aufgabe", new["name"], CH.task_fields(old, meta), CH.task_fields(new, meta))
     if not ch["felder"]:
         raise ValueError("Keine Änderung – die Aufgabe ist schon so.")
@@ -229,8 +231,9 @@ def _cred_plan(ctx, a: dict) -> tuple[dict | None, dict]:
            "services": list(a["dienste"]) if a.get("dienste") is not None else None,
            "access": dict(a["rechte"]) if isinstance(a.get("rechte"), dict) else None,
            "valid_until": a["gueltig_bis"] if a.get("gueltig_bis") is not None else (old or {}).get("valid_until") or "",
-           "notes": a["notiz"] if a.get("notiz") is not None else (old or {}).get("notes") or ""}
-    new = M.build_credential(ctx.store, raw)
+           "notes": a["notiz"] if a.get("notiz") is not None else (old or {}).get("notes") or "",
+           "scope": a.get("art") or None}
+    new = M.build_credential(ctx.store, raw, allow_central=M.allow_central(ctx.manager), require_scope=True)
     return old, new
 
 
@@ -241,6 +244,8 @@ async def credential_save_preview(ctx, a: dict) -> dict:
                   CH.credential_fields(new, sec, old if old else None))
     if not ch["felder"]:
         raise ValueError("Keine Änderung – der Zugang ist schon so.")
+    if old is None or (old.get("scope") != new.get("scope")):
+        ch["hinweis"] = P.scope_hint(new.get("type") or "", new.get("scope"))
     return ch
 
 
@@ -318,6 +323,9 @@ register(Tool("task_save", "llmitmir",
                    "braucht_werkbank": {"type": "boolean"},
                    "besonders_aufwaendig": {"type": "boolean",
                                             "description": "Besonders aufwaendige Aufgabe: bis zu 150 statt 60 Schritte je Lauf"},
+                   "zugaenge": {"type": "array", "items": {"type": "string"},
+                                "description": "Zugänge (Namen), die die Aufgabe nutzen darf – ein geplanter Lauf kann nicht "
+                                               "nachfragen; Zugänge des Projekts sind ohnehin erlaubt"},
                    "teilen": {"type": "array", "items": {"type": "object", "properties": {
                        "person": {"type": "string", "description": "Name der Person in Home Assistant"},
                        "bearbeiten": {"type": "boolean", "description": "Darf die Aufgabe ändern und starten"},
@@ -335,6 +343,11 @@ register(Tool("credential_save", "llmitmir",
               obj({"name": {"type": "string"}, "neuer_name": {"type": "string"},
                    "typ": {"type": "string", "enum": list(C.TYPES)}, "felder": {"type": "object"},
                    "felder_entfernen": {"type": "array", "items": {"type": "string"}}, "notiz": {"type": "string"},
+                   "art": {"type": "string", "enum": ["eigener", "persoenlich", "zentral"],
+                           "description": "Pflicht bei neuen Zugängen – frag die Person: eigener LLMitMir-Zugang in ihrem "
+                                          "Nutzerkontext (empfohlen, z. B. App-Passwort oder eigener Token), ihre "
+                                          "persönlichen Zugangsdaten (abgeraten) oder zentraler Systemzugang (nur wenn "
+                                          "der Admin es erlaubt)"},
                    "gueltig_bis": {"type": "string", "description": "Ablaufdatum JJJJ-MM-TT, leer = kein Ablaufdatum"},
                    "dienste": {"type": "array", "items": {"type": "string", "enum": list(C.TYPES["gwdg"]["services"])},
                                "description": "nur typ gwdg: wofür der Zugang gilt (mail = E-Mail-Postfach, calendar, contacts)"},

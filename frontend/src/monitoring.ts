@@ -108,7 +108,7 @@ export class MonitoringPage extends StoreElement {
           <td class="nw">${fmtTime(ev.ts)}</td>
           <td class="nw">${names[ev.user] || shortId(ev.user)}</td>
           <td>${this.agentCell(ev.agent, r.agents?.[ev.agent])}${ev.parent ? html`<div class="id">in ${agentLabel(ev.parent, r.agents?.[ev.parent])}</div>` : nothing}</td>
-          <td class="nw">${ev.kind === "host_approval" ? html`${icon("shield", 13)} ` : nothing}${ev.tool || "–"}${ev.write ? html` <span class="chip">schreibt</span>` : nothing}</td>
+          <td class="nw">${ev.kind === "host_approval" ? html`${icon("shield", 13)} ` : ev.kind === "cred_approval" ? html`${icon("key", 13)} Freigabe · ` : nothing}${ev.tool || "–"}${ev.write ? html` <span class="chip">schreibt</span>` : nothing}</td>
           <td>${credsText(ev) ? html`${icon("key", 13)} ${credsText(ev)}` : nothing}</td>
           <td class="tgt">${targetText(ev)}</td>
           <td class=${ev.model_class && ev.model_class !== "main" ? "ext" : ""}>${ev.model || ""}${ev.model_class && ev.model_class !== "main" ? html`<div class="id">${MODEL_CLASSES[ev.model_class]}</div>` : nothing}</td>

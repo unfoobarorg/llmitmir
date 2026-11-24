@@ -403,7 +403,7 @@ export class AdminPage extends StoreElement {
         notify_devices: { overrides: a.notify_overrides || {} },
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
-        model_access: a.model_access, billing: a.billing, dashboards: a.dashboards } });
+        model_access: a.model_access, billing: a.billing, dashboards: a.dashboards, credentials_policy: a.credentials_policy } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -444,6 +444,23 @@ export class AdminPage extends StoreElement {
         : html`<div class="hint">Keine Geräte gefunden – die Home-Assistant-App muss auf dem Handy eingerichtet sein.</div>`}
       <div class="hint" style="margin-top:10px">${users.map((u: any) => html`<div>${u.name}: ${byUser.get(u.id)?.join(", ") || "kein Gerät"}</div>`)}</div>
       <div class="hint" style="margin-top:6px">Hat eine Person mehrere Geräte, wählt sie selbst; hat sie nur eines, gilt das automatisch.</div></section>`;
+  }
+  /** Zugänge: zentrale Systemzugänge erlauben (nur im Notfall) und wie viele Zugänge welcher Art die Personen haben. */
+  private credPolicySection(users: any[]) {
+    const a = this.a; const cp = a.credentials_policy || {}; const sc = a.cred_scopes || {};
+    const rows = users.filter((u: any) => sc[u.id]);
+    return html`<section><h2>${icon("key", 18)} Zugänge</h2>
+      <div class="hint" style="margin-bottom:10px">Personen sollen für LLMitMir eigene Zugänge verwenden, die im Zielsystem in ihrem Nutzerkontext laufen
+        (App-Passwort, eigener Token mit minimalen Rechten) – nicht ihre persönlichen Anmeldedaten und keine zentralen Systemzugänge. Das Formular fragt die Art
+        jedes neuen Zugangs ab; jeder Zugang braucht außerdem in jedem Chat und Cowork die Freigabe der Person.</div>
+      <label class="opt ${cp.allow_central ? "on" : ""}"><input type="checkbox" .checked=${!!cp.allow_central}
+        @change=${(e: any) => this.set("credentials_policy", { ...cp, allow_central: e.target.checked })}>
+        <div><b>Zentrale Systemzugänge erlauben (nur im Notfall)</b><div class="hint">Aus: Zugänge der Art „zentraler Systemzugang“ lassen sich nicht anlegen,
+          und vorhandene sind gesperrt – kein Modell sieht oder nutzt sie.</div></div></label>
+      ${rows.length ? html`<div class="tw" style="margin-top:10px"><table><tr><th>Person</th><th class="num">eigene</th><th class="num">persönliche</th><th class="num">zentrale</th><th class="num">ohne Art</th></tr>
+        ${rows.map((u: any) => html`<tr><td>${u.name}</td><td class="num">${sc[u.id].dedicated}</td><td class="num">${sc[u.id].personal}</td>
+          <td class="num" style=${sc[u.id].central ? "color:var(--lm-warn)" : ""}>${sc[u.id].central}</td><td class="num">${sc[u.id].none}</td></tr>`)}</table></div>
+        <div class="hint">Gezählt werden die Personen, die LLMitMir seit dem letzten Start benutzt haben. Inhalte der Zugänge siehst du hier nicht.</div>` : nothing}</section>`;
   }
   @state() private provBusy = "";
   private setProv(pid: string, patch: any) { this.set("providers", this.a.providers.map((p: any) => (p.id === pid ? { ...p, ...patch } : p))); }
@@ -658,6 +675,7 @@ export class AdminPage extends StoreElement {
       ${this.providersSection()}
       ${this.extModelsSection(users)}
       ${this.costsSection(users)}
+      ${this.credPolicySection(users)}
       <section><h2>${icon("user", 18)} Wer darf LLMitMir nutzen?</h2>
         <div class="tw"><table><tr><th></th><th>Person</th><th>Anfragen/Tag</th><th>Tokens/Tag</th><th>Heute</th></tr>
           ${users.map((u: any) => { const q = a.quota_users[u.id] || {}; const us = a.usage_today[u.id];

@@ -67,6 +67,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Aufgaben, Teilen | `scheduler.py`, `cron.py`, `sharing.py`, `taskedit.py`, `taskkeys.py`, `tasknotify.py`, `inbox.py` |
 | Dashboards | `dashboards.py`, `access.py`, `boards.py` |
 | Zugänge | `credentials.py`, `credcheck.py`, `ews.py`, `ntlm.py`, `mailbox.py` |
+| Freigabe von Zugängen je Agent, Art des Zugangs | `policy.py` (HA-frei; eingehängt in `ToolContext._approve_creds`) |
 | Agenten-Identitäten, Zugriffsprotokoll | `audit.py` (HA-frei; eingehängt in `ToolContext.execute`, Admin → Monitoring in `frontend/src/monitoring.ts`) |
 | Werkzeuge | `tools/` – Übersicht in [WERKZEUGE.md](WERKZEUGE.md) |
 | Frontend | `frontend/src/` (Lit, esbuild, marked + DOMPurify); 3D-Roboter `robot3d.ts`, Sprachgespräch `voice*.ts`, Dashboards `pages3.ts`, `grid.ts`, `tiles/` |
