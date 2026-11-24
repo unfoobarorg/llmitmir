@@ -37,7 +37,7 @@ Alles im Detail: [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md) · Werkzeuge: [docs/WE
 3. In der Seitenleiste *LLMitMir → Admin*: Personen freigeben, Schlüssel, Modelle und Kontingente einstellen.
 
 Voraussetzung: Home Assistant **2025.1** oder neuer. Python-Pakete (werden automatisch installiert): `pypdfium2`,
-`anthropic`, `edge-tts`, `pillow`.
+`anthropic`, `edge-tts`, `pillow`, `ldap3`.
 
 ### Datenschutz und Sicherheit
 
@@ -101,7 +101,7 @@ All details (German): [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md) · Tools: [docs/W
 3. In the sidebar, *LLMitMir → Admin*: allow people, set keys, models and quotas.
 
 Requires Home Assistant **2025.1** or newer. Python packages (installed automatically): `pypdfium2`, `anthropic`,
-`edge-tts`, `pillow`.
+`edge-tts`, `pillow`, `ldap3`.
 
 ### Privacy and security
 

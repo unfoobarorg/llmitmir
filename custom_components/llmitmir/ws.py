@@ -19,6 +19,7 @@ from . import skillcheck as SK
 from . import connectors as CN
 from . import mcp as MCP
 from . import auditexport as AX
+from . import idm as IDM
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -1210,6 +1211,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "audit": {"retention_days": m.audit_retention(), "export": AX.view((cfg.get("audit") or {}).get("export") or {}),
                   "export_state": m.export_state},
         "credentials_policy": {"allow_central": M.allow_central(m), "free_credentials": CN.free_allowed(cfg)},
+        "idm": IDM.view(cfg.get("idm") or {}),
+        "auth_providers": sorted({p.type for p in m.hass.auth.auth_providers}),
         "connectors": cfg.get("connectors") or [],
         # zentrale Skills und Skill-Richtlinien (skillcheck.py) – nur in dieser Admin-Ansicht sichtbar
         "central_skills": cfg.get("central_skills") or [], "skill_policies": cfg.get("skill_policies") or [],
@@ -1368,6 +1371,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         if "skill_policies" in c:
             cfg["skill_policies"] = SK.clean_policies(c["skill_policies"])
         recheck = SK.config_hash(cfg) != before
+    if "idm" in c:
+        cfg["idm"] = IDM.clean(c["idm"], cfg.get("idm"))
     if "credentials_policy" in c:
         cp = c["credentials_policy"] or {}
         cfg["credentials_policy"] = {"allow_central": bool(cp.get("allow_central")),
@@ -1552,6 +1557,41 @@ async def ws_admin_audit_export_test(hass, conn, msg, m, user, st):
     ev = AU.make_event(AU.EV_ADMIN, _admin_agent(user), "", tool="export_test", outcome="ok", decision="auto")
     await m.export_events([ev], force=True)
     return {"state": m.export_state}
+
+
+# ---------------------------------------------------------------- Nutzerverwaltung mit AD/LDAP (idm.py)
+async def _idm_plan(hass, m) -> tuple[list[dict], int]:
+    cfg = m.config.data.get("idm") or {}
+    if not cfg.get("enabled"):
+        raise ValueError("Die Nutzerverwaltung mit dem Verzeichnis ist ausgeschaltet.")
+    try:
+        entries = await hass.async_add_executor_job(IDM.read_directory, cfg)
+    except ValueError:
+        raise
+    except Exception as e:  # noqa: BLE001 - Verbindung, Anmeldung, Suche: verständlich melden
+        raise ValueError(f"Verzeichnis nicht lesbar: {type(e).__name__}: {e}"[:300]) from None
+    users = [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
+              "usernames": [c.data.get("username") for c in u.credentials if c.data and c.data.get("username")]}
+             for u in await _users(hass)]
+    return IDM.plan(entries, cfg, users, list(m.config.data.get("allowed_users") or [])), len(entries)
+
+
+@command(_t("admin/idm_preview"), admin=True)
+async def ws_admin_idm_preview(hass, conn, msg, m, user, st):
+    """Probelauf: was der Abgleich mit dem Verzeichnis ändern würde – ändert nichts."""
+    actions, n = await _idm_plan(hass, m)
+    return {"actions": actions, "entries": n}
+
+
+@command(_t("admin/idm_apply"), admin=True)
+async def ws_admin_idm_apply(hass, conn, msg, m, user, st):
+    """Abgleich ausführen (frisch geplant, nicht der alte Probelauf)."""
+    actions, n = await _idm_plan(hass, m)
+    res = await IDM.apply(hass, m, actions)
+    m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="idm_sync",
+                   target={"object": AU.clip(", ".join(f"{k} {v}" for k, v in res["counts"].items()) or "keine Änderung", 120)},
+                   outcome="error" if res["errors"] else "ok", decision="rule")
+    return dict(res, entries=n)
 
 
 @command(_t("admin/audit_agents"), admin=True)

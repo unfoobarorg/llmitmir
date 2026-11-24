@@ -1,7 +1,7 @@
 // Personal settings (incl. Claude import and usage) and the admin page.
 import { LitElement, css, html, nothing } from "lit";
 import { state } from "lit/decorators.js";
-import { StoreElement, base, icon, md, fmtNum, fmtTime, daysText, copyText, safeElement } from "./ui";
+import { StoreElement, base, icon, md, fmtNum, fmtTime, daysText, copyText, safeElement, confirmDialog } from "./ui";
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
@@ -404,7 +404,7 @@ export class AdminPage extends StoreElement {
         models: { enabled: a.models.enabled, defaults: a.models.defaults, context: a.models.context, auto_enable_new: a.models.auto_enable_new !== false },
         providers: a.providers.map((p: any) => ({ id: p.id, enabled: p.enabled, mode: p.mode, key: p.key, endpoint: p.endpoint, extra_models: p.extra_models })),
         model_access: a.model_access, billing: a.billing, dashboards: a.dashboards, credentials_policy: a.credentials_policy,
-        central_skills: a.central_skills, skill_policies: a.skill_policies, connectors: a.connectors } });
+        central_skills: a.central_skills, skill_policies: a.skill_policies, connectors: a.connectors, idm: a.idm } });
       this.dirty = false; store.notify(t("Gespeichert"));
       window.dispatchEvent(new CustomEvent("llmitmir-admin-saved"));
       if (store.data) await store.load();
@@ -509,6 +509,57 @@ export class AdminPage extends StoreElement {
         ${["bearer", "header", "basic"].includes(x.type) ? this.mcpEditor(x, i) : nothing}
         ${this.rulesEditor(x, i)}</div>`)}</div>
       <button class="btn" style="margin-top:8px" @click=${() => this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }])}>${icon("plus", 16)} Konnektor hinzufügen</button></section>`;
+  }
+  @state() private idmPlan: any = null;
+  @state() private idmBusy = false;
+  /** Nutzerverwaltung mit AD/LDAP (idm.py): Verbindung, Gruppen-Zuordnung, Probelauf, Abgleich. */
+  private idmSection() {
+    const x = this.a.idm || {}; const maps: any[] = x.mappings || [];
+    const set = (patch: any) => this.set("idm", { ...x, ...patch });
+    const run = async (apply: boolean) => {
+      if (this.dirty) { await this.save(); if (this.dirty) return; }
+      if (apply && !(await confirmDialog("Abgleich jetzt ausführen? Benutzer werden angelegt, geändert oder deaktiviert (nie gelöscht).", "Ausführen"))) return;
+      this.idmBusy = true;
+      try { const r = await store.api.ws(apply ? "admin/idm_apply" : "admin/idm_preview"); this.idmPlan = { ...r, applied: apply }; }
+      catch (e: any) { store.notify(e.message); }
+      this.idmBusy = false;
+    };
+    const label: Record<string, string> = { create: "anlegen", update: "ändern", deactivate: "deaktivieren", reactivate: "wieder aktivieren",
+      allow: "LLMitMir freigeben", disallow: "LLMitMir entziehen", skip: "übersprungen" };
+    const p = this.idmPlan;
+    return html`<section><h2>${icon("user", 18)} Nutzerverwaltung (Active Directory / LDAP)</h2>
+      <div class="hint" style="margin-bottom:10px">Optional: LLMitMir legt Home-Assistant-Benutzer nach Gruppen im Verzeichnis an, passt Admin-Rechte und den Zugriff auf
+        LLMitMir an und deaktiviert, wer aus allen Gruppen fällt (nie löschen). Von Hand angelegte Benutzer bleiben unberührt, der letzte aktive Admin auch.
+        Angemeldet wird mit dem Verzeichnis-Passwort über den HA-Anmeldeanbieter <code>command_line</code> mit einem LDAP-Skript (siehe Doku); MFA richten die Personen selbst ein.</div>
+      <label class="opt ${x.enabled ? "on" : ""}"><input type="checkbox" .checked=${!!x.enabled} @change=${(e: any) => set({ enabled: e.target.checked })}>
+        <div><b>Mit dem Verzeichnis abgleichen</b></div></label>
+      ${x.enabled ? html`<div class="form" style="margin-top:10px">
+        <div class="two"><label class="f"><span>Server</span><input placeholder="ldaps://dc.example.org" .value=${x.server || ""} @input=${(e: any) => set({ server: e.target.value })}></label>
+          <label class="f"><span>Basis-DN</span><input placeholder="DC=example,DC=org" .value=${x.base_dn || ""} @input=${(e: any) => set({ base_dn: e.target.value })}></label></div>
+        <div class="two"><label class="f"><span>Bind-Konto (nur lesen)</span><input placeholder="CN=svc-llmitmir,OU=Dienste,DC=example,DC=org" .value=${x.bind_dn || ""} @input=${(e: any) => set({ bind_dn: e.target.value })}></label>
+          <label class="f"><span>Passwort</span><input type="password" autocomplete="off" .value=${x.bind_password || ""} @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }} @input=${(e: any) => set({ bind_password: e.target.value })}></label></div>
+        <label class="f"><span>Filter</span><input class="code" .value=${x.user_filter || "(&(objectCategory=person)(objectClass=user))"} @input=${(e: any) => set({ user_filter: e.target.value })}></label>
+        <div class="two"><label class="f"><span>Attribut Anmeldename</span><input .value=${x.attr_username || "sAMAccountName"} @input=${(e: any) => set({ attr_username: e.target.value })}></label>
+          <label class="f"><span>Anmeldeanbieter in Home Assistant</span><select @change=${(e: any) => set({ auth_provider: e.target.value })}>
+            ${[...new Set(["command_line", ...(this.a.auth_providers || [])])].map((t: string) => html`<option value=${t} ?selected=${(x.auth_provider || "command_line") === t}>${t}${(this.a.auth_providers || []).includes(t) ? "" : " (nicht eingerichtet)"}</option>`)}</select></label></div>
+        <div class="f"><span>Gruppen-Zuordnung</span>
+          ${maps.map((mp: any, j: number) => html`<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:6px">
+            <input class="code" style="flex:1;min-width:240px" placeholder="CN=HA-Nutzer,OU=Gruppen,DC=example,DC=org" .value=${mp.group || ""}
+              @input=${(e: any) => set({ mappings: maps.map((q: any, n: number) => (n === j ? { ...q, group: e.target.value } : q)) })}>
+            <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${!!mp.admin} @change=${(e: any) => set({ mappings: maps.map((q: any, n: number) => (n === j ? { ...q, admin: e.target.checked } : q)) })}> Admin</label>
+            <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${mp.llmitmir !== false} @change=${(e: any) => set({ mappings: maps.map((q: any, n: number) => (n === j ? { ...q, llmitmir: e.target.checked } : q)) })}> LLMitMir</label>
+            <button class="iconbtn" @click=${() => set({ mappings: maps.filter((_: any, n: number) => n !== j) })}>${icon("trash", 16)}</button></div>`)}
+          <button class="btn ghost" @click=${() => set({ mappings: [...maps, { group: "", admin: false, llmitmir: true }] })}>${icon("plus", 14)} Gruppe</button></div>
+        <label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${!!x.auto} @change=${(e: any) => set({ auto: e.target.checked })}> Jede Nacht um 4:23 automatisch abgleichen</label>
+        <div class="row" style="gap:8px"><button class="btn" ?disabled=${this.idmBusy} @click=${() => run(false)}>${icon("eye", 15)} Probelauf</button>
+          <button class="btn danger" ?disabled=${this.idmBusy || !p || p.applied} @click=${() => run(true)}>${icon("check", 15)} Abgleich ausführen</button></div>
+        ${p ? html`<div class="card">${p.applied ? html`<b>Ausgeführt:</b> ${Object.entries(p.counts || {}).map(([k, v]) => `${v}× ${label[k] || k}`).join(", ") || "keine Änderung"}
+            ${(p.errors || []).map((er: string) => html`<div class="hint" style="color:var(--lm-err)">${er}</div>`)}`
+          : html`<b>Probelauf:</b> ${p.entries} Personen im Verzeichnis, ${p.actions.length} Änderungen
+            ${p.actions.length ? html`<div class="tw"><table><tr><th>Aktion</th><th>Anmeldename</th><th>Name</th><th>Grund</th></tr>
+              ${p.actions.map((a: any) => html`<tr><td>${label[a.action] || a.action}${a.admin === true ? " (Admin)" : a.admin === false && a.action === "update" ? " (kein Admin)" : ""}</td>
+                <td class="code">${a.username}</td><td>${a.name || ""}</td><td class="hint">${a.reason}</td></tr>`)}</table></div>` : nothing}`}</div>` : nothing}
+      </div>` : nothing}</section>`;
   }
   @state() private mcpSecret: Record<number, string> = {};
   @state() private mcpBusy = -1;
@@ -830,6 +881,7 @@ export class AdminPage extends StoreElement {
       ${this.costsSection(users)}
       ${this.credPolicySection(users)}
       ${this.connectorsSection()}
+      ${this.idmSection()}
       ${this.centralSkillsSection()}
       ${this.skillPoliciesSection()}
       <section><h2>${icon("user", 18)} Wer darf LLMitMir nutzen?</h2>

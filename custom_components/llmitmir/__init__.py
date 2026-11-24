@@ -135,6 +135,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         entry.async_on_unload(async_track_time_change(hass, _anomalies, hour=6, minute=7, second=0))
 
+        # Nutzerverwaltung mit AD/LDAP (idm.py): nachts abgleichen, wenn der Admin es eingeschaltet hat
+        async def _idm(_now=None) -> None:
+            idm = manager.config.data.get("idm") or {}
+            if not (idm.get("enabled") and idm.get("auto")):
+                return
+            try:
+                from .ws import _idm_plan
+
+                actions, _n = await _idm_plan(hass, manager)
+                from . import idm as IDM
+
+                await IDM.apply(hass, manager, actions)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Abgleich mit dem Verzeichnis fehlgeschlagen")
+
+        entry.async_on_unload(async_track_time_change(hass, _idm, hour=4, minute=23, second=0))
+
         hass.async_create_background_task(_purge(), "llmitmir retention")
         entry.async_on_unload(async_track_time_interval(hass, _purge, timedelta(hours=1)))
 

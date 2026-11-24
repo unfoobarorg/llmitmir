@@ -373,6 +373,27 @@
   lädt die Liste als CSV herunter. Der Reiter *Agenten* listet alle Agenten mit erster und letzter Aktivität, Läufen,
   Aufrufen, benutzten Zugängen und ob sie gerade laufen. Ablage: `.storage/llmitmir_audit/` (eine Datei je Tag);
   Aufbewahrung einstellbar (7 bis 3650 Tage, Vorgabe 180), ältere Tage löscht LLMitMir stündlich.
+- **Nutzerverwaltung mit Active Directory/LDAP** (*Admin → Nutzerverwaltung*, optional, Vorgabe aus): LLMitMir liest
+  Personen per LDAPS (Bind-Konto mit Leserechten, Basis-DN, Filter, Attribut für den Anmeldenamen) und gleicht die
+  Home-Assistant-Benutzer nach **Gruppen-Zuordnungen** ab – je Gruppe „Admin“ und „LLMitMir“ (Zugriff aufs Panel). Wer in
+  einer zugeordneten Gruppe ist, bekommt einen Benutzer, verknüpft mit dem gewählten Anmeldeanbieter; Admin-Recht, Name
+  und LLMitMir-Zugriff folgen den Gruppen; wer aus allen Gruppen fällt, im Verzeichnis gesperrt ist oder fehlt, wird
+  **deaktiviert, nie gelöscht** (kommt er zurück, wieder aktiviert). Von Hand angelegte Benutzer bleiben unberührt (auch
+  bei gleichem Anmeldenamen), der letzte aktive Admin wird nie deaktiviert oder herabgestuft. Erst der **Probelauf** zeigt
+  alle Änderungen, dann führt „Abgleich ausführen“ sie aus (frisch geplant); auf Wunsch jede Nacht um 4:23. Jeder
+  Abgleich steht im Monitoring (`admin_action`). **Anmeldung** mit dem Verzeichnis-Passwort über den HA-Anmeldeanbieter
+  `command_line`, z. B. in `configuration.yaml`:
+
+  ```yaml
+  homeassistant:
+    auth_providers:
+      - type: homeassistant          # bisherige Benutzer
+      - type: command_line
+        command: /config/ldap-auth.sh   # prüft Benutzer/Passwort per ldapwhoami gegen LDAPS, Exit-Code 0 = gültig
+        meta: true
+  ```
+
+  MFA richten die Personen wie bisher selbst ein. Python-Paket: `ldap3`.
 - **Wartungsmodus vor Neustarts** (Dienste `llmitmir.prepare_restart` und `llmitmir.cancel_restart`, Sensor
   `sensor.llmitmir_laufende_agenten`): `prepare_restart` (Ankündigung `minutes`, Vorgabe 10; höchste Wartezeit
   `max_wait`, Vorgabe 30; `restart`, Vorgabe aus; `reason`) kündigt den Neustart allen Personen mit Zugang an – Karte auf
