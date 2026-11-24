@@ -10,6 +10,7 @@ import difflib
 try:
     from .cron import describe
     from .sharing import summary as share_summary
+    from .policy import SCOPE_LABELS
 except ImportError:  # loaded standalone in tests
     from importlib import util as _u
     from pathlib import Path as _P
@@ -22,6 +23,10 @@ except ImportError:  # loaded standalone in tests
     _m = _u.module_from_spec(_s)
     _s.loader.exec_module(_m)
     share_summary = _m.summary
+    _s = _u.spec_from_file_location("lm_changes_policy", _P(__file__).with_name("policy.py"))
+    _m = _u.module_from_spec(_s)
+    _s.loader.exec_module(_m)
+    SCOPE_LABELS = _m.SCOPE_LABELS
 
 NOTIFY = {"always": "nach jedem Lauf", "on_change": "nur bei neuem Ergebnis, Rückfrage oder Fehler",
           "error": "nur bei Fehlern", "never": "nie"}
@@ -81,6 +86,8 @@ def task_fields(t: dict | None, meta: dict) -> list[tuple[str, str, bool]]:
             ("Projekt", (projects.get(t.get("project_id") or "") or {}).get("name") or "ohne", False),
             ("Modell", t.get("model") or "Standard", False), ("Aktiv", _yes(t.get("enabled", True)), False),
             ("Freigaben", ", ".join(t.get("allow_write") or []) or "keine", False),
+            ("Zugänge", ", ".join((meta.get("creds") or {}).get(c, {}).get("name", c) for c in t.get("cred_allow") or [])
+             or "keine", False),
             ("Benachrichtigen", NOTIFY.get(t.get("notify") or "always", str(t.get("notify"))), False),
             ("Braucht die Werkbank", _yes("werkbank" in (t.get("requires") or [])), False),
             ("Besonders aufwändig", _yes(t.get("heavy")), False),
@@ -101,6 +108,8 @@ def credential_fields(c: dict | None, secret: set[str], old: dict | None = None)
         if k in secret:
             v = (SECRET + " (neu)" if old is not None and prev.get(k) != v else SECRET) if v else ""
         rows.append((k, str(v or ""), False))
+    if c.get("scope"):
+        rows.append(("Art", SCOPE_LABELS.get(c["scope"], c["scope"]), False))
     if c.get("valid_until"):
         rows.append(("Gültig bis", str(c["valid_until"]), False))
     rows.append(("Notiz", c.get("notes") or "", True))

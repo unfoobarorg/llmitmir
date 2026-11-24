@@ -13,7 +13,7 @@ Für Kacheln gilt dasselbe: Ihre Beschreibung ist der Auftrag ihrer Aufgabe.
 """
 from __future__ import annotations
 
-OWNER_ONLY = ("allow_write", "tool_groups", "requires", "external_fallback", "model", "project_id", "heavy", "share")
+OWNER_ONLY = ("allow_write", "cred_allow", "tool_groups", "requires", "external_fallback", "model", "project_id", "heavy", "share")
 _BOOL = {"external_fallback", "heavy"}
 
 
@@ -50,7 +50,7 @@ def pending(old: dict, by: str, ts: float, **extra) -> dict:
             **{k: before.get(k, v) for k, v in extra.items()}}
 
 
-LABELS = {"allow_write": "Schreibfreigaben", "tool_groups": "Werkzeuge", "requires": "Werkbank", "external_fallback":
+LABELS = {"allow_write": "Schreibfreigaben", "cred_allow": "Zugänge", "tool_groups": "Werkzeuge", "requires": "Werkbank", "external_fallback":
           "Notfall-Modell", "model": "Modell", "project_id": "Projekt", "heavy": "Schrittzahl", "share": "Teilen"}
 
 

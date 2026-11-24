@@ -192,7 +192,7 @@
     alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
     freigegeben sind. Modell-Kacheln laufen mit den Zugängen der Eigentümer*in – „für alle“ geht bei ihnen nur als
     *ansehen*, und ändert jemand anderes die Beschreibung, läuft die Kachel erst wieder, wenn die Eigentümer*in bestätigt.
-- **Projekte**: Anweisungen, Dateien, Zugänge, Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
+- **Projekte**: Anweisungen, Dateien, Zugänge (dem Projekt zugeordnete Zugänge sind darin vorab erlaubt), Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
 - **Lebensdauer**: Chats und Coworks können sich nach einer Frist selbst löschen – je Projekt eine eigene Frist, für
   alles außerhalb eines Projekts eine Frist in den Einstellungen der Person. Standardmäßig ist das aus; wer es
   einschaltet, bekommt 30 Tage vorgeschlagen, jede andere Zahl (bis 3650) geht auch. Gezählt ab der letzten Benutzung,
@@ -204,6 +204,21 @@
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
   LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
   Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Erlaubte Server*.
+- **Freigabe je Agent**: Ein Zugang ist in einem Chat oder Cowork erst nutzbar, wenn die Person ihn freigibt. Beim
+  ersten Gebrauch erscheint eine Karte „Zugang „X“ verwenden?“ (auch als Push und im Sprachgespräch): **Einmal
+  erlauben** (nur dieser Aufruf), **Für diesen Chat/dieses Cowork erlauben** (gilt für alle weiteren Läufe darin) oder
+  **Nicht erlauben** (der Lauf macht ohne den Zugang weiter und fragt in diesem Lauf nicht wieder). Teilaufgaben nutzen
+  die Freigaben ihres Hauptchats, eine Freigabe aus einer Teilaufgabe gilt für den Hauptchat. **Vorab erlaubt** sind die
+  Zugänge, die einem Projekt zugeordnet sind – für alle Chats, Coworks und Aufgaben darin. **Geplante Aufgaben und
+  Kacheln** fragen nie: Sie nutzen nur die Zugänge, die in der Aufgabe bzw. Kachel (Abschnitt „Zugänge“) oder in ihrem
+  Projekt erlaubt sind, und nennen jeden abgelehnten im Bericht. Beim Update auf diese Version bekamen vorhandene
+  Aufgaben alle damals vorhandenen Zugänge (markiert zur Durchsicht). Jede Entscheidung steht im Zugriffsprotokoll.
+- **Art des Zugangs** (Pflicht beim Anlegen, im Formular und wenn das Modell einen Zugang vorschlägt): *eigener
+  LLMitMir-Zugang in meinem Nutzerkontext* (empfohlen – App-Passwort oder eigener Token mit minimalen Rechten, Tipps je
+  Typ im Formular), *meine persönlichen Zugangsdaten* (abgeraten) oder *zentraler Systemzugang* (nur im Notfall und nur,
+  wenn der Admin es unter *Admin → Zugänge* erlaubt; ohne Erlaubnis sind zentrale Zugänge gesperrt – kein Modell sieht
+  oder nutzt sie). Zugänge ohne Art (von früher oder aus dem Import) zeigt die Liste mit „Art fehlt“. Der Admin sieht je
+  Person, wie viele Zugänge welcher Art es gibt.
 - **Exchange über EWS** (Typ „Exchange (EWS)“ und GWDG-Exchange): Kalender und Kontakte laufen über Exchange Web
   Services statt über CalDAV. Der Server beantwortet die Zeitraumabfrage selbst (`FindItem` mit `CalendarView`), es
   kommt also kein Archiv mit; jeder Eintrag hat eine stabile `item_id` samt `ChangeKey`, und Ändern wie Löschen

@@ -652,6 +652,16 @@ export class ChatView extends LitElement {
         <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Änderung weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
+    : p.cred ? html`<div class="perm">${this.permFrom(p)}
+      <div class="row">${icon("key")}<b class="grow">${t("Zugang {name} verwenden?", { name: `„${p.cred}“` })}</b></div>
+      <div class="hint">${t("LLMitMir möchte für „{label}“ deinen Zugang nutzen. Ein Zugang braucht in jedem Chat und Cowork deine Freigabe.", { label: p.label })}</div>
+      <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
+      <div class="row">
+        <button class="btn primary" @click=${() => answer(p, "once")}>${t("Einmal erlauben")}</button>
+        <button class="btn" @click=${() => answer(p, "always")}>${this.chat?.kind === "cowork" ? t("Für dieses Cowork erlauben") : t("Für diesen Chat erlauben")}</button>
+        <button class="btn ghost danger" @click=${() => answer(p, "deny")}>${t("Nicht erlauben")}</button>
+      </div><div class="hint">${p.root_chat_id ? t("„Für diesen Chat erlauben“ gilt für den Hauptchat und alle seine Teilaufgaben.")
+        : t("„Nicht erlauben“: LLMitMir macht ohne diesen Zugang weiter. Für alle Chats eines Projekts erlaubst du Zugänge vorab auf der Projektseite.")}</div></div>`
     : p.host ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("shield")}<b class="grow">${t("Zugang {name} an {host} senden?", { name: (p.creds || []).map((n: string) => `„${n}“`).join(", "), host: p.host })}</b></div>
       <div class="hint">${t("Dieser Server gehört bisher nicht zu den erlaubten Servern des Zugangs. Erlaube das nur, wenn du ihm die Zugangsdaten anvertraust.")}</div>
@@ -776,6 +786,12 @@ export class ChatView extends LitElement {
           <div class="brow"><button class="btn primary ${del ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja, ${del ? "löschen" : "übernehmen"}</button>
             <button class="btn" @click=${() => answer(p, "deny")}>Nein</button></div></div>`;
       }
+      if (p.cred) return html`<div class="bubble ai ask">
+        <div>${t("Darf ich dafür deinen Zugang {name} verwenden?", { name: `„${p.cred}“` })}</div>
+        <details class="why"><summary>${icon("eye", 15)} ${t("Genau ansehen")}</summary><div class="hint" style="margin-bottom:6px">${p.label}</div><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
+        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${t("Ja, diesmal")}</button>
+          <button class="btn" @click=${() => answer(p, "always")}>${t("Ja, in diesem Chat immer")}</button>
+          <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Nein")}</button></div></div>`;
       if (p.host) return html`<div class="bubble ai ask">
         <div>${t("Darf ich deine Zugangsdaten {name} an {host} schicken?", { name: (p.creds || []).map((n: string) => `„${n}“`).join(", "), host: p.host })}</div>
         <details class="why"><summary>${icon("eye", 15)} ${t("Genau ansehen")}</summary><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>

@@ -18,6 +18,7 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.util import dt as dt_util
 
 from . import audit as AU
+from . import policy as P
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -1990,6 +1991,9 @@ class ToolContext:
         # Identität dieses Agenten fürs Zugriffsprotokoll (audit.py) und wer den laufenden Aufruf erlaubt hat
         self.agent = AU.agent_info(self.user_id, chat, task, self.project)
         self._decision = "auto"
+        # Zugangs-Freigaben (policy.py): Hauptchat einer Teilaufgabe und Antworten „nicht erlauben“ aus diesem Lauf
+        self.root_chat = store.cached_chat(chat.get("parent_id")) if chat.get("parent_id") else None
+        self._cred_run_no: set[str] = set()
 
     @property
     def external(self) -> bool:
@@ -2004,11 +2008,12 @@ class ToolContext:
 
     @property
     def creds(self) -> dict[str, dict]:
-        """Zugänge the tools may use: with an external model only those released for external models."""
+        """Zugänge the tools may use: with an external model only those released for external models; zentrale
+        Systemzugänge nur, wenn der Admin sie erlaubt (policy.py)."""
         allc = self.store.meta["credentials"]
-        if not self.external:
-            return allc
-        return {k: c for k, c in allc.items() if c.get("external")}
+        central = bool((self.manager.config.data.get("credentials_policy") or {}).get("allow_central"))
+        return {k: c for k, c in allc.items()
+                if not P.locked(c, central) and (not self.external or c.get("external"))}
 
     def locked_creds(self) -> dict[str, dict]:
         """Zugänge closed to external models (empty for runs on the main provider)."""
@@ -2207,7 +2212,12 @@ class ToolContext:
             broken = [f"- {c.get('name')}: {CK.summary(c)}" for c in self.creds.values()
                       if (self.allowed_creds is None or c["id"] in self.allowed_creds) and CK.failed(c)]
             parts.append("## Zugänge\nGeheimnisse kennst du nicht und gibst sie nie aus. Nutze Werkzeuge mit dem Namen des "
-                         "Zugangs (`zugang`) oder Platzhalter `{{cred:Name:feld}}`.\n"
+                         "Zugangs (`zugang`) oder Platzhalter `{{cred:Name:feld}}`. "
+                         + ("Ein geplanter Lauf darf nur die Zugänge nutzen, die die Aufgabe oder ihr Projekt erlaubt. "
+                            if self.task is not None else
+                            "Beim ersten Gebrauch eines Zugangs fragt LLMitMir die Person, ob du ihn nutzen darfst – "
+                            "einfach den Zugang verwenden, nicht vorher um Erlaubnis bitten. ")
+                         + "\n"
                          + json.dumps(creds, ensure_ascii=False)
                          + ("\n\nBei diesen Zugängen hat die letzte Prüfung einen Fehler ergeben – nenne ihn der Person, "
                             "statt es weiter zu versuchen:\n" + "\n".join(broken) if broken else ""))
@@ -2460,6 +2470,8 @@ class ToolContext:
                                "auf der Seite „Zugänge“ selbst tun.", status="denied")
             return msg
         asked = False
+        if tool.preview is None and (denied := await self._approve_creds(msg, tool, args)):
+            return denied
         if tool.group not in self.groups():
             # switched off in this chat/project, but available: ask instead of refusing
             if self.permission_for(name) == PERM_DENY:
@@ -2557,6 +2569,56 @@ class ToolContext:
         elif CK.looks_like_auth_error(text):
             self._mark_credential_failed(args, text)
         return msg
+
+    async def _approve_creds(self, msg: dict, tool, args: dict) -> dict | None:
+        """Zugänge brauchen eine Freigabe je Agent (policy.py): einmal, für diesen Chat/dieses Cowork oder nicht.
+
+        Vorab erlaubt sind die Zugänge des Projekts (und bei Teilaufgaben die des Hauptchats); unbeaufsichtigte Läufe
+        fragen nie – dort gilt nur, was die Aufgabe oder ihr Projekt erlaubt. Gibt die Ablehnung zurück oder None."""
+        for name in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, name)
+            if not c or (self.allowed_creds is not None and c["id"] not in self.allowed_creds):
+                continue  # unbekannt oder hier nicht verfügbar: das meldet das Werkzeug selbst
+            verdict, source = P.cred_verdict(c["id"], chat=self.chat, root=self.root_chat, project=self.project,
+                                             task=self.task, run_no=self._cred_run_no)
+            if verdict == P.ALLOW:
+                if self._decision == "auto":
+                    self._decided("standing")
+                continue
+            if verdict == P.DENY:
+                if self.task is not None:
+                    text = (f"Abgelehnt: Der Zugang „{c['name']}“ ist für diese geplante Aufgabe nicht erlaubt. Ein "
+                            "unbeaufsichtigter Lauf fragt nicht nach – ohne ihn weiterarbeiten und im Bericht nennen, dass "
+                            "er in den Einstellungen der Aufgabe (oder in ihrem Projekt) unter „Zugänge“ erlaubt werden muss.")
+                    self._decided("rule")
+                else:
+                    text = (f"Abgelehnt: Die Person hat den Zugang „{c['name']}“ hier nicht erlaubt. Ohne ihn "
+                            "weiterarbeiten und im Ergebnis nennen, was dadurch fehlt.")
+                    self._decided("denied")
+                msg.update(content=text, status="denied")
+                return msg
+            decision = await self.manager.ask_permission(self.run, {
+                "tool": tool.name, "label": msg["label"], "icon": "mdi:key-outline", "args": msg["args"],
+                "cred": c["name"], "cred_id": c["id"], "cred_scope": c.get("scope") or ""})
+            self._decided(decision)
+            model = self.chat.get("model") or ""
+            self.manager.audit.record(AU.EV_CRED, self.agent, self.run.id, tool=tool.name, group=tool.group,
+                                      creds=[{"id": c["id"], "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}],
+                                      model=model, model_class=self.manager.model_class(model), decision=self._decision,
+                                      outcome="denied" if decision in ("deny", "skip") else "ok")
+            if decision in ("deny", "skip"):
+                self._cred_run_no.add(c["id"])  # in diesem Lauf nicht wieder fragen
+                msg.update(content=SKIP_TEXT if decision == "skip" else
+                           f"Abgelehnt: Die Person möchte den Zugang „{c['name']}“ hier nicht verwenden. Ohne ihn "
+                           "weiterarbeiten und im Ergebnis nennen, was dadurch fehlt.", status="denied")
+                return msg
+            if decision == "always":
+                # gilt für den ganzen Chat bzw. das Cowork – bei einer Teilaufgabe für ihren Hauptchat
+                target = self.root_chat if self.root_chat is not None else self.chat
+                if P.grant(target, c["id"]) and target is not self.chat:
+                    await self.store.async_save_chat(target, keep_updated=True)
+                self.manager.emit(self.user_id, {"type": "chat", "chat": self.store.chat_summary(target)})
+        return None
 
     async def _approve_host(self, msg: dict, tool, need: dict) -> dict | None:
         """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.

@@ -49,6 +49,11 @@ const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   .cred-err { color: var(--lm-err); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
   .checkbox { display: flex; gap: 10px; align-items: flex-start; border-radius: 12px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; }
   .checkbox.ok { background: rgba(63,143,91,.10); }
+  .checkbox.warn { background: rgba(197,138,22,.12); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button { border: 1px solid var(--lm-line); background: var(--lm-panel); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; cursor: pointer; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+  .chips button.on { background: var(--lm-accent-soft); border-color: transparent; color: var(--lm-accent); }
+  .chips button:disabled { cursor: default; opacity: .8; }
   .checkbox.err { background: rgba(194,69,59,.10); border: 1px solid var(--lm-err); }
   .checkbox .i { flex: none; margin-top: 1px; }
   .checkbox.ok .i { color: var(--lm-ok); } .checkbox.err .i { color: var(--lm-err); }
@@ -282,6 +287,20 @@ export class TaskPage extends StoreElement {
         und die Ergebnisse der Werkzeuge dorthin – nie Passwörter, und nur Zugänge, die für externe Modelle freigegeben sind. Kosten zählen zu deinem
         Monatslimit (${fmtEur(e.month_eur || 0)} von ${fmtEur(e.limit_eur || 0)} verbraucht). Bitte nur ankreuzen, wenn der Auftrag keine sensiblen Informationen enthält.</div></div>`;
   }
+  /** Zugänge, die ein geplanter Lauf nutzen darf – er kann nicht nachfragen (Zugänge des Projekts sind ohnehin erlaubt). */
+  private credCard(x: any) {
+    const cs: any[] = store.data?.credentials || [];
+    const proj = (store.data?.projects || []).find((p: any) => p.id === x.project_id);
+    const viaProject = new Set<string>(proj?.credentials || []);
+    const allow = new Set<string>(x.cred_allow || []);
+    const toggle = (id: string) => { const n = new Set(allow); n.has(id) ? n.delete(id) : n.add(id); this.set("cred_allow", [...n]); this.set("cred_allow_migrated", false); };
+    return html`<div class="card"><b>${icon("key", 16)} ${t("Zugänge")}</b>
+      <div class="hint" style="margin:4px 0 10px">${t("Ein geplanter Lauf kann nicht nachfragen: Er nutzt nur die Zugänge, die hier oder im Projekt der Aufgabe erlaubt sind. Alle anderen lehnt er ab und nennt das im Bericht.")}</div>
+      ${x.cred_allow_migrated ? html`<div class="checkbox warn" style="margin-bottom:10px">${icon("info", 18)}<div>${t("Beim Update hat LLMitMir alle Zugänge übernommen, die es damals gab, damit die Aufgabe weiterläuft. Bitte nur die anhaken, die sie wirklich braucht.")}</div></div>` : nothing}
+      <div class="chips">${cs.length ? cs.map((c: any) => viaProject.has(c.id)
+        ? html`<button class="on" disabled title=${t("Im Projekt erlaubt")}>${c.name} · ${t("Projekt")}</button>`
+        : html`<button class=${allow.has(c.id) ? "on" : ""} @click=${() => toggle(c.id)}>${c.name}</button>`) : html`<span class="hint">${t("Noch keine Zugänge angelegt.")}</span>`}</div></div>`;
+  }
   /** Besonders aufwaendige Aufgabe: bis zu 150 statt 60 Schritte – und die Freigabe, wenn die Grenze erreicht war. */
   private stepsCard(x: any) {
     const simple = isSimple();
@@ -431,6 +450,7 @@ export class TaskPage extends StoreElement {
             const viaWb = n === "shell" && (x.requires || []).includes("werkbank");
             return html`<label title=${viaWb ? "Freigegeben durch „Braucht die Werkbank“" : ""}><input type="checkbox" ?disabled=${viaWb} .checked=${viaWb || (x.allow_write || []).includes(n)}
             @change=${(e: any) => { const set = new Set(x.allow_write || []); e.target.checked ? set.add(n) : set.delete(n); this.set("allow_write", [...set]); }}>${icon(v.icon, 16)} ${v.label}</label>`; })}</div></div>
+        ${!x.shared ? this.credCard(x) : nothing}
         <div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${(x.requires || []).includes("werkbank")}
             @change=${(e: any) => this.set("requires", e.target.checked ? ["werkbank"] : [])}><b>Braucht die Werkbank</b></label>
           <div class="hint" style="margin:4px 0 8px">Für Schritte mit Befehlen, Python-Skripten, Office-Dateien oder Whisper. Gibt „Befehl ausführen“ frei. Ohne Werkbank läuft die Aufgabe nur teilweise.</div>
@@ -560,6 +580,17 @@ function expiryChip(c: any) {
 }
 
 /** Letzte Prüfung der Zugangsdaten: grün, wenn sie durchging, rot, wenn nicht. */
+/** Art des Zugangs als Chip: fehlt, persönlich (abgeraten), zentral (gesperrt, wenn der Admin es nicht erlaubt). */
+function scopeChip(c: any) {
+  const pol = store.data?.cred_policy || {};
+  if (!c.scope) return html`<span class="chip warn" title=${t("Öffnen und die Art des Zugangs wählen")}>${icon("info", 13)} ${t("Art fehlt")}</span>`;
+  if (c.scope === "central") return pol.allow_central
+    ? html`<span class="chip warn" title=${pol.scopes?.central || ""}>${icon("shield", 13)} ${t("zentral")}</span>`
+    : html`<span class="chip err" title=${t("Zentrale Systemzugänge hat der Admin nicht erlaubt – gesperrt.")}>${icon("lock", 13)} ${t("zentral, gesperrt")}</span>`;
+  if (c.scope === "personal") return html`<span class="chip" title=${pol.scopes?.personal || ""}>${icon("user", 13)} ${t("persönlich")}</span>`;
+  return nothing;
+}
+
 function checkChip(c: any) {
   const k = c.check;
   if (!k) return nothing;
@@ -627,6 +658,7 @@ export class Credentials extends StoreElement {
         ${c.check && !c.check.ok ? html`<div class="cred-err">${c.check.message}</div>` : nothing}</div>
         <div class="tags">
         ${checkChip(c)}
+        ${scopeChip(c)}
         ${extShown ? (c.external ? html`<span class="chip warn" title="Für externe Modelle freigegeben">${icon("external", 13)} extern frei</span>`
           : html`<span class="chip" title="Für externe Modelle gesperrt">${icon("lock", 13)} extern gesperrt</span>`) : nothing}
         ${useChip(c)}
@@ -660,6 +692,7 @@ export class CredentialPage extends StoreElement {
     if (this.revealed && this.d.fields[k] === "•••") this.d = { ...this.d, fields: { ...this.d.fields, [k]: this.revealed.fields[k] } };
   }
   private async save() {
+    if (!this.d.scope) { store.notify(t("Bitte die Art des Zugangs wählen.")); return; }
     try { const r = await store.api.ws("credential/save", { credential: this.d }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
       if (this.credId === "new") navigate(`/credential/${r.id}`, true); else this.reload(); } catch (e: any) { store.notify(e.message); }
   }
@@ -671,6 +704,23 @@ export class CredentialPage extends StoreElement {
       store.notify(r.ok ? t("Zugang funktioniert") : r.message); }
     catch (e: any) { store.notify(e.message); }
     finally { this.checking = false; }
+  }
+  private scopeSection(c: any) {
+    const pol = store.data?.cred_policy || {};
+    const labels: Record<string, string> = pol.scopes || {};
+    const desc: Record<string, string> = {
+      dedicated: "Empfohlen: ein Zugang nur für LLMitMir, der im Zielsystem in deinem Namen und mit möglichst wenigen Rechten läuft – z. B. ein App-Passwort oder ein eigener Token. Er lässt sich einzeln widerrufen.",
+      personal: "Deine eigenen Anmeldedaten im Zielsystem. Abgeraten: Das Modell könnte dann alles, was du kannst. Nur, wenn das System keine eigenen Zugänge kennt.",
+      central: pol.allow_central ? "Ein Systemzugang, der nicht an dich gebunden ist und oft weitreichende Rechte hat – nur im Notfall."
+        : "Hat der Admin nicht erlaubt. Zentrale Zugänge sind gesperrt – kein Modell sieht oder nutzt sie.",
+    };
+    const locked = c.scope === "central" && !pol.allow_central;
+    return html`<div class="f"><span>${t("Art des Zugangs")} ${c.scope ? nothing : html`<span class="chip warn">${t("bitte wählen")}</span>`}</span>
+      <div class="checkbox" style="margin-bottom:8px">${icon("info", 18)}<div>${md(pol.hint || "")}<div class="hint" style="margin-top:4px">${pol.tips?.[c.type] || ""}</div></div></div>
+      ${Object.keys(labels).map(k => html`<label class="opt ${c.scope === k ? "on" : ""}" style="display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--lm-line);border-radius:12px;margin-bottom:6px;cursor:pointer;${k === "central" && !pol.allow_central && c.scope !== "central" ? "opacity:.55;cursor:not-allowed" : ""}">
+        <input type="radio" name="scope" style="width:auto;margin-top:3px" .checked=${c.scope === k} ?disabled=${k === "central" && !pol.allow_central && c.scope !== "central"}
+          @change=${() => this.set("scope", k)}><div><b>${labels[k]}</b><div class="hint">${desc[k]}</div></div></label>`)}
+      ${locked ? html`<div class="checkbox err">${icon("lock", 18)}<div>${t("Dieser zentrale Zugang ist gesperrt, weil der Admin zentrale Systemzugänge nicht erlaubt.")}</div></div>` : nothing}</div>`;
   }
   render() {
     const c = this.d; if (!c) return nothing;
@@ -702,6 +752,7 @@ export class CredentialPage extends StoreElement {
               name: this.d.name || (e.target.value === "gwdg" ? "GWDG-Exchange" : e.target.value === "ews" ? "Exchange" : "") }; this.dirty = true; }}>
             ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${c.type === k}>${v.label}</option>`)}</select></label></div>
         ${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}
+        ${this.scopeSection(c)}
         ${Object.keys(svcDefs).length ? html`<div class="f"><span>${t("Verwenden für")}</span>
           <div class="svcgrid">${Object.entries(svcDefs).map(([k, l]) => html`<label class="row" style="gap:6px;white-space:nowrap">
             <input type="checkbox" style="width:auto" .checked=${svc.includes(k)} @change=${(e: any) => this.set("services",

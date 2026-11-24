@@ -44,7 +44,8 @@ AGENT_KINDS = (KIND_CHAT, KIND_COWORK, KIND_VOICE, KIND_SUB, KIND_TASK, KIND_TIL
 EV_RUN = "run"                  # ein Lauf beginnt (Modell, Modellklasse)
 EV_TOOL = "tool"                # ein Werkzeugaufruf mit Ziel und Ergebnis
 EV_HOST = "host_approval"       # Zugang an einen nicht erlaubten Server: Entscheidung
-EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST)
+EV_CRED = "cred_approval"       # Zugang in einem Chat/Cowork verwenden: Entscheidung der Person
+EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST, EV_CRED)
 
 # Modellklassen
 MC_MAIN, MC_EXTERNAL, MC_BILLED = "main", "external", "billed"
