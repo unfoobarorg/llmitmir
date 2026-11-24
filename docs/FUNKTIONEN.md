@@ -373,6 +373,15 @@
   lädt die Liste als CSV herunter. Der Reiter *Agenten* listet alle Agenten mit erster und letzter Aktivität, Läufen,
   Aufrufen, benutzten Zugängen und ob sie gerade laufen. Ablage: `.storage/llmitmir_audit/` (eine Datei je Tag);
   Aufbewahrung einstellbar (7 bis 3650 Tage, Vorgabe 180), ältere Tage löscht LLMitMir stündlich.
+- **Wartungsmodus vor Neustarts** (Dienste `llmitmir.prepare_restart` und `llmitmir.cancel_restart`, Sensor
+  `sensor.llmitmir_laufende_agenten`): `prepare_restart` (Ankündigung `minutes`, Vorgabe 10; höchste Wartezeit
+  `max_wait`, Vorgabe 30; `restart`, Vorgabe aus; `reason`) kündigt den Neustart allen Personen mit Zugang an – Karte auf
+  der Startseite, Push an ihr Gerät und ein Hinweis über jeder Seite des Panels. Nach der Ankündigungszeit startet nichts
+  Neues mehr (neue Nachrichten werden mit dem Hinweis abgelehnt, geplante Aufgaben warten in der Schlange; nach dem
+  Neustart holt LLMitMir Fälliges nach), laufende Agenten dürfen bis zur Frist fertig werden. Dann ist die Wartung
+  „bereit“ – mit `restart: true` startet LLMitMir Home Assistant selbst neu, sonst wartet ein Playbook oder eine
+  Automation darauf: Zustand des Sensors = laufende Agenten, Attribut `wartung` = off/announced/draining/ready. Beispiel
+  für ein Update von außen: `prepare_restart` mit `minutes: 5`, warten bis `wartung` = `ready`, dann neu starten.
 - **Trusted-AI-Zentrale** (*Admin → Monitoring → Zentrale*): **laufende Agenten** mit „Anhalten“ (alle Läufe samt
   Teilaufgaben); **Auffälligkeiten** der letzten 24 Stunden gegenüber den 14 Tagen davor (ungewöhnlich viele Aufrufe,
   viele Sperren, neue Server, Zugriffe aus Chats/Coworks zwischen 0 und 5 Uhr) – jeden Morgen um 6:07 als Karte für alle

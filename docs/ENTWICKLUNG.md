@@ -44,7 +44,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Stufe | Jobs |
 |---|---|
 | lint | ruff, Syntax aller Python-Module, JSON, Shell-Skripte der Werkbank |
-| test | Unit-Tests mit Python 3.13 und 3.14 · HA-Tests gegen die aktuelle und die Mindestversion · neuestes HA (nur Warnung) · Frontend: tsc, Tests, Bundle und Lizenzdatei aktuell |
+| test | Unit-Tests mit Python 3.13 und 3.14 · HA-Tests gegen die aktuelle und die Mindestversion · neuestes HA (nur Warnung) · Frontend: tsc, Tests, Bundle und Lizenzdatei aktuell · Schwachstellen: `pip-audit` (Abhängigkeiten aus dem Manifest) und `npm audit` (nur Warnung) |
 | release | nur für `main`, Merge Requests nach `main` und Tags: dieselben Tests mit `--runxfail` (kein offener Befund) · ein Tag muss der Version im Manifest entsprechen |
 
 ## Konventionen
@@ -67,6 +67,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Aufgaben, Teilen | `scheduler.py`, `cron.py`, `sharing.py`, `taskedit.py`, `taskkeys.py`, `tasknotify.py`, `inbox.py` |
 | Dashboards | `dashboards.py`, `access.py`, `boards.py` |
 | Zugänge | `credentials.py`, `credcheck.py`, `ews.py`, `ntlm.py`, `mailbox.py` |
+| Wartungsmodus, Sensor laufende Agenten | `maintenance.py`, `sensor.py`, `services.yaml` |
 | Trusted-AI-Zentrale: Export, Auffälligkeiten, Entzug | `auditexport.py` (HA-frei; WS `admin/agent_stop`, `admin/revoke`, `admin/anomalies`, `admin/audit_export_test`) |
 | MCP-Konnektoren | `mcp.py` (HA-frei; Werkzeuge je Lauf in `ToolContext.mcp_tools`, WS `admin/mcp_tools`) |
 | Datenregeln, Wächter | `datarules.py` (HA-frei; eingehängt in `ToolContext._data_guard` vor dem Werkzeug) |

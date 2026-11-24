@@ -168,6 +168,9 @@ class Scheduler:
 
     async def _work(self, lane: str, slot: int = 0) -> None:
         while True:
+            if self.m.maintenance.blocks():
+                await asyncio.sleep(10)  # Wartung vor einem Neustart: Aufgaben warten in der Schlange (maintenance.py)
+                continue
             entry = self._take(lane, slot)
             if entry is None:
                 self._wake[lane].clear()

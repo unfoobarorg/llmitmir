@@ -34,5 +34,33 @@
         "per_user_own": "Jede Person trägt ihren eigenen Schlüssel ein"
       }
     }
+  },
+  "services": {
+    "prepare_restart": {
+      "name": "Neustart vorbereiten",
+      "description": "Kündigt einen Neustart an, lässt laufende Agenten fertig werden und startet danach nichts Neues.",
+      "fields": {
+        "minutes": {
+          "name": "Ankündigung (Minuten)",
+          "description": "So lange vor dem Warten werden alle informiert."
+        },
+        "max_wait": {
+          "name": "Höchste Wartezeit (Minuten)",
+          "description": "So lange wird höchstens auf laufende Agenten gewartet."
+        },
+        "restart": {
+          "name": "Danach neu starten",
+          "description": "Home Assistant selbst neu starten, sobald nichts mehr läuft."
+        },
+        "reason": {
+          "name": "Grund",
+          "description": "Erscheint im Hinweis an alle."
+        }
+      }
+    },
+    "cancel_restart": {
+      "name": "Neustart absagen",
+      "description": "Beendet den Wartungsmodus."
+    }
   }
 }
