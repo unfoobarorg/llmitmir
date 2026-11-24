@@ -20,7 +20,10 @@ Assistant oder der Stimme des Browsers vor – notfalls bleibt der Text als Unte
 from __future__ import annotations
 
 import asyncio
+import importlib
+import importlib.util
 import logging
+import sys
 from collections import OrderedDict
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,12 +51,25 @@ _locks: dict[str, asyncio.Lock] = {}
 
 
 def available() -> bool:
-    """Ist die Sprachausgabe von LLMitMir eingerichtet? (Ohne Netzprüfung – die zeigt sich beim Sprechen.)"""
+    """Ist die Sprachausgabe von LLMitMir eingerichtet? (Ohne Netzprüfung – die zeigt sich beim Sprechen.)
+
+    Läuft im Event-Loop (Websocket ``bootstrap``): deshalb nur nachsehen, ob das Paket da ist, nicht importieren –
+    der Import von ``edge_tts`` lädt Zertifikate und blockiert (Home Assistant warnt dann „Detected blocking call“).
+    """
+    if "edge_tts" in sys.modules:
+        return True
     try:
-        import edge_tts  # noqa: F401
+        return importlib.util.find_spec("edge_tts") is not None
     except Exception:  # noqa: BLE001
         return False
-    return True
+
+
+async def _edge_tts():
+    """``edge_tts`` laden – beim ersten Mal im Executor, weil der Import blockiert (siehe ``available``)."""
+    mod = sys.modules.get("edge_tts")
+    if mod is None:
+        mod = await asyncio.get_running_loop().run_in_executor(None, importlib.import_module, "edge_tts")
+    return mod
 
 
 def voice_id(voice: str | None) -> str:
@@ -124,7 +140,7 @@ async def synthesize(text: str, lang: str | None = "de", voice: str | None = Non
 
 async def _speak(text: str, vid: str) -> bytes:
     try:
-        import edge_tts
+        edge_tts = await _edge_tts()
     except Exception as e:  # noqa: BLE001
         raise RuntimeError("die Sprachausgabe von LLMitMir ist nicht eingerichtet") from e
     v = VOICES[vid]
