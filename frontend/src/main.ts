@@ -106,6 +106,7 @@ export class LLMitMirPanel extends LitElement {
     main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; position: relative; overflow: hidden; }
     .view { overflow-x: hidden; }
     .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
+    .maint { display: flex; gap: 8px; align-items: center; padding: 8px 14px; font-size: 13.5px; background: color-mix(in srgb, var(--lm-warn, #c58a16) 16%, var(--lm-panel)); border-bottom: 1px solid var(--lm-line); }
     .view { flex: 1; min-height: 0; }
     .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 15; animation: fadeIn .15s; }
     .small nav { position: absolute; z-index: 16; left: 0; top: 0; bottom: 0; transform: translateX(-100%); width: min(300px, 86vw); box-shadow: 10px 0 40px rgba(0,0,0,.18); }
@@ -572,7 +573,7 @@ export class LLMitMirPanel extends LitElement {
   private view() {
     const [p, id] = this.path;
     switch (p) {
-      case "chat": return html`<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
+      case "chat": return html`${this.maintBanner()}<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
       case "voice": return html`<lm-voice .chatId=${id === "last" ? this.lastVoice() : id}>${this.menuBtn()}</lm-voice>`;
       case "cowork": return this.wrap(html`<lm-home initialMode=${isSimple() ? "chat" : "cowork"}></lm-home>`);
       case "chats": return this.wrap(html`<lm-chats></lm-chats>`);
@@ -592,7 +593,12 @@ export class LLMitMirPanel extends LitElement {
     }
   }
   private wrap(content: any) {
-    return html`${this.small || this.collapsed ? html`<div class="topbar">${this.menuBtn()}</div>` : nothing}<div class="view">${content}</div>`;
+    return html`${this.small || this.collapsed ? html`<div class="topbar">${this.menuBtn()}</div>` : nothing}${this.maintBanner()}<div class="view">${content}</div>`;
+  }
+  /** Hinweis vor einem Neustart von Home Assistant (maintenance.py) – über jeder Seite, auch im Chat. */
+  private maintBanner() {
+    const mt = store.data?.maintenance;
+    return mt && mt.state && mt.state !== "off" ? html`<div class="maint">${icon("alert", 16)}<span>${mt.message || ""}</span></div>` : nothing;
   }
 
   render() {

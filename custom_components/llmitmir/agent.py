@@ -24,6 +24,7 @@ from . import connectors as CN
 from . import datarules as DR
 from . import mcp as MCP
 from . import auditexport as AX
+from . import maintenance as MT
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -142,6 +143,8 @@ class Manager:
         # Zugriffsprotokoll (audit.py): welcher Agent mit welchem Zugang worauf – nur Metadaten, nur für Admins
         self.audit = AU.AuditService(hass, hass.config.path(".storage", AU.AUDIT_DIR), self.audit_retention)
         self.audit.exporter = self.export_events
+        # Wartungsmodus vor Neustarts (maintenance.py)
+        self.maintenance = MT.Maintenance(self)
         self.export_state: dict = {}   # letzter Export: Zeit, Zahl, Fehler je Ziel
         load_all()
 
@@ -1047,6 +1050,8 @@ class Manager:
     async def send(self, user, chat_id: str, text: str, attachments: list[str] | None = None,
                    model: str | None = None, tools: list[str] | None = None, voice: bool = False,
                    amend: bool = False) -> str:
+        if self.maintenance.blocks():
+            raise QuotaError(MT.message(self.maintenance.state))  # Wartung: bis zum Neustart startet nichts Neues
         st = await self.user_store(user.id)
         chat = await st.async_get_chat(chat_id)
         if not chat:
@@ -1162,8 +1167,15 @@ class Manager:
     def start_run(self, user, chat: dict, task: dict | None = None) -> str:
         run = Run(id=new_id("r"), user_id=user.id, chat_id=chat["id"], kind=chat["kind"], parent_id=chat.get("parent_id"))
         self.runs[run.id] = run
+        self._runs_changed()
         run.task = self.hass.async_create_background_task(self._run(user, chat, run, task), f"llmitmir run {run.id}")
         return run.id
+
+    def _runs_changed(self) -> None:
+        """Sensor „laufende Agenten“ und Wartungsmodus auf den neuen Stand bringen."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        async_dispatcher_send(self.hass, MT.SIGNAL)
 
     def stop(self, user_id: str, run_or_chat: str) -> bool:
         """Einen Lauf anhalten (per Lauf- oder Chat-ID). „Stopp“ im Hauptchat hält auch seine Teilaufgaben an."""
@@ -1564,6 +1576,7 @@ class Manager:
             await self._status(run, final_status, {"error": error} if error else {})
             self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
             self.runs.pop(run.id, None)
+            self._runs_changed()
             if is_sub:
                 try:
                     await self._sub_finished(user, st, chat, final_status, error, limit_hit or wrapped, limit_error, steps)

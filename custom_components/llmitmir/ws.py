@@ -231,6 +231,7 @@ async def _bootstrap(hass, m, user, st) -> dict:
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
+        "maintenance": m.maintenance.view(),
         # Zugänge (policy.py): Arten, Tipps je Typ und ob der Admin zentrale Systemzugänge erlaubt
         "cred_policy": {"allow_central": M.allow_central(m), "scopes": P.SCOPE_LABELS, "tips": P.TYPE_TIPS,
                         "hint": P.GENERAL_HINT, "free_credentials": CN.free_allowed(m.config.data)},

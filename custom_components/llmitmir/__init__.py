@@ -62,6 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         ws.async_register(hass)
         http.async_register(hass)
+        _register_services(hass)
         await hass.http.async_register_static_paths(
             [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), False)])
         data["registered"] = True
@@ -84,6 +85,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await panel_custom.async_register_panel(hass, handle_safe_area=True, **panel_args)
     except TypeError:  # ältere Home-Assistant-Versionen kennen den Schalter nicht
         await panel_custom.async_register_panel(hass, **panel_args)
+    # Sensor „LLMitMir laufende Agenten“ (sensor.py) für Neustarts von außen
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     async def _start(_event=None) -> None:
         await manager.boards.async_start()
@@ -149,6 +152,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _register_services(hass: HomeAssistant) -> None:
+    """Wartungsmodus (maintenance.py): Neustart ankündigen und auf laufende Agenten warten."""
+    import voluptuous as vol
+    from homeassistant.helpers import config_validation as cv
+
+    def _m():
+        m = hass.data.get(DOMAIN, {}).get("manager")
+        if m is None:
+            raise vol.Invalid("LLMitMir ist nicht geladen")
+        return m
+
+    async def _prepare(call) -> dict:
+        return await _m().maintenance.prepare(call.data["minutes"], call.data["max_wait"], call.data["restart"],
+                                              call.data.get("reason", ""))
+
+    async def _cancel(call) -> dict:
+        return await _m().maintenance.cancel()
+
+    from homeassistant.core import SupportsResponse
+
+    hass.services.async_register(DOMAIN, "prepare_restart", _prepare, schema=vol.Schema({
+        vol.Optional("minutes", default=10): vol.All(vol.Coerce(float), vol.Range(min=0, max=240)),
+        vol.Optional("max_wait", default=30): vol.All(vol.Coerce(float), vol.Range(min=1, max=480)),
+        vol.Optional("restart", default=False): cv.boolean,
+        vol.Optional("reason"): cv.string}), supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "cancel_restart", _cancel, supports_response=SupportsResponse.OPTIONAL)
+
+
 async def _tell_admins_anomalies(hass, manager) -> None:
     import time as _time
 
@@ -189,7 +220,9 @@ async def _flush_all(manager) -> None:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = hass.data.get(DOMAIN, {})
     manager = data.get("manager")
+    await hass.config_entries.async_unload_platforms(entry, ["sensor"])
     if manager:
+        await manager.maintenance.cancel(quiet=True)
         for run in list(manager.runs.values()):
             run.cancel.set()
         if manager.scheduler:

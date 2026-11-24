@@ -34,5 +34,33 @@
         "per_user_own": "Every person enters their own key"
       }
     }
+  },
+  "services": {
+    "prepare_restart": {
+      "name": "Prepare restart",
+      "description": "Announces a restart, lets running agents finish and starts nothing new afterwards.",
+      "fields": {
+        "minutes": {
+          "name": "Notice (minutes)",
+          "description": "How long people are told in advance."
+        },
+        "max_wait": {
+          "name": "Maximum wait (minutes)",
+          "description": "How long to wait at most for running agents."
+        },
+        "restart": {
+          "name": "Restart afterwards",
+          "description": "Restart Home Assistant once nothing is running."
+        },
+        "reason": {
+          "name": "Reason",
+          "description": "Shown in the notice."
+        }
+      }
+    },
+    "cancel_restart": {
+      "name": "Cancel restart",
+      "description": "Ends maintenance mode."
+    }
   }
 }

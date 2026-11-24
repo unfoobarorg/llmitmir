@@ -154,6 +154,29 @@ frontend:
 
 # ------------------------------------------------------------------ Release-Tor (main, MRs nach main, Tags)
 # Dieselben Tests, aber jeder bekannte Befund (xfail) zählt als Fehler. Auf dev bleiben bekannte Befunde
+# ------------------------------------------------------------------ Schwachstellen in Abhängigkeiten
+# Meldet bekannte Schwachstellen (pip-audit für die Abhängigkeiten aus manifest.json, npm audit für das Frontend).
+# Bricht die Pipeline nicht ab – ein neuer Befund soll auffallen, nicht jede Änderung blockieren.
+audit-python:
+  stage: test
+  extends: .pip-cache
+  image: python:3.14-slim
+  allow_failure: true
+  script:
+    - pip install -q pip-audit
+    - >-
+      python -c "import json; print('\n'.join(json.load(open('custom_components/llmitmir/manifest.json'))['requirements']))"
+      > /tmp/requirements.txt
+    - cat /tmp/requirements.txt
+    - pip-audit -r /tmp/requirements.txt --progress-spinner off
+
+audit-npm:
+  stage: test
+  image: node:22-slim
+  allow_failure: true
+  script:
+    - npm audit --audit-level=high
+
 # erlaubt – neue Fehler und Rückfälle fallen dort trotzdem auf.
 unit-release:
   extends: [.unit, .release-rules]

@@ -231,6 +231,7 @@ export class Store extends EventTarget {
         break;
       }
       case "tasks_queue": d.queue = e.queue; break;
+      case "maintenance": d.maintenance = e.state; break;  // Wartung vor einem Neustart (maintenance.py)
       case "inbox": {
         // neue Karten von geplanten Aufgaben – die Startseite zeigt sie und spielt einen kurzen Ton
         const before = new Set(this.inbox.map((x: any) => x.id));
