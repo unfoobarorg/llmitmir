@@ -79,7 +79,7 @@ async def test_audit_is_for_admins_only_and_retention_is_checked(hass, llmitmir,
     for typ in ("admin/audit", "admin/audit_agents"):
         msg = await _ws(other, typ)
         assert not msg["success"] and msg["error"]["code"] == "unauthorized"
-    assert (await _ok(admin, "admin/get"))["audit"] == {"retention_days": 180}
-    assert (await _ok(admin, "admin/save", config={"audit": {"retention_days": 30}}))["audit"] == {"retention_days": 30}
+    assert (await _ok(admin, "admin/get"))["audit"]["retention_days"] == 180
+    assert (await _ok(admin, "admin/save", config={"audit": {"retention_days": 30}}))["audit"]["retention_days"] == 30
     bad = await _ws(admin, "admin/save", config={"audit": {"retention_days": 2}})
     assert not bad["success"] and "Aufbewahrungsfrist" in bad["error"]["message"]

@@ -23,6 +23,7 @@ from . import skillcheck as SK
 from . import connectors as CN
 from . import datarules as DR
 from . import mcp as MCP
+from . import auditexport as AX
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -140,6 +141,8 @@ class Manager:
         self.flows: dict[str, dict] = {}
         # Zugriffsprotokoll (audit.py): welcher Agent mit welchem Zugang worauf – nur Metadaten, nur für Admins
         self.audit = AU.AuditService(hass, hass.config.path(".storage", AU.AUDIT_DIR), self.audit_retention)
+        self.audit.exporter = self.export_events
+        self.export_state: dict = {}   # letzter Export: Zeit, Zahl, Fehler je Ziel
         load_all()
 
     async def async_setup(self) -> None:
@@ -289,6 +292,24 @@ class Manager:
         if PV.is_external(key or ""):
             return AU.MC_BILLED
         return AU.MC_EXTERNAL if self.is_external(key or "") else AU.MC_MAIN
+
+    async def export_events(self, events: list[dict], force: bool = False) -> None:
+        """Ereignisse an Webhook und Syslog weitergeben (auditexport.py) – Fehler halten nichts auf."""
+        cfg = (self.config.data.get("audit") or {}).get("export") or {}
+        evs = events if force else AX.wanted(cfg, events)
+        if not evs:
+            return
+        for target, enabled, send in (
+                ("webhook", (cfg.get("webhook") or {}).get("enabled"), lambda: AX.send_webhook(self.session, cfg["webhook"], evs)),
+                ("syslog", (cfg.get("syslog") or {}).get("enabled"), lambda: AX.send_syslog(cfg["syslog"], evs))):
+            if not enabled:
+                continue
+            try:
+                await send()
+                self.export_state[target] = {"at": now(), "sent": len(evs), "error": None}
+            except Exception as e:  # noqa: BLE001 - der Export darf nichts aufhalten
+                self.export_state[target] = {"at": now(), "sent": 0, "error": f"{type(e).__name__}: {e}"[:300]}
+                _LOGGER.warning("Export des Zugriffsprotokolls an %s fehlgeschlagen: %s", target, e)
 
     def audit_retention(self) -> int:
         try:

@@ -373,6 +373,15 @@
   lädt die Liste als CSV herunter. Der Reiter *Agenten* listet alle Agenten mit erster und letzter Aktivität, Läufen,
   Aufrufen, benutzten Zugängen und ob sie gerade laufen. Ablage: `.storage/llmitmir_audit/` (eine Datei je Tag);
   Aufbewahrung einstellbar (7 bis 3650 Tage, Vorgabe 180), ältere Tage löscht LLMitMir stündlich.
+- **Trusted-AI-Zentrale** (*Admin → Monitoring → Zentrale*): **laufende Agenten** mit „Anhalten“ (alle Läufe samt
+  Teilaufgaben); **Auffälligkeiten** der letzten 24 Stunden gegenüber den 14 Tagen davor (ungewöhnlich viele Aufrufe,
+  viele Sperren, neue Server, Zugriffe aus Chats/Coworks zwischen 0 und 5 Uhr) – jeden Morgen um 6:07 als Karte für alle
+  Admins; **Freigaben entziehen** für einen Zugang oder alle Zugänge einer Person („für diesen Chat erlaubt“ in allen
+  Chats, Zugangslisten der Aufgaben und Kacheln, auf Wunsch die Vorab-Freigabe in Projekten); **Export** jedes Ereignisses
+  an einen Webhook (JSON per POST, https, optional Token im Header) und/oder Syslog (RFC 5424 über UDP, TCP oder TLS,
+  Octet-Counting), gefiltert nach Ereignisart, mit Testknopf und letztem Zustand. Admin-Eingriffe stehen selbst im
+  Protokoll (`admin_action`). Einen Konnektor sperrt der Admin unter *Konnektoren* (aus), externe Modelle je Person unter
+  *Modelle*.
 - **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
   einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte
   Claude-Modell und eigene Deployment-Namen per kostenloser Token-Zählung). Der Admin bringt die Anbieter in eine **Reihenfolge**

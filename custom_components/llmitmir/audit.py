@@ -47,7 +47,8 @@ EV_HOST = "host_approval"       # Zugang an einen nicht erlaubten Server: Entsch
 EV_CRED = "cred_approval"       # Zugang in einem Chat/Cowork verwenden: Entscheidung der Person
 EV_SKILL = "skill_check"        # Befund einer Skill-Richtlinie (skillcheck.py)
 EV_RULE = "data_rule"           # Entscheidung des Wächters über eine Datenregel (datarules.py)
-EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST, EV_CRED, EV_SKILL, EV_RULE)
+EV_ADMIN = "admin_action"       # Eingriff eines Admins (Agent angehalten, Freigaben entzogen – auditexport.py)
+EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST, EV_CRED, EV_SKILL, EV_RULE, EV_ADMIN)
 
 # Modellklassen
 MC_MAIN, MC_EXTERNAL, MC_BILLED = "main", "external", "billed"
@@ -405,6 +406,13 @@ class AuditFiles:
                     continue  # eine halb geschriebene Zeile (Absturz) überspringen
         return out
 
+    def read_since(self, since: float, today: date | None = None) -> list[dict]:
+        """Alle Ereignisse seit ``since`` (für Auswertungen wie Auffälligkeiten), älteste zuerst."""
+        out: list[dict] = []
+        for day in reversed(days_between(since, None, today)):
+            out += [ev for ev in self.read_day(day) if ev.get("ts", 0) >= since]
+        return out
+
     def query(self, f: dict, limit: int = QUERY_MAX, today: date | None = None) -> tuple[list[dict], dict, bool]:
         """Neueste zuerst; dazu die Übersicht über *alle* Treffer und ob mehr als ``limit`` da waren."""
         hits: list[dict] = []
@@ -455,6 +463,8 @@ class AuditService:
         self._agents_dirty = False
         self._timer = None
         self._loaded = False
+        # Export in Drittsysteme (auditexport.py): async (events) -> None, vom Manager gesetzt
+        self.exporter = None
 
     async def async_load(self) -> None:
         self.agents = await self.hass.async_add_executor_job(self.files.load_agents)
@@ -492,6 +502,9 @@ class AuditService:
         except OSError:
             _LOGGER.exception("Zugriffsprotokoll konnte nicht geschrieben werden")
             self._buffer = events + self._buffer  # beim nächsten Mal erneut versuchen
+            return
+        if events and self.exporter is not None:
+            self.hass.async_create_background_task(self.exporter(events), "llmitmir audit export")
 
     async def async_query(self, raw_filters: dict | None, limit: int = QUERY_MAX) -> dict:
         await self.async_flush()
