@@ -13,6 +13,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from . import voice as VO
+from . import audit as AU
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -1122,6 +1123,7 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "sdk": claude_available(),
         "dashboards": {"tile_budget": (cfg.get("dashboards") or {}).get("tile_budget", TILE_RUN_BUDGET),
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
+        "audit": {"retention_days": m.audit_retention()},
     }
 
 
@@ -1252,6 +1254,8 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         except (TypeError, ValueError):
             raise ValueError("Budget und gleichzeitige Läufe sind ganze Zahlen.") from None
         cfg["dashboards"] = {"tile_budget": budget, "tile_parallel": parallel}
+    if "audit" in c:
+        cfg["audit"] = {"retention_days": AU.clean_retention((c["audit"] or {}).get("retention_days"))}
     if "models" in c:
         mm = dict(cfg.get("models") or {})
         for k in ("enabled", "defaults", "context", "auto_enable_new"):
@@ -1303,6 +1307,29 @@ async def ws_werkbank_test(hass, conn, msg, m, user, st):
         return {"ok": True, **(await Werkbank(m.session, url, token).health())}
     except WerkbankError as e:
         return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------- Zugriffsprotokoll (nur Admins)
+@command(_t("admin/audit") | {vol.Optional("filters"): dict, vol.Optional("limit"): int}, admin=True)
+async def ws_admin_audit(hass, conn, msg, m, user, st):
+    """Ereignisse des Zugriffsprotokolls (neueste zuerst) mit Übersicht – nur Metadaten, nie Inhalte."""
+    res = await m.audit.async_query(msg.get("filters"), msg.get("limit") or AU.QUERY_MAX)
+    ids = {e.get("user") for e in res["events"]} | {a.get("owner") for a in m.audit.agents.values()}
+    agents = {e.get("agent") for e in res["events"]} | {e.get("parent") for e in res["events"]}
+    res["agents"] = {k: v for k, v in m.audit.agents.items() if k in agents}
+    res["names"] = await _names(m, [i for i in ids if i])
+    res["retention_days"] = m.audit_retention()
+    return res
+
+
+@command(_t("admin/audit_agents"), admin=True)
+async def ws_admin_audit_agents(hass, conn, msg, m, user, st):
+    """Verzeichnis aller Agenten mit erster/letzter Aktivität, Aufrufen und benutzten Zugängen."""
+    await m.audit.async_flush()
+    agents = sorted(m.audit.agents.values(), key=lambda a: a.get("last_seen") or 0, reverse=True)
+    running = {r.agent_id for r in m.runs.values() if r.agent_id}
+    names = await _names(m, [a.get("owner") for a in agents if a.get("owner")])
+    return {"agents": agents, "names": names, "running": sorted(running), "retention_days": m.audit_retention()}
 
 
 def async_register(hass: HomeAssistant) -> None:

@@ -10,6 +10,7 @@ import "./pages";
 import "./pages2";
 import "./pages3";
 import "./settings";
+import "./monitoring";
 import "./voice";
 
 const LS = "llmitmir.sidebar";
@@ -583,7 +584,7 @@ export class LLMitMirPanel extends LitElement {
       case "credentials": return this.wrap(html`<lm-credentials></lm-credentials>`);
       case "credential": return this.wrap(html`<lm-credential .credId=${id}></lm-credential>`);
       case "settings": return this.wrap(html`<lm-settings></lm-settings>`);
-      case "admin": return this.wrap(html`<lm-admin></lm-admin>`);
+      case "admin": return this.wrap(id === "monitoring" ? html`<lm-monitoring></lm-monitoring>` : html`<lm-admin></lm-admin>`);
       default: return this.wrap(html`<lm-home initialMode="chat"></lm-home>`);
     }
   }

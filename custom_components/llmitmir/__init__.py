@@ -108,6 +108,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await manager.purge_expired()
             except Exception:  # noqa: BLE001 - die Aufräumfrist darf nichts anderes aufhalten
                 _LOGGER.exception("Aufräumen abgelaufener Chats fehlgeschlagen")
+            try:
+                await manager.audit.async_purge()  # Zugriffsprotokoll nach der Frist des Admins
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Aufräumen des Zugriffsprotokolls fehlgeschlagen")
 
         hass.async_create_background_task(_purge(), "llmitmir retention")
         entry.async_on_unload(async_track_time_interval(hass, _purge, timedelta(hours=1)))
@@ -133,6 +137,10 @@ async def _flush_all(manager) -> None:
         except Exception:  # noqa: BLE001 - die anderen Personen trotzdem speichern
             _LOGGER.exception("Speichern der Daten von %s fehlgeschlagen", st.user_id)
     await manager.billing.async_save()
+    try:
+        await manager.audit.async_flush()
+    except Exception:  # noqa: BLE001 - beim Herunterfahren nichts anderes aufhalten
+        _LOGGER.exception("Zugriffsprotokoll beim Herunterfahren nicht geschrieben")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

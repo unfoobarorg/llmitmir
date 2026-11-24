@@ -1,7 +1,7 @@
 // German is the source language; English via lookup. t("…") returns the German text if no translation exists.
 const EN: Record<string, string> = {
   "Neuer Chat": "New chat", "Neues Cowork": "New cowork", "Chats": "Chats", "Projekte": "Projects", "Geplant": "Scheduled",
-  "Skills": "Skills", "Zugänge": "Credentials", "Einstellungen": "Settings", "Admin": "Admin", "Zuletzt": "Recents",
+  "Skills": "Skills", "Zugänge": "Credentials", "Monitoring": "Monitoring", "Zugriffe": "Access log", "Agenten": "Agents", "Einstellungen": "Settings", "Admin": "Admin", "Zuletzt": "Recents",
   "Angeheftet": "Pinned", "Guten Morgen": "Good morning", "Guten Tag": "Good afternoon", "Guten Abend": "Good evening",
   "Gute Nacht": "Good night", "Geplante Aufgaben": "Scheduled tasks", "Wie kann ich helfen?": "How can I help?", "Was soll ich erledigen?": "What should I get done?",
   "Nachricht schreiben …": "Write a message …", "Aufgabe beschreiben …": "Describe the task …", "Antworten …": "Reply …",

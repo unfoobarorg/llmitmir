@@ -633,6 +633,9 @@ export class AdminPage extends StoreElement {
       ["per_user_own", "Jede Person trägt ihren eigenen Schlüssel ein", "Im Panel unter Einstellungen. Ohne Schlüssel kein Zugriff auf Modelle."]];
     const lim = a.key_limits?.shared;
     return html`<div class="page"><h1>${t("Admin")}</h1>
+      <div class="card row" style="margin-bottom:22px;flex-wrap:wrap">${icon("shield", 20)}<div class="grow"><b>${t("Monitoring")}</b>
+        <div class="hint">Welcher Agent mit welchem Zugang worauf zugegriffen hat – nur Metadaten, nur für Admins.</div></div>
+        <button class="btn" @click=${() => navigate("/admin/monitoring")}>${t("Monitoring")} öffnen</button></div>
       <section><h2>${icon("cloud", 18)} Anbieter</h2><div class="form">
         <div class="two"><label class="f"><span>Vorlage</span><select @change=${(e: any) => { const p = a.presets[e.target.value];
             this.set("provider", { ...a.provider, preset: e.target.value, name: p.name, base_url: p.base_url || a.provider.base_url, transcription_model: p.transcription_model }); }}>
