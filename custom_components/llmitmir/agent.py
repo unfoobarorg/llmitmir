@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.util import dt as dt_util
 
+from . import audit as AU
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -84,6 +85,7 @@ class Run:
     hint: dict | None = None   # "model is overloaded – switch to …", shown in the chat while waiting
     parent_id: str | None = None  # Lauf einer Teilaufgabe: ihr Hauptchat ("Stopp" dort hält auch sie an)
     subs_started: int = 0         # Teilaufgaben, die dieser Lauf gestartet hat (höchstens SUB_PER_RUN)
+    agent_id: str = ""            # Agent, zu dem der Lauf gehört (audit.py)
 
 
 # Werkzeuge, die im selben Schritt parallel laufen (alle anderen nacheinander)
@@ -129,10 +131,13 @@ class Manager:
         # Teilaufgaben: Plätze je Person und wer auf welches Ergebnis wartet (Unterchat-ID -> Future)
         self.sub_slots = SC.Slots(SUB_PARALLEL)
         self.sub_waiters: dict[str, asyncio.Future] = {}
+        # Zugriffsprotokoll (audit.py): welcher Agent mit welchem Zugang worauf – nur Metadaten, nur für Admins
+        self.audit = AU.AuditService(hass, hass.config.path(".storage", AU.AUDIT_DIR), self.audit_retention)
         load_all()
 
     async def async_setup(self) -> None:
         await self.config.async_load()
+        await self.audit.async_load()
         await self.billing.async_load()
         await self.ews.async_load()
 
@@ -271,6 +276,18 @@ class Manager:
         if PV.is_external(key):
             return True
         return bool(key) and bool(self.model_info(key).get("external"))
+
+    def model_class(self, key: str) -> str:
+        """Modellklasse fürs Zugriffsprotokoll: Hauptanbieter, extern beim Hauptanbieter, kostenpflichtig extern."""
+        if PV.is_external(key or ""):
+            return AU.MC_BILLED
+        return AU.MC_EXTERNAL if self.is_external(key or "") else AU.MC_MAIN
+
+    def audit_retention(self) -> int:
+        try:
+            return AU.clean_retention((self.config.data.get("audit") or {}).get("retention_days", AU.RETENTION_DEFAULT))
+        except ValueError:
+            return AU.RETENTION_DEFAULT
 
     def external_operator(self, key: str) -> str:
         """Where an external model runs, for sentences like "läuft bei …"."""
@@ -1145,6 +1162,7 @@ class Manager:
     async def _run(self, user, chat: dict, run: Run, task: dict | None) -> None:
         st = await self.user_store(user.id)
         ctx = ToolContext(self, user, st, chat, run, task)
+        run.agent_id = ctx.agent["id"]
         chat["status"] = "running"
         await st.async_save_chat(chat)
         self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
@@ -1225,6 +1243,8 @@ class Manager:
                 raise QuotaError("Kein API-Schlüssel hinterlegt. " + (
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
+            self.audit.record(AU.EV_RUN, ctx.agent, run.id, model=chat.get("model"),
+                              model_class=self.model_class(chat.get("model") or ""))
             tools = ctx.tool_specs()
             await ctx.preload_images()
             if is_tile and self.boards:
@@ -1967,6 +1987,9 @@ class ToolContext:
         self._img: dict[str, str] = {}
         # (Zugangs-ID, Server), die die Person in diesem Lauf einmal freigegeben hat (tools/http.py, gate)
         self.approved_hosts: set[tuple[str, str]] = set()
+        # Identität dieses Agenten fürs Zugriffsprotokoll (audit.py) und wer den laufenden Aufruf erlaubt hat
+        self.agent = AU.agent_info(self.user_id, chat, task, self.project)
+        self._decision = "auto"
 
     @property
     def external(self) -> bool:
@@ -2379,6 +2402,40 @@ class ToolContext:
         return (self.store.meta["settings"].get("permissions") or {}).get(tool_name) or PERM_ASK
 
     async def execute(self, call: dict) -> dict:
+        """Einen Werkzeugaufruf ausführen und im Zugriffsprotokoll festhalten (nur Ziel und Ergebnis, nie Inhalte)."""
+        self._decision = "auto"
+        msg = await self._execute(call)
+        try:
+            self._audit_call(msg)
+        except Exception:  # noqa: BLE001 - das Protokoll darf keinen Aufruf scheitern lassen
+            _LOGGER.exception("Zugriffsprotokoll: Aufruf nicht erfasst")
+        return msg
+
+    def _audit_call(self, msg: dict) -> None:
+        name = msg.get("name") or ""
+        tool = REGISTRY.get(name)
+        group = tool.group if tool else ""
+        if not tool or not AU.should_log(name, group):
+            return
+        args = msg.get("args") if isinstance(msg.get("args"), dict) else {}
+        allc = self.store.meta["credentials"]
+        desc = AU.describe_call(name, group, args, lambda n: C.find(allc, n))
+        status = msg.get("status") or "error"
+        outcome = "ok" if status == "ok" else "denied" if status == "denied" else "error"
+        decision = self._decision
+        if outcome == "denied" and decision not in ("denied", "skipped"):
+            decision = "rule"  # von einer Regel abgelehnt (nicht freigegeben, gesperrt), nicht von der Person
+        model = self.chat.get("model") or ""
+        self.manager.audit.record(AU.EV_TOOL, self.agent, self.run.id, tool=name, group=group,
+                                  write=bool(tool.is_write(args)), creds=desc["creds"], target=desc["target"],
+                                  model=model, model_class=self.manager.model_class(model), outcome=outcome,
+                                  decision=decision, ms=msg.get("ms"))
+
+    def _decided(self, decision: str) -> None:
+        """Wer den laufenden Aufruf erlaubt oder abgelehnt hat (Antwort auf eine Freigabe oder dauerhafte Freigabe)."""
+        self._decision = {"deny": "denied", "skip": "skipped"}.get(decision, decision)
+
+    async def _execute(self, call: dict) -> dict:
         fn = call.get("function") or {}
         name = fn.get("name") or ""
         tool = REGISTRY.get(name)
@@ -2411,10 +2468,12 @@ class ToolContext:
             if VO.group_allowed(self.chat, tool.group):
                 # im Sprachgespraech schon einmal erlaubt: nicht wieder fragen, sonst stockt das Gespraech
                 self._grant_group(tool.group)
+                self._decided("standing")
             else:
                 decision = await self.manager.ask_permission(self.run, {
                     "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
                     "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
+                self._decided(decision)
                 if decision in ("deny", "skip"):
                     msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
                                        "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
@@ -2436,6 +2495,7 @@ class ToolContext:
             msg["change"] = change
             decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                                      "args": msg["args"], "change": change, "confirm": True})
+            self._decided(decision)
             if decision in ("deny", "skip"):
                 msg.update(content=SKIP_TEXT if decision == "skip" else "Abgelehnt: Die Person hat diese Änderung nicht übernommen.",
                            status="denied")
@@ -2451,9 +2511,12 @@ class ToolContext:
                             "abgelehnt – ohne diese Aktion weiterarbeiten und sie im Bericht nennen.")
                 msg.update(content=text, status="denied")
                 return msg
+            if perm != PERM_ASK or VO.allowed(self.chat, name):
+                self._decided("standing")  # dauerhaft erlaubt (Einstellungen, Projekt, Aufgabe, Gespräch)
             if perm == PERM_ASK and not VO.allowed(self.chat, name):
                 decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"],
                                                                          "icon": tool.icon, "args": msg["args"]})
+                self._decided(decision)
                 if decision in ("deny", "skip"):
                     msg.update(content=SKIP_TEXT if decision == "skip" else "Abgelehnt: Die Person hat diese Aktion nicht erlaubt.",
                                status="denied")
@@ -2511,6 +2574,13 @@ class ToolContext:
         decision = await self.manager.ask_permission(self.run, {
             "tool": tool.name, "label": msg["label"], "icon": "mdi:shield-key-outline", "args": msg["args"],
             "host": host, "creds": [c.get("name") for c in creds_]})
+        self._decided(decision)
+        model = self.chat.get("model") or ""
+        self.manager.audit.record(AU.EV_HOST, self.agent, self.run.id, tool=tool.name, group=tool.group, host=host,
+                                  creds=[{"id": c.get("id"), "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}
+                                         for c in creds_],
+                                  model=model, model_class=self.manager.model_class(model),
+                                  decision=self._decision, outcome="denied" if decision in ("deny", "skip") else "ok")
         if decision in ("deny", "skip"):
             msg.update(content=SKIP_TEXT if decision == "skip" else
                        f"Abgelehnt: Die Person möchte den Zugang {names} nicht an {host} senden.", status="denied")

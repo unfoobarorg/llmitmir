@@ -294,6 +294,22 @@
   nutzen. Fehlt der Schlüssel, startet kein Lauf, und das Ergebnis nennt den Grund. Unter *Geplant* steht, wie viele Anfragen
   und Tokens alle Aufgaben auf diesem Schlüssel je Tag verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum
   persönlichen Tageskontingent.
+- **Agenten-Identitäten und Zugriffsprotokoll** (*Admin → Monitoring*, nur für Admins): Jeder Lauf gehört zu einem
+  Agenten mit fester ID – ein Chat, ein Cowork, ein Sprachgespräch oder eine Teilaufgabe ist `agt-<Chat-ID>`, eine geplante
+  Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent `agt-<Aufgaben-ID>`; Teilaufgaben nennen ihren Eltern-Agenten.
+  Protokolliert wird jeder Werkzeugaufruf, der andere Systeme erreicht (Home Assistant, Web, Nextcloud/WebDAV, Exchange,
+  E-Mail, HTTP, Werkbank, Benachrichtigungen, Änderungen an Skills, Aufgaben, Zugängen und Dashboards), jede Rückfrage wegen
+  eines nicht erlaubten Servers und jeder Laufbeginn – mit Werkzeug, Zugang, Server und Pfad (ohne Abfrage), Ordner,
+  Dienst und Entitäten, Modell und Modellklasse (Hauptanbieter, extern, kostenpflichtig), Ergebnis und wer entschieden hat
+  (ohne Rückfrage, dauerhaft erlaubt, einmal/immer erlaubt, von der Person abgelehnt, durch Regel gesperrt). **Inhalte
+  kommen nie hinein**: keine Texte, Suchbegriffe, Abfrageparameter, Dateiinhalte, Empfänger (nur ihre Anzahl), Befehle oder
+  Chat-Titel – das Ziel wird aus einer festen Liste von Argumenten gebildet. Interne Schritte (Fortschritt, eigene Dateien,
+  Skills lesen, Teilaufgaben) bleiben draußen. Die Seite zeigt eine Übersicht (Aufrufe, mit Zugang, schreibend, abgelehnt,
+  Fehler, extern, Agenten, Personen), filtert nach Zeitraum, Person, Ergebnis, Modellklasse, Agenten-Art, Zugang, Server,
+  „nur mit Zugang“ und „nur schreibend“, führt per Klick auf einen Agenten zu allen seinen Zugriffen (mit Teilaufgaben) und
+  lädt die Liste als CSV herunter. Der Reiter *Agenten* listet alle Agenten mit erster und letzter Aktivität, Läufen,
+  Aufrufen, benutzten Zugängen und ob sie gerade laufen. Ablage: `.storage/llmitmir_audit/` (eine Datei je Tag);
+  Aufbewahrung einstellbar (7 bis 3650 Tage, Vorgabe 180), ältere Tage löscht LLMitMir stündlich.
 - **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
   einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte
   Claude-Modell und eigene Deployment-Namen per kostenloser Token-Zählung). Der Admin bringt die Anbieter in eine **Reihenfolge**

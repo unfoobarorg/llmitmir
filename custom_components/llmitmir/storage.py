@@ -96,6 +96,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "billing": {"usd_eur": 0.86, "prices": {}, "limits": {}, "limit_default": 0, "fallback_model": ""},
     # Dashboards: Modell-Läufe je Person und Tag (0 = ohne Grenze) und gleichzeitige Läufe der Kachel-Spur
     "dashboards": {"tile_budget": TILE_RUN_BUDGET, "tile_parallel": TILE_PARALLEL},
+    # Zugriffsprotokoll (audit.py): Aufbewahrung in Tagen
+    "audit": {"retention_days": 180},
 }
 
 
