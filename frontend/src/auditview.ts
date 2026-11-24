@@ -41,6 +41,7 @@ export const credsText = (ev: any) => (ev?.creds || []).map((c: any) => c.name).
 /** Was mit dem Aufruf geschah, in Worten: Ergebnis und, wo es etwas sagt, wer entschieden hat. */
 export function outcomeText(ev: any): string {
   if (ev?.kind === "run") return "Lauf gestartet";
+  if (ev?.kind === "data_rule") return ev.outcome === "denied" ? "durch Datenregel gesperrt" : "Datenregel: erlaubt";
   if (ev?.kind === "skill_check") return ev.outcome === "denied" ? "Skill gesperrt" : "Befund";
   const o = OUTCOMES[ev?.outcome] || ev?.outcome || "";
   const d = ev?.decision && ev.decision !== "auto" ? DECISIONS[ev.decision] || ev.decision : "";

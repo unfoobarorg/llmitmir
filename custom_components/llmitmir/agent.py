@@ -21,6 +21,7 @@ from . import audit as AU
 from . import policy as P
 from . import skillcheck as SK
 from . import connectors as CN
+from . import datarules as DR
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -2000,6 +2001,9 @@ class ToolContext:
         # Zugangs-Freigaben (policy.py): Hauptchat einer Teilaufgabe und Antworten „nicht erlauben“ aus diesem Lauf
         self.root_chat = store.cached_chat(chat.get("parent_id")) if chat.get("parent_id") else None
         self._cred_run_no: set[str] = set()
+        # Datenregeln (datarules.py): Entscheidungen des Wächters in diesem Lauf und die Markierung des laufenden Aufrufs
+        self._guard_cache: dict[str, tuple[bool, str]] = {}
+        self._ext_block = ""
 
     @property
     def external(self) -> bool:
@@ -2303,7 +2307,7 @@ class ToolContext:
                                  # thinking blocks only go back to the model (and platform) that wrote them
                                  "claude_blocks": m.get("claude_blocks") if m.get("model") == model else None})
             elif m["role"] == "tool":
-                content = self._tool_content(m, locked_names)
+                content = self._tool_content(m, locked_names, True)
                 prepared.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": content,
                                  "error": m.get("status") == "error", "notes": m.get("notes")})
             elif m["role"] == "sub_result":
@@ -2318,9 +2322,13 @@ class ToolContext:
         return {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked}
 
     @staticmethod
-    def _tool_content(m: dict, locked_names: set[str]) -> str:
-        """A tool result as the model sees it: removed if it came from a Zugang closed to external models."""
+    def _tool_content(m: dict, locked_names: set[str], external: bool = False) -> str:
+        """A tool result as the model sees it: removed if it came from a Zugang closed to external models, or – for
+        external models – if a data rule of its connector was only checked for the main provider (datarules.py)."""
         content = m.get("content") or ""
+        if external and m.get("ext_block"):
+            return (f"[Ergebnis entfernt: Die Datenregel „{m['ext_block']}“ erlaubt diese Daten nicht ohne Prüfung für "
+                    "externe Modelle. Bei Bedarf erneut abrufen – dann prüft der Wächter.]")
         if locked_names:
             hit = sorted(n for n in _creds_in_args(m.get("args") or {}) if n.casefold() in locked_names)
             if hit:
@@ -2361,7 +2369,8 @@ class ToolContext:
                     am["tool_calls"] = m["tool_calls"]
                 out.append(am)
             elif m["role"] == "tool":
-                out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": self._tool_content(m, locked_names)})
+                out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"),
+                            "content": self._tool_content(m, locked_names, ext)})
             elif m["role"] == "sub_result":
                 # Rückmeldung einer Teilaufgabe: nur die Zusammenfassung, nie deren Verlauf
                 out.append({"role": "user", "content": SC.api_text(m)})
@@ -2431,7 +2440,10 @@ class ToolContext:
     async def execute(self, call: dict) -> dict:
         """Einen Werkzeugaufruf ausführen und im Zugriffsprotokoll festhalten (nur Ziel und Ergebnis, nie Inhalte)."""
         self._decision = "auto"
+        self._ext_block = ""
         msg = await self._execute(call)
+        if self._ext_block and msg.get("status") == "ok":
+            msg["ext_block"] = self._ext_block  # beim Wechsel auf ein externes Modell aus dem Verlauf entfernen
         try:
             self._audit_call(msg)
         except Exception:  # noqa: BLE001 - das Protokoll darf keinen Aufruf scheitern lassen
@@ -2558,6 +2570,8 @@ class ToolContext:
             denied = await self._approve_host(msg, tool, need)
             if denied:
                 return denied
+        if denied := await self._data_guard(msg, tool, args):
+            return denied
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                       "args": msg["args"]})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,
@@ -2596,6 +2610,12 @@ class ToolContext:
             c = C.find(self.creds, name)
             if not c or (self.allowed_creds is not None and c["id"] not in self.allowed_creds):
                 continue  # unbekannt oder hier nicht verfügbar: das meldet das Werkzeug selbst
+            if tool.name in DR.RAW_TOOLS and DR.rules_of(c, self.manager.config.data)[1]:
+                self._decided("rule")
+                msg.update(content=f"Abgelehnt: Für den Zugang „{c['name']}“ gelten Datenregeln – Rohzugriffe (Befehle, freie "
+                                   "HTTP-Anfragen) sind damit nicht erlaubt. Die Werkzeuge des Zugangs (z. B. dav_read) nutzen.",
+                           status="denied")
+                return msg
             verdict, source = P.cred_verdict(c["id"], chat=self.chat, root=self.root_chat, project=self.project,
                                              task=self.task, run_no=self._cred_run_no)
             if verdict == P.ALLOW:
@@ -2636,6 +2656,72 @@ class ToolContext:
                     await self.store.async_save_chat(target, keep_updated=True)
                 self.manager.emit(self.user_id, {"type": "chat", "chat": self.store.chat_summary(target)})
         return None
+
+    async def _data_guard(self, msg: dict, tool, args: dict) -> dict | None:
+        """Datenregeln der Konnektoren (datarules.py): Vor dem Abruf von Inhalten entscheidet ein Wächter auf dem
+        Hauptanbieter anhand der Metadaten. Gibt die Ablehnung zurück oder None."""
+        if tool.name in DR.LISTING_TOOLS:
+            return None
+        if tool.is_write(args) and not (tool.name == "dav_request" and str(args.get("methode") or "").upper() == "GET"):
+            return None
+        cfg = self.manager.config.data
+        target = None
+        for name in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, name)
+            k, rules = DR.rules_of(c, cfg) if c else (None, [])
+            if not rules:
+                continue
+            if target is None:
+                target = AU.describe_call(tool.name, tool.group, args, lambda n: C.find(self.creds, n))["target"]
+            model = self.chat.get("model") or ""
+            mc = self.manager.model_class(model)
+            if mc == AU.MC_MAIN and args.get("speichern_als"):
+                # landet als Datei im Arbeitsbereich und könnte später an ein externes Modell gehen: wie extern prüfen
+                mc = AU.MC_EXTERNAL
+            for r in [r for r in rules if DR.in_scope(r, target)]:
+                if not DR.applies(r, mc):
+                    self._ext_block = r["name"]  # gilt nur für externe: im Verlauf markieren
+                    continue
+                try:
+                    meta = await self._resource_meta(c, k, tool, args, target)
+                    key = DR.cache_key(r, meta, mc)
+                    if key not in self._guard_cache:
+                        await self.manager._status(self.run, "tool", {"label": f"Datenregel „{r['name']}“ prüfen",
+                                                                      "icon": "mdi:shield-check-outline"})
+                        answer = await self.manager.complete(
+                            self.user_id, self.manager.default_model(self.user_id, "agent"),
+                            DR.guard_messages(r, meta, mc), interactive=self.task is None, task=self.task is not None)
+                        self._guard_cache[key] = DR.parse_guard(answer)
+                    ok, why = self._guard_cache[key]
+                except Exception as e:  # noqa: BLE001 - ohne Entscheidung des Wächters kein Inhalt (fail closed)
+                    ok, why = False, f"Prüfung nicht möglich ({type(e).__name__})"
+                self.manager.audit.record(AU.EV_RULE, self.agent, self.run.id, tool=tool.name, group=tool.group,
+                                          creds=[{"id": c["id"], "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}],
+                                          target=dict(target, object=AU.clip(r["name"], 120)), model=model, model_class=mc,
+                                          outcome="ok" if ok else "denied", decision="rule")
+                if not ok:
+                    self._decided("rule")
+                    msg.update(content=(f"Gesperrt durch die Datenregel „{r['name']}“ des Konnektors „{k['name']}“: "
+                                        f"{why or 'nicht erlaubt'}. Diese Daten sind hier nicht verfügbar – ohne sie "
+                                        "weiterarbeiten, Labels oder Tags nie selbst setzen und der Person den Grund nennen."),
+                               status="denied")
+                    return msg
+        return None
+
+    async def _resource_meta(self, cred: dict, k: dict, tool, args: dict, target: dict) -> dict:
+        """Metadaten für den Wächter – nie Inhalte. Nextcloud: PROPFIND (Tags, Typ, Größe, Besitzer)."""
+        meta = {"werkzeug": tool.name, "konnektor": k["name"], **{x: target[x] for x in ("path", "container", "host")
+                                                                  if target.get(x)}}
+        if cred.get("type") == "webdav" and target.get("path") and tool.group == "dav":
+            from .tools import dav as DV
+
+            url = f"{DV.files_base(cred)}/{DV._q(str(target['path']).strip('/'))}"
+            async with self.session.request("PROPFIND", url, data=DR.PROPFIND_META, auth=DV._auth(cred),
+                                            headers={"Depth": "0"}, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                if r.status >= 400:
+                    raise ValueError(f"HTTP {r.status}")
+                meta.update(DR.parse_propfind(await r.read()))
+        return meta
 
     async def _approve_host(self, msg: dict, tool, need: dict) -> dict | None:
         """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.

@@ -50,7 +50,9 @@ zugeordnet; geplante Aufgaben und Kacheln nutzen nur die Zugänge, die sie selbs
 Art: eigener LLMitMir-Zugang im Nutzerkontext (empfohlen), persönliche Zugangsdaten oder zentraler Systemzugang (nur mit Erlaubnis des Admins). \
 Konnektoren (Seite „Konnektoren“) hat der Admin vorbereitet: Die Person verbindet nur ihr eigenes Konto (Formular oder bei Nextcloud \
 Anmeldung im Browser mit App-Passwort); Adresse und Einstellungen sind fest. Zugänge eines Konnektors änderst du nicht mit credential_save – \
-neue Anmeldedaten trägt die Person auf der Seite „Konnektoren“ ein. Der Admin kann eigene Zugänge ohne Konnektor abschalten.
+neue Anmeldedaten trägt die Person auf der Seite „Konnektoren“ ein. Der Admin kann eigene Zugänge ohne Konnektor abschalten. \
+Konnektoren können Datenregeln haben: Vor dem Abruf entscheidet ein Wächter anhand der Metadaten (z. B. Tags), ob die Inhalte an das \
+laufende Modell dürfen; gesperrt heißt kein Abruf. Labels oder Tags setzt du nie selbst, um eine Regel zu erfüllen.
 - **Einstellungen**: persönliche Hinweise (fließen unten als „Über die Person“ ein), Modelle, Benachrichtigungsgerät, \
 Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel (auch die Regel für geplante Aufgaben), Kontingente und \
 die Werkbank (Sandbox für Befehle).

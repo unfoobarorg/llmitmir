@@ -230,6 +230,19 @@
   Zugang im Lauf sichtbar ist. Mit dem Schalter *Eigene Zugänge ohne Konnektor erlauben* (Vorgabe an) kann der Admin
   freie Zugänge abschalten – vorhandene bleiben nutzbar, neue gehen nur noch über Konnektoren. Freigabe je Agent gilt für
   Konnektor-Zugänge genauso.
+- **Datenregeln je Konnektor** (*Admin → Konnektoren → Datenregeln*): Regel = Geltungsbereich (Pfad oder Ordner mit `*`
+  und `**`, z. B. `/Gruppen/Finanzen/**`; leer = ganzer Konnektor) + **Anweisung in Worten** + für welche Modelle (nur
+  externe oder alle). Beispiel: „Nur Dateien mit Tag public oder internal dürfen an externe Modelle, nie restricted;
+  ungelabelte Dateien sind für alle Modelle gesperrt.“ Bevor ein Werkzeug Inhalte aus dem Bereich abruft, entscheidet ein
+  **Wächter** – ein Modell des Hauptanbieters, nie extern – anhand der **Metadaten** (bei Nextcloud per PROPFIND: Tags,
+  Systemtags, Typ, Größe, Besitzer; sonst Pfad und Ordner), nie anhand der Inhalte. Gesperrt heißt: Das Werkzeug läuft gar
+  nicht, das Modell bekommt nur den Grund; scheitert die Prüfung, ist ebenfalls gesperrt. Entscheidungen gelten im Lauf
+  weiter (Zwischenspeicher) und stehen im Monitoring (`data_rule`). Gilt eine Regel nur für externe Modelle und läuft ein
+  Modell des Hauptanbieters, prüft der Wächter nicht – das Ergebnis wird markiert und beim Wechsel auf ein externes Modell
+  aus dem Verlauf entfernt; Dateien, die ein Abruf im Arbeitsbereich ablegt (`speichern_als`), prüft er dagegen immer wie
+  für ein externes Modell. Werkbank-Befehle und freie HTTP-Anfragen mit Zugängen eines Konnektors mit Datenregeln sind
+  gesperrt. Ordnerlisten (`dav_list`, `mail_folders`) gelten als Metadaten und werden nicht geprüft. Das Modell kennt die
+  Regeln aus der Anleitung des Konnektors (Labels setzt es nie selbst), verlassen wird sich darauf nicht.
 - **Freigabe je Agent**: Ein Zugang ist in einem Chat oder Cowork erst nutzbar, wenn die Person ihn freigibt. Beim
   ersten Gebrauch erscheint eine Karte „Zugang „X“ verwenden?“ (auch als Push und im Sprachgespräch): **Einmal
   erlauben** (nur dieser Aufruf), **Für diesen Chat/dieses Cowork erlauben** (gilt für alle weiteren Läufe darin) oder
