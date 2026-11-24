@@ -67,6 +67,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Aufgaben, Teilen | `scheduler.py`, `cron.py`, `sharing.py`, `taskedit.py`, `taskkeys.py`, `tasknotify.py`, `inbox.py` |
 | Dashboards | `dashboards.py`, `access.py`, `boards.py` |
 | Zugänge | `credentials.py`, `credcheck.py`, `ews.py`, `ntlm.py`, `mailbox.py` |
+| MCP-Konnektoren | `mcp.py` (HA-frei; Werkzeuge je Lauf in `ToolContext.mcp_tools`, WS `admin/mcp_tools`) |
 | Datenregeln, Wächter | `datarules.py` (HA-frei; eingehängt in `ToolContext._data_guard` vor dem Werkzeug) |
 | Konnektoren, Nextcloud Login Flow v2 | `connectors.py` (HA-frei; WS `connector/*` in `ws.py`, Seite `frontend/src/connectors.ts`) |
 | Zentrale Skills, Skill-Richtlinien | `skillcheck.py` (Prüflogik HA-frei; `check_skill`/`recheck_all` mit dem Manager) |

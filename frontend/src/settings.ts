@@ -506,8 +506,42 @@ export class AdminPage extends StoreElement {
           @change=${(e: any) => this.setList("connectors", i, { hosts: e.target.value.split(/[\s,;]+/).map((h: string) => h.trim()).filter(Boolean) })}>
         <textarea rows="3" placeholder="Anleitung für das Modell (optional): wie mit diesem System gearbeitet wird" .value=${x.instructions || ""}
           @input=${(e: any) => this.setList("connectors", i, { instructions: e.target.value })}></textarea>
+        ${["bearer", "header", "basic"].includes(x.type) ? this.mcpEditor(x, i) : nothing}
         ${this.rulesEditor(x, i)}</div>`)}</div>
       <button class="btn" style="margin-top:8px" @click=${() => this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }])}>${icon("plus", 16)} Konnektor hinzufügen</button></section>`;
+  }
+  @state() private mcpSecret: Record<number, string> = {};
+  @state() private mcpBusy = -1;
+  /** MCP-Server (mcp.py): Werkzeuge abrufen und einzeln freigeben – die Liste wird eingefroren. */
+  private mcpEditor(x: any, i: number) {
+    const on = !!x.mcp; const tools: any[] = x.mcp?.tools || [];
+    const setTools = (list: any[]) => this.setList("connectors", i, { mcp: { tools: list } });
+    const secretField = x.type === "bearer" ? "token" : x.type === "header" ? "key" : "password";
+    const fetchTools = async () => {
+      this.mcpBusy = i;
+      try {
+        const fields: any = { ...(x.fixed || {}), [secretField]: this.mcpSecret[i] || "" };
+        const r = await store.api.ws("admin/mcp_tools", { url: x.fixed?.url || "", auth_type: x.type, fields });
+        const old = new Map(tools.map((t: any) => [t.name, t]));
+        setTools(r.tools.map((t: any) => old.has(t.name) ? { ...t, enabled: old.get(t.name).enabled, write: old.get(t.name).write } : t));
+        store.notify(`${r.tools.length} Werkzeuge abgerufen – bitte einzeln freigeben`);
+      } catch (e: any) { store.notify(e.message); }
+      this.mcpBusy = -1;
+    };
+    return html`<label class="row hint" style="gap:6px"><input type="checkbox" style="width:auto" .checked=${on}
+        @change=${(e: any) => this.setList("connectors", i, { mcp: e.target.checked ? { tools } : null })}> <b>MCP-Server</b> (Adresse oben = MCP-Endpunkt, nur https)</label>
+      ${on ? html`<div class="card" style="display:grid;gap:6px">
+        <div class="hint">Werkzeuge einmal abrufen und einzeln freigeben. Beschreibungen und Parameter werden <b>eingefroren</b> – ändert der Server etwas, gilt das erst nach
+          erneutem Abrufen und Freigeben. Jede Person verbindet den Konnektor mit ihrem eigenen Token. Schreibende Werkzeuge fragen vor jedem Aufruf nach.</div>
+        <div class="row" style="flex-wrap:wrap;gap:6px"><input type="password" autocomplete="off" style="flex:1;min-width:160px" placeholder="Dein Token nur für den Abruf (wird nicht gespeichert)"
+          .value=${this.mcpSecret[i] || ""} @input=${(e: any) => (this.mcpSecret = { ...this.mcpSecret, [i]: e.target.value })}>
+          <button class="btn" ?disabled=${this.mcpBusy === i || !x.fixed?.url} @click=${fetchTools}>${icon("retry", 15)} Werkzeuge abrufen</button></div>
+        ${tools.length ? html`<div class="tw"><table><tr><th>frei</th><th>Werkzeug</th><th>schreibt</th></tr>
+          ${tools.map((t: any, j: number) => html`<tr><td><input type="checkbox" .checked=${t.enabled !== false}
+              @change=${(e: any) => setTools(tools.map((u: any, n: number) => (n === j ? { ...u, enabled: e.target.checked } : u)))}></td>
+            <td><b>${t.name}</b><div class="hint">${t.description}</div></td>
+            <td><input type="checkbox" .checked=${!!t.write} @change=${(e: any) => setTools(tools.map((u: any, n: number) => (n === j ? { ...u, write: e.target.checked } : u)))}></td></tr>`)}</table></div>`
+          : html`<div class="hint">Noch keine Werkzeuge abgerufen.</div>`}</div>` : nothing}`;
   }
   /** Datenregeln eines Konnektors (datarules.py): Bereich, Anweisung in Worten, für welche Modelle. */
   private rulesEditor(x: any, i: number) {

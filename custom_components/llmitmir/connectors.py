@@ -80,6 +80,14 @@ def clean(raw: Any) -> list[dict]:
         login = k.get("login") if k.get("login") in LOGINS else LOGIN_FORM
         if login == LOGIN_NEXTCLOUD and (typ != "webdav" or not fixed.get("url")):
             raise ValueError(f"„{name}“: Der Nextcloud Login Flow braucht den Typ Nextcloud/WebDAV mit fester Adresse.")
+        mcp = None
+        if k.get("mcp"):
+            from . import mcp as MCP
+
+            if typ not in MCP.TYPES or not str(fixed.get("url") or "").startswith("https://"):
+                raise ValueError(f"„{name}“: Ein MCP-Server braucht den Typ Bearer-Token, API-Key oder Basic Auth und eine "
+                                 "feste https-Adresse.")
+            mcp = {"tools": MCP.clean_tools((k.get("mcp") or {}).get("tools") if isinstance(k.get("mcp"), dict) else [])}
         services = None
         if spec.get("services"):
             services = [s for s in (k.get("services") or spec.get("default_services") or []) if s in spec["services"]]
@@ -88,7 +96,8 @@ def clean(raw: Any) -> list[dict]:
         out.append({"id": _cid(k, i), "name": name, "type": typ, "description": _clip(k.get("description"), 500),
                     "fixed": fixed, "login": login, "hosts": C.clean_hosts(k.get("hosts") or []),
                     "services": services, "instructions": _clip(k.get("instructions"), INSTRUCTIONS_MAX),
-                    "rules": DR.clean_rules(k.get("rules"), name), "enabled": k.get("enabled", True) is not False})
+                    "rules": DR.clean_rules(k.get("rules"), name), "mcp": mcp,
+                    "enabled": k.get("enabled", True) is not False})
     if len(out) > MAX_CONNECTORS:
         raise ValueError(f"Höchstens {MAX_CONNECTORS} Konnektoren.")
     return out
@@ -121,7 +130,9 @@ def public_view(k: dict) -> dict:
             "login": k["login"], "fixed": dict(k.get("fixed") or {}), "user_fields": user_fields(k["type"], k.get("fixed") or {}),
             "services": k.get("services"),
             # Datenregeln: Personen sehen, dass es welche gibt und wofür (Name und Bereich), nicht als Schalter
-            "rules": [{"name": r["name"], "scope": r.get("scope", "")} for r in k.get("rules") or [] if r.get("enabled", True)]}
+            "rules": [{"name": r["name"], "scope": r.get("scope", "")} for r in k.get("rules") or [] if r.get("enabled", True)],
+            "mcp_tools": [t["name"] for t in (k.get("mcp") or {}).get("tools") or [] if t.get("enabled", True)]
+            if k.get("mcp") else None}
 
 
 def connection_raw(k: dict, fields: dict, existing: dict | None = None, name: str | None = None) -> dict:

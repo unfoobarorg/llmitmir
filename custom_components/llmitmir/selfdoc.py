@@ -52,7 +52,9 @@ Konnektoren (Seite „Konnektoren“) hat der Admin vorbereitet: Die Person verb
 Anmeldung im Browser mit App-Passwort); Adresse und Einstellungen sind fest. Zugänge eines Konnektors änderst du nicht mit credential_save – \
 neue Anmeldedaten trägt die Person auf der Seite „Konnektoren“ ein. Der Admin kann eigene Zugänge ohne Konnektor abschalten. \
 Konnektoren können Datenregeln haben: Vor dem Abruf entscheidet ein Wächter anhand der Metadaten (z. B. Tags), ob die Inhalte an das \
-laufende Modell dürfen; gesperrt heißt kein Abruf. Labels oder Tags setzt du nie selbst, um eine Regel zu erfüllen.
+laufende Modell dürfen; gesperrt heißt kein Abruf. Labels oder Tags setzt du nie selbst, um eine Regel zu erfüllen. \
+Ein Konnektor kann auch ein MCP-Server sein: Seine vom Admin freigegebenen Werkzeuge heißen mcp_<Konnektor>_<Werkzeug> \
+(Werkzeuggruppe „Konnektoren (MCP)“) und laufen mit dem Zugang der Person.
 - **Einstellungen**: persönliche Hinweise (fließen unten als „Über die Person“ ein), Modelle, Benachrichtigungsgerät, \
 Freigaben, Import aus Claude; Admins zusätzlich Anbieter, Schlüssel (auch die Regel für geplante Aufgaben), Kontingente und \
 die Werkbank (Sandbox für Befehle).
