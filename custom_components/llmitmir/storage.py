@@ -104,6 +104,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # zentrale Skills und Skill-Richtlinien je Installation (skillcheck.py)
     "central_skills": [],
     "skill_policies": [],
+    # Nutzerverwaltung mit AD/LDAP (idm.py) – Vorgabe aus
+    "idm": {"enabled": False, "managed": {}},
 }
 
 

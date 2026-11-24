@@ -67,6 +67,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Aufgaben, Teilen | `scheduler.py`, `cron.py`, `sharing.py`, `taskedit.py`, `taskkeys.py`, `tasknotify.py`, `inbox.py` |
 | Dashboards | `dashboards.py`, `access.py`, `boards.py` |
 | Zugänge | `credentials.py`, `credcheck.py`, `ews.py`, `ntlm.py`, `mailbox.py` |
+| Nutzerverwaltung mit AD/LDAP | `idm.py` (Plan HA-frei, `read_directory` mit ldap3, `apply` mit `hass.auth`; WS `admin/idm_preview`, `admin/idm_apply`) |
 | Wartungsmodus, Sensor laufende Agenten | `maintenance.py`, `sensor.py`, `services.yaml` |
 | Trusted-AI-Zentrale: Export, Auffälligkeiten, Entzug | `auditexport.py` (HA-frei; WS `admin/agent_stop`, `admin/revoke`, `admin/anomalies`, `admin/audit_export_test`) |
 | MCP-Konnektoren | `mcp.py` (HA-frei; Werkzeuge je Lauf in `ToolContext.mcp_tools`, WS `admin/mcp_tools`) |
