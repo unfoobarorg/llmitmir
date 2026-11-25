@@ -186,11 +186,26 @@ def _register_services(hass: HomeAssistant) -> None:
             raise vol.Invalid("LLMitMir ist nicht geladen")
         return m
 
+    async def _admin(call) -> None:
+        """Nur Admins (oder Aufrufe ohne Person, z. B. Automationen): die Wartung sperrt LLMitMir für alle und kann
+        Home Assistant neu starten – wie homeassistant.restart ein Admin-Dienst. (async_register_admin_service kennt
+        in HA 2025.1 noch keine Antworten.)"""
+        from homeassistant.exceptions import Unauthorized, UnknownUser
+
+        if call.context.user_id:
+            user = await hass.auth.async_get_user(call.context.user_id)
+            if user is None:
+                raise UnknownUser(context=call.context)
+            if not user.is_admin:
+                raise Unauthorized(context=call.context)
+
     async def _prepare(call) -> dict:
+        await _admin(call)
         return await _m().maintenance.prepare(call.data["minutes"], call.data["max_wait"], call.data["restart"],
                                               call.data.get("reason", ""))
 
     async def _cancel(call) -> dict:
+        await _admin(call)
         return await _m().maintenance.cancel()
 
     from homeassistant.core import SupportsResponse

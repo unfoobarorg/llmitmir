@@ -405,6 +405,8 @@
   „bereit“ – mit `restart: true` startet LLMitMir Home Assistant selbst neu, sonst wartet ein Playbook oder eine
   Automation darauf: Zustand des Sensors = laufende Agenten, Attribut `wartung` = off/announced/draining/ready. Beispiel
   für ein Update von außen: `prepare_restart` mit `minutes: 5`, warten bis `wartung` = `ready`, dann neu starten.
+  Beide Dienste sind Admin-Dienste (wie `homeassistant.restart`): Personen ohne Admin-Rechte werden abgewiesen,
+  Automationen ohne Person dürfen sie aufrufen.
 - **Trusted-AI-Zentrale** (*Admin → Monitoring → Zentrale*): **laufende Agenten** mit „Anhalten“ (alle Läufe samt
   Teilaufgaben); **Auffälligkeiten** der letzten 24 Stunden gegenüber den 14 Tagen davor (ungewöhnlich viele Aufrufe,
   viele Sperren, neue Server, Zugriffe aus Chats/Coworks zwischen 0 und 5 Uhr) – jeden Morgen um 6:07 als Karte für alle
