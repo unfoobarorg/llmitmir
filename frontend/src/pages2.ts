@@ -102,7 +102,7 @@ export class Tasks extends StoreElement {
         Einzelne Läufe können auch selbst lange dauern. Plane deshalb nichts, das auf die Minute genau fertig sein muss.</div></div>`}
       ${store.data?.usage?.tasks?.missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("key")}
         <div><b>Für geplante Aufgaben fehlt dein eigener API-Schlüssel.</b> Der Admin hat festgelegt, dass Aufgaben nur mit eigenen Schlüsseln laufen –
-        ohne ihn startet kein Lauf. <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings"); }}>In den Einstellungen eintragen</a>.</div></div>` : nothing}
+        ohne ihn startet kein Lauf. <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings/keys"); }}>In den Einstellungen eintragen</a>.</div></div>` : nothing}
       ${tasks.length && !isSimple() ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
       ${limitHit(tasks).length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
         <div><b>${limitHit(tasks).length === 1 ? "Eine Aufgabe hat die Höchstzahl an Schritten erreicht" : `${limitHit(tasks).length} Aufgaben haben die Höchstzahl an Schritten erreicht`}:</b>
@@ -121,7 +121,7 @@ export class Tasks extends StoreElement {
         <button class="iconbtn" title=${t("Jetzt ausführen")} @click=${async (e: Event) => { e.stopPropagation(); const r = await store.api.ws("task/run_now", { task_id: x.id });
           store.notify(r.position > 0 ? `In der Warteschlange (Platz ${r.position})` : "Läuft bereits oder wartet schon"); }}>${icon("play")}</button>
         ${switchEl(!!x.enabled, async (v) => { await store.api.ws("task/save", { task: { ...x, enabled: v } }); })}
-      </div>`) : html`<div class="hint">${isSimple() ? "Noch keine geplanten Aufgaben." : "Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import)."}</div>`}</div>
+      </div>`) : html`<div class="hint">${isSimple() ? "Noch keine geplanten Aufgaben." : "Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import aus Claude)."}</div>`}</div>
       ${tiles.length && showTileTasks() ? this.tileRows(tiles) : nothing}</div>`;
   }
 
@@ -397,7 +397,7 @@ export class TaskPage extends StoreElement {
       ${x.werkbank_missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("mdi:console")}<div>
         <b>Für diese Aufgabe fehlt die Werkbank.</b> Sie läuft trotzdem, erledigt aber nur, was ohne Werkbank geht, und nennt im Ergebnis, was ausgelassen wurde.
         ${x.requires_note ? html`<br><i>Ohne Werkbank fehlt: ${x.requires_note}</i>` : nothing}
-        <br><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings"); }}>Was ist die Werkbank und wie richte ich sie ein?</a></div></div>` : nothing}
+        <br><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings/capabilities"); }}>Was ist die Werkbank und wie richte ich sie ein?</a></div></div>` : nothing}
       <div class="form">
         <label class="f"><span>${t("Name")}</span><input .value=${x.name} @input=${(e: any) => this.set("name", e.target.value)}></label>
         <label class="f"><span>${simple ? "Was soll passieren?" : t("Auftrag")}</span><textarea rows=${simple ? 8 : 14} placeholder=${simple

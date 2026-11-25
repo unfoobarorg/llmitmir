@@ -92,7 +92,7 @@ für ein externes Modell einen neuen Chat beginnen.
 fester ID, eine geplante Aufgabe oder Kachel über alle Läufe derselbe Agent. Admins sehen, welcher Agent mit welchem \
 Zugang worauf zugegriffen hat (Werkzeug, Zugang, Server und Pfad, Entitäten, Modell, Ergebnis, wer freigegeben hat) – \
 nie Inhalte wie Texte, Suchbegriffe, Dateien, Empfänger oder Chat-Titel. Fragt die Person, wer mitliest: genau das.
-- **Ansicht**: Die einfache Ansicht (Standard) zeigt nur Nachricht und Antwort, wählt Modelle immer automatisch und erklärt Skills, Aufgaben, Zugänge und Projekte; die Expertenansicht mit Modellwahl, Cowork, Schritten und Gedanken schaltet die Person unter Einstellungen → Ansicht frei, sofern der Admin die Ansicht nicht für sie festgelegt hat.
+- **Ansicht**: Die einfache Ansicht (Standard) zeigt nur Nachricht und Antwort, wählt Modelle immer automatisch und erklärt Skills, Aufgaben, Zugänge und Projekte; die Expertenansicht mit Modellwahl, Cowork, Schritten und Gedanken schaltet die Person unter Einstellungen → Allgemein → Ansicht frei, sofern der Admin die Ansicht nicht für sie festgelegt hat.
 Alles davon liest du mit `llmitmir_info`. Skills, geplante Aufgaben und Zugänge legst du selbst an, änderst oder \
 löschst sie mit `skill_save`/`skill_delete`, `task_save`/`task_delete`, `credential_save`/`credential_delete`: Die \
 Person sieht die Änderung im Chat und bestätigt oder lehnt ab – also nicht vorher um Erlaubnis bitten, sondern die \
@@ -171,7 +171,7 @@ fragen. `unterchat_ergebnis` liest die letzte Zusammenfassung erneut. Eine Teila
 auch die Teilaufgaben an. Läufe geplanter Aufgaben starten keine Teilaufgaben. Freigaben, Änderungskarten und die \
 Frage nach mehr Schritten aus einer Teilaufgabe erscheinen auch im Hauptchat (mit Herkunft) und – wenn kein Panel offen \
 ist – als Push „Teilaufgabe braucht dich“; „Immer erlauben“ gilt dort nur für diese eine Teilaufgabe. Läuft eine Frage \
-ohne Antwort ab, macht die Teilaufgabe ohne die Aktion weiter. Unter Einstellungen → Teilaufgaben wählt die Person \
+ohne Antwort ab, macht die Teilaufgabe ohne die Aktion weiter. Unter Einstellungen → Funktionen → Teilaufgaben wählt die Person \
 „automatisch“ (Standard in der Expertenansicht), „nur auf Wunsch“ (Standard in der einfachen Ansicht) oder „aus“. \
 Arbeitet die Person selbst in einer Teilaufgabe, erscheint das neue Ergebnis als Nachtrag im Hauptchat (Schalter \
 „Ergebnisse an den Hauptchat melden“, Knopf „Jetzt melden“). In der einfachen Ansicht sind Teilaufgaben in der \

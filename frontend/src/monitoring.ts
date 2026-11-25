@@ -1,12 +1,13 @@
 // Admin → Monitoring: Zugriffsprotokoll und Agenten-Verzeichnis (nur Metadaten, nur für Admins).
 import { css, html, nothing } from "lit";
-import { state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, fmtTime, safeElement } from "./ui";
 import { store, navigate } from "./api";
 import { t } from "./i18n";
 import { AGENT_KINDS, MODEL_CLASSES, RANGES, agentLabel, credsText, outcomeText, shortId, targetText, toCsv } from "./auditview";
 
 const styles = css`:host { display: block; height: 100%; overflow-y: auto; }
+  :host([embedded]) { height: auto; overflow: visible; } .embedded { padding: 0; max-width: none; } .embedded h2 { font-size: 15px; margin: 26px 0 10px; font-weight: 600; }
   section { margin-bottom: 22px; } section > h2 { display: flex; gap: 8px; align-items: center; }
   .tabs { display: flex; gap: 4px; margin: 6px 0 14px; } .tabs button { border: 0; background: none; padding: 7px 12px; border-radius: 9px; cursor: pointer; color: var(--lm-muted); font-size: 14px; }
   .tabs button.on { background: var(--lm-hover); color: var(--lm-text); font-weight: 560; }
@@ -29,6 +30,8 @@ const styles = css`:host { display: block; height: 100%; overflow-y: auto; }
 
 @safeElement("lm-monitoring")
 export class MonitoringPage extends StoreElement {
+  /** In den Admin-Einstellungen als Bereich eingebettet: ohne eigenen Kopf und Seitenrand. */
+  @property({ type: Boolean, reflect: true }) embedded = false;
   @state() private tab: "events" | "agents" | "control" = "events";
   @state() private ctl: any = null;
   @state() private rv: { user: string; cred: string; projects: boolean } = { user: "", cred: "", projects: false };
@@ -217,13 +220,13 @@ export class MonitoringPage extends StoreElement {
   }
 
   render() {
-    return html`<div class="page">
-      <div class="row"><button class="btn ghost" @click=${() => navigate("/admin")}>${icon("back", 16)} ${t("Admin")}</button></div>
+    return html`<div class=${this.embedded ? "embedded" : "page"}>
+      ${this.embedded ? nothing : html`<div class="row"><button class="btn ghost" @click=${() => navigate("/admin")}>${icon("back", 16)} ${t("Admin")}</button></div>
       <h1>${icon("shield", 22)} ${t("Monitoring")}</h1>
       <div class="hint">Welcher Agent mit welchem Zugang worauf zugegriffen hat – nur für Admins sichtbar. Erfasst werden nur Metadaten:
         Werkzeug, Zugang, Server und Pfad, Entitäten, Modell, Ergebnis und wer freigegeben hat. Inhalte (Texte, Suchbegriffe, Dateien,
         Empfänger, Chat-Titel) stehen nie im Protokoll. Jeder Chat, jedes Cowork und jede Teilaufgabe ist ein eigener Agent; eine geplante
-        Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent.</div>
+        Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent.</div>`}
       <div class="tabs">${([["events", t("Zugriffe")], ["agents", t("Agenten")], ["control", t("Zentrale")]] as const).map(([k, l]) =>
         html`<button class=${this.tab === k ? "on" : ""} @click=${() => { this.tab = k; this.load(); }}>${l}</button>`)}</div>
       ${this.tab === "events" ? this.eventsTab() : this.tab === "agents" ? this.agentsTab() : this.controlTab()}

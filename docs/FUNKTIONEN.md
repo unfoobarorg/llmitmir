@@ -6,8 +6,18 @@
   Messenger nur Nachricht und Antwort mit Warte-Animation, Modelle werden nie angezeigt und immer automatisch gewählt
   (auch bei Überlastung wechselt LLMitMir selbst), die Modelle antworten verständlich und ohne Fachbegriffe, und Skills,
   geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
-  Folgende) schaltet jede Person unter *Einstellungen → Ansicht* frei; Admins legen unter *Admin → Ansicht* für alle oder
+  Folgende) schaltet jede Person unter *Einstellungen → Allgemein → Ansicht* frei; Admins legen unter *Admin → Personen → Ansicht* für alle oder
   je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
+- **Einstellungen wie bei Claude**: Persönliche Einstellungen und Admin-Einstellungen sind in Bereiche geteilt – links die
+  Liste, rechts Gruppen aus Zeilen mit kurzer Erklärung und Schalter, Auswahl oder Eingabefeld; längere Erklärungen stehen
+  hinter „Mehr dazu“. Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/<bereich>`, `/llmitmir/admin/<bereich>`),
+  auf schmalen Bildschirmen wird die Liste zur waagerechten Leiste. Persönlich: *Allgemein* (Ansicht, persönliche Hinweise,
+  Bedienung), *Modelle* (Standardmodelle, externe Modelle), *Funktionen* (Teilaufgaben, Werkbank), *Benachrichtigungen*,
+  *Datenschutz & Freigaben* (Lebensdauer, Freigaben, erlaubte Server), *Verbrauch*, *API-Schlüssel* (nur wenn der Admin
+  eigene Schlüssel vorsieht) und *Import aus Claude*. Admin: *Personen* (Zugriff, Kontingente, Ansicht, AD/LDAP),
+  *Anbieter & Schlüssel*, *Modelle*, *Externe Modelle & Kosten*, *Zugänge & Konnektoren*, *Skills*, *Werkbank*,
+  *Benachrichtigungen* (Geräte je Person), *Weitere Dienste* (Websuche, Sprachausgabe, Dashboards) und *Monitoring*.
+  Ungespeicherte Änderungen bleiben beim Wechsel der Bereiche erhalten; eine Leiste unten bietet Speichern und Verwerfen.
 - **Dateien ansehen statt nur herunterladen**: Erzeugte Dateien und Anhänge öffnen sich in einem eigenen Betrachter im
   Panel – Bilder, PDFs (seitenweise, als Bild gerendert), Texte, Ton, Video sowie **Word- und Excel-Dateien** (Absätze
   und Tabellen als lesbarer Ausschnitt, ohne Makros und ohne Formeln). Das funktioniert im Browser und in den mobilen
@@ -34,7 +44,7 @@
   Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Freigaben, Änderungskarten und die Frage nach mehr
   Schritten aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
   ist – als Push „Teilaufgabe braucht dich“ mit Link auf den Hauptchat; „Immer erlauben“ gilt dabei nur für die eine
-  Teilaufgabe. Unter *Einstellungen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
+  Teilaufgabe. Unter *Einstellungen → Funktionen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
   feste Regeln im Systemprompt, ab halb vollem Kontext ein Hinweis), *nur auf Wunsch* (Standard in der einfachen
   Ansicht) oder *aus*. Wer selbst in einer Teilaufgabe weiterarbeitet, bekommt das neue Ergebnis als Nachtrag im
   Hauptchat (abschaltbar, *Jetzt melden* schickt es sofort). In der einfachen Ansicht laufen Teilaufgaben unsichtbar
@@ -219,7 +229,7 @@
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt. Ein Zugang
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
   LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
-  Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Erlaubte Server*.
+  Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Datenschutz & Freigaben → Erlaubte Server*.
 - **Konnektoren** (Seite *Konnektoren*, eingerichtet unter *Admin → Konnektoren*): vom Admin vorbereitete Anbindungen nach
   dem Vorbild von Claude und Copilot. Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte
   Server, bei GWDG/EWS die Dienste, die Anmeldeart und optional eine Anleitung für das Modell fest. Jede Person verbindet

@@ -2,6 +2,22 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.2.0 – Einstellungen neu geordnet
+
+### Oberfläche
+- **Einstellungen wie bei Claude:** Persönliche Einstellungen und Admin-Einstellungen waren eine lange Seite mit über
+  zwanzig Abschnitten. Jetzt sind sie in Bereiche geteilt – links die Liste, rechts übersichtliche Gruppen aus Zeilen
+  „Bezeichnung und kurze Erklärung | Schalter, Auswahl oder Eingabe“. Häkchen sind Schalter geworden, lange Erklärungen
+  stehen hinter „Mehr dazu“, Ansicht und Auswahlen sind große Karten bzw. Listen mit Markierungspunkt.
+- **Persönlich:** Allgemein, Modelle, Funktionen, Benachrichtigungen, Datenschutz & Freigaben, Verbrauch, API-Schlüssel
+  (nur wenn nötig, mit Hinweis bei fehlendem Schlüssel) und Import aus Claude.
+- **Admin:** Personen, Anbieter & Schlüssel, Modelle, Externe Modelle & Kosten, Zugänge & Konnektoren, Skills, Werkbank,
+  Benachrichtigungen, Weitere Dienste und Monitoring (jetzt als Bereich eingebettet).
+- Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/privacy`, `/llmitmir/admin/models` …), Verweise aus anderen
+  Seiten springen direkt dorthin. Auf dem Handy wird die Liste zur waagerechten Leiste. Ungespeicherte Änderungen bleiben
+  beim Wechsel der Bereiche erhalten; Speichern und Verwerfen stehen in einer Leiste unten. Gespeichert wird wie bisher –
+  an den Einstellungen selbst und am Backend ändert sich nichts.
+
 ## 1.1.1 – Sicherheitskorrektur Zugänge
 
 ### Zugänge

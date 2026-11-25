@@ -16,7 +16,7 @@ Die Markierung bleibt, auch wenn ein Zugang später freigegeben wird. Sie gilt f
 Hauptchat und Teilaufgaben teilen Arbeitsbereich und Sandbox, und Ergebnisse von Teilaufgaben fließen in den Hauptchat.
 Markiert wird deshalb immer auch der Hauptchat, und eine Teilaufgabe ist gesperrt, sobald ihr Hauptchat es ist.
 
-Ist die Sperre eingeschaltet (Admin → Zugänge, Standard: an), nimmt ein markierter Chat kein externes Modell mehr an:
+Ist die Sperre eingeschaltet (Admin → Zugänge & Konnektoren, Standard: an), nimmt ein markierter Chat kein externes Modell mehr an:
 nicht von Hand, nicht als Notfall-Ausweichmodell, nicht bei geplanten Aufgaben – und als letzte Schranke baut der Lauf
 keine Anfrage an ein externes Modell. Für ein externes Modell beginnt die Person einen neuen Chat. Abgeschaltet gilt
 nur das Herausfiltern wie bisher.
@@ -42,7 +42,7 @@ _LABELS = {KIND_CRED: "Zugang", KIND_RULE: "Datenregel", KIND_SKILL: "Skill", KI
 
 
 def enabled(cfg: dict) -> bool:
-    """Sperrt LLMitMir markierte Chats für externe Modelle? (Admin → Zugänge, Standard: ja)"""
+    """Sperrt LLMitMir markierte Chats für externe Modelle? (Admin → Zugänge & Konnektoren, Standard: ja)"""
     return (cfg.get("credentials_policy") or {}).get("lock_chats", True) is not False
 
 

@@ -1,5 +1,9 @@
 // Icons bundled into the panel (keeps the bundle small).
 export {
+  mdiApplicationCogOutline,
+  mdiShieldLockOutline,
+  mdiPuzzleOutline,
+  mdiConsole,
   mdiAccountOutline,
   mdiAccountVoice,
   mdiAccountBoxOutline,

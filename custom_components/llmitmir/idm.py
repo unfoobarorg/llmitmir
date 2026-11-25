@@ -1,4 +1,4 @@
-"""HA-Nutzerverwaltung mit Active Directory/LDAP (optional, Admin → Nutzerverwaltung).
+"""HA-Nutzerverwaltung mit Active Directory/LDAP (optional, Admin → Personen → Nutzerverwaltung).
 
 LLMitMir liest Personen aus dem Verzeichnis (LDAPS, Bind-Konto mit Leserechten) und gleicht die Benutzer von Home
 Assistant danach ab – nach Gruppen-Zuordnungen des Admins: Wer in einer zugeordneten Gruppe ist, bekommt einen

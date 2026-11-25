@@ -1973,7 +1973,7 @@ class Manager:
             device = ND.resolve(ND.for_user(devices, run.user_id), run.user_id, st.meta["settings"])
             if not device:
                 _LOGGER.warning("LLMitMir: Freigabe wartet, aber für %s ist kein Benachrichtigungsgerät hinterlegt – "
-                                "die Push-Nachricht bleibt aus (Einstellungen → Benachrichtigungsgerät).", run.user_id)
+                                "die Push-Nachricht bleibt aus (Einstellungen → Benachrichtigungen).", run.user_id)
                 return
             chat = await st.async_get_chat(run.chat_id) or {}
             # aus einer Teilaufgabe: Titel nennt die Teilaufgabe, der Link führt in den Hauptchat
@@ -2350,7 +2350,7 @@ class ToolContext:
                 "lass nichts aus, nur weil ein Werkzeug noch nicht eingeschaltet ist.")
         if self.manager.werkbank is None and self.task is None:
             parts.append("## Ohne Werkbank\nDie Werkbank (Befehle, Python-Skripte) ist in dieser Installation nicht "
-                         "eingerichtet; das kann ein Admin unter Einstellungen → Admin → Werkbank nachholen.")
+                         "eingerichtet; das kann ein Admin unter Admin → Werkbank nachholen.")
         if "werkbank" in self.groups() | ask:
             parts.append(
                 "## Werkbank\nMit `shell` führst du Befehle in einer eigenen Linux-Sandbox aus (Python 3.13 mit pandas, openpyxl, "

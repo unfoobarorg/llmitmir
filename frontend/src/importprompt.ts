@@ -42,7 +42,7 @@ So gehst du vor:
 6. Sende das JSON per HTTP-POST an die Ziel-URL (Content-Type: application/json), z. B. mit curl:
    curl -sS -X POST -H 'Content-Type: application/json' --data-binary @llmitmir-import.json '${url}'
    Ist das JSON größer als 50 MB, teile es in mehrere POSTs mit denselben Schlüsseln auf (der Link nimmt dann nur den ersten an – in dem Fall schreibe mir die Datei stattdessen, siehe 7).
-7. Hast du keinen Netzwerkzugriff oder schlägt der POST fehl: Speichere das JSON als Datei „llmitmir-import.json“ und gib sie mir zum Herunterladen; ich lade sie in LLMitMir unter Einstellungen → Import hoch.
+7. Hast du keinen Netzwerkzugriff oder schlägt der POST fehl: Speichere das JSON als Datei „llmitmir-import.json“ und gib sie mir zum Herunterladen; ich lade sie in LLMitMir unter Einstellungen → Import aus Claude hoch.
 8. Antworte mir am Ende kurz: wie viele Skills, Zugänge, Aufgaben, Projekte übertragen wurden, was du nicht übertragen konntest und warum. Gib dabei KEINE Geheimnisse im Chat aus.
 
 Hinweis: Chatverläufe kannst du nicht auslesen – die übernehme ich separat über den offiziellen Datenexport von claude.ai (Einstellungen → Datenschutz → Daten exportieren), den ich als ZIP in LLMitMir hochlade. Importierte Aufgaben sind in LLMitMir zunächst pausiert, damit ich sie prüfen kann.`;

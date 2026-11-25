@@ -44,11 +44,11 @@ Voraussetzung: Home Assistant **2025.1** oder neuer. Python-Pakete (werden autom
 - **Daten bleiben in Home Assistant** – je Person unter `<config>/.storage/llmitmir/`, Teil normaler Backups.
   Zugangsdaten und Schlüssel liegen dort wie bei anderen Integrationen unverschlüsselt (nur für Home Assistant lesbar).
 - **Nach außen geht** nur: Nachrichten an den gewählten Anbieter; Suchanfragen an DuckDuckGo oder ein eigenes SearXNG;
-  vorgelesene Antworten an den Vorlesedienst von Microsoft Edge (abschaltbar unter *Admin → Sprachausgabe*);
+  vorgelesene Antworten an den Vorlesedienst von Microsoft Edge (abschaltbar unter *Admin → Weitere Dienste → Sprachausgabe*);
   Anfragen an externe Modelle (Claude oder Modelle, die der Hauptanbieter als extern kennzeichnet) nur, wenn der Admin
   sie freigibt und die Person zustimmt.
 - **Das Modell sieht nie ein Geheimnis.** Zugänge gehen nur an ihre eigenen Server; für jeden anderen fragt LLMitMir
-  (Übersicht: *Einstellungen → Erlaubte Server*).
+  (Übersicht: *Einstellungen → Datenschutz & Freigaben → Erlaubte Server*).
 - **Nichts geschieht ungefragt:** Schreibende Aktionen brauchen eine Freigabe, geplante Aufgaben dürfen nur, was beim
   Anlegen erlaubt wurde. Ändert jemand eine geteilte Aufgabe, läuft sie erst nach Bestätigung der Eigentümerin oder
   des Eigentümers. Home-Assistant-Werkzeuge laufen mit den Rechten der Person.
@@ -108,7 +108,7 @@ Requires Home Assistant **2025.1** or newer. Python packages (installed automati
 - **Data stays in Home Assistant** – per person under `<config>/.storage/llmitmir/`, included in normal backups.
   Credentials and keys are stored unencrypted there, like with other integrations (readable by Home Assistant only).
 - **What leaves:** messages to the chosen provider; search queries to DuckDuckGo or your own SearXNG; answers read aloud
-  to Microsoft Edge's read-aloud service (can be switched off under *Admin → Speech output*); requests to external
+  to Microsoft Edge's read-aloud service (can be switched off under *Admin → Other services → Speech output*); requests to external
   models (Claude, or models the main provider marks as external) only if the admin releases them and the person agrees.
 - **The model never sees a secret.** Credentials only go to their own servers; for any other server LLMitMir asks first
   (overview: *Settings → Allowed servers*).
