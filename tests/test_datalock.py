@@ -122,3 +122,11 @@ def test_plain_language_reason():
     assert "Zugang „Nextcloud“" in text and "Skill „Personalakte“" in text and "1 weitere" in text
     assert "neuen Chat" in text
     assert "Teilaufgabe" in DL.why([{"kind": "sub", "name": ""}])
+
+
+def test_placeholder_names_are_found_as_they_are_resolved():
+    """Platzhalter werden in den Texten selbst gesucht (wie beim Einsetzen), nicht in ihrer JSON-Form."""
+    for value in ("{{cred:Nextcloud\t:password}}", "{{cred: nextcloud\n:password}}"):
+        msg = _tool("http_request", {"url": "https://x.example/", "header": {"A": value}})
+        assert DL.creds_in_args(msg["args"]) and [c["id"] for c in DL.closed_creds(msg, CREDS)] == ["c1"]
+        assert DL.hits(msg, CREDS, SKILLS) == [(DL.KIND_CRED, "Nextcloud")]
