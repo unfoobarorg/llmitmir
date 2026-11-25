@@ -55,19 +55,22 @@ PRESETS = {
 
 DEFAULT_CONTEXT = 128_000
 # Context windows of known models (tokens); admins can override per model.
+# Kontextfenster laut GWDG-Modellliste (docs.hpc.gwdg.de/services/ai-services/chat-ai/models/, Stand 25.11.2026).
+# Das ist, was das Modell kann; nennt der Server bei einer zu langen Anfrage eine kleinere Grenze, gilt die (ctxlimit.py).
 KNOWN_CONTEXT = {
-    "deepseek-v4-flash-0731": 128_000,
+    "deepseek-v4-flash-0731": 1_000_000,
+    "glm-5.3-flash": 1_000_000,
+    "qwen3.5-397b-a17b": 256_000,
+    "qwen3.6-35b-a3b": 262_144,
+    "qwen3.8-27b": 262_144,
+    "qwen3-coder-next": 256_000,
+    "qwen3-30b-a3b-instruct-2507": 256_000,
+    "qwen3-omni-30b-a3b-instruct": 256_000,
+    "gemma-4-31b-it": 256_000,
+    "meta-llama-3.1-8b-instruct": 128_000,
+    # nicht mehr in der GWDG-Liste; Werte aus der ersten Version, falls ein Anbieter sie noch hat
     "deepseek-v4.1-flash-1017": 128_000,
     "glm-5.3": 200_000,
-    "glm-5.3-flash": 128_000,
-    "qwen3.5-397b-a17b": 256_000,
-    "qwen3.6-35b-a3b": 256_000,
-    "qwen3.8-27b": 256_000,
-    "qwen3-coder-next": 256_000,
-    "qwen3-30b-a3b-instruct-2507": 128_000,
-    "qwen3-omni-30b-a3b-instruct": 64_000,
-    "gemma-4-31b-it": 128_000,
-    "meta-llama-3.1-8b-instruct": 128_000,
     "eurollm-22b-instruct-2512": 32_000,
     "mistral-large-4-1t-a52b": 256_000,
 }

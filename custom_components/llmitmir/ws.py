@@ -25,6 +25,7 @@ from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
 from . import credentials as C
+from . import ctxlimit as CL
 from . import inbox as IB
 from . import manage as M
 from . import models as MS
@@ -1305,7 +1306,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "task_usage": _task_usage_view(m),
         "allowed_users": cfg.get("allowed_users") or [],
         "quota_default": cfg.get("quota_default"), "quota_users": cfg.get("quota_users") or {},
-        "models": cfg.get("models"), "known_context": KNOWN_CONTEXT, "models_live": m.models_for_users(all_known=True),
+        "models": cfg.get("models"), "known_context": KNOWN_CONTEXT,
+        "learned_context": CL.view((cfg.get("models") or {}).get("context_learned"), time.time()), "models_live": m.models_for_users(all_known=True),
         "auto_models": {r: MS.pick(m.live_models(), r) or "" for r in MS.ROLES},
         "search": cfg.get("search"),
         "speech": {"enabled": SP.enabled(cfg), "installed": SP.available()},
