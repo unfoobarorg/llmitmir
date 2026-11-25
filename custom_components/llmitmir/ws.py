@@ -1271,6 +1271,7 @@ async def ws_admin_get(hass, conn, msg, m, user, st):
 async def ws_admin_save(hass, conn, msg, m, user, st):
     c = msg["config"]
     cfg = m.config.data
+    cfg_before = AU.config_snapshot(cfg)  # welche Bereiche sich ändern, kommt ins Zugriffsprotokoll (nur die Namen)
     if "provider" in c:
         p = c["provider"]
         if not str(p.get("base_url") or "").startswith("http"):
@@ -1402,6 +1403,10 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
                 mm[k] = c["models"][k]
         cfg["models"] = mm
     await m.config.async_save()
+    if changed := AU.changed_sections(cfg_before, cfg):
+        # Admin-Einstellungen (Sperren, Aufbewahrung, Export, Konnektoren, Richtlinien …): wer wann welchen Bereich
+        m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="admin_save",
+                       target={"object": AU.clip(", ".join(changed), 120)}, outcome="ok", decision="rule")
     for uid in list(m.subscribers):
         m.emit(uid, {"type": "meta", "section": "all"})
     m.emit_models()

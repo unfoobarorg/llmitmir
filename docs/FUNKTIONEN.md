@@ -411,8 +411,8 @@
   Admins; **Freigaben entziehen** für einen Zugang oder alle Zugänge einer Person („für diesen Chat erlaubt“ in allen
   Chats, Zugangslisten der Aufgaben und Kacheln, auf Wunsch die Vorab-Freigabe in Projekten); **Export** jedes Ereignisses
   an einen Webhook (JSON per POST, https, optional Token im Header) und/oder Syslog (RFC 5424 über UDP, TCP oder TLS,
-  Octet-Counting), gefiltert nach Ereignisart, mit Testknopf und letztem Zustand. Admin-Eingriffe stehen selbst im
-  Protokoll (`admin_action`). Einen Konnektor sperrt der Admin unter *Konnektoren* (aus), externe Modelle je Person unter
+  Octet-Counting), gefiltert nach Ereignisart, mit Testknopf und letztem Zustand. Admin-Eingriffe und jede Änderung
+  der Admin-Einstellungen (welcher Bereich, nie Werte) stehen selbst im Protokoll (`admin_action`). Einen Konnektor sperrt der Admin unter *Konnektoren* (aus), externe Modelle je Person unter
   *Modelle*.
 - **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
   einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte

@@ -47,7 +47,7 @@ EV_HOST = "host_approval"       # Zugang an einen nicht erlaubten Server: Entsch
 EV_CRED = "cred_approval"       # Zugang in einem Chat/Cowork verwenden: Entscheidung der Person
 EV_SKILL = "skill_check"        # Befund einer Skill-Richtlinie (skillcheck.py)
 EV_RULE = "data_rule"           # Entscheidung des Wächters über eine Datenregel (datarules.py)
-EV_ADMIN = "admin_action"       # Eingriff eines Admins (Agent angehalten, Freigaben entzogen – auditexport.py)
+EV_ADMIN = "admin_action"       # Eingriff eines Admins (Agent angehalten, Freigaben entzogen, Einstellungen geändert)
 EVENT_KINDS = (EV_RUN, EV_TOOL, EV_HOST, EV_CRED, EV_SKILL, EV_RULE, EV_ADMIN)
 
 # Modellklassen
@@ -201,6 +201,21 @@ def describe_call(name: str, group: str, args: dict, find_cred: Callable[[str], 
     if name in ("caldav_entry", "ews_save") and args.get("aktion"):
         target["action"] = clip(args["aktion"], 30)
     return {"creds": creds, "target": target}
+
+
+def _dump(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def config_snapshot(cfg: dict) -> dict[str, str]:
+    """Stand der Admin-Einstellungen je Bereich (nur zum Vergleich im Speicher, nie im Protokoll)."""
+    return {str(k): _dump(v) for k, v in (cfg or {}).items()}
+
+
+def changed_sections(before: dict[str, str], cfg: dict) -> list[str]:
+    """Welche Bereiche der Admin-Einstellungen sich geändert haben – nur die Namen, nie Werte."""
+    after = config_snapshot(cfg)
+    return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
 
 
 def should_log(name: str, group: str) -> bool:

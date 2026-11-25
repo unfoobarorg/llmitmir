@@ -83,3 +83,16 @@ async def test_audit_is_for_admins_only_and_retention_is_checked(hass, llmitmir,
     assert (await _ok(admin, "admin/save", config={"audit": {"retention_days": 30}}))["audit"]["retention_days"] == 30
     bad = await _ws(admin, "admin/save", config={"audit": {"retention_days": 2}})
     assert not bad["success"] and "Aufbewahrungsfrist" in bad["error"]["message"]
+
+
+async def test_admin_settings_changes_are_logged_by_section(hass, llmitmir, hass_ws_client, hass_admin_user):
+    """Sperren, Aufbewahrung, Export … ändern sich nicht unbemerkt: der Bereich steht im Protokoll, nie ein Wert."""
+    admin = await hass_ws_client(hass)
+    await _ok(admin, "admin/save", config={"credentials_policy": {"lock_chats": False}, "audit": {"retention_days": 30},
+                                           "shared_key": SECRET})
+    await _ok(admin, "admin/save", config={"audit": {"retention_days": 30}})  # keine Änderung: kein Eintrag
+    res = await _ok(admin, "admin/audit", filters={"kind": "admin_action"})
+    saves = [e for e in res["events"] if e.get("tool") == "admin_save"]
+    assert len(saves) == 1 and saves[0]["user"] == hass_admin_user.id
+    assert saves[0]["target"]["object"] == "audit, credentials_policy, shared_key"
+    assert SECRET not in json.dumps(res)
