@@ -332,14 +332,36 @@ def allow_host(cred: dict, url: str) -> bool:
     return True
 
 
+def _strings(value: Any):
+    """Alle Texte in einem Wert (Schlüssel und Werte von Objekten, Listen) – unverändert, nicht als JSON."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield str(k)
+            yield from _strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _strings(v)
+    elif value is not None:
+        yield str(value)
+
+
+def placeholder_names(*values: Any) -> list[str]:
+    """Namen aus allen Platzhaltern {{cred:Name:feld}} in den Werten, in Reihenfolge.
+
+    Gesucht wird in den Texten selbst, genau wie ``resolve_placeholders`` sie später sieht – nicht in ihrer
+    JSON-Form, deren Escapes einen Namen anders aussehen ließen als beim Auflösen."""
+    names: list[str] = []
+    for v in values:
+        for s in _strings(v):
+            names += [m.group(1).strip() for m in PLACEHOLDER.finditer(s)]
+    return list(dict.fromkeys(names))
+
+
 def creds_in(creds: dict[str, dict], *texts, zugang: str | None = None) -> list[dict]:
     """Die Zugänge, die ein Aufruf benutzt: „zugang“ und jeder Platzhalter {{cred:Name:feld}} in den Texten."""
-    names = [zugang] if zugang else []
-    for t in texts:
-        if t is None:
-            continue
-        s = t if isinstance(t, str) else json.dumps(t, ensure_ascii=False)
-        names += [m.group(1).strip() for m in PLACEHOLDER.finditer(s)]
+    names = ([zugang] if zugang else []) + placeholder_names(*texts)
     out = []
     for n in names:
         c = find(creds, n)
