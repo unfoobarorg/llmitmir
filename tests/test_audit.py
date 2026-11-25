@@ -241,3 +241,10 @@ def test_service_buffers_writes_and_never_raises(tmp_path):
         await asyncio.gather(*hass.tasks)
 
     asyncio.run(go())
+
+
+def test_placeholder_names_are_found_as_they_are_resolved():
+    creds = {"k1": {"id": "k1", "name": "Cloud", "type": "basic", "fields": {"url": "https://cloud.example.org"}}}
+    find = lambda n: next((c for c in creds.values() if c["name"].casefold() == n.strip().casefold()), None)  # noqa: E731
+    desc = AU.describe_call("http_request", "http", {"url": "https://x.example/a", "header": {"A": "{{cred:Cloud\t:p}}"}}, find)
+    assert [c["id"] for c in desc["creds"]] == ["k1"]

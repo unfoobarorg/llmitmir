@@ -25,9 +25,9 @@ Chats von vor dieser Version tragen keine Markierung; ``scan`` sucht in ihrem Ve
 """
 from __future__ import annotations
 
-import json
-import re
 from typing import Any, Iterable
+
+from . import credentials as C
 
 KEY = "internal_only"
 KIND_CRED, KIND_RULE, KIND_SKILL, KIND_SUB = "cred", "rule", "skill", "sub"
@@ -38,7 +38,6 @@ SKILL_TOOLS = {"skill_load", "skill_file"}
 # Version der Prüfung alter Verläufe: steigt sie, werden Chats ohne Markierung noch einmal durchsucht
 SCAN_VERSION = 1
 
-_PLACEHOLDER = re.compile(r"\{\{\s*cred:([^:}]+):([A-Za-z0-9_]+)\s*\}\}")
 _LABELS = {KIND_CRED: "Zugang", KIND_RULE: "Datenregel", KIND_SKILL: "Skill", KIND_SUB: "Teilaufgabe"}
 
 
@@ -118,7 +117,7 @@ def creds_in_args(args: Any) -> set[str]:
     names = set()
     if isinstance(args.get("zugang"), str) and args["zugang"].strip():
         names.add(args["zugang"].strip())
-    names |= {m.group(1).strip() for m in _PLACEHOLDER.finditer(json.dumps(args, ensure_ascii=False))}
+    names |= set(C.placeholder_names(args))  # in den Texten selbst, wie beim Auflösen (nicht in der JSON-Form)
     return names
 
 

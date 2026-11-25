@@ -141,11 +141,7 @@ def creds_in_args(args: dict) -> list[str]:
     z = args.get("zugang")
     if isinstance(z, str) and z.strip():
         names.append(z.strip())
-    try:
-        dumped = json.dumps(args, ensure_ascii=False)
-    except (TypeError, ValueError):
-        dumped = ""
-    names += [m.group(1).strip() for m in C.PLACEHOLDER.finditer(dumped)]
+    names += C.placeholder_names(args)  # in den Texten selbst, wie beim Auflösen (nicht in der JSON-Form)
     return list(dict.fromkeys(names))
 
 
