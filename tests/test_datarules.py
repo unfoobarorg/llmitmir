@@ -25,6 +25,17 @@ def test_rules_are_validated():
     ("/Gruppen/*/Vertraulich", {"path": "/Gruppen/HR/Offen/a.pdf"}, False),
     ("Personal", {"container": "Personal"}, True),
     ("/Gruppen/**", {}, False),
+    # Pfade werden vor dem Vergleich vereinheitlicht: dekodiert, ohne . und .., mit und ohne WebDAV-Präfix
+    ("/Gruppen/Finanzen/**", {"path": "Offen/../Gruppen/Finanzen/plan.xlsx"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "./Gruppen//Finanzen/plan.xlsx"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "Gruppen/%46inanzen/plan.xlsx"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "files/anna/Gruppen/Finanzen/plan.xlsx"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "https://cloud.example/remote.php/dav/files/anna/Gruppen/Finanzen/a"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "/remote.php/webdav/Gruppen/Finanzen/a"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "Gruppen/%2546inanzen/plan.xlsx"}, True),   # nicht sicher bestimmbar: Regel gilt
+    ("/Gruppen/Finanzen/**", {"path": "Gruppen\\Finanzen\\plan.xlsx"}, True),
+    ("/Gruppen/Finanzen/**", {"path": "Gruppen/Finanzen/../Offen/a.txt"}, False),
+    ("/Gruppen/Finanzen/**", {"path": "files/anna/Gruppen/Offen/a.txt"}, False),
 ])
 def test_scope(scope, target, hit):
     assert DR.in_scope({"scope": scope}, target) is hit

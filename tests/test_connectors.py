@@ -113,6 +113,11 @@ def test_login_flow_start_and_poll():
                                      "login": "https://cloud.example.org/x"})])
         with pytest.raises(ValueError, match="anderen Server"):
             await CN.flow_start(evil, "https://cloud.example.org")
+        for login, endpoint in (("javascript://cloud.example.org/%0Aalert(1)", "https://cloud.example.org/poll"),
+                                ("https://cloud.example.org/x", "http://cloud.example.org/poll")):
+            odd = _Session([_Resp(200, {"poll": {"token": "t", "endpoint": endpoint}, "login": login})])
+            with pytest.raises(ValueError, match="anderen Server"):
+                await CN.flow_start(odd, "https://cloud.example.org")
         poll = _Session([_Resp(404), _Resp(200, {"server": "https://cloud.example.org", "loginName": "niko",
                                                  "appPassword": "app-123"})])
         assert await CN.flow_poll(poll, info["endpoint"], "tok") is None

@@ -2848,6 +2848,9 @@ class ToolContext:
                 continue
             if target is None:
                 target = AU.describe_call(tool.name, tool.group, args, lambda n: C.find(self.creds, n))["target"]
+                if isinstance(args.get("pfad"), str) and args["pfad"].strip():
+                    # Geltungsbereich und Metadaten am vollständigen Pfad, nicht an der gekürzten Protokollfassung
+                    target = dict(target, path=args["pfad"])
             model = self.chat.get("model") or ""
             mc = self.manager.model_class(model)
             if mc == AU.MC_MAIN and args.get("speichern_als"):
@@ -2872,7 +2875,8 @@ class ToolContext:
                     ok, why = False, f"Prüfung nicht möglich ({type(e).__name__})"
                 self.manager.audit.record(AU.EV_RULE, self.agent, self.run.id, tool=tool.name, group=tool.group,
                                           creds=[{"id": c["id"], "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}],
-                                          target=dict(target, object=AU.clip(r["name"], 120)), model=model, model_class=mc,
+                                          target={**target, **({"path": AU.clip(target["path"])} if target.get("path") else {}),
+                                                  "object": AU.clip(r["name"], 120)}, model=model, model_class=mc,
                                           outcome="ok" if ok else "denied", decision="rule")
                 if not ok:
                     self._decided("rule")

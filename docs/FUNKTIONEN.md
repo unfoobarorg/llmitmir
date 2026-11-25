@@ -242,7 +242,7 @@
   Werkzeuge) und laufen durch Freigabe je Agent (der Zugang des Konnektors), Schreib-Freigaben, Datenregeln und
   Zugriffsprotokoll; an den Server gehen nur Argumente aus dem eingefrorenen Schema. Anmeldung per OAuth folgt später.
 - **Datenregeln je Konnektor** (*Admin → Konnektoren → Datenregeln*): Regel = Geltungsbereich (Pfad oder Ordner mit `*`
-  und `**`, z. B. `/Gruppen/Finanzen/**`; leer = ganzer Konnektor) + **Anweisung in Worten** + für welche Modelle (nur
+  und `**`, z. B. `/Gruppen/Finanzen/**`; leer = ganzer Konnektor; Pfade werden vor dem Vergleich vereinheitlicht – dekodiert, ohne `.`/`..`, mit und ohne WebDAV-Präfix wie `files/<Name>/` – und lässt sich ein Pfad nicht sicher bestimmen, gilt die Regel) + **Anweisung in Worten** + für welche Modelle (nur
   externe oder alle). Beispiel: „Nur Dateien mit Tag public oder internal dürfen an externe Modelle, nie restricted;
   ungelabelte Dateien sind für alle Modelle gesperrt.“ Bevor ein Werkzeug Inhalte aus dem Bereich abruft, entscheidet ein
   **Wächter** – ein Modell des Hauptanbieters, nie extern – anhand der **Metadaten** (bei Nextcloud per PROPFIND: Tags,
