@@ -1,6 +1,6 @@
 // Admin-Einstellungen: nach Bereichen geordnet wie die Claude-Einstellungen (links Bereiche, rechts Gruppen mit Zeilen).
 // Gespeichert wird weiterhin alles gemeinsam über admin/save; ungespeicherte Änderungen bleiben beim Wechsel der Bereiche erhalten.
-import { html, nothing } from "lit";
+import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, fmtNum, fmtTime, safeElement, confirmDialog } from "./ui";
 import { store, navigate } from "./api";
@@ -11,6 +11,7 @@ import { fmtEur } from "./external";
 import { extraCss, werkbankInfo } from "./settings";
 import { settingsLayout, settingsCss, centerActiveNav, group, row, pad, toggle, switchRow, choices, more, empty, itemCard, type NavItem } from "./setui";
 import "./monitoring";
+import { fieldLabel } from "./connectors";
 
 /** Geheimnisfeld: zeigt „•••“ für gespeicherte Werte und leert sich beim Hineinklicken. */
 const secret = (value: string, change: (v: string) => void, placeholder = "nicht gesetzt") =>
@@ -31,7 +32,21 @@ export class AdminPage extends StoreElement {
   @state() private mcpSecret: Record<number, string> = {};
   @state() private mcpBusy = -1;
   @state() private provBusy = "";
-  static styles = [base, settingsCss, extraCss, taskUsageCss];
+  /** Geöffneter Konnektor in der Kachel-Übersicht (Index), -1 = Übersicht. */
+  @state() private knOpen = -1;
+  static styles = [base, settingsCss, extraCss, taskUsageCss, css`
+    .kntiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; padding: 14px 16px; }
+    .kntile { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 12px; border: 1px solid var(--lm-line); border-radius: 12px;
+      background: var(--lm-raise, var(--lm-panel)); color: inherit; font: inherit; cursor: pointer; transition: background .15s, border-color .15s; min-width: 0; }
+    .kntile:hover { background: var(--lm-hover); border-color: var(--lm-accent); }
+    .kntile.off { opacity: .6; }
+    .kntile.add { border-style: dashed; align-items: center; color: var(--lm-muted); }
+    .kntile .kic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--lm-accent-soft); color: var(--lm-accent); flex: none; }
+    .kntile .ktx { display: grid; gap: 3px; flex: 1; min-width: 0; }
+    .kntile .ktx b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kntile .kchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+    .kntile .kgo { color: var(--lm-muted); align-self: center; }
+    .kform { display: grid; gap: 12px; }`];
   connectedCallback() { super.connectedCallback(); this.load(); }
   private async load() { try { this.a = await store.api.ws("admin/get"); this.dirty = false; } catch (e: any) { store.notify(e.message); } }
   private set(k: string, v: any) { this.a = { ...this.a, [k]: v }; this.dirty = true; }
@@ -399,44 +414,71 @@ export class AdminPage extends StoreElement {
         ${pad(html`<div class="hint">Gezählt werden die Personen, die LLMitMir seit dem letzten Start benutzt haben. Inhalte der Zugänge siehst du hier nicht.</div>`)}` : nothing}`,
       { desc: "Personen sollen eigene Zugänge in ihrem Nutzerkontext verwenden (App-Passwort, eigener Token mit minimalen Rechten) – keine persönlichen Anmeldedaten und keine zentralen Systemzugänge. Jeder Zugang braucht in jedem Chat die Freigabe der Person." });
   }
-  /** Konnektoren: Vorlagen für Zugänge, die jede Person mit dem eigenen Konto verbindet (connectors.py). */
+  /** Konnektoren: Vorlagen für Zugänge, die jede Person mit dem eigenen Konto verbindet (connectors.py).
+   *  Übersicht als Kacheln wie auf der Seite der Personen; ein Klick öffnet den Konnektor zum Bearbeiten. */
   private connectorsGroup() {
     const list: any[] = this.a.connectors || [];
     const types: Record<string, any> = store.data?.credential_types || {};
-    const fixedEditor = (x: any, i: number) => {
-      const ty = types[x.type] || { fields: [], secret: [] };
-      const sec = new Set<string>(ty.secret || []);
-      const hidden = new Set<string>([...(ty.hidden || []), ...(ty.obsolete || [])]);
-      const fs: string[] = (ty.fields || []).filter((f: string) => !sec.has(f) && !hidden.has(f));
-      return fs.length ? html`<div class="two">${fs.map(f => html`<label class="f"><span>${(ty.labels || {})[f] || f} <span class="hint">(fest; leer = trägt die Person ein)</span></span>
-        <input .value=${(x.fixed || {})[f] || ""} placeholder=${(ty.placeholders || {})[f] || ""}
-          @input=${(e: any) => this.setList("connectors", i, { fixed: { ...(x.fixed || {}), [f]: e.target.value } })}></label>`)}</div>` : nothing;
-    };
+    const desc = html`Vorbereitete Anbindungen: Du legst Typ, feste Felder und erlaubte Server fest, jede Person verbindet auf der Seite „Konnektoren“ nur ihr eigenes Konto – auch mehrfach.
+      ${more(html`Daraus entsteht je Verbindung ein Zugang im Nutzerkontext der Person. Eingerichtet wird in einem <b>geführten Chat</b>: Das Modell folgt deiner
+        <b>Einrichtungsanleitung</b> Schritt für Schritt, Passwörter und Tokens trägt die Person in ein Formular ein, das das Modell nie sieht. Danach wählt sie, wofür der Zugang
+        verwendet werden darf, und kann einen Skill hinterlegen. Beim <b>Nextcloud Login Flow</b> meldet sich die Person im Browser bei der Nextcloud an, und LLMitMir bekommt
+        ein eigenes App-Passwort. Die <b>Anleitung für das Modell</b> gilt bei jeder Arbeit mit einem verbundenen Zugang. Ausgeschaltete Konnektoren sperren ihre Zugänge.`)}`;
+    const i = this.knOpen;
+    if (i >= 0 && i < list.length) return group(t("Konnektoren"), this.connectorEditor(list[i], i, types), { desc });
+    const add = () => { this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }]); this.knOpen = list.length; };
     return group(t("Konnektoren"), html`
       ${list.length ? nothing : empty("share", "Noch keine Konnektoren. Ein Konnektor ist eine vorbereitete Anbindung, z. B. an die Nextcloud – jede Person verbindet nur noch ihr Konto.")}
-      ${list.map((x: any, i: number) => itemCard(html`<input placeholder="Name" .value=${x.name || ""} @input=${(e: any) => this.setList("connectors", i, { name: e.target.value })}>
-          <select @change=${(e: any) => this.setList("connectors", i, { type: e.target.value, fixed: {}, login: "form" })}>
-            ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${x.type === k}>${v.label}</option>`)}</select>
-          <span class="keep">${toggle(x.enabled !== false, (on) => this.setList("connectors", i, { enabled: on }), { label: t("aktiv") })}</span>
-          <button class="iconbtn keep" title=${t("Entfernen")} @click=${() => this.dropItem("connectors", i)}>${icon("trash", 16)}</button>`, html`
-        <input placeholder="Beschreibung für die Personen" .value=${x.description || ""} @input=${(e: any) => this.setList("connectors", i, { description: e.target.value })}>
+      <div class="kntiles">${list.map((x: any, j: number) => html`<button class="kntile ${x.enabled === false ? "off" : ""}" @click=${() => (this.knOpen = j)}>
+          <span class="kic">${icon(x.mcp ? "mdi:connection" : x.type === "webdav" ? "cloud" : ["imap", "ews", "gwdg"].includes(x.type) ? "mdi:email-outline" : "key", 20)}</span>
+          <span class="ktx"><b>${x.name || t("Ohne Namen")}</b><span class="hint">${types[x.type]?.label || x.type}${x.login === "nextcloud_flow" ? " · Login Flow" : ""}</span>
+            <span class="kchips">${x.enabled === false ? html`<span class="chip">${t("aus")}</span>` : html`<span class="chip ok">${t("aktiv")}</span>`}
+              ${x.setup ? html`<span class="chip accent" title=${t("Einrichtungsanleitung hinterlegt")}>${icon("chat", 12)} ${t("Anleitung")}</span>` : nothing}
+              ${x.mcp ? html`<span class="chip">MCP · ${(x.mcp.tools || []).filter((tl: any) => tl.enabled !== false).length}</span>` : nothing}
+              ${(x.rules || []).length ? html`<span class="chip">${icon("shield", 12)} ${x.rules.length}</span>` : nothing}</span></span>
+          <span class="kgo">${icon("right", 18)}</span></button>`)}
+        <button class="kntile add" @click=${add}><span class="kic">${icon("plus", 20)}</span><span class="ktx"><b>${t("Konnektor hinzufügen")}</b></span></button></div>`,
+      { desc });
+  }
+  /** Einen Konnektor bearbeiten (aus der Kachel-Übersicht geöffnet). Gespeichert wird wie alles andere über die Speicherleiste. */
+  private connectorEditor(x: any, i: number, types: Record<string, any>) {
+    const ty = types[x.type] || { fields: [], secret: [] };
+    const sec = new Set<string>(ty.secret || []);
+    const hidden = new Set<string>([...(ty.hidden || []), ...(ty.obsolete || [])]);
+    const fs: string[] = (ty.fields || []).filter((f: string) => !sec.has(f) && !hidden.has(f));
+    const drop = async () => {
+      if (!(await confirmDialog(t("Konnektor {name} entfernen? Die Zugänge der Personen dazu werden gesperrt (nach dem Speichern).", { name: `„${x.name || "?"}“` }), t("Entfernen")))) return;
+      this.dropItem("connectors", i); this.knOpen = -1;
+    };
+    return html`<div class="pad"><div class="row" style="flex-wrap:wrap;gap:8px">
+        <button class="btn ghost" @click=${() => (this.knOpen = -1)}>${icon("left", 16)} ${t("Alle Konnektoren")}</button><span class="grow"></span>
+        ${toggle(x.enabled !== false, (on) => this.setList("connectors", i, { enabled: on }), { label: t("aktiv") })} <span class="hint">${x.enabled !== false ? t("aktiv") : t("aus")}</span>
+        <button class="btn ghost danger" @click=${drop}>${icon("trash", 16)} ${t("Entfernen")}</button></div></div>
+      ${pad(html`<div class="kform">
+        <div class="two"><label class="f"><span>${t("Name")}</span><input placeholder="z. B. GitLab" .value=${x.name || ""} @input=${(e: any) => this.setList("connectors", i, { name: e.target.value })}></label>
+          <label class="f"><span>${t("Typ")}</span><select @change=${(e: any) => this.setList("connectors", i, { type: e.target.value, fixed: {}, login: "form" })}>
+            ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${x.type === k}>${v.label}</option>`)}</select></label></div>
+        <label class="f"><span>${t("Beschreibung für die Personen")}</span><input .value=${x.description || ""} @input=${(e: any) => this.setList("connectors", i, { description: e.target.value })}></label>
         <div class="two"><label class="f"><span>Anmeldung</span><select @change=${(e: any) => this.setList("connectors", i, { login: e.target.value })}>
             <option value="form" ?selected=${x.login !== "nextcloud_flow"}>Per Formular</option>
             ${x.type === "webdav" ? html`<option value="nextcloud_flow" ?selected=${x.login === "nextcloud_flow"}>Nextcloud Login Flow</option>` : nothing}</select></label>
           <label class="f"><span>Weitere erlaubte Server</span><input placeholder="Komma-getrennt, auch *.example.org" .value=${(x.hosts || []).join(", ")}
             @change=${(e: any) => this.setList("connectors", i, { hosts: e.target.value.split(/[\s,;]+/).map((h: string) => h.trim()).filter(Boolean) })}></label></div>
-        ${fixedEditor(x, i)}
-        ${types[x.type]?.services ? html`<div class="row" style="flex-wrap:wrap;gap:12px">${Object.entries(types[x.type].services).map(([k, l]: any) => html`<label class="row hint" style="gap:6px">
-          <input type="checkbox" style="width:auto" .checked=${(x.services || types[x.type].default_services || []).includes(k)}
-            @change=${(e: any) => { const cur = new Set<string>(x.services || types[x.type].default_services || []); e.target.checked ? cur.add(k) : cur.delete(k); this.setList("connectors", i, { services: [...cur] }); }}> ${l}</label>`)}</div>` : nothing}
-        <label class="f"><span>Anleitung für das Modell <span class="hint">(optional)</span></span><textarea rows="3" placeholder="Wie mit diesem System gearbeitet wird" .value=${x.instructions || ""}
+        ${fs.length ? html`<div class="two">${fs.map(f => html`<label class="f"><span>${fieldLabel(x.type, f)} <span class="hint">(fest; leer = trägt die Person ein)</span></span>
+          <input .value=${(x.fixed || {})[f] || ""} placeholder=${(ty.placeholders || {})[f] || ""}
+            @input=${(e: any) => this.setList("connectors", i, { fixed: { ...(x.fixed || {}), [f]: e.target.value } })}></label>`)}</div>` : nothing}
+        ${Object.keys(ty.services || {}).length ? html`<div class="f"><span class="hint">Wofür der Konnektor gilt (ob lesen oder auch schreiben, wählt jede Person beim Verbinden)</span>
+          <div class="row" style="flex-wrap:wrap;gap:12px">${Object.entries(ty.services).map(([k, l]: any) => html`<label class="row hint" style="gap:6px">
+          <input type="checkbox" style="width:auto" .checked=${(x.services || ty.default_services || []).includes(k)}
+            @change=${(e: any) => { const cur = new Set<string>(x.services || ty.default_services || []); e.target.checked ? cur.add(k) : cur.delete(k); this.setList("connectors", i, { services: [...cur] }); }}> ${l}</label>`)}</div></div>` : nothing}
+        <label class="f"><span>${icon("chat", 14)} ${t("Einrichtungsanleitung für den geführten Chat")} <span class="hint">(${t("empfohlen")})</span></span>
+          <textarea rows="7" placeholder=${"Schritt für Schritt, z. B.:\n1. In GitLab oben rechts auf dein Profilbild → Einstellungen → Access Tokens.\n2. Name „LLMitMir“, Ablaufdatum in einem Jahr, Rolle Reporter, Scope read_api.\n3. Token kopieren – er wird nur einmal angezeigt.\nFrag auch, für welches Projekt der Zugang gedacht ist, und schlag einen passenden Skill vor."}
+            .value=${x.setup || ""} @input=${(e: any) => this.setList("connectors", i, { setup: e.target.value })}></textarea>
+          <span class="hint">${t("Danach richtet sich das Modell im Einrichtungs-Chat: Es führt Frage für Frage durch, Passwörter und Tokens trägt die Person in ein Formular ein, das das Modell nie sieht. Anschließend wählt sie, wofür der Zugang verwendet werden darf, und kann einen Skill hinterlegen.")}</span></label>
+        <label class="f"><span>Anleitung für das Modell <span class="hint">(optional, gilt bei jeder Arbeit mit dem Zugang)</span></span><textarea rows="3" placeholder="Wie mit diesem System gearbeitet wird" .value=${x.instructions || ""}
           @input=${(e: any) => this.setList("connectors", i, { instructions: e.target.value })}></textarea></label>
         ${["bearer", "header", "basic"].includes(x.type) ? this.mcpEditor(x, i) : nothing}
-        ${this.rulesEditor(x, i)}`, x.enabled === false))}
-      <div class="gfoot"><button class="btn" @click=${() => this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }])}>${icon("plus", 16)} ${t("Konnektor hinzufügen")}</button></div>`,
-      { desc: html`Vorbereitete Anbindungen: Du legst Typ, feste Felder und erlaubte Server fest, jede Person verbindet auf der Seite „Konnektoren“ nur ihr eigenes Konto.
-        ${more(html`Daraus entsteht ein Zugang im Nutzerkontext der Person. Beim <b>Nextcloud Login Flow</b> meldet sich die Person im Browser bei der Nextcloud an,
-          und LLMitMir bekommt ein eigenes App-Passwort. Die Anleitung bekommt das Modell, sobald der Konnektor verbunden ist. Ausgeschaltete Konnektoren sperren ihre Zugänge.`)}` });
+        ${this.rulesEditor(x, i)}</div>`)}`;
   }
   /** MCP-Server (mcp.py): Werkzeuge abrufen und einzeln freigeben – die Liste wird eingefroren. */
   private mcpEditor(x: any, i: number) {

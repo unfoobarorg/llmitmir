@@ -49,7 +49,7 @@ TYPES: dict[str, dict[str, Any]] = {
              "hidden": ["ews_url"],
              # Felder früherer Versionen (DavMail-Kalender und -Kontakte, IMAP/SMTP): nicht anzeigen, beim Speichern weg
              "obsolete": ["url", "contacts_url", "imap_host", "smtp_host"],
-             "labels": {"username": "GWDG-E-Mail-Adresse", "login": "Benutzerkennung", "password": "Passwort",
+             "labels": {"username": "E-Mail-Adresse", "login": "Benutzerkennung", "password": "Passwort",
                         "ews_url": "EWS-Adresse"},
              "placeholders": {"username": "vorname.nachname@gwdg.de", "login": "z. B. emuste1",
                               "ews_url": "Wird automatisch gesetzt"},
@@ -216,6 +216,14 @@ def access(cred: dict, service: str) -> str:
     return "write" if (cred.get("access") or {}).get(service) == "write" else "read"
 
 
+def read_only(cred: dict) -> bool:
+    """Zugang ohne Dienste (Nextcloud, Token, API-Key …), den die Person auf „nur lesen“ gestellt hat.
+
+    Schreibende Werkzeugaufrufe mit diesem Zugang lehnt LLMitMir ab, ebenso Befehle in der Werkbank, die ihn über
+    Platzhalter nutzen (dort lässt sich nicht erkennen, ob sie schreiben). Exchange-Zugänge regeln das je Dienst."""
+    return bool(cred.get("readonly")) and not (TYPES.get(cred.get("type") or "") or {}).get("services")
+
+
 def access_text(cred: dict) -> dict[str, str]:
     """{"E-Mail-Postfach": "nur lesen", …} für Modell und Änderungsvorschau."""
     names = TYPES["ews" if cred.get("type") == "ews" else "gwdg"]["services"]
@@ -380,7 +388,7 @@ def foreign_creds(used: list[dict], url: str, approved: set | None = None) -> li
 def foreign_host_error(creds_: list[dict], url: str) -> str:
     names = ", ".join(f"„{c.get('name')}“" for c in creds_)
     return (f"Der Zugang {names} ist für den Server {host_of(url) or '?'} nicht freigegeben. Erlaubt sind nur die Server "
-            "des Zugangs (Seite „Zugänge“ → „Erlaubte Server“); in einem Chat fragt LLMitMir vorher nach.")
+            "des Zugangs (Seite „Plugins → Zugänge“ → „Erlaubte Server“); in einem Chat fragt LLMitMir vorher nach.")
 
 
 def secret_fields(cred: dict) -> set[str]:
@@ -432,6 +440,8 @@ def describe_for_model(creds: dict[str, dict], allowed: set[str] | None = None) 
             # wofür die Person den GWDG-Zugang freigegeben hat, mit welchem Recht – und womit das Modell ihn nutzt
             item["dienste"] = access_text(c)
             item["nutzung"] = GWDG_USAGE
+        elif read_only(c):
+            item["recht"] = "nur lesen – schreibende Aufrufe (POST, PUT, DELETE, Schreibwerkzeuge, Werkbank-Befehle) lehnt LLMitMir ab"
         out.append(item)
     return out
 

@@ -6,6 +6,7 @@ import { StoreElement, base, icon, md, fmtNum, fmtTime, daysText, copyText, safe
 import { store, navigate, isSimple } from "./api";
 import { t } from "./i18n";
 import { claudeImportPrompt } from "./importprompt";
+import "./plugins";
 import { modelName } from "./modelpick";
 import werkbankGuide from "../../docs/WERKBANK.md";
 import { taskUsageCard, taskUsageCss } from "./taskusage";
@@ -70,6 +71,8 @@ const link = (path: string, text: string) =>
 @safeElement("lm-settings")
 export class SettingsPage extends StoreElement {
   @property() tab = "";
+  /** Unterbereich, z. B. der Reiter der Plugins (/settings/plugins/skills). */
+  @property() sub = "";
   @state() private s: any = {};
   @state() private memory = "";
   @state() private dirty = false;
@@ -137,7 +140,8 @@ export class SettingsPage extends StoreElement {
     const list: (NavItem | false)[] = [
       { id: "general", label: t("Allgemein"), icon: "settings" },
       (!simple || e.any_access || e.consent) && { id: "models", label: t("Modelle"), icon: "sparkle" },
-      { id: "capabilities", label: t("Funktionen"), icon: "mdi:puzzle-outline" },
+      { id: "capabilities", label: t("Funktionen"), icon: "mdi:application-cog-outline" },
+      { id: "plugins", label: t("Plugins"), icon: "plugins" },
       { id: "notifications", label: t("Benachrichtigungen"), icon: "bell" },
       { id: "privacy", label: t("Datenschutz & Freigaben"), icon: "mdi:shield-lock-outline" },
       { id: "usage", label: t("Verbrauch"), icon: "gauge", sep: true },
@@ -419,6 +423,8 @@ export class SettingsPage extends StoreElement {
       general: [t("Allgemein"), "Ansicht, Hinweise über dich und wie du LLMitMir bedienst.", () => this.general()],
       models: [t("Modelle"), "Welche KI LLMitMir für dich nimmt.", () => this.models()],
       capabilities: [t("Funktionen"), "Was LLMitMir zusätzlich kann und wie es größere Aufgaben angeht.", () => this.capabilities()],
+      plugins: [t("Plugins"), t("Konnektoren, Skills und Zugänge. Was zu einem Konnektor gehört, bearbeitest du über den Konnektor."),
+        () => html`<lm-plugins embedded .tab=${this.sub}></lm-plugins>`],
       notifications: [t("Benachrichtigungen"), "Wie du erfährst, dass etwas fertig ist oder auf dich wartet.", () => this.notifications()],
       privacy: [t("Datenschutz & Freigaben"), "Wie lange Chats bleiben, was LLMitMir ohne Rückfrage darf und wohin Zugangsdaten gehen.", () => this.privacy()],
       usage: [t("Verbrauch"), "Wie viel du LLMitMir nutzt.", () => this.usage()],

@@ -33,10 +33,10 @@ def _account(ctx, name: str, write: bool = False) -> dict:
     acc = C.access(cred, "mail")
     if not acc:
         raise MailError(f"Der Zugang „{cred.get('name')}“ ist nicht für das E-Mail-Postfach freigegeben"
-                        + (" (Seite „Zugänge“: „E-Mail-Postfach“ anhaken)." if C.is_gwdg(cred) else "."))
+                        + (" (Seite „Plugins → Zugänge“: „E-Mail-Postfach“ anhaken)." if C.is_gwdg(cred) else "."))
     if write and acc != "write":
         raise MailError(f"Der Zugang „{cred.get('name')}“ darf das E-Mail-Postfach nur lesen – senden, verschieben, "
-                        "markieren und löschen sind gesperrt. Die Person kann das auf der Seite „Zugänge“ ändern.")
+                        "markieren und löschen sind gesperrt. Die Person kann das auf der Seite „Plugins → Zugänge“ ändern.")
     f = cred.get("fields") or {}
     ews = C.is_ews(cred)
     user = C.gwdg_email(f.get("username") or "") if cred.get("type") == "gwdg" else str(f.get("username") or "")

@@ -7,6 +7,7 @@ import pytest
 from _lm import load
 
 CN = load("connectors")
+C = load("credentials")
 
 NC = {"name": "Nextcloud", "type": "webdav", "fixed": {"url": "https://cloud.example.org"}, "login": "nextcloud_flow",
       "hosts": ["office.example.org"], "instructions": "Teamordner liegen unter /Gruppen."}
@@ -69,6 +70,44 @@ def test_prompt_section_and_public_view():
     assert CN.prompt_section({"k2": {"id": "k2", "name": "Frei"}}, cfg) == ""
     view = CN.public_view(k)
     assert "instructions" not in view and view["user_fields"] == ["username", "password", "share_token"]
+
+
+def test_several_connections_skill_and_owner_hint():
+    k = CN.clean([NC])[0]
+    creds = {"a": {"id": "a", "name": "Cloud B", "connector_id": k["id"], "created": 2},
+             "b": {"id": "b", "name": "Cloud A", "connector_id": k["id"], "created": 1}, "c": {"id": "c", "name": "Frei"}}
+    assert [c["id"] for c in CN.connections_of(creds, k["id"])] == ["b", "a"]
+    skills = {"s1": {"id": "s1", "name": "Cloud A nutzen", "connection_id": "b"}, "s2": {"id": "s2", "name": "frei"}}
+    assert CN.skill_of(skills, "b")["id"] == "s1" and CN.skill_of(skills, "a") is None
+    hint = CN.owner_hint(dict(creds["a"]), {"connectors": [k]}, "Der Zugang")
+    assert "„Cloud B“" in hint and "„Nextcloud“" in hint and "Konnektoren" in hint
+
+
+def test_options_after_connecting():
+    nc = CN.clean([NC])[0]
+    cred = {"type": "webdav", "connector_id": nc["id"]}
+    assert CN.clean_options(nc, cred, {"readonly": 1, "external": 0, "valid_until": "2027-03-01", "access": {"mail": "write"}}) == \
+        {"readonly": True, "external": False, "valid_until": "2027-03-01"}
+    with pytest.raises(ValueError, match="JJJJ"):
+        CN.clean_options(nc, cred, {"valid_until": "1.3.2027"})
+    gw = CN.clean([{"name": "Uni", "type": "gwdg", "services": ["mail", "calendar"]}])[0]
+    gcred = {"type": "gwdg", "services": ["mail", "calendar"]}
+    out = CN.clean_options(gw, gcred, {"access": {"mail": "write", "contacts": "write"}, "readonly": True})
+    assert out == {"access": {"mail": "write", "calendar": "read"}}  # Exchange: je Dienst, kein „readonly“
+    assert CN.options_text({**gcred, **out}) .startswith("Rechte: E-Mail-Postfach: lesen und schreiben, Kalender: nur lesen")
+    assert "nur lesen" in CN.options_text({"type": "webdav", "readonly": True})
+    assert C.read_only({"type": "webdav", "readonly": True}) and not C.read_only({"type": "gwdg", "readonly": True})
+
+
+def test_setup_prompt_uses_the_admin_guide_and_type_labels():
+    gw = CN.clean([{"name": "Uni-Mail", "type": "gwdg", "services": ["mail"], "setup": "Kennung steht im Uni-Portal."}])[0]
+    text = CN.setup_prompt(gw, None, None, "Niko")
+    assert "Uni-Portal" in text and "E-Mail-Adresse, Benutzerkennung, Passwort" in text
+    assert "konnektor_verbinden" in text and "konnektor_skill" in text and "nur eine Frage" in text
+    nc = CN.clean([NC])[0]
+    cred = {"id": "k1", "name": "Meine Cloud", "type": "webdav", "readonly": True}
+    text = CN.setup_prompt(nc, cred, {"name": "Cloud-Regeln"}, "Niko")
+    assert "Login Flow" in text and "„Meine Cloud“" in text and "Cloud-Regeln" in text and "Keine eigene Anleitung" in text
 
 
 def test_nextcloud_base():

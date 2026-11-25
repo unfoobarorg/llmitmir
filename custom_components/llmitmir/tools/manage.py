@@ -6,6 +6,7 @@ waits for the person. There is no "always allow", and scheduled runs can never u
 from __future__ import annotations
 
 from .. import changes as CH
+from .. import connectors as CN
 from .. import credentials as C
 from .. import manage as M
 from .. import policy as P
@@ -69,8 +70,10 @@ def _skill_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     if old is None and (hidden := _find(ctx.store.meta["skills"], name)) is not None:
         if hidden.get("internal_only") and ctx.external:
             raise ValueError(f"Skill „{name}“ ist nur für interne Modelle – mit einem externen Modell lässt er sich "
-                             "nicht ändern. Die Person kann das auf der Seite „Skills“ selbst tun.")
+                             "nicht ändern. Die Person kann das auf der Seite „Plugins → Skills“ selbst tun.")
         raise ValueError(f"Skill „{name}“ ist in diesem Projekt nicht freigegeben.")
+    if old is not None and old.get("connection_id"):
+        raise ValueError(CN.owner_hint(old, ctx.manager.config.data, "Der Skill"))
     cur = old or {}
     if old is None and not str(a.get("anleitung") or "").strip():
         raise ValueError("Für einen neuen Skill braucht es „anleitung“ (und am besten „beschreibung“).")
@@ -107,6 +110,8 @@ async def skill_delete_preview(ctx, a: dict) -> dict:
     old = _find(ctx.store.meta["skills"], _req_name(a), ctx.allowed_skills)
     if not old:
         raise ValueError(f"Skill „{a.get('name')}“ nicht gefunden.")
+    if old.get("connection_id"):
+        raise ValueError(CN.owner_hint(old, ctx.manager.config.data, "Der Skill"))
     return CH.build("skill", old["name"], CH.skill_fields(old, ctx.store.meta), [])
 
 
@@ -227,9 +232,8 @@ def _cred_plan(ctx, a: dict) -> tuple[dict | None, dict]:
         raise ValueError(f"Zugang „{name}“ ist in diesem Projekt nicht freigegeben.")
     if old is None:
         M.check_free(ctx.manager, None)
-    if old is not None and old.get("connector_id") and (a.get("typ") or a.get("felder")):
-        raise ValueError(f"„{old['name']}“ gehört zu einem Konnektor – Adresse und Typ legt der Admin fest. Neue Anmeldedaten "
-                         "trägt die Person auf der Seite „Konnektoren“ ein.")
+    if old is not None and old.get("connector_id"):
+        raise ValueError(CN.owner_hint(old, ctx.manager.config.data, "Der Zugang"))
     if old is None and not a.get("typ"):
         raise ValueError(f"Für einen neuen Zugang braucht es „typ“ ({', '.join(C.TYPES)}).")
     fields = {str(k): str(v) for k, v in (a.get("felder") or {}).items() if v is not None}
@@ -269,6 +273,8 @@ async def credential_delete_preview(ctx, a: dict) -> dict:
     old = _find(ctx.creds, _req_name(a), ctx.allowed_creds)
     if not old:
         raise ValueError(f"Zugang „{a.get('name')}“ nicht gefunden.")
+    if old.get("connector_id"):
+        raise ValueError(CN.owner_hint(old, ctx.manager.config.data, "Der Zugang"))
     used = [s["name"] for s in ctx.store.meta["skills"].values() if old["id"] in (s.get("credentials") or [])]
     ch = CH.build("zugang", old["name"], CH.credential_fields(old, C.secret_fields(old)), [])
     if used:
@@ -346,7 +352,8 @@ register(Tool("task_delete", "llmitmir", "Löscht eine geplante Aufgabe." + _ASK
               task_delete, write=True, label="Aufgabe löschen", icon="mdi:trash-can-outline", preview=task_delete_preview))
 register(Tool("credential_save", "llmitmir",
               "Legt einen Zugang an oder ändert ihn (gefunden über name). felder nach Typ (z. B. url, username, password); "
-              "nicht genannte Felder bleiben. GWDG-Exchange (typ gwdg): nur username (GWDG-E-Mail) und password, dazu dienste – "
+              "nicht genannte Felder bleiben. GWDG-Exchange (typ gwdg): username (E-Mail-Adresse), login (Benutzerkennung) und "
+              "password, dazu dienste – "
               "die Server-Adressen ergänzt LLMitMir. Geheimnisse nur eintragen, wenn die Person sie dir ausdrücklich gegeben hat." + _ASK,
               obj({"name": {"type": "string"}, "neuer_name": {"type": "string"},
                    "typ": {"type": "string", "enum": list(C.TYPES)}, "felder": {"type": "object"},
