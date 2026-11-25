@@ -10,8 +10,9 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import CoreState, HomeAssistant
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_time_change, async_track_time_interval
 
+from . import skillcheck as SK
 from .agent import Manager
 from .const import DOMAIN, EXT_MODELS_REFRESH, MODEL_POLL_SECONDS, PANEL_ELEMENT, PANEL_ICON, PANEL_TITLE, PANEL_URL, PRESETS, STATIC_URL, VERSION
 from .boards import Boards
@@ -61,6 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         ws.async_register(hass)
         http.async_register(hass)
+        _register_services(hass)
         await hass.http.async_register_static_paths(
             [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), False)])
         data["registered"] = True
@@ -83,6 +85,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await panel_custom.async_register_panel(hass, handle_safe_area=True, **panel_args)
     except TypeError:  # ältere Home-Assistant-Versionen kennen den Schalter nicht
         await panel_custom.async_register_panel(hass, **panel_args)
+    # Sensor „LLMitMir laufende Agenten“ (sensor.py) für Neustarts von außen
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor"])
 
     async def _start(_event=None) -> None:
         await manager.boards.async_start()
@@ -108,6 +112,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await manager.purge_expired()
             except Exception:  # noqa: BLE001 - die Aufräumfrist darf nichts anderes aufhalten
                 _LOGGER.exception("Aufräumen abgelaufener Chats fehlgeschlagen")
+            try:
+                await manager.audit.async_purge()  # Zugriffsprotokoll nach der Frist des Admins
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Aufräumen des Zugriffsprotokolls fehlgeschlagen")
+
+        # Skill-Richtlinien (skillcheck.py): nachts alles prüfen, was fällig ist (geänderte Richtlinien, ausstehend)
+        async def _skills(_now=None) -> None:
+            try:
+                await SK.recheck_all(manager)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Nächtliche Skill-Prüfung fehlgeschlagen")
+
+        entry.async_on_unload(async_track_time_change(hass, _skills, hour=3, minute=17, second=0))
+
+        # Trusted-AI-Zentrale (auditexport.py): morgens Auffälligkeiten als Karte für die Admins
+        async def _anomalies(_now=None) -> None:
+            try:
+                await _tell_admins_anomalies(hass, manager)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Prüfung auf Auffälligkeiten fehlgeschlagen")
+
+        entry.async_on_unload(async_track_time_change(hass, _anomalies, hour=6, minute=7, second=0))
+
+        # Nutzerverwaltung mit AD/LDAP (idm.py): nachts abgleichen, wenn der Admin es eingeschaltet hat
+        async def _idm(_now=None) -> None:
+            idm = manager.config.data.get("idm") or {}
+            if not (idm.get("enabled") and idm.get("auto")):
+                return
+            try:
+                from .ws import _idm_plan
+
+                actions, _n = await _idm_plan(hass, manager)
+                from . import audit as AU
+                from . import idm as IDM
+
+                res = await IDM.apply(hass, manager, actions)
+                # wie der Abgleich von Hand: ins Zugriffsprotokoll (nur Zähler, keine Namen)
+                manager.audit.record(AU.EV_ADMIN, {"id": "system-idm", "kind": "admin", "owner": ""}, "", tool="idm_sync",
+                                     target={"object": AU.clip(", ".join(f"{k} {v}" for k, v in res["counts"].items())
+                                                               or "keine Änderung", 120)},
+                                     outcome="error" if res["errors"] else "ok", decision="auto")
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Abgleich mit dem Verzeichnis fehlgeschlagen")
+
+        entry.async_on_unload(async_track_time_change(hass, _idm, hour=4, minute=23, second=0))
 
         hass.async_create_background_task(_purge(), "llmitmir retention")
         entry.async_on_unload(async_track_time_interval(hass, _purge, timedelta(hours=1)))
@@ -126,6 +175,73 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _register_services(hass: HomeAssistant) -> None:
+    """Wartungsmodus (maintenance.py): Neustart ankündigen und auf laufende Agenten warten."""
+    import voluptuous as vol
+    from homeassistant.helpers import config_validation as cv
+
+    def _m():
+        m = hass.data.get(DOMAIN, {}).get("manager")
+        if m is None:
+            raise vol.Invalid("LLMitMir ist nicht geladen")
+        return m
+
+    async def _admin(call) -> None:
+        """Nur Admins (oder Aufrufe ohne Person, z. B. Automationen): die Wartung sperrt LLMitMir für alle und kann
+        Home Assistant neu starten – wie homeassistant.restart ein Admin-Dienst. (async_register_admin_service kennt
+        in HA 2025.1 noch keine Antworten.)"""
+        from homeassistant.exceptions import Unauthorized, UnknownUser
+
+        if call.context.user_id:
+            user = await hass.auth.async_get_user(call.context.user_id)
+            if user is None:
+                raise UnknownUser(context=call.context)
+            if not user.is_admin:
+                raise Unauthorized(context=call.context)
+
+    async def _prepare(call) -> dict:
+        await _admin(call)
+        return await _m().maintenance.prepare(call.data["minutes"], call.data["max_wait"], call.data["restart"],
+                                              call.data.get("reason", ""))
+
+    async def _cancel(call) -> dict:
+        await _admin(call)
+        return await _m().maintenance.cancel()
+
+    from homeassistant.core import SupportsResponse
+
+    hass.services.async_register(DOMAIN, "prepare_restart", _prepare, schema=vol.Schema({
+        vol.Optional("minutes", default=10): vol.All(vol.Coerce(float), vol.Range(min=0, max=240)),
+        vol.Optional("max_wait", default=30): vol.All(vol.Coerce(float), vol.Range(min=1, max=480)),
+        vol.Optional("restart", default=False): cv.boolean,
+        vol.Optional("reason"): cv.string}), supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "cancel_restart", _cancel, supports_response=SupportsResponse.OPTIONAL)
+
+
+async def _tell_admins_anomalies(hass, manager) -> None:
+    import time as _time
+
+    from . import inbox as IB
+    from .storage import new_id
+    from .ws import _anomalies
+
+    items = (await _anomalies(hass, manager))["items"]
+    if not items:
+        return
+    text = "; ".join(f"{i.get('user_name') or 'jemand'}: {i['text']}" for i in items)[:600]
+    for u in await hass.auth.async_get_users():
+        if not u.is_admin or not u.is_active or u.system_generated:
+            continue
+        st = await manager.user_store(u.id)
+        ts = _time.time()
+        entry = {"id": new_id("n"), "chat_id": "", "task": "Monitoring", "status": "error",
+                 "title": f"{len(items)} Auffälligkeit{'en' if len(items) != 1 else ''} im Zugriffsprotokoll", "text": text,
+                 "link": "/admin/monitoring"}
+        st.meta["inbox"] = IB.add(st.meta.get("inbox"), entry, ts)
+        await st.async_save_meta()
+        manager.emit(u.id, {"type": "inbox", "items": IB.prune(st.meta["inbox"], ts, IB.minutes(st.meta["settings"]))})
+
+
 async def _flush_all(manager) -> None:
     for st in list(manager.users.values()):
         try:
@@ -133,12 +249,18 @@ async def _flush_all(manager) -> None:
         except Exception:  # noqa: BLE001 - die anderen Personen trotzdem speichern
             _LOGGER.exception("Speichern der Daten von %s fehlgeschlagen", st.user_id)
     await manager.billing.async_save()
+    try:
+        await manager.audit.async_flush()
+    except Exception:  # noqa: BLE001 - beim Herunterfahren nichts anderes aufhalten
+        _LOGGER.exception("Zugriffsprotokoll beim Herunterfahren nicht geschrieben")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = hass.data.get(DOMAIN, {})
     manager = data.get("manager")
+    await hass.config_entries.async_unload_platforms(entry, ["sensor"])
     if manager:
+        await manager.maintenance.cancel(quiet=True)
         for run in list(manager.runs.values()):
             run.cancel.set()
         if manager.scheduler:

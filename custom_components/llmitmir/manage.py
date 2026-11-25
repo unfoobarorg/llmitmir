@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from . import credentials as C
 from . import sharing as SH
+from . import policy as P
+from . import skillcheck as SK
+from . import connectors as CN
 from .const import ORIGIN_DASHBOARD
 from .cron import schedule_to_cron
 from .storage import new_id, now
@@ -16,12 +19,20 @@ async def save_skill(m, user_id: str, st, s: dict) -> dict:
     name = str(s.get("name") or old.get("name") or "").strip()
     if not name:
         raise ValueError("Name fehlt")
+    if SK.name_conflict(name, m.config.data):
+        raise ValueError(f"„{name}“ ist der Name einer zentralen Vorgabe dieser Installation – bitte einen anderen Namen wählen.")
     skill = dict(old, id=sid, name=name[:80], description=str(s.get("description") or "")[:1024],
                  body=str(s.get("body") or ""), credentials=list(s.get("credentials") or []),
-                 enabled=bool(s.get("enabled", True)), updated=now())
+                 enabled=bool(s.get("enabled", True)),
+                 # „Nur für interne Modelle“ (datalock.py); fehlt das Feld (Änderung im Chat), bleibt es, wie es war
+                 internal_only=bool(s.get("internal_only", old.get("internal_only", False))), updated=now())
+    if SK.policies(m.config.data):
+        # bis die Prüfung durch ist, sieht kein Modell den Skill (skillcheck.py); alte Befunde bleiben zum Vergleich
+        skill["check"] = dict(old.get("check") or {}, pending=True, state="pending", hash="")
     st.meta["skills"][sid] = skill
     await st.async_save_meta()
     m.emit(user_id, {"type": "meta", "section": "skills"})
+    SK.schedule(m, user_id, st, sid)
     return skill
 
 
@@ -32,10 +43,19 @@ async def delete_skill(m, user_id: str, st, sid: str) -> None:
     m.emit(user_id, {"type": "meta", "section": "skills"})
 
 
-def build_credential(st, c: dict) -> dict:
-    """Validated credential record from panel/tool input (secrets equal to MASK stay unchanged)."""
+def allow_central(m) -> bool:
+    """Hat der Admin zentrale Systemzugänge erlaubt?"""
+    return bool((m.config.data.get("credentials_policy") or {}).get("allow_central"))
+
+
+def build_credential(st, c: dict, allow_central: bool = False, require_scope: bool = False) -> dict:
+    """Validated credential record from panel/tool input (secrets equal to MASK stay unchanged).
+
+    Einstufung (policy.py): Pflicht für neue Zugänge aus dem Chat (``require_scope``), im Panel verlangt sie das
+    Formular; zentrale Systemzugänge nur, wenn der Admin sie erlaubt."""
     cid = c.get("id") or new_id("k")
     old = st.meta["credentials"].get(cid, {"created": now(), "fields": {}})
+    scope = P.clean_scope(c.get("scope"), allow_central, old.get("scope"), required=require_scope and not old.get("id"))
     typ = c.get("type") or old.get("type") or "other"
     if typ not in C.TYPES:
         raise ValueError(f"Unbekannter Typ „{typ}“ (möglich: {', '.join(C.TYPES)})")
@@ -88,6 +108,8 @@ def build_credential(st, c: dict) -> dict:
                 # weitere Server, an die der Zugang ohne Rückfrage gehen darf (die aus den Adressfeldern gelten immer)
                 hosts=C.clean_hosts(c["hosts"]) if "hosts" in c else list(old.get("hosts") or []),
                 updated=now())
+    if scope:
+        cred["scope"] = scope  # eigener Zugang, persönliche Zugangsdaten oder zentraler Systemzugang
     if svc is not None:
         cred["services"] = svc  # GWDG: wofür der Zugang gilt (Postfach, Kalender, Kontakte)
         # … und je Dienst nur lesen (Standard) oder auch schreiben – die Werkzeuge halten sich daran
@@ -102,8 +124,25 @@ def build_credential(st, c: dict) -> dict:
     return cred
 
 
-async def save_credential(m, user_id: str, st, c: dict) -> dict:
-    cred = build_credential(st, c)
+def check_free(m, old: dict | None) -> None:
+    """Neue freie Zugänge (ohne Konnektor) nur, wenn der Admin sie erlaubt."""
+    if not old and not CN.free_allowed(m.config.data):
+        raise ValueError("Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet. Verbinde stattdessen einen Konnektor "
+                         "(Seite „Konnektoren“).")
+
+
+async def save_credential(m, user_id: str, st, c: dict, connector: dict | None = None) -> dict:
+    """Zugang speichern. Mit ``connector`` entsteht bzw. ändert sich eine Verbindung (connectors.py): dessen feste
+    Felder gelten immer; ein vorhandener Konnektor-Zugang behält seine festen Felder, egal was das Formular schickt."""
+    old = st.meta["credentials"].get(c.get("id") or "")
+    if connector is None:
+        check_free(m, old)
+    cred = build_credential(st, c, allow_central=allow_central(m))
+    k = connector or CN.by_id(m.config.data, (old or {}).get("connector_id"))
+    if connector is not None:
+        cred["connector_id"] = connector["id"]
+    if k is not None and cred.get("connector_id") == k["id"]:
+        CN.enforce(cred, k)
     st.meta["credentials"][cred["id"]] = cred
     await st.async_save_meta()
     m.emit(user_id, {"type": "meta", "section": "credentials"})
@@ -141,6 +180,9 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
                 external_fallback=bool(t.get("external_fallback", old.get("external_fallback"))),
                 # besonders aufwaendig: bis zu 150 statt 60 Schritte je Lauf
                 heavy=bool(t.get("heavy", old.get("heavy"))),
+                # Zugänge, die ein unbeaufsichtigter Lauf nutzen darf (policy.py) – fragen kann er nicht
+                cred_allow=(P.clean_cred_allow(t["cred_allow"], st.meta["credentials"]) if t.get("cred_allow") is not None
+                            else list(old.get("cred_allow") or [])),
                 share=share, updated=now())
     # Kachel-Aufgabe (boards.py): Herkunft, Kachel und das Schreibrecht in die eigene Kachel bleiben, egal was
     # der Aufrufer schickt. Jede andere Aufgabe darf `dashboard_update` nie verwenden.
@@ -154,6 +196,8 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
         task["allow_write"] = [n for n in task["allow_write"] if n != "dashboard_update"]
     if not task["prompt"].strip():
         raise ValueError("Der Auftrag (Prompt) fehlt")
+    if t.get("cred_allow") is not None:
+        task.pop("cred_allow_migrated", None)  # die Person hat die Liste angesehen
     if task["heavy"] and not old.get("heavy"):
         task.pop("limit_hit", None)  # gerade freigegeben: die rote Markierung hat sich erledigt
     return task

@@ -447,7 +447,7 @@ export class TileSheet extends StoreElement {
     const x = tileByKey(this.tileKey);
     if (!x) return;
     this.d = JSON.parse(JSON.stringify({ ...x, schedule: x.task?.schedule, notify: x.task?.notify, project_id: x.task?.project_id,
-      model: x.task?.model, heavy: x.task?.heavy, enabled: x.task?.enabled }));
+      model: x.task?.model, heavy: x.task?.heavy, enabled: x.task?.enabled, cred_allow: x.task?.cred_allow || [] }));
     this.step = 2;
     store.loadTileData([this.tileKey]).catch(() => {});
   }
@@ -470,7 +470,8 @@ export class TileSheet extends StoreElement {
       if (!this.create) Object.assign(body, { id: this.live.id, owner: this.live.owner, version: this.live.version });
       if (this.d.source?.type === "model") {
         body.schedule = this.d.schedule || { type: "cron", cron: schedulePresets(this.d.name || "x")[0][2] };
-        if (this.r.owner) Object.assign(body, { notify: this.d.notify || "error", project_id: this.d.project_id || null, model: this.d.model || null, heavy: !!this.d.heavy });
+        if (this.r.owner) Object.assign(body, { notify: this.d.notify || "error", project_id: this.d.project_id || null, model: this.d.model || null, heavy: !!this.d.heavy,
+          cred_allow: this.d.cred_allow || [] });
       }
       const res = await store.api.ws("tile/save", { tile: body, place: this.create ? this.placeOn || null : null });
       this.dirty = false;
@@ -649,7 +650,8 @@ export class TileSheet extends StoreElement {
       ${isSimple() ? nothing : html`<div class="two"><label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
           <option value="">automatisch</option>${(d.models || []).filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
         <label class="row" style="gap:8px;margin-top:22px"><input type="checkbox" style="width:auto" .checked=${!!x.heavy} @change=${(e: any) => this.set("heavy", e.target.checked)}>
-          <span>Aufwändig – bis zu 60 statt 30 Schritte je Lauf</span></label></div>`}` : html`<div class="hint">Projekt, Modell und Benachrichtigungen legt ${live?.owner_name || "die Eigentümerin oder der Eigentümer"} fest – die Läufe nutzen deren Zugänge.</div>`}
+          <span>Aufwändig – bis zu 60 statt 30 Schritte je Lauf</span></label></div>`}
+      ${this.credPicker(x)}` : html`<div class="hint">Projekt, Modell und Benachrichtigungen legt ${live?.owner_name || "die Eigentümerin oder der Eigentümer"} fest – die Läufe nutzen deren Zugänge.</div>`}
       ${task ? html`<div class="card status">
         <div class="row"><b class="grow">Läufe</b>
           ${r.edit ? html`<button class="btn" ?disabled=${!!store.tileRuns[this.tileKey]} @click=${async () => {
@@ -661,6 +663,20 @@ export class TileSheet extends StoreElement {
         <div>Nächster Lauf: ${task.enabled && task.next_run ? fmtTime(task.next_run) : "–"}</div>
         ${r.owner && runs.length ? html`<div class="list" style="margin-top:6px">${runs.slice(0, 5).map((c: any) => html`<div class="item" style="padding:7px 10px" @click=${() => navigate(`/chat/${c.id}`)}>
           ${icon(c.status === "error" ? "alert" : "check", 15)}<span class="grow ellipsis" style="font-size:13px">${c.title}</span></div>`)}</div>` : nothing}</div>` : nothing}`;
+  }
+
+  /** Zugänge, die der Kachel-Lauf nutzen darf – er kann nicht nachfragen; Zugänge des Projekts sind ohnehin erlaubt. */
+  private credPicker(x: any) {
+    const cs: any[] = store.data?.credentials || [];
+    if (!cs.length) return nothing;
+    const viaProject = new Set<string>(((store.data?.projects || []).find((p: any) => p.id === x.project_id) || {}).credentials || []);
+    const allow = new Set<string>(x.cred_allow || []);
+    return html`<div class="f"><span style="font-weight:550;font-size:13px">${t("Zugänge")}</span>
+      <span class="hint">${t("Ein Kachel-Lauf kann nicht nachfragen: Er nutzt nur die Zugänge, die hier oder im Projekt erlaubt sind.")}</span>
+      <div class="row" style="flex-wrap:wrap;gap:6px">${cs.map((c: any) => viaProject.has(c.id)
+        ? html`<span class="chip">${icon("check", 12)} ${c.name} · ${t("Projekt")}</span>`
+        : html`<label class="chip" style="cursor:pointer"><input type="checkbox" style="width:auto;margin:0 4px 0 0" .checked=${allow.has(c.id)}
+            @change=${(e: any) => { const n = new Set(allow); e.target.checked ? n.add(c.id) : n.delete(c.id); this.set("cred_allow", [...n]); }}>${c.name}</label>`)}</div></div>`;
   }
 
   private dataTab() {

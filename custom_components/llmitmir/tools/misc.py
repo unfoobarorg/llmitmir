@@ -1,6 +1,7 @@
 """Notifications, skills, progress list and credential overview."""
 from __future__ import annotations
 
+from .. import skillcheck as SK
 from .. import credentials as C
 from .. import inbox as IB
 from .. import notifydevices as ND
@@ -46,19 +47,35 @@ async def notify(ctx, a: dict):
 
 
 def _skill(ctx, name: str) -> dict | None:
+    """Eigener Skill, den ein Modell nutzen darf (nicht gesperrt, Prüfung durch – skillcheck.py)."""
     low = str(name or "").casefold()
     for s in ctx.store.meta["skills"].values():
         if s.get("name", "").casefold() == low or s.get("id") == name:
-            if ctx.allowed_skills is None or s["id"] in ctx.allowed_skills:
+            if (ctx.allowed_skills is None or s["id"] in ctx.allowed_skills) and SK.usable(s):
                 return s
     return None
 
 
 async def skill_load(ctx, a: dict):
+    z = SK.find_central(ctx.manager.config.data, a.get("name"), SK.MODE_ON_DEMAND)
+    if z:  # zentraler Skill „bei Bedarf“ (Admin): gilt für alle, ohne Dateien
+        body = str(z.get("body", ""))
+        teil = ST.section(body, a.get("bereich")) if a.get("bereich") else body
+        return f"# Skill: {z['name']} (zentrale Vorgabe dieser Installation)\n{z.get('description', '')}\n\n{teil}"
     s = _skill(ctx, a.get("name"))
     if not s:
+        blocked = next((x for x in ctx.store.meta["skills"].values()
+                        if x.get("name", "").casefold() == str(a.get("name") or "").casefold() and not SK.usable(x)), None)
+        if blocked is not None:
+            st_ = (blocked.get("check") or {}).get("state")
+            return ("Fehler: Dieser Skill ist gerade nicht nutzbar – "
+                    + ("eine Richtlinie des Admins sperrt ihn." if st_ == "blocked" else
+                       "er wird noch geprüft." if st_ == "pending" else "er ist ausgeschaltet.")
+                    + " Ohne ihn weiterarbeiten und das der Person sagen.")
         return "Fehler: Skill nicht gefunden. Verfügbar: " + ", ".join(
-            x["name"] for x in ctx.store.meta["skills"].values() if ctx.allowed_skills is None or x["id"] in ctx.allowed_skills)
+            [z["name"] for z in SK.on_demand(ctx.manager.config.data)]
+            + [x["name"] for x in ctx.store.meta["skills"].values()
+               if (ctx.allowed_skills is None or x["id"] in ctx.allowed_skills) and SK.usable(x)])
     files = await ctx.store.async_list_files("skill", s["id"])
     creds = [ctx.creds[c]["name"] for c in s.get("credentials") or [] if c in ctx.creds]
     body = str(s.get("body", ""))

@@ -17,6 +17,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.util import dt as dt_util
 
+from . import audit as AU
+from . import policy as P
+from . import skillcheck as SK
+from . import connectors as CN
+from . import datarules as DR
+from . import datalock as DL
+from . import mcp as MCP
+from . import auditexport as AX
+from . import maintenance as MT
 from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
@@ -44,7 +53,7 @@ from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
 from .storage import BillingStore, ConfigStore, EwsStore, UserStore, new_id, now
-from .tools import GROUPS, REGISTRY, as_text, finish_progress, load_all
+from .tools import GROUPS, REGISTRY, Tool, as_text, finish_progress, load_all
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +93,7 @@ class Run:
     hint: dict | None = None   # "model is overloaded – switch to …", shown in the chat while waiting
     parent_id: str | None = None  # Lauf einer Teilaufgabe: ihr Hauptchat ("Stopp" dort hält auch sie an)
     subs_started: int = 0         # Teilaufgaben, die dieser Lauf gestartet hat (höchstens SUB_PER_RUN)
+    agent_id: str = ""            # Agent, zu dem der Lauf gehört (audit.py)
 
 
 # Werkzeuge, die im selben Schritt parallel laufen (alle anderen nacheinander)
@@ -129,10 +139,19 @@ class Manager:
         # Teilaufgaben: Plätze je Person und wer auf welches Ergebnis wartet (Unterchat-ID -> Future)
         self.sub_slots = SC.Slots(SUB_PARALLEL)
         self.sub_waiters: dict[str, asyncio.Future] = {}
+        # Nextcloud Login Flow (connectors.py): Flow-ID -> Zustand (wartet, verbunden, Fehler)
+        self.flows: dict[str, dict] = {}
+        # Zugriffsprotokoll (audit.py): welcher Agent mit welchem Zugang worauf – nur Metadaten, nur für Admins
+        self.audit = AU.AuditService(hass, hass.config.path(".storage", AU.AUDIT_DIR), self.audit_retention)
+        self.audit.exporter = self.export_events
+        # Wartungsmodus vor Neustarts (maintenance.py)
+        self.maintenance = MT.Maintenance(self)
+        self.export_state: dict = {}   # letzter Export: Zeit, Zahl, Fehler je Ziel
         load_all()
 
     async def async_setup(self) -> None:
         await self.config.async_load()
+        await self.audit.async_load()
         await self.billing.async_load()
         await self.ews.async_load()
 
@@ -272,6 +291,36 @@ class Manager:
             return True
         return bool(key) and bool(self.model_info(key).get("external"))
 
+    def model_class(self, key: str) -> str:
+        """Modellklasse fürs Zugriffsprotokoll: Hauptanbieter, extern beim Hauptanbieter, kostenpflichtig extern."""
+        if PV.is_external(key or ""):
+            return AU.MC_BILLED
+        return AU.MC_EXTERNAL if self.is_external(key or "") else AU.MC_MAIN
+
+    async def export_events(self, events: list[dict], force: bool = False) -> None:
+        """Ereignisse an Webhook und Syslog weitergeben (auditexport.py) – Fehler halten nichts auf."""
+        cfg = (self.config.data.get("audit") or {}).get("export") or {}
+        evs = events if force else AX.wanted(cfg, events)
+        if not evs:
+            return
+        for target, enabled, send in (
+                ("webhook", (cfg.get("webhook") or {}).get("enabled"), lambda: AX.send_webhook(self.session, cfg["webhook"], evs)),
+                ("syslog", (cfg.get("syslog") or {}).get("enabled"), lambda: AX.send_syslog(cfg["syslog"], evs))):
+            if not enabled:
+                continue
+            try:
+                await send()
+                self.export_state[target] = {"at": now(), "sent": len(evs), "error": None}
+            except Exception as e:  # noqa: BLE001 - der Export darf nichts aufhalten
+                self.export_state[target] = {"at": now(), "sent": 0, "error": f"{type(e).__name__}: {e}"[:300]}
+                _LOGGER.warning("Export des Zugriffsprotokolls an %s fehlgeschlagen: %s", target, e)
+
+    def audit_retention(self) -> int:
+        try:
+            return AU.clean_retention((self.config.data.get("audit") or {}).get("retention_days", AU.RETENTION_DEFAULT))
+        except ValueError:
+            return AU.RETENTION_DEFAULT
+
     def external_operator(self, key: str) -> str:
         """Where an external model runs, for sentences like "läuft bei …"."""
         if PV.is_external(key):
@@ -400,6 +449,8 @@ class Manager:
         # costs known); any_access: either – consent, Zugänge and the project lock matter
         return {"has_access": billed, "main_external": main_ext, "any_access": billed or main_ext,
                 "consent": self.has_consent(user_id),
+                # Chats mit internen Daten nehmen kein externes Modell an (datalock.py): das Modellmenü sperrt sie
+                "lock_chats": DL.enabled(self.config.data),
                 # an external provider is switched on: Zugänge show their lock for external models
                 "configured": any(p.get("enabled") for p in ps["order"] if p["id"] != PV.MAIN) or main_ext,
                 "month_eur": round(self.ext_month(user_id), 4), "limit_eur": self.ext_limit(user_id),
@@ -519,13 +570,67 @@ class Manager:
         proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
         if proj.get("no_external"):
             raise QuotaError(f"Das Projekt „{proj.get('name')}“ ist für externe Modelle gesperrt.")
+        if rs := self.chat_lock(st, chat):
+            raise QuotaError(DL.why(rs))
         self.check_external(user_id, model, task=chat.get("kind") == KIND_TASK_RUN)
+
+    # ------------------------------------------------------------- interne Daten im Verlauf (datalock.py)
+    def chat_lock(self, st: UserStore, chat: dict) -> list[dict]:
+        """Gründe, aus denen dieser Chat kein externes Modell annimmt: eigene Markierung oder die seines Hauptchats.
+        Leer, wenn er frei ist oder der Admin die Sperre abgeschaltet hat (dann gilt nur das Herausfiltern)."""
+        if not DL.enabled(self.config.data):
+            return []
+        root = None
+        if chat.get("parent_id"):
+            root = st.cached_chat(chat["parent_id"]) or st.meta["chats"].get(chat["parent_id"])
+        return DL.effective(chat, root)
+
+    async def mark_internal(self, st: UserStore, chat: dict, found: list[tuple[str, str]]) -> None:
+        """Einen Chat als „enthält interne Daten“ markieren – und seinen Hauptchat mit, denn beide teilen Arbeitsbereich
+        und Sandbox, und Ergebnisse der Teilaufgabe fließen in den Hauptchat."""
+        if not found:
+            return
+        ts = now()
+        changed = False
+        for kind, name in found:
+            changed = DL.mark(chat, kind, name, ts) or changed
+        if changed:
+            self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(chat)})
+        if chat.get("parent_id"):
+            root = await st.async_get_chat(chat["parent_id"])
+            if root is not None and DL.merge(root, chat, ts):
+                await st.async_save_chat(root, keep_updated=True)
+                self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(root)})
+
+    async def ensure_lock(self, st: UserStore, chat: dict) -> None:
+        """Chats von vor der Sperre tragen keine Markierung: den Verlauf des Chats, seines Hauptchats und der
+        Teilaufgaben einmal nach internen Daten durchsuchen (datalock.scan)."""
+        root = chat if not chat.get("parent_id") else (await st.async_get_chat(chat["parent_id"]) or chat)
+        if chat.get(DL.KEY) and root.get(DL.KEY):
+            return  # schon markiert oder schon durchsucht
+        family = [root]
+        for cid in SC.children(st.meta["chats"], root["id"]):
+            c = chat if cid == chat.get("id") else await st.async_get_chat(cid)
+            if c is not None:
+                family.append(c)
+        if not any(c is chat for c in family):
+            family.append(chat)
+        creds, skills, ts = st.meta["credentials"], st.meta["skills"], now()
+        dirty = [c for c in family if DL.scan(c, creds, skills, ts)]
+        for c in family:
+            if c is not root and DL.locked(c) and DL.merge(root, c, ts) and not any(x is root for x in dirty):
+                dirty.append(root)
+        for c in dirty:
+            await st.async_save_chat(c, keep_updated=True)
+            self.emit(st.user_id, {"type": "chat", "chat": st.chat_summary(c)})
 
     async def switch_model(self, user_id: str, chat_id: str, model: str) -> dict:
         """Change the model of a chat; a running answer is restarted on the new model at the current step."""
         st0 = await self.user_store(user_id)
         chat0 = await st0.async_get_chat(chat_id)
         if chat0:
+            if self.is_external(model):
+                await self.ensure_lock(st0, chat0)
             self._check_chat_external(user_id, st0, chat0, model)
         run = self.active_run(chat_id)
         if run and run.user_id == user_id:
@@ -569,6 +674,8 @@ class Manager:
         if st is None:
             st = UserStore(self.hass, user_id)
             await st.async_load()
+            if CN.sync(st.meta, self.config.data):  # Konnektoren seit dem letzten Laden geändert
+                st.schedule_save(5)
             self.users[user_id] = st
         return st
 
@@ -899,7 +1006,7 @@ class Manager:
                 # sobald das Ergebnis da ist (updated > last_seen).
                 "last_seen": 0 if kind == KIND_TASK_RUN else now(),
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
-                "progress": [], "tools": tools}
+                "progress": [], "tools": tools, DL.KEY: DL.fresh()}
         if voice and kind == KIND_CHAT:
             chat["voice"] = True  # als Sprachgespräch begonnen (Ansicht „Gespräch“); sonst ein normaler Chat
         await st.async_save_chat(chat)
@@ -929,7 +1036,8 @@ class Manager:
                 "messages": [], "usage": {"prompt": 0, "completion": 0, "requests": 0, "context": 0},
                 "progress": [], "tools": parent.get("tools"),
                 "granted_groups": list(parent.get("granted_groups") or []),
-                "sub": SC.new_sub(auftrag, von, call_id=call_id, model_choice=model_choice)}
+                "sub": SC.new_sub(auftrag, von, call_id=call_id, model_choice=model_choice),
+                DL.KEY: DL.fresh()}  # gesperrt ist sie trotzdem, solange ihr Hauptchat es ist (DL.effective)
         if sub_tools is not None:
             chat["sub_tools"] = list(sub_tools)
         if parent.get("no_thinking"):
@@ -1000,6 +1108,8 @@ class Manager:
     async def send(self, user, chat_id: str, text: str, attachments: list[str] | None = None,
                    model: str | None = None, tools: list[str] | None = None, voice: bool = False,
                    amend: bool = False) -> str:
+        if self.maintenance.blocks():
+            raise QuotaError(MT.message(self.maintenance.state))  # Wartung: bis zum Neustart startet nichts Neues
         st = await self.user_store(user.id)
         chat = await st.async_get_chat(chat_id)
         if not chat:
@@ -1115,8 +1225,15 @@ class Manager:
     def start_run(self, user, chat: dict, task: dict | None = None) -> str:
         run = Run(id=new_id("r"), user_id=user.id, chat_id=chat["id"], kind=chat["kind"], parent_id=chat.get("parent_id"))
         self.runs[run.id] = run
+        self._runs_changed()
         run.task = self.hass.async_create_background_task(self._run(user, chat, run, task), f"llmitmir run {run.id}")
         return run.id
+
+    def _runs_changed(self) -> None:
+        """Sensor „laufende Agenten“ und Wartungsmodus auf den neuen Stand bringen."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        async_dispatcher_send(self.hass, MT.SIGNAL)
 
     def stop(self, user_id: str, run_or_chat: str) -> bool:
         """Einen Lauf anhalten (per Lauf- oder Chat-ID). „Stopp“ im Hauptchat hält auch seine Teilaufgaben an."""
@@ -1145,6 +1262,7 @@ class Manager:
     async def _run(self, user, chat: dict, run: Run, task: dict | None) -> None:
         st = await self.user_store(user.id)
         ctx = ToolContext(self, user, st, chat, run, task)
+        run.agent_id = ctx.agent["id"]
         chat["status"] = "running"
         await st.async_save_chat(chat)
         self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
@@ -1172,12 +1290,15 @@ class Manager:
             if is_sub:
                 steps = MAX_STEPS_SUB
             proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
+            await self.ensure_lock(st, chat)
             if self.is_external(chat.get("model") or ""):
                 ok, why = self.model_selectable(user.id, chat["model"], task is not None)
                 if not self.has_consent(user.id):
                     ok, why = False, "Für externe Modelle fehlt noch deine Zustimmung."
                 if proj.get("no_external"):
                     ok, why = False, f"Das Projekt „{proj.get('name')}“ ist für externe Modelle gesperrt."
+                if rs := self.chat_lock(st, chat):
+                    ok, why = False, DL.why(rs)
                 if not ok and (simple or task is not None or chat.get("model_fallback")):
                     # an emergency model that cannot be used any more: back to the main provider
                     chat["model"], chat["model_auto"] = self._default(user.id, role)
@@ -1213,7 +1334,7 @@ class Manager:
                 chat["model_voice"] = spoken
             key, separate = self.run_key(user.id, st, task is not None)
             if may_fallback and not PV.is_external(chat["model"]) and not self.provider_usable(user.id, PV.MAIN, True)[0]:
-                fb = self._fallback_for(user.id, proj)
+                fb = self._fallback_for(user.id, proj, st, chat)
                 if fb:
                     _LOGGER.info("Run %s: main provider not usable, task moves to %s", run.id, fb)
                     self._enter_fallback(run, chat, fb)
@@ -1225,6 +1346,8 @@ class Manager:
                 raise QuotaError("Kein API-Schlüssel hinterlegt. " + (
                     "Bitte in den Einstellungen deinen eigenen Schlüssel eintragen." if self.config.data.get("key_mode") == KEY_PER_USER_OWN
                     else "Bitte den Admin bitten, einen Schlüssel einzutragen."))
+            self.audit.record(AU.EV_RUN, ctx.agent, run.id, model=chat.get("model"),
+                              model_class=self.model_class(chat.get("model") or ""))
             tools = ctx.tool_specs()
             await ctx.preload_images()
             if is_tile and self.boards:
@@ -1300,7 +1423,7 @@ class Manager:
                     if long_quota or long_429:
                         if long_429:
                             self.provider.key_state(key).block(15 * 60, "Limit erreicht (HTTP 429)")
-                        fb = self._fallback_for(user.id, proj)
+                        fb = self._fallback_for(user.id, proj, st, chat)
                         if fb:
                             _LOGGER.info("Run %s: main provider blocked, task moves to %s", run.id, fb)
                             self._enter_fallback(run, chat, fb)
@@ -1405,7 +1528,7 @@ class Manager:
                         continue
                     except (QuotaExhausted, ProviderError):
                         if not ext and may_fallback and not run.cancel.is_set():
-                            fb = self._fallback_for(user.id, proj)
+                            fb = self._fallback_for(user.id, proj, st, chat)
                             if fb:
                                 _LOGGER.info("Run %s: main provider failed, task moves to %s", run.id, fb)
                                 self._enter_fallback(run, chat, fb)
@@ -1514,6 +1637,7 @@ class Manager:
             await self._status(run, final_status, {"error": error} if error else {})
             self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
             self.runs.pop(run.id, None)
+            self._runs_changed()
             if is_sub:
                 try:
                     await self._sub_finished(user, st, chat, final_status, error, limit_hit or wrapped, limit_error, steps)
@@ -1726,8 +1850,8 @@ class Manager:
             raise QuotaError(f"Dein Monatslimit für kostenpflichtige Modelle ist erreicht ({_eur(spent)} von {_eur(lim)}). "
                              "Der Admin kann es erhöhen; am Monatsersten beginnt es neu.")
 
-    def _fallback_for(self, user_id: str, proj: dict) -> str | None:
-        if proj.get("no_external") or not self.has_consent(user_id):
+    def _fallback_for(self, user_id: str, proj: dict, st: UserStore, chat: dict) -> str | None:
+        if proj.get("no_external") or not self.has_consent(user_id) or self.chat_lock(st, chat):
             return None
         return self.fallback_model(user_id, task=True)
 
@@ -1739,7 +1863,7 @@ class Manager:
     def _offer(self, user_id: str, st: UserStore, chat: dict) -> dict | None:
         """After the main provider failed in a chat: the external models the person may switch to now."""
         proj = st.meta["projects"].get(chat.get("project_id") or "") or {}
-        if proj.get("no_external"):
+        if proj.get("no_external") or self.chat_lock(st, chat):
             return None
         ps = self.provider_state(user_id)
         if ps["usable"].get(PV.MAIN):
@@ -1778,6 +1902,10 @@ class Manager:
         old, new = chat["model"], run.switch_to or chat["model"]
         run.switch_to, run.hint = None, None
         run.switch.clear()
+        if new != old and self.is_external(new) and self.chat_lock(st, chat):
+            # inzwischen sind interne Daten in den Chat gekommen (z. B. aus einer Teilaufgabe): kein externes Modell
+            _LOGGER.info("Run %s: chat %s holds internal data, stays on %s instead of %s", run.id, chat["id"], old, new)
+            new = old
         chat["model"] = new
         chat["model_auto"] = run.switch_auto and bool(chat.get("model_auto")) and not self.is_external(new)
         auto, run.switch_auto = run.switch_auto, False
@@ -1845,7 +1973,7 @@ class Manager:
             device = ND.resolve(ND.for_user(devices, run.user_id), run.user_id, st.meta["settings"])
             if not device:
                 _LOGGER.warning("LLMitMir: Freigabe wartet, aber für %s ist kein Benachrichtigungsgerät hinterlegt – "
-                                "die Push-Nachricht bleibt aus (Einstellungen → Benachrichtigungsgerät).", run.user_id)
+                                "die Push-Nachricht bleibt aus (Einstellungen → Benachrichtigungen).", run.user_id)
                 return
             chat = await st.async_get_chat(run.chat_id) or {}
             # aus einer Teilaufgabe: Titel nennt die Teilaufgabe, der Link führt in den Hauptchat
@@ -1959,7 +2087,7 @@ class ToolContext:
         self.project = store.meta["projects"].get(chat.get("project_id") or "") or None
         self.project_id = self.project["id"] if self.project else None
         self.allowed_creds: set[str] | None = set(self.project.get("credentials") or []) if self.project and self.project.get("credentials_only") else None
-        self.allowed_skills: set[str] | None = set(self.project.get("skills") or []) if self.project and self.project.get("skills_only") else None
+        self._allowed_skills: set[str] | None = set(self.project.get("skills") or []) if self.project and self.project.get("skills_only") else None
         # Kachel-Lauf (boards.py): die Kachel und ihr letzter Datensatz, vor dem ersten Schritt geladen
         self.tile: dict | None = None
         self.tile_record: dict | None = None
@@ -1967,6 +2095,15 @@ class ToolContext:
         self._img: dict[str, str] = {}
         # (Zugangs-ID, Server), die die Person in diesem Lauf einmal freigegeben hat (tools/http.py, gate)
         self.approved_hosts: set[tuple[str, str]] = set()
+        # Identität dieses Agenten fürs Zugriffsprotokoll (audit.py) und wer den laufenden Aufruf erlaubt hat
+        self.agent = AU.agent_info(self.user_id, chat, task, self.project)
+        self._decision = "auto"
+        # Zugangs-Freigaben (policy.py): Hauptchat einer Teilaufgabe und Antworten „nicht erlauben“ aus diesem Lauf
+        self.root_chat = store.cached_chat(chat.get("parent_id")) if chat.get("parent_id") else None
+        self._cred_run_no: set[str] = set()
+        # Datenregeln (datarules.py): Entscheidungen des Wächters in diesem Lauf und die Markierung des laufenden Aufrufs
+        self._guard_cache: dict[str, tuple[bool, str]] = {}
+        self._ext_block = ""
 
     @property
     def external(self) -> bool:
@@ -1981,11 +2118,37 @@ class ToolContext:
 
     @property
     def creds(self) -> dict[str, dict]:
-        """Zugänge the tools may use: with an external model only those released for external models."""
+        """Zugänge the tools may use: with an external model only those released for external models; zentrale
+        Systemzugänge nur, wenn der Admin sie erlaubt (policy.py)."""
         allc = self.store.meta["credentials"]
+        cfg = self.manager.config.data
+        central = bool((cfg.get("credentials_policy") or {}).get("allow_central"))
+        return {k: c for k, c in allc.items()
+                if not P.locked(c, central) and not CN.locked(c, cfg) and (not self.external or c.get("external"))}
+
+    @property
+    def allowed_skills(self) -> set[str] | None:
+        """Eigene Skills, die dieser Lauf sehen darf (None = alle): die des Projekts (falls es nur bestimmte erlaubt),
+        und ein externes Modell nie die mit „Nur für interne Modelle“ (datalock.py)."""
         if not self.external:
-            return allc
-        return {k: c for k, c in allc.items() if c.get("external")}
+            return self._allowed_skills
+        return {sid for sid, s in self.store.meta["skills"].items()
+                if not s.get("internal_only") and (self._allowed_skills is None or sid in self._allowed_skills)}
+
+    def has_internal(self) -> bool:
+        """Sind interne Daten in diesem Chat oder seinem Hauptchat – unabhängig davon, ob die Sperre an ist?"""
+        pid = self.chat.get("parent_id")
+        root = (self.store.cached_chat(pid) or self.store.meta["chats"].get(pid)) if pid else None
+        return bool(DL.effective(self.chat, root))
+
+    def internal_locked(self) -> list[dict]:
+        """Gründe, aus denen dieser Chat kein externes Modell annimmt (leer = frei oder Sperre abgeschaltet)."""
+        return self.manager.chat_lock(self.store, self.chat)
+
+    def _guard_external(self) -> None:
+        """Letzte Schranke vor einer Anfrage an ein externes Modell: ein Chat mit internen Daten geht nicht hinaus."""
+        if self.external and (rs := self.internal_locked()):
+            raise QuotaError(DL.why(rs))
 
     def locked_creds(self) -> dict[str, dict]:
         """Zugänge closed to external models (empty for runs on the main provider)."""
@@ -2002,6 +2165,8 @@ class ToolContext:
             g.discard("mail")  # E-Mail nur mit einem Zugang, der ins Postfach darf
         if self.manager.werkbank is None:
             g.discard("werkbank")
+        if self.mcp_tools():
+            g.add("mcp")  # freigegebene Werkzeuge von MCP-Servern verbundener Konnektoren
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
         if SC.is_sub(self.chat):
@@ -2034,7 +2199,31 @@ class ToolContext:
 
     def tool_specs(self) -> list[dict]:
         g = self.groups() | self.askable_groups()
-        return [t.spec() for t in REGISTRY.values() if t.group in g]
+        specs = [t.spec() for t in REGISTRY.values() if t.group in g]
+        if "mcp" in g:
+            specs += [x[0].spec() for x in self.mcp_tools().values()]
+        return specs
+
+    def mcp_tools(self) -> dict[str, tuple]:
+        """Werkzeuge der MCP-Server, die über sichtbare Zugänge verbunden sind: Name -> (Tool, Zugang, Konnektor,
+        eingefrorenes Werkzeug). Beschreibung und Parameter stammen aus der Freigabe des Admins, nie vom Server."""
+        cfg = self.manager.config.data
+        out: dict[str, tuple] = {}
+        for c in self.creds.values():
+            if self.allowed_creds is not None and c["id"] not in self.allowed_creds:
+                continue
+            k = CN.by_id(cfg, c.get("connector_id"))
+            if not k or not k.get("enabled", True) or not (k.get("mcp") or {}).get("tools"):
+                continue
+            for t in k["mcp"]["tools"]:
+                if not t.get("enabled", True):
+                    continue
+                name = MCP.tool_name(k, t["name"])
+                tool = Tool(name, "mcp", f"[{k['name']} – MCP-Server] {t['description']}"[:1100], t["input_schema"],
+                            _mcp_handler(c["id"], k, t), write=bool(t.get("write")), label=f"{k['name']}: {t['name']}",
+                            icon="mdi:connection")
+                out[name] = (tool, c, k, t)
+        return out
 
     def refresh_secrets(self) -> None:
         self._secrets = C.secret_values(self.store.meta["credentials"])
@@ -2161,7 +2350,7 @@ class ToolContext:
                 "lass nichts aus, nur weil ein Werkzeug noch nicht eingeschaltet ist.")
         if self.manager.werkbank is None and self.task is None:
             parts.append("## Ohne Werkbank\nDie Werkbank (Befehle, Python-Skripte) ist in dieser Installation nicht "
-                         "eingerichtet; das kann ein Admin unter Einstellungen → Admin → Werkbank nachholen.")
+                         "eingerichtet; das kann ein Admin unter Admin → Werkbank nachholen.")
         if "werkbank" in self.groups() | ask:
             parts.append(
                 "## Werkbank\nMit `shell` führst du Befehle in einer eigenen Linux-Sandbox aus (Python 3.13 mit pandas, openpyxl, "
@@ -2169,25 +2358,40 @@ class ToolContext:
                 "In /workspace liegen die Anhänge, in skills/<Name>/ die Skill-Dateien, in projekt/ die Projektdateien. "
                 "Ergebnisse holst du mit `werkbank_fetch` in den Arbeitsbereich, damit die Person sie herunterladen kann. "
                 "Lange Läufe (Whisper, große Dateien) mit passendem timeout_s starten.")
+        rules = SK.always_text(self.manager.config.data)
+        if rules:
+            parts.append(rules)  # zentrale Vorgaben des Admins: vor allem, was die Person oder das Projekt festlegt
         mem = (self.store.meta.get("memory") or "").strip()
         if mem:
             parts.append(f"## Über die Person (persönliche Hinweise)\n{mem[:8000]}")
         if self.project:
             parts.append(f"## Projekt „{self.project.get('name')}“\n{(self.project.get('instructions') or '').strip()[:20000]}")
         skills = [s for s in self.store.meta["skills"].values()
-                  if s.get("enabled", True) and (self.allowed_skills is None or s["id"] in self.allowed_skills)]
-        if skills and "skills" in self.groups():
+                  if SK.usable(s) and (self.allowed_skills is None or s["id"] in self.allowed_skills)]
+        shared = SK.on_demand(self.manager.config.data)  # zentrale Skills „bei Bedarf“ gelten für alle
+        if (skills or shared) and "skills" in self.groups():
             parts.append("## Skills\nLade einen Skill mit `skill_load`, bevor du an seinem Thema arbeitest:\n"
-                         + "\n".join(f"- **{s['name']}**: {s.get('description', '')[:400]}" for s in skills))
+                         + "\n".join([f"- **{s['name']}** (zentral): {s.get('description', '')[:400]}" for s in shared]
+                                      + [f"- **{s['name']}**: {s.get('description', '')[:400]}" for s in skills]))
         creds = C.describe_for_model(self.creds, self.allowed_creds)
         if creds and self.groups() & {"dav", "http"}:
             broken = [f"- {c.get('name')}: {CK.summary(c)}" for c in self.creds.values()
                       if (self.allowed_creds is None or c["id"] in self.allowed_creds) and CK.failed(c)]
             parts.append("## Zugänge\nGeheimnisse kennst du nicht und gibst sie nie aus. Nutze Werkzeuge mit dem Namen des "
-                         "Zugangs (`zugang`) oder Platzhalter `{{cred:Name:feld}}`.\n"
+                         "Zugangs (`zugang`) oder Platzhalter `{{cred:Name:feld}}`. "
+                         + ("Ein geplanter Lauf darf nur die Zugänge nutzen, die die Aufgabe oder ihr Projekt erlaubt. "
+                            if self.task is not None else
+                            "Beim ersten Gebrauch eines Zugangs fragt LLMitMir die Person, ob du ihn nutzen darfst – "
+                            "einfach den Zugang verwenden, nicht vorher um Erlaubnis bitten. ")
+                         + "\n"
                          + json.dumps(creds, ensure_ascii=False)
                          + ("\n\nBei diesen Zugängen hat die letzte Prüfung einen Fehler ergeben – nenne ihn der Person, "
                             "statt es weiter zu versuchen:\n" + "\n".join(broken) if broken else ""))
+        if creds and self.groups() & {"dav", "http", "ews", "mail"}:
+            visible = {k: c for k, c in self.creds.items() if self.allowed_creds is None or k in self.allowed_creds}
+            conn = CN.prompt_section(visible, self.manager.config.data)
+            if conn:
+                parts.append(conn)
         if self.external and not ext:
             parts.append(
                 "## Externes Modell\nDu läufst gerade als externes Modell bei "
@@ -2225,6 +2429,7 @@ class ToolContext:
     def claude_request(self, tools: list[dict], final: bool) -> dict:
         """The chat for Claude: deterministic (same chat → same request), Claude's own answers replayed unchanged,
         results from Zugänge closed to external models removed, and no stored secret anywhere in it."""
+        self._guard_external()
         tz = dt_util.get_default_time_zone()
         model = self.chat["model"]
         locked_names = self._locked_names()
@@ -2253,7 +2458,7 @@ class ToolContext:
                                  # thinking blocks only go back to the model (and platform) that wrote them
                                  "claude_blocks": m.get("claude_blocks") if m.get("model") == model else None})
             elif m["role"] == "tool":
-                content = self._tool_content(m, locked_names)
+                content = self._tool_content(m, locked_names, True)
                 prepared.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": content,
                                  "error": m.get("status") == "error", "notes": m.get("notes")})
             elif m["role"] == "sub_result":
@@ -2263,22 +2468,35 @@ class ToolContext:
         return C.scrub_obj(req, self._secrets)
 
     def _locked_names(self) -> set[str]:
-        """Names and ids of the Zugänge closed to the current (external) model, case-folded."""
+        """Names and ids of the Zugänge closed to the current (external) model, case-folded – plus the ids of deleted
+        Zugänge recorded at tool calls (whether they were released for external models is no longer known)."""
         locked = self.locked_creds()
-        return {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked}
+        if not self.external:
+            return set()
+        allc = self.store.meta["credentials"]
+        gone = {str(i).casefold() for m in self.chat["messages"] for i in m.get("cred_ids") or [] if i not in allc}
+        return {str(c.get("name") or "").casefold() for c in locked.values()} | {k.casefold() for k in locked} | gone
 
     @staticmethod
-    def _tool_content(m: dict, locked_names: set[str]) -> str:
-        """A tool result as the model sees it: removed if it came from a Zugang closed to external models."""
+    def _tool_content(m: dict, locked_names: set[str], external: bool = False) -> str:
+        """A tool result as the model sees it: removed if it came from a Zugang closed to external models, or – for
+        external models – if a data rule of its connector was only checked for the main provider (datarules.py)."""
         content = m.get("content") or ""
+        if external and m.get("ext_block"):
+            return (f"[Ergebnis entfernt: Die Datenregel „{m['ext_block']}“ erlaubt diese Daten nicht ohne Prüfung für "
+                    "externe Modelle. Bei Bedarf erneut abrufen – dann prüft der Wächter.]")
         if locked_names:
             hit = sorted(n for n in _creds_in_args(m.get("args") or {}) if n.casefold() in locked_names)
+            if not hit:
+                # beim Aufruf festgehaltene IDs: greifen auch nach dem Umbenennen oder Löschen des Zugangs
+                hit = sorted(str(i) for i in m.get("cred_ids") or [] if str(i).casefold() in locked_names)
             if hit:
                 content = (f"[Ergebnis entfernt: Der Zugang „{hit[0]}“ ist für externe Modelle gesperrt. "
                            "Die Person kann ihn unter Zugänge freigeben.]")
         return content
 
     def api_messages(self) -> list[dict]:
+        self._guard_external()
         model = self.chat["model"]
         ext = self.external  # an external model of the main provider: same rules as for Claude
         locked_names = self._locked_names() if ext else set()
@@ -2311,7 +2529,8 @@ class ToolContext:
                     am["tool_calls"] = m["tool_calls"]
                 out.append(am)
             elif m["role"] == "tool":
-                out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"), "content": self._tool_content(m, locked_names)})
+                out.append({"role": "tool", "tool_call_id": m.get("tool_call_id"),
+                            "content": self._tool_content(m, locked_names, ext)})
             elif m["role"] == "sub_result":
                 # Rückmeldung einer Teilaufgabe: nur die Zusammenfassung, nie deren Verlauf
                 out.append({"role": "user", "content": SC.api_text(m)})
@@ -2379,9 +2598,59 @@ class ToolContext:
         return (self.store.meta["settings"].get("permissions") or {}).get(tool_name) or PERM_ASK
 
     async def execute(self, call: dict) -> dict:
+        """Einen Werkzeugaufruf ausführen und im Zugriffsprotokoll festhalten (nur Ziel und Ergebnis, nie Inhalte)."""
+        self._decision = "auto"
+        self._ext_block = ""
+        msg = await self._execute(call)
+        if self._ext_block and msg.get("status") == "ok":
+            msg["ext_block"] = self._ext_block  # beim Wechsel auf ein externes Modell aus dem Verlauf entfernen
+        allc = self.store.meta["credentials"]
+        ids = [c["id"] for c in (C.find(allc, n) for n in sorted(_creds_in_args(msg.get("args") or {}))) if c]
+        if ids:
+            msg["cred_ids"] = ids  # übersteht Umbenennen und Löschen des Zugangs (Herausfiltern, Markierung)
+        try:
+            # der Chat selbst ist danach sicher markiert; scheitern kann nur das Nachziehen des Hauptchats
+            found = DL.hits(msg, allc, self.store.meta["skills"])
+            if any(k == DL.KIND_SKILL for k, _n in found):
+                self._wb_ready = self._wb_synced = False  # die Dateien des Skills dürfen jetzt in die Sandbox
+            await self.manager.mark_internal(self.store, self.chat, found)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Markierung „interne Daten“ für den Hauptchat fehlgeschlagen")
+        try:
+            self._audit_call(msg)
+        except Exception:  # noqa: BLE001 - das Protokoll darf keinen Aufruf scheitern lassen
+            _LOGGER.exception("Zugriffsprotokoll: Aufruf nicht erfasst")
+        return msg
+
+    def _audit_call(self, msg: dict) -> None:
+        name = msg.get("name") or ""
+        tool = REGISTRY.get(name) or ((self.mcp_tools().get(name) or (None,))[0] if name.startswith("mcp_") else None)
+        group = tool.group if tool else ""
+        if not tool or not AU.should_log(name, group):
+            return
+        args = msg.get("args") if isinstance(msg.get("args"), dict) else {}
+        allc = self.store.meta["credentials"]
+        desc = AU.describe_call(name, group, args, lambda n: C.find(allc, n))
+        status = msg.get("status") or "error"
+        outcome = "ok" if status == "ok" else "denied" if status == "denied" else "error"
+        decision = self._decision
+        if outcome == "denied" and decision not in ("denied", "skipped"):
+            decision = "rule"  # von einer Regel abgelehnt (nicht freigegeben, gesperrt), nicht von der Person
+        model = self.chat.get("model") or ""
+        self.manager.audit.record(AU.EV_TOOL, self.agent, self.run.id, tool=name, group=group,
+                                  write=bool(tool.is_write(args)), creds=desc["creds"], target=desc["target"],
+                                  model=model, model_class=self.manager.model_class(model), outcome=outcome,
+                                  decision=decision, ms=msg.get("ms"))
+
+    def _decided(self, decision: str) -> None:
+        """Wer den laufenden Aufruf erlaubt oder abgelehnt hat (Antwort auf eine Freigabe oder dauerhafte Freigabe)."""
+        self._decision = {"deny": "denied", "skip": "skipped"}.get(decision, decision)
+
+    async def _execute(self, call: dict) -> dict:
         fn = call.get("function") or {}
         name = fn.get("name") or ""
-        tool = REGISTRY.get(name)
+        dyn = self.mcp_tools().get(name) if name.startswith("mcp_") else None
+        tool = REGISTRY.get(name) or (dyn[0] if dyn else None)
         msg = {"id": new_id("m"), "role": "tool", "tool_call_id": call.get("id"), "name": name, "created": now()}
         try:
             args = json.loads(fn.get("arguments") or "{}") if (fn.get("arguments") or "").strip() else {}
@@ -2390,6 +2659,8 @@ class ToolContext:
         except ValueError:
             msg.update(content="Fehler: Argumente sind kein gültiges JSON-Objekt.", status="error")
             return msg
+        if dyn:
+            args = dict(args, zugang=dyn[1]["name"])  # der Zugang des Konnektors: Freigabe, Datenregeln, Protokoll
         msg["args"] = json.loads(C.scrub(json.dumps(args, ensure_ascii=False), self._secrets))
         if tool and tool.redact:
             msg["args"] = tool.redact(self, msg["args"])
@@ -2403,6 +2674,8 @@ class ToolContext:
                                "auf der Seite „Zugänge“ selbst tun.", status="denied")
             return msg
         asked = False
+        if tool.preview is None and (denied := await self._approve_creds(msg, tool, args)):
+            return denied
         if tool.group not in self.groups():
             # switched off in this chat/project, but available: ask instead of refusing
             if self.permission_for(name) == PERM_DENY:
@@ -2411,10 +2684,12 @@ class ToolContext:
             if VO.group_allowed(self.chat, tool.group):
                 # im Sprachgespraech schon einmal erlaubt: nicht wieder fragen, sonst stockt das Gespraech
                 self._grant_group(tool.group)
+                self._decided("standing")
             else:
                 decision = await self.manager.ask_permission(self.run, {
                     "tool": name, "label": msg["label"], "icon": tool.icon, "args": msg["args"],
                     "group": tool.group, "group_label": GROUPS.get(tool.group, {}).get("label", tool.group)})
+                self._decided(decision)
                 if decision in ("deny", "skip"):
                     msg.update(content=f"Abgelehnt: Die Person möchte „{GROUPS.get(tool.group, {}).get('label', tool.group)}“ "
                                        "hier nicht nutzen. Ohne dieses Werkzeug weitermachen.", status="denied")
@@ -2436,6 +2711,7 @@ class ToolContext:
             msg["change"] = change
             decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                                      "args": msg["args"], "change": change, "confirm": True})
+            self._decided(decision)
             if decision in ("deny", "skip"):
                 msg.update(content=SKIP_TEXT if decision == "skip" else "Abgelehnt: Die Person hat diese Änderung nicht übernommen.",
                            status="denied")
@@ -2451,9 +2727,12 @@ class ToolContext:
                             "abgelehnt – ohne diese Aktion weiterarbeiten und sie im Bericht nennen.")
                 msg.update(content=text, status="denied")
                 return msg
+            if perm != PERM_ASK or VO.allowed(self.chat, name):
+                self._decided("standing")  # dauerhaft erlaubt (Einstellungen, Projekt, Aufgabe, Gespräch)
             if perm == PERM_ASK and not VO.allowed(self.chat, name):
                 decision = await self.manager.ask_permission(self.run, {"tool": name, "label": msg["label"],
                                                                          "icon": tool.icon, "args": msg["args"]})
+                self._decided(decision)
                 if decision in ("deny", "skip"):
                     msg.update(content=SKIP_TEXT if decision == "skip" else "Abgelehnt: Die Person hat diese Aktion nicht erlaubt.",
                                status="denied")
@@ -2466,6 +2745,8 @@ class ToolContext:
             denied = await self._approve_host(msg, tool, need)
             if denied:
                 return denied
+        if denied := await self._data_guard(msg, tool, args):
+            return denied
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
                                                       "args": msg["args"]})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,
@@ -2495,6 +2776,132 @@ class ToolContext:
             self._mark_credential_failed(args, text)
         return msg
 
+    async def _approve_creds(self, msg: dict, tool, args: dict) -> dict | None:
+        """Zugänge brauchen eine Freigabe je Agent (policy.py): einmal, für diesen Chat/dieses Cowork oder nicht.
+
+        Vorab erlaubt sind die Zugänge des Projekts (und bei Teilaufgaben die des Hauptchats); unbeaufsichtigte Läufe
+        fragen nie – dort gilt nur, was die Aufgabe oder ihr Projekt erlaubt. Gibt die Ablehnung zurück oder None."""
+        for name in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, name)
+            if not c or (self.allowed_creds is not None and c["id"] not in self.allowed_creds):
+                continue  # unbekannt oder hier nicht verfügbar: das meldet das Werkzeug selbst
+            if tool.name in DR.RAW_TOOLS and DR.rules_of(c, self.manager.config.data)[1]:
+                self._decided("rule")
+                msg.update(content=f"Abgelehnt: Für den Zugang „{c['name']}“ gelten Datenregeln – Rohzugriffe (Befehle, freie "
+                                   "HTTP-Anfragen) sind damit nicht erlaubt. Die Werkzeuge des Zugangs (z. B. dav_read) nutzen.",
+                           status="denied")
+                return msg
+            verdict, source = P.cred_verdict(c["id"], chat=self.chat, root=self.root_chat, project=self.project,
+                                             task=self.task, run_no=self._cred_run_no)
+            if verdict == P.ALLOW:
+                if self._decision == "auto":
+                    self._decided("standing")
+                continue
+            if verdict == P.DENY:
+                if self.task is not None:
+                    text = (f"Abgelehnt: Der Zugang „{c['name']}“ ist für diese geplante Aufgabe nicht erlaubt. Ein "
+                            "unbeaufsichtigter Lauf fragt nicht nach – ohne ihn weiterarbeiten und im Bericht nennen, dass "
+                            "er in den Einstellungen der Aufgabe (oder in ihrem Projekt) unter „Zugänge“ erlaubt werden muss.")
+                    self._decided("rule")
+                else:
+                    text = (f"Abgelehnt: Die Person hat den Zugang „{c['name']}“ hier nicht erlaubt. Ohne ihn "
+                            "weiterarbeiten und im Ergebnis nennen, was dadurch fehlt.")
+                    self._decided("denied")
+                msg.update(content=text, status="denied")
+                return msg
+            decision = await self.manager.ask_permission(self.run, {
+                "tool": tool.name, "label": msg["label"], "icon": "mdi:key-outline", "args": msg["args"],
+                "cred": c["name"], "cred_id": c["id"], "cred_scope": c.get("scope") or ""})
+            self._decided(decision)
+            model = self.chat.get("model") or ""
+            self.manager.audit.record(AU.EV_CRED, self.agent, self.run.id, tool=tool.name, group=tool.group,
+                                      creds=[{"id": c["id"], "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}],
+                                      model=model, model_class=self.manager.model_class(model), decision=self._decision,
+                                      outcome="denied" if decision in ("deny", "skip") else "ok")
+            if decision in ("deny", "skip"):
+                self._cred_run_no.add(c["id"])  # in diesem Lauf nicht wieder fragen
+                msg.update(content=SKIP_TEXT if decision == "skip" else
+                           f"Abgelehnt: Die Person möchte den Zugang „{c['name']}“ hier nicht verwenden. Ohne ihn "
+                           "weiterarbeiten und im Ergebnis nennen, was dadurch fehlt.", status="denied")
+                return msg
+            if decision == "always":
+                # gilt für den ganzen Chat bzw. das Cowork – bei einer Teilaufgabe für ihren Hauptchat
+                target = self.root_chat if self.root_chat is not None else self.chat
+                if P.grant(target, c["id"]) and target is not self.chat:
+                    await self.store.async_save_chat(target, keep_updated=True)
+                self.manager.emit(self.user_id, {"type": "chat", "chat": self.store.chat_summary(target)})
+        return None
+
+    async def _data_guard(self, msg: dict, tool, args: dict) -> dict | None:
+        """Datenregeln der Konnektoren (datarules.py): Vor dem Abruf von Inhalten entscheidet ein Wächter auf dem
+        Hauptanbieter anhand der Metadaten. Gibt die Ablehnung zurück oder None."""
+        if tool.name in DR.LISTING_TOOLS:
+            return None
+        if tool.is_write(args) and not (tool.name == "dav_request" and str(args.get("methode") or "").upper() == "GET"):
+            return None
+        cfg = self.manager.config.data
+        target = None
+        for name in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, name)
+            k, rules = DR.rules_of(c, cfg) if c else (None, [])
+            if not rules:
+                continue
+            if target is None:
+                target = AU.describe_call(tool.name, tool.group, args, lambda n: C.find(self.creds, n))["target"]
+                if isinstance(args.get("pfad"), str) and args["pfad"].strip():
+                    # Geltungsbereich und Metadaten am vollständigen Pfad, nicht an der gekürzten Protokollfassung
+                    target = dict(target, path=args["pfad"])
+            model = self.chat.get("model") or ""
+            mc = self.manager.model_class(model)
+            if mc == AU.MC_MAIN and args.get("speichern_als"):
+                # landet als Datei im Arbeitsbereich und könnte später an ein externes Modell gehen: wie extern prüfen
+                mc = AU.MC_EXTERNAL
+            for r in [r for r in rules if DR.in_scope(r, target)]:
+                if not DR.applies(r, mc):
+                    self._ext_block = r["name"]  # gilt nur für externe: im Verlauf markieren
+                    continue
+                try:
+                    meta = await self._resource_meta(c, k, tool, args, target)
+                    key = DR.cache_key(r, meta, mc)
+                    if key not in self._guard_cache:
+                        await self.manager._status(self.run, "tool", {"label": f"Datenregel „{r['name']}“ prüfen",
+                                                                      "icon": "mdi:shield-check-outline"})
+                        answer = await self.manager.complete(
+                            self.user_id, self.manager.default_model(self.user_id, "agent"),
+                            DR.guard_messages(r, meta, mc), interactive=self.task is None, task=self.task is not None)
+                        self._guard_cache[key] = DR.parse_guard(answer)
+                    ok, why = self._guard_cache[key]
+                except Exception as e:  # noqa: BLE001 - ohne Entscheidung des Wächters kein Inhalt (fail closed)
+                    ok, why = False, f"Prüfung nicht möglich ({type(e).__name__})"
+                self.manager.audit.record(AU.EV_RULE, self.agent, self.run.id, tool=tool.name, group=tool.group,
+                                          creds=[{"id": c["id"], "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}],
+                                          target={**target, **({"path": AU.clip(target["path"])} if target.get("path") else {}),
+                                                  "object": AU.clip(r["name"], 120)}, model=model, model_class=mc,
+                                          outcome="ok" if ok else "denied", decision="rule")
+                if not ok:
+                    self._decided("rule")
+                    msg.update(content=(f"Gesperrt durch die Datenregel „{r['name']}“ des Konnektors „{k['name']}“: "
+                                        f"{why or 'nicht erlaubt'}. Diese Daten sind hier nicht verfügbar – ohne sie "
+                                        "weiterarbeiten, Labels oder Tags nie selbst setzen und der Person den Grund nennen."),
+                               status="denied")
+                    return msg
+        return None
+
+    async def _resource_meta(self, cred: dict, k: dict, tool, args: dict, target: dict) -> dict:
+        """Metadaten für den Wächter – nie Inhalte. Nextcloud: PROPFIND (Tags, Typ, Größe, Besitzer)."""
+        meta = {"werkzeug": tool.name, "konnektor": k["name"], **{x: target[x] for x in ("path", "container", "host")
+                                                                  if target.get(x)}}
+        if cred.get("type") == "webdav" and target.get("path") and tool.group == "dav":
+            from .tools import dav as DV
+
+            url = f"{DV.files_base(cred)}/{DV._q(str(target['path']).strip('/'))}"
+            async with self.session.request("PROPFIND", url, data=DR.PROPFIND_META, auth=DV._auth(cred),
+                                            headers={"Depth": "0"}, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                if r.status >= 400:
+                    raise ValueError(f"HTTP {r.status}")
+                meta.update(DR.parse_propfind(await r.read()))
+        return meta
+
     async def _approve_host(self, msg: dict, tool, need: dict) -> dict | None:
         """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.
 
@@ -2511,6 +2918,13 @@ class ToolContext:
         decision = await self.manager.ask_permission(self.run, {
             "tool": tool.name, "label": msg["label"], "icon": "mdi:shield-key-outline", "args": msg["args"],
             "host": host, "creds": [c.get("name") for c in creds_]})
+        self._decided(decision)
+        model = self.chat.get("model") or ""
+        self.manager.audit.record(AU.EV_HOST, self.agent, self.run.id, tool=tool.name, group=tool.group, host=host,
+                                  creds=[{"id": c.get("id"), "name": AU.clip(c.get("name"), 80), "type": c.get("type") or ""}
+                                         for c in creds_],
+                                  model=model, model_class=self.manager.model_class(model),
+                                  decision=self._decision, outcome="denied" if decision in ("deny", "skip") else "ok")
         if decision in ("deny", "skip"):
             msg.update(content=SKIP_TEXT if decision == "skip" else
                        f"Abgelehnt: Die Person möchte den Zugang {names} nicht an {host} senden.", status="denied")
@@ -2560,6 +2974,21 @@ class ToolContext:
         else:
             self.store.meta["settings"].setdefault("permissions", {})[name] = PERM_ALLOW
         self.store.schedule_save(0.5)
+
+
+def _mcp_handler(cred_id: str, k: dict, t: dict):
+    """Aufruf eines eingefrorenen MCP-Werkzeugs mit dem Zugang der Person (nur bekannte Argumente gehen hinaus)."""
+    async def handler(ctx: "ToolContext", a: dict):
+        c = ctx.creds.get(cred_id)
+        if not c:
+            raise PermissionError("Der Zugang dieses Konnektors ist hier nicht verfügbar.")
+        try:
+            text, is_error = await MCP.Client(ctx.session, k["fixed"]["url"], c).call(
+                t["name"], MCP.clean_arguments(a, t["input_schema"]))
+        except MCP.McpError as e:
+            return f"Fehler: {e}"
+        return f"Fehler: {text}" if is_error else (text or "(keine Ausgabe)")
+    return handler
 
 
 def _creds_in_args(args: dict) -> set[str]:

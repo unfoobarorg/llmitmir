@@ -54,6 +54,8 @@ GROUPS = {
     "skills": {"label": "Skills", "icon": "mdi:school-outline"},
     "progress": {"label": "Fortschritt", "icon": "mdi:format-list-checks"},
     "werkbank": {"label": "Werkbank (Befehle & Programme)", "icon": "mdi:console"},
+    # Werkzeuge freigegebener MCP-Server der Konnektoren (mcp.py) – je Lauf erzeugt, nicht in REGISTRY
+    "mcp": {"label": "Konnektoren (MCP)", "icon": "mdi:connection"},
 }
 
 

@@ -10,6 +10,9 @@ import "./pages";
 import "./pages2";
 import "./pages3";
 import "./settings";
+import "./admin";
+import "./monitoring";
+import "./connectors";
 import "./voice";
 
 const LS = "llmitmir.sidebar";
@@ -104,6 +107,7 @@ export class LLMitMirPanel extends LitElement {
     main { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; position: relative; overflow: hidden; }
     .view { overflow-x: hidden; }
     .topbar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 52px; }
+    .maint { display: flex; gap: 8px; align-items: center; padding: 8px 14px; font-size: 13.5px; background: color-mix(in srgb, var(--lm-warn, #c58a16) 16%, var(--lm-panel)); border-bottom: 1px solid var(--lm-line); }
     .view { flex: 1; min-height: 0; }
     .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.35); z-index: 15; animation: fadeIn .15s; }
     .small nav { position: absolute; z-index: 16; left: 0; top: 0; bottom: 0; transform: translateX(-100%); width: min(300px, 86vw); box-shadow: 10px 0 40px rgba(0,0,0,.18); }
@@ -548,6 +552,7 @@ export class LLMitMirPanel extends LitElement {
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
         ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
         ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
+        ${(store.data?.connectors || []).length ? ni("/connectors", "share", t("Konnektoren"), p === "connectors") : nothing}
         ${ni("/credentials", "key", t("Zugänge"), p === "credentials" || p === "credential")}
       </div>
       ${this.selecting ? nothing : this.selectStart()}
@@ -569,7 +574,7 @@ export class LLMitMirPanel extends LitElement {
   private view() {
     const [p, id] = this.path;
     switch (p) {
-      case "chat": return html`<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
+      case "chat": return html`${this.maintBanner()}<lm-chat .chatId=${id} .narrow=${this.small}>${this.menuBtn()}</lm-chat>`;
       case "voice": return html`<lm-voice .chatId=${id === "last" ? this.lastVoice() : id}>${this.menuBtn()}</lm-voice>`;
       case "cowork": return this.wrap(html`<lm-home initialMode=${isSimple() ? "chat" : "cowork"}></lm-home>`);
       case "chats": return this.wrap(html`<lm-chats></lm-chats>`);
@@ -581,14 +586,20 @@ export class LLMitMirPanel extends LitElement {
       case "skills": return this.wrap(html`<lm-skills></lm-skills>`);
       case "skill": return this.wrap(html`<lm-skill .skillId=${id}></lm-skill>`);
       case "credentials": return this.wrap(html`<lm-credentials></lm-credentials>`);
+      case "connectors": return this.wrap(html`<lm-connectors></lm-connectors>`);
       case "credential": return this.wrap(html`<lm-credential .credId=${id}></lm-credential>`);
-      case "settings": return this.wrap(html`<lm-settings></lm-settings>`);
-      case "admin": return this.wrap(html`<lm-admin></lm-admin>`);
+      case "settings": return this.wrap(html`<lm-settings .tab=${id || ""}></lm-settings>`);
+      case "admin": return this.wrap(html`<lm-admin .tab=${id || ""}></lm-admin>`);
       default: return this.wrap(html`<lm-home initialMode="chat"></lm-home>`);
     }
   }
   private wrap(content: any) {
-    return html`${this.small || this.collapsed ? html`<div class="topbar">${this.menuBtn()}</div>` : nothing}<div class="view">${content}</div>`;
+    return html`${this.small || this.collapsed ? html`<div class="topbar">${this.menuBtn()}</div>` : nothing}${this.maintBanner()}<div class="view">${content}</div>`;
+  }
+  /** Hinweis vor einem Neustart von Home Assistant (maintenance.py) – über jeder Seite, auch im Chat. */
+  private maintBanner() {
+    const mt = store.data?.maintenance;
+    return mt && mt.state && mt.state !== "off" ? html`<div class="maint">${icon("alert", 16)}<span>${mt.message || ""}</span></div>` : nothing;
   }
 
   render() {
@@ -597,7 +608,7 @@ export class LLMitMirPanel extends LitElement {
       const admin = this.access.is_admin;
       return html`<div class="deny"><div class="card"><lm-spark size="30" .active=${false}></lm-spark><h2>${t("Kein Zugriff")}</h2>
         <p class="hint">${admin ? "Du bist Admin, aber für LLMitMir noch nicht freigeschaltet. Lege fest, wer es nutzen darf – auch dich selbst." : "Bitte die Person, die Home Assistant verwaltet, dich für LLMitMir freizuschalten."}</p>
-        ${admin ? html`<lm-admin></lm-admin>` : nothing}</div></div>`;
+        ${admin ? html`<lm-admin embedded tab="people"></lm-admin>` : nothing}</div></div>`;
     }
     if (store.error && !store.data) return html`<div class="deny"><div class="card">${icon("alert")} ${store.error}</div></div>`;
     if (!store.data) return html`<div class="deny"><lm-spark size="32"></lm-spark></div>`;

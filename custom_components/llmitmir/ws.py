@@ -13,6 +13,14 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
 
 from . import voice as VO
+from . import audit as AU
+from . import policy as P
+from . import datalock as DL
+from . import skillcheck as SK
+from . import connectors as CN
+from . import mcp as MCP
+from . import auditexport as AX
+from . import idm as IDM
 from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
@@ -225,6 +233,12 @@ async def _bootstrap(hass, m, user, st) -> dict:
         # Lebensdauer: Standard (aus), Vorschlag beim Einschalten und Obergrenze für Projekt und Einstellungen
         "retention": {"default": RT.DEFAULT_DAYS, "suggest": RT.SUGGEST_DAYS, "max": RT.MAX_DAYS},
         "werkbank": {"configured": m.werkbank is not None},
+        "maintenance": m.maintenance.view(),
+        # Zugänge (policy.py): Arten, Tipps je Typ und ob der Admin zentrale Systemzugänge erlaubt
+        "cred_policy": {"allow_central": M.allow_central(m), "scopes": P.SCOPE_LABELS, "tips": P.TYPE_TIPS,
+                        "hint": P.GENERAL_HINT, "free_credentials": CN.free_allowed(m.config.data)},
+        # Konnektoren (connectors.py): was der Admin vorbereitet hat – ohne die Anleitung für das Modell
+        "connectors": [CN.public_view(k) for k in CN.enabled(m.config.data)],
     }
 
 
@@ -349,6 +363,8 @@ async def _chat_for(m, user, chat_id: str) -> tuple[Any, dict]:
 @command(_t("chat/get") | {vol.Required("chat_id"): str})
 async def ws_chat_get(hass, conn, msg, m, user, st):
     cst, chat = await _chat_for(m, user, msg["chat_id"])
+    if cst is st:
+        await m.ensure_lock(st, chat)  # alter Verlauf: einmal nach internen Daten durchsuchen (Schloss im Modellmenü)
     # eine Teilaufgabe zeigt die Dateien ihres Hauptchats (gemeinsamer Arbeitsbereich)
     files = await cst.async_list_files("chat", SC.root_id(chat))
     return {"chat": chat, "files": files}
@@ -624,6 +640,79 @@ async def ws_cred_save(hass, conn, msg, m, user, st):
     return mask_credential(cred, C.secret_fields(cred))
 
 
+# ---------------------------------------------------------------- Konnektoren (connectors.py)
+def _connector(m, cid: str) -> dict:
+    k = CN.by_id(m.config.data, cid)
+    if not k or not k.get("enabled", True):
+        raise ValueError("Diesen Konnektor gibt es nicht (mehr).")
+    return k
+
+
+async def _connect(hass, m, user_id: str, st, k: dict, fields: dict) -> dict:
+    existing = CN.connection_of(st.meta["credentials"], k["id"])
+    name = existing["name"] if existing else CN.unique_name(st.meta["credentials"], k["name"])
+    cred = await M.save_credential(m, user_id, st, CN.connection_raw(k, fields, existing, name), connector=k)
+    if cred.get("type") != "other":
+        hass.async_create_task(_check_one(m, st, user_id, cred["id"]))
+    return cred
+
+
+@command(_t("connector/connect") | {vol.Required("connector_id"): str, vol.Optional("fields"): dict})
+async def ws_connector_connect(hass, conn, msg, m, user, st):
+    """Konnektor mit den eigenen Anmeldedaten verbinden (oder sie erneuern) – feste Felder setzt der Konnektor."""
+    k = _connector(m, msg["connector_id"])
+    cred = await _connect(hass, m, user.id, st, k, msg.get("fields") or {})
+    return mask_credential(cred, C.secret_fields(cred))
+
+
+@command(_t("connector/flow_start") | {vol.Required("connector_id"): str})
+async def ws_connector_flow_start(hass, conn, msg, m, user, st):
+    """Nextcloud Login Flow v2: Anmeldeseite öffnen lassen, im Hintergrund auf das App-Passwort warten."""
+    k = _connector(m, msg["connector_id"])
+    if k["login"] != CN.LOGIN_NEXTCLOUD:
+        raise ValueError("Dieser Konnektor wird mit einem Formular verbunden.")
+    for fid in [f for f, x in m.flows.items() if now() - x["started"] > 3600]:
+        m.flows.pop(fid, None)
+    info = await CN.flow_start(m.session, CN.nextcloud_base(k["fixed"]["url"]))
+    fid = new_id("f")
+    m.flows[fid] = {"user": user.id, "connector_id": k["id"], "status": "waiting", "started": now()}
+    hass.async_create_background_task(_flow_run(hass, m, user.id, fid, k, info), f"llmitmir login flow {fid}")
+    return {"flow_id": fid, "login": info["login"]}
+
+
+async def _flow_run(hass, m, user_id: str, fid: str, k: dict, info: dict) -> None:
+    flow = m.flows[fid]
+    try:
+        while not CN.flow_expired(flow["started"]):
+            await asyncio.sleep(CN.FLOW_INTERVAL)
+            if flow.get("status") != "waiting":
+                return  # abgebrochen
+            try:
+                res = await CN.flow_poll(m.session, info["endpoint"], info["token"])
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                continue  # kurz nicht erreichbar: weiter warten
+            if res:
+                st = await m.user_store(user_id)
+                cred = await _connect(hass, m, user_id, st, k, res)
+                flow.update(status="done", credential_id=cred["id"])
+                break
+        else:
+            flow["status"] = "expired"
+    except Exception as e:  # noqa: BLE001 - die Person soll den Grund sehen
+        flow.update(status="error", error=f"{e}"[:300])
+    m.emit(user_id, {"type": "connector_flow", "flow_id": fid, "status": flow["status"]})
+
+
+@command(_t("connector/flow_status") | {vol.Required("flow_id"): str, vol.Optional("cancel"): bool})
+async def ws_connector_flow_status(hass, conn, msg, m, user, st):
+    flow = m.flows.get(msg["flow_id"])
+    if not flow or flow["user"] != user.id:
+        raise ValueError("Unbekannte Anmeldung")
+    if msg.get("cancel") and flow["status"] == "waiting":
+        flow["status"] = "cancelled"
+    return {k: flow.get(k) for k in ("status", "error", "credential_id")}
+
+
 @command(_t("credential/reveal") | {vol.Required("credential_id"): str})
 async def ws_cred_reveal(hass, conn, msg, m, user, st):
     c = st.meta["credentials"].get(msg["credential_id"])
@@ -648,7 +737,7 @@ async def ws_cred_check(hass, conn, msg, m, user, st):
 
 @command(_t("credential/hosts") | {vol.Required("credential_id"): str, vol.Required("hosts"): [str]})
 async def ws_cred_hosts(hass, conn, msg, m, user, st):
-    """Nur die Liste „Erlaubte Server“ eines Zugangs ändern (Einstellungen → Erlaubte Server).
+    """Nur die Liste „Erlaubte Server“ eines Zugangs ändern (Einstellungen → Datenschutz & Freigaben → Erlaubte Server).
 
     Eigener Befehl statt credential/save: Der speichert den ganzen Zugang und würde Felder, die nicht mitgeschickt
     werden (Notiz), leeren. Die Server aus den Adressfeldern gelten immer und stehen hier nicht drin."""
@@ -709,9 +798,9 @@ async def ws_task_save(hass, conn, msg, m, user, st):
         ext = m.external_view(user.id)
         tm = t.get("model") or ""
         if (t.get("external_fallback") or PV.is_external(tm)) and not (ext["has_access"] and ext["consent"]):
-            raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
+            raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Modelle → Externe Modelle).")
         if m.is_external(tm) and not ext["consent"]:
-            raise ValueError("Für externe Modelle fehlt noch deine Zustimmung (Einstellungen → Externe Modelle).")
+            raise ValueError("Für externe Modelle fehlt noch deine Zustimmung (Einstellungen → Modelle → Externe Modelle).")
         if m.is_external(tm) and not m.may_use_model(user.id, tm):
             raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
     new_prompt = False
@@ -1122,7 +1211,33 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "sdk": claude_available(),
         "dashboards": {"tile_budget": (cfg.get("dashboards") or {}).get("tile_budget", TILE_RUN_BUDGET),
                        "tile_parallel": m.boards.parallel() if m.boards else 1},
+        "audit": {"retention_days": m.audit_retention(), "export": AX.view((cfg.get("audit") or {}).get("export") or {}),
+                  "export_state": m.export_state},
+        "credentials_policy": {"allow_central": M.allow_central(m), "free_credentials": CN.free_allowed(cfg),
+                               "lock_chats": DL.enabled(cfg)},
+        "idm": IDM.view(cfg.get("idm") or {}),
+        "auth_providers": sorted({p.type for p in m.hass.auth.auth_providers}),
+        "connectors": cfg.get("connectors") or [],
+        # zentrale Skills und Skill-Richtlinien (skillcheck.py) – nur in dieser Admin-Ansicht sichtbar
+        "central_skills": cfg.get("central_skills") or [], "skill_policies": cfg.get("skill_policies") or [],
+        "skill_presets": SK.PRESETS,
+        "cred_scopes": _cred_scopes(m, users),
     }
+
+
+def _cred_scopes(m, users) -> dict:
+    """Je Person: wie viele Zugänge welcher Art sie hat (geladene Personen) – für den Überblick des Admins."""
+    out = {}
+    for u in users:
+        st = m.users.get(u.id)
+        if not st:
+            continue
+        counts = {s: 0 for s in P.SCOPES} | {"none": 0}
+        for c in st.meta["credentials"].values():
+            counts[c.get("scope") if c.get("scope") in P.SCOPES else "none"] += 1
+        if any(counts.values()):
+            out[u.id] = counts
+    return out
 
 
 def _provider_view(m, p: dict) -> dict:
@@ -1156,6 +1271,7 @@ async def ws_admin_get(hass, conn, msg, m, user, st):
 async def ws_admin_save(hass, conn, msg, m, user, st):
     c = msg["config"]
     cfg = m.config.data
+    cfg_before = AU.config_snapshot(cfg)  # welche Bereiche sich ändern, kommt ins Zugriffsprotokoll (nur die Namen)
     if "provider" in c:
         p = c["provider"]
         if not str(p.get("base_url") or "").startswith("http"):
@@ -1252,6 +1368,34 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
         except (TypeError, ValueError):
             raise ValueError("Budget und gleichzeitige Läufe sind ganze Zahlen.") from None
         cfg["dashboards"] = {"tile_budget": budget, "tile_parallel": parallel}
+    recheck = False
+    if "central_skills" in c or "skill_policies" in c:
+        before = SK.config_hash(cfg)
+        if "central_skills" in c:
+            cfg["central_skills"] = SK.clean_central(c["central_skills"])
+        if "skill_policies" in c:
+            cfg["skill_policies"] = SK.clean_policies(c["skill_policies"])
+        recheck = SK.config_hash(cfg) != before
+    if "idm" in c:
+        cfg["idm"] = IDM.clean(c["idm"], cfg.get("idm"))
+    if "credentials_policy" in c:
+        cp = c["credentials_policy"] or {}
+        cfg["credentials_policy"] = {"allow_central": bool(cp.get("allow_central")),
+                                     "free_credentials": cp.get("free_credentials", True) is not False,
+                                     # Chats mit internen Daten für externe Modelle sperren (datalock.py), Standard: an
+                                     "lock_chats": cp.get("lock_chats", True) is not False}
+    if "connectors" in c:
+        cfg["connectors"] = CN.clean(c["connectors"])
+        for st_ in list(m.users.values()):  # verbundene Zugänge an geänderte feste Felder angleichen
+            if CN.sync(st_.meta, cfg):
+                await st_.async_save_meta()
+    if "audit" in c:
+        a_old, a_new = dict(cfg.get("audit") or {}), c["audit"] or {}
+        if "retention_days" in a_new:
+            a_old["retention_days"] = AU.clean_retention(a_new.get("retention_days"))
+        if "export" in a_new:
+            a_old["export"] = AX.clean(a_new["export"], a_old.get("export"))
+        cfg["audit"] = a_old
     if "models" in c:
         mm = dict(cfg.get("models") or {})
         for k in ("enabled", "defaults", "context", "auto_enable_new"):
@@ -1259,9 +1403,15 @@ async def ws_admin_save(hass, conn, msg, m, user, st):
                 mm[k] = c["models"][k]
         cfg["models"] = mm
     await m.config.async_save()
+    if changed := AU.changed_sections(cfg_before, cfg):
+        # Admin-Einstellungen (Sperren, Aufbewahrung, Export, Konnektoren, Richtlinien …): wer wann welchen Bereich
+        m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="admin_save",
+                       target={"object": AU.clip(", ".join(changed), 120)}, outcome="ok", decision="rule")
     for uid in list(m.subscribers):
         m.emit(uid, {"type": "meta", "section": "all"})
     m.emit_models()
+    if recheck:  # Richtlinien oder zentrale Skills geändert: alle Skills neu prüfen (im Hintergrund)
+        SK.start(m, SK.recheck_all(m), "llmitmir skill recheck")
     return _admin_view(m, await _users(hass), await _devices(hass, m))
 
 
@@ -1303,6 +1453,166 @@ async def ws_werkbank_test(hass, conn, msg, m, user, st):
         return {"ok": True, **(await Werkbank(m.session, url, token).health())}
     except WerkbankError as e:
         return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------- Zugriffsprotokoll (nur Admins)
+@command(_t("admin/audit") | {vol.Optional("filters"): dict, vol.Optional("limit"): int}, admin=True)
+async def ws_admin_audit(hass, conn, msg, m, user, st):
+    """Ereignisse des Zugriffsprotokolls (neueste zuerst) mit Übersicht – nur Metadaten, nie Inhalte."""
+    res = await m.audit.async_query(msg.get("filters"), msg.get("limit") or AU.QUERY_MAX)
+    ids = {e.get("user") for e in res["events"]} | {a.get("owner") for a in m.audit.agents.values()}
+    agents = {e.get("agent") for e in res["events"]} | {e.get("parent") for e in res["events"]}
+    res["agents"] = {k: v for k, v in m.audit.agents.items() if k in agents}
+    res["names"] = await _names(m, [i for i in ids if i])
+    res["retention_days"] = m.audit_retention()
+    return res
+
+
+@command(_t("admin/mcp_tools") | {vol.Required("url"): str, vol.Required("auth_type"): vol.In(list(MCP.TYPES)),
+                                  vol.Optional("fields"): dict}, admin=True)
+async def ws_admin_mcp_tools(hass, conn, msg, m, user, st):
+    """Werkzeuge eines MCP-Servers abrufen – als Vorschlag zum Freigeben (alle aus). Die Anmeldedaten gelten nur für
+    diesen Abruf und werden nicht gespeichert."""
+    cred = {"type": msg["auth_type"], "fields": {str(k): str(v) for k, v in (msg.get("fields") or {}).items()}}
+    try:
+        tools = await MCP.Client(m.session, msg["url"].strip(), cred, timeout=30).list_tools()
+    except MCP.McpError as e:
+        raise ValueError(str(e)) from None
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        raise ValueError(f"MCP-Server nicht erreichbar: {type(e).__name__}") from None
+    return {"tools": MCP.from_server(tools)}
+
+
+@command(_t("admin/skill_checks"), admin=True)
+async def ws_admin_skill_checks(hass, conn, msg, m, user, st):
+    """Skills mit Befunden oder ausstehender Prüfung (alle Personen) – Name und Befund, nie der Text des Skills."""
+    stores = await m.all_stores()
+    names = await _names(m, list(stores))
+    total = sum(len(s.meta["skills"]) for s in stores.values())
+    return {"rows": SK.overview(stores, names), "total": total}
+
+
+@command(_t("admin/skill_recheck"), admin=True)
+async def ws_admin_skill_recheck(hass, conn, msg, m, user, st):
+    """Alle Skills sofort neu prüfen (im Hintergrund)."""
+    SK.start(m, SK.recheck_all(m, only_due=False), "llmitmir skill recheck")
+    return {"started": True}
+
+
+# ---------------------------------------------------------------- Trusted-AI-Zentrale (auditexport.py)
+def _admin_agent(user) -> dict:
+    return {"id": f"admin-{user.id}", "kind": "admin", "owner": user.id}
+
+
+@command(_t("admin/agent_stop") | {vol.Required("agent_id"): str}, admin=True)
+async def ws_admin_agent_stop(hass, conn, msg, m, user, st):
+    """Einen laufenden Agenten anhalten (alle seine Läufe samt Teilaufgaben)."""
+    runs = [r for r in list(m.runs.values()) if r.agent_id == msg["agent_id"]]
+    for r in runs:
+        m.stop(r.user_id, r.id)
+    m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="agent_stop", target={"object": msg["agent_id"]},
+                   outcome="ok", decision="rule")
+    return {"stopped": len(runs)}
+
+
+@command(_t("admin/revoke") | {vol.Required("user_id"): str, vol.Optional("credential_id"): vol.Any(None, str),
+                               vol.Optional("projects"): bool}, admin=True)
+async def ws_admin_revoke(hass, conn, msg, m, user, st):
+    """Freigaben zentral entziehen: „für diesen Chat erlaubt“ in allen Chats, die Zugangslisten der Aufgaben und auf
+    Wunsch die Vorab-Freigabe in Projekten – für einen Zugang oder alle Zugänge einer Person."""
+    other = await m.user_store(msg["user_id"])
+    ids = {msg["credential_id"]} if msg.get("credential_id") else set(other.meta["credentials"])
+    counts = {"chats": 0, "tasks": 0, "projects": 0}
+    for cid in list(other.meta["chats"]):
+        chat = await other.async_get_chat(cid)
+        if chat is not None and AX.revoke(chat, ids, "cred_ok"):
+            await other.async_save_chat(chat, keep_updated=True)
+            counts["chats"] += 1
+    for t in other.meta["tasks"].values():
+        if AX.revoke(t, ids, "cred_allow"):
+            counts["tasks"] += 1
+    if msg.get("projects"):
+        for p in other.meta["projects"].values():
+            if AX.revoke(p, ids, "credentials"):
+                counts["projects"] += 1
+    await other.async_save_meta()
+    m.emit(msg["user_id"], {"type": "meta", "section": "all"})
+    names = sorted(other.meta["credentials"][i]["name"] for i in ids if i in other.meta["credentials"])
+    m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="revoke",
+                   target={"object": AU.clip(", ".join(names) or "alle", 120)},
+                   creds=[{"id": i, "name": AU.clip(other.meta["credentials"][i]["name"], 80), "type": ""}
+                          for i in sorted(ids) if i in other.meta["credentials"]][:20], outcome="ok", decision="rule")
+    return counts
+
+
+@command(_t("admin/anomalies"), admin=True)
+async def ws_admin_anomalies(hass, conn, msg, m, user, st):
+    """Auffälligkeiten der letzten 24 Stunden (gegenüber den 14 Tagen davor)."""
+    return await _anomalies(hass, m)
+
+
+async def _anomalies(hass, m) -> dict:
+    from homeassistant.util import dt as dt_util
+
+    await m.audit.async_flush()
+    now_ts = time.time()
+    events = await hass.async_add_executor_job(m.audit.files.read_since, now_ts - 15 * 86400)
+    items = AX.anomalies(events, now_ts, tz_hour=lambda ts: dt_util.as_local(dt_util.utc_from_timestamp(ts)).hour)
+    names = await _names(m, [i["user"] for i in items if i.get("user")])
+    return {"items": [dict(i, user_name=names.get(i.get("user"), "")) for i in items]}
+
+
+@command(_t("admin/audit_export_test"), admin=True)
+async def ws_admin_audit_export_test(hass, conn, msg, m, user, st):
+    """Ein Test-Ereignis an die eingestellten Ziele schicken und den Zustand zurückgeben."""
+    ev = AU.make_event(AU.EV_ADMIN, _admin_agent(user), "", tool="export_test", outcome="ok", decision="auto")
+    await m.export_events([ev], force=True)
+    return {"state": m.export_state}
+
+
+# ---------------------------------------------------------------- Nutzerverwaltung mit AD/LDAP (idm.py)
+async def _idm_plan(hass, m) -> tuple[list[dict], int]:
+    cfg = m.config.data.get("idm") or {}
+    if not cfg.get("enabled"):
+        raise ValueError("Die Nutzerverwaltung mit dem Verzeichnis ist ausgeschaltet.")
+    try:
+        entries = await hass.async_add_executor_job(IDM.read_directory, cfg)
+    except ValueError:
+        raise
+    except Exception as e:  # noqa: BLE001 - Verbindung, Anmeldung, Suche: verständlich melden
+        raise ValueError(f"Verzeichnis nicht lesbar: {type(e).__name__}: {e}"[:300]) from None
+    users = [{"id": u.id, "name": u.name, "is_admin": u.is_admin, "is_active": u.is_active,
+              "usernames": [c.data.get("username") for c in u.credentials if c.data and c.data.get("username")]}
+             for u in await _users(hass)]
+    return IDM.plan(entries, cfg, users, list(m.config.data.get("allowed_users") or [])), len(entries)
+
+
+@command(_t("admin/idm_preview"), admin=True)
+async def ws_admin_idm_preview(hass, conn, msg, m, user, st):
+    """Probelauf: was der Abgleich mit dem Verzeichnis ändern würde – ändert nichts."""
+    actions, n = await _idm_plan(hass, m)
+    return {"actions": actions, "entries": n}
+
+
+@command(_t("admin/idm_apply"), admin=True)
+async def ws_admin_idm_apply(hass, conn, msg, m, user, st):
+    """Abgleich ausführen (frisch geplant, nicht der alte Probelauf)."""
+    actions, n = await _idm_plan(hass, m)
+    res = await IDM.apply(hass, m, actions)
+    m.audit.record(AU.EV_ADMIN, _admin_agent(user), "", tool="idm_sync",
+                   target={"object": AU.clip(", ".join(f"{k} {v}" for k, v in res["counts"].items()) or "keine Änderung", 120)},
+                   outcome="error" if res["errors"] else "ok", decision="rule")
+    return dict(res, entries=n)
+
+
+@command(_t("admin/audit_agents"), admin=True)
+async def ws_admin_audit_agents(hass, conn, msg, m, user, st):
+    """Verzeichnis aller Agenten mit erster/letzter Aktivität, Aufrufen und benutzten Zugängen."""
+    await m.audit.async_flush()
+    agents = sorted(m.audit.agents.values(), key=lambda a: a.get("last_seen") or 0, reverse=True)
+    running = {r.agent_id for r in m.runs.values() if r.agent_id}
+    names = await _names(m, [a.get("owner") for a in agents if a.get("owner")])
+    return {"agents": agents, "names": names, "running": sorted(running), "retention_days": m.audit_retention()}
 
 
 def async_register(hass: HomeAssistant) -> None:

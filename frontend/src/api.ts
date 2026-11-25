@@ -150,7 +150,7 @@ export class Store extends EventTarget {
         d.chats.sort((a: any, b: any) => (b.updated || 0) - (a.updated || 0));
         const full = this.chats.get(e.chat.id);
         if (full) {
-          Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, model_auto: e.chat.model_auto, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools });
+          Object.assign(full, { title: e.chat.title, status: e.chat.status, model: e.chat.model, model_auto: e.chat.model_auto, pinned: e.chat.pinned, project_id: e.chat.project_id, tools: e.chat.tools, internal_only: e.chat.internal_only });
           // Teilaufgabe: ihr Stand kommt mit der Zusammenfassung (die Karte im Hauptchat und die Leiste lesen ihn)
           if (full.sub && e.chat.sub_status) full.sub.status = e.chat.sub_status;
         }
@@ -231,6 +231,7 @@ export class Store extends EventTarget {
         break;
       }
       case "tasks_queue": d.queue = e.queue; break;
+      case "maintenance": d.maintenance = e.state; break;  // Wartung vor einem Neustart (maintenance.py)
       case "inbox": {
         // neue Karten von geplanten Aufgaben – die Startseite zeigt sie und spielt einen kurzen Ton
         const before = new Set(this.inbox.map((x: any) => x.id));

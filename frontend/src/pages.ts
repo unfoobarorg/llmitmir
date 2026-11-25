@@ -74,7 +74,7 @@ export class Home extends StoreElement {
     return html`<div class="wrap">
       ${u && !u.has_key ? html`<div class="card nokey row">${icon("key")}<div class="grow">${d.key_mode === "per_user_own"
         ? html`Trag zuerst deinen API-Schlüssel ein.` : html`Es ist noch kein API-Schlüssel hinterlegt. ${d.user.is_admin ? "Lege ihn unter Admin fest." : "Bitte den Admin, einen einzutragen."}`}</div>
-        <button class="btn" @click=${() => navigate(d.key_mode === "per_user_own" ? "/settings" : "/admin")}>Öffnen</button></div>` : nothing}
+        <button class="btn" @click=${() => navigate(d.key_mode === "per_user_own" ? "/settings/keys" : "/admin/providers")}>Öffnen</button></div>` : nothing}
       <lm-inbox></lm-inbox>
       <h1><lm-spark size="34" .active=${false}></lm-spark>${greeting()}${name ? `, ${name}` : ""}</h1>
       <lm-composer big ?showMode=${!simple} ?showProject=${!simple} .simple=${simple} .mode=${mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
@@ -306,6 +306,7 @@ export class ProjectPage extends StoreElement {
         ${adv(html`<div class="card"><h3>${icon("key", 18)} ${t("Zugänge")}</h3><div class="chips">
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
           ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>
+          <div class="hint" style="margin-top:8px">${t("Ausgewählte Zugänge sind in allen Chats, Coworks und Aufgaben dieses Projekts vorab erlaubt. Jeden anderen Zugang muss die Person beim ersten Gebrauch freigeben.")}</div>
           <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.credentials_only} @change=${(e: any) => this.set("credentials_only", e.target.checked)}> Nur diese Zugänge erlauben</label></div>
         ${d.external?.any_access || p.no_external ? html`<div class="card"><h3>${icon("external", 18)} Externe Modelle</h3>
           <label class="row hint"><input type="checkbox" style="width:auto" .checked=${!!p.no_external} @change=${(e: any) => this.set("no_external", e.target.checked)}> Nie an externe Modelle senden</label>

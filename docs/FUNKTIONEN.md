@@ -6,8 +6,18 @@
   Messenger nur Nachricht und Antwort mit Warte-Animation, Modelle werden nie angezeigt und immer automatisch gewählt
   (auch bei Überlastung wechselt LLMitMir selbst), die Modelle antworten verständlich und ohne Fachbegriffe, und Skills,
   geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
-  Folgende) schaltet jede Person unter *Einstellungen → Ansicht* frei; Admins legen unter *Admin → Ansicht* für alle oder
+  Folgende) schaltet jede Person unter *Einstellungen → Allgemein → Ansicht* frei; Admins legen unter *Admin → Personen → Ansicht* für alle oder
   je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
+- **Einstellungen wie bei Claude**: Persönliche Einstellungen und Admin-Einstellungen sind in Bereiche geteilt – links die
+  Liste, rechts Gruppen aus Zeilen mit kurzer Erklärung und Schalter, Auswahl oder Eingabefeld; längere Erklärungen stehen
+  hinter „Mehr dazu“. Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/<bereich>`, `/llmitmir/admin/<bereich>`),
+  auf schmalen Bildschirmen wird die Liste zur waagerechten Leiste. Persönlich: *Allgemein* (Ansicht, persönliche Hinweise,
+  Bedienung), *Modelle* (Standardmodelle, externe Modelle), *Funktionen* (Teilaufgaben, Werkbank), *Benachrichtigungen*,
+  *Datenschutz & Freigaben* (Lebensdauer, Freigaben, erlaubte Server), *Verbrauch*, *API-Schlüssel* (nur wenn der Admin
+  eigene Schlüssel vorsieht) und *Import aus Claude*. Admin: *Personen* (Zugriff, Kontingente, Ansicht, AD/LDAP),
+  *Anbieter & Schlüssel*, *Modelle*, *Externe Modelle & Kosten*, *Zugänge & Konnektoren*, *Skills*, *Werkbank*,
+  *Benachrichtigungen* (Geräte je Person), *Weitere Dienste* (Websuche, Sprachausgabe, Dashboards) und *Monitoring*.
+  Ungespeicherte Änderungen bleiben beim Wechsel der Bereiche erhalten; eine Leiste unten bietet Speichern und Verwerfen.
 - **Dateien ansehen statt nur herunterladen**: Erzeugte Dateien und Anhänge öffnen sich in einem eigenen Betrachter im
   Panel – Bilder, PDFs (seitenweise, als Bild gerendert), Texte, Ton, Video sowie **Word- und Excel-Dateien** (Absätze
   und Tabellen als lesbarer Ausschnitt, ohne Makros und ohne Formeln). Das funktioniert im Browser und in den mobilen
@@ -34,7 +44,7 @@
   Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Freigaben, Änderungskarten und die Frage nach mehr
   Schritten aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
   ist – als Push „Teilaufgabe braucht dich“ mit Link auf den Hauptchat; „Immer erlauben“ gilt dabei nur für die eine
-  Teilaufgabe. Unter *Einstellungen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
+  Teilaufgabe. Unter *Einstellungen → Funktionen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
   feste Regeln im Systemprompt, ab halb vollem Kontext ein Hinweis), *nur auf Wunsch* (Standard in der einfachen
   Ansicht) oder *aus*. Wer selbst in einer Teilaufgabe weiterarbeitet, bekommt das neue Ergebnis als Nachtrag im
   Hauptchat (abschaltbar, *Jetzt melden* schickt es sofort). In der einfachen Ansicht laufen Teilaufgaben unsichtbar
@@ -192,18 +202,83 @@
     alles mit, was er weitergegeben hat. Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die für sie
     freigegeben sind. Modell-Kacheln laufen mit den Zugängen der Eigentümer*in – „für alle“ geht bei ihnen nur als
     *ansehen*, und ändert jemand anderes die Beschreibung, läuft die Kachel erst wieder, wenn die Eigentümer*in bestätigt.
-- **Projekte**: Anweisungen, Dateien, Zugänge, Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
+- **Projekte**: Anweisungen, Dateien, Zugänge (dem Projekt zugeordnete Zugänge sind darin vorab erlaubt), Skills, Modelle und Freigaben als Kontext für Chats, Coworks und Aufgaben.
 - **Lebensdauer**: Chats und Coworks können sich nach einer Frist selbst löschen – je Projekt eine eigene Frist, für
   alles außerhalb eines Projekts eine Frist in den Einstellungen der Person. Standardmäßig ist das aus; wer es
   einschaltet, bekommt 30 Tage vorgeschlagen, jede andere Zahl (bis 3650) geht auch. Gezählt ab der letzten Benutzung,
   geprüft stündlich und beim Start; gelöscht werden Chat, Anhänge, Arbeitsbereich und Sandbox. Angeheftete Chats und
   die Läufe geplanter Aufgaben bleiben. Das automatisch angelegte Projekt „Gespräche“ bringt seine Frist (14 Tage) mit.
-- **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf.
+- **Skills** im Format von `SKILL.md` (Name, Beschreibung, Anleitung, Dateien) – das Modell lädt sie bei Bedarf. Mit
+  **„Nur für interne Modelle“** sehen externe Modelle einen Skill gar nicht, und ein Chat, der ihn geladen hat, nimmt kein
+  externes Modell mehr an (siehe „Chats mit internen Daten für externe Modelle sperren“).
+- **Zentrale Skills** (*Admin → Zentrale Skills*): gelten für alle Personen, erscheinen in deren Oberfläche nicht (die
+  Inhalte sind nicht geheim). *Immer aktiv* steht als „Verbindliche Vorgaben dieser Installation“ im Systemprompt jedes
+  Laufs, vor persönlichen Hinweisen und Projekt-Anweisungen und mit Vorrang vor ihnen, vor eigenen Skills und vor Bitten im
+  Chat (Stilrichtlinien, Gebote und Verbote). *Bei Bedarf* steht mit „(zentral)“ in der Skill-Liste des Modells und wird mit
+  `skill_load` geladen. Eigene Skills mit dem Namen eines zentralen Skills lassen sich weder anlegen noch importieren.
+- **Skill-Richtlinien** (*Admin → Skill-Richtlinien*): Prüfungen für alle eigenen Skills – Muster (regulärer Ausdruck),
+  Höchstlänge, verbotene Server, Geheimnisse im Klartext oder ein Prüfauftrag in Worten an ein Modell des Hauptanbieters
+  (nie extern; der Skill gilt dabei als zu prüfender Text). Je Richtlinie eine Aktion: **sperren** (kein Modell sieht den
+  Skill, auch nicht in der Werkbank; die Person sieht den Grund in Liste und Skill und bekommt eine Karte auf der
+  Startseite), **Person benachrichtigen** oder **nur protokollieren**. Vorlagen: Widerspruch zu zentralen Vorgaben,
+  Geheimnisse, Effizienz, Länge. Geprüft wird beim Speichern (auch im Chat), beim Import, sofort nach jeder Änderung der
+  Richtlinien oder zentralen Skills und nachts um 3:17 alles Fällige. Solange eine sperrende Modell-Prüfung aussteht oder
+  scheitert, bleibt der Skill gesperrt. Befunde stehen im Monitoring (`skill_check`) und in einer Übersicht auf der
+  Admin-Seite (Person, Skill, Befund – ohne den Text des Skills).
 - **Zugänge** getrennt von Skills: Das Modell sieht **nie** ein Geheimnis; Werkzeuge setzen Passwörter und Tokens
   serverseitig ein (`zugang`-Parameter oder Platzhalter `{{cred:Name:feld}}`), Ergebnisse werden geschwärzt. Ein Zugang
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
   LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
-  Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Erlaubte Server*.
+  Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Datenschutz & Freigaben → Erlaubte Server*.
+- **Konnektoren** (Seite *Konnektoren*, eingerichtet unter *Admin → Konnektoren*): vom Admin vorbereitete Anbindungen nach
+  dem Vorbild von Claude und Copilot. Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte
+  Server, bei GWDG/EWS die Dienste, die Anmeldeart und optional eine Anleitung für das Modell fest. Jede Person verbindet
+  nur ihr eigenes Konto: per Formular (nur die Felder, die der Admin offen lässt) oder bei Nextcloud per **Login Flow v2** –
+  sie meldet sich im Browser bei der Nextcloud an und erlaubt den Zugriff, LLMitMir bekommt ein eigenes App-Passwort in
+  ihrem Nutzerkontext (das eigentliche Passwort sieht es nie; die Anmeldeseite muss auf der Nextcloud selbst liegen).
+  Daraus entsteht ein Zugang der Art „eigener Zugang“ mit Verweis auf den Konnektor; die festen Felder setzt LLMitMir bei
+  jedem Speichern und nach jeder Änderung des Admins neu, Formular und Chat können sie nicht ändern. Ist ein Konnektor
+  ausgeschaltet oder gelöscht, sind seine Zugänge gesperrt. Die Anleitung des Konnektors steht im Systemprompt, sobald der
+  Zugang im Lauf sichtbar ist. Mit dem Schalter *Eigene Zugänge ohne Konnektor erlauben* (Vorgabe an) kann der Admin
+  freie Zugänge abschalten – vorhandene bleiben nutzbar, neue gehen nur noch über Konnektoren. Freigabe je Agent gilt für
+  Konnektor-Zugänge genauso.
+- **MCP-Server als Konnektor** (*Admin → Konnektoren*, Typ Bearer-Token, API-Key oder Basic Auth, Haken „MCP-Server“):
+  Die feste Adresse ist der MCP-Endpunkt (Streamable HTTP, nur https). Der Admin ruft die Werkzeuge einmal ab (mit
+  seinem Token, nur für den Abruf) und gibt sie einzeln frei, je Werkzeug „schreibt“ ja/nein (Vorschlag aus
+  `readOnlyHint`). Die Liste ist **eingefroren**: Beschreibungen und Parameter stammen aus der Freigabe, nicht vom Server –
+  neue oder veränderte Werkzeuge gelten erst nach erneutem Abrufen und Freigeben (Schutz vor eingeschleusten Texten).
+  Jede Person verbindet den Konnektor mit ihrem eigenen Token. Die Werkzeuge heißen `mcp_<Konnektor>_<Werkzeug>`, stehen
+  in der Werkzeuggruppe „Konnektoren (MCP)“ (im Chat und Cowork nach Rückfrage einschalten, in Aufgaben über deren
+  Werkzeuge) und laufen durch Freigabe je Agent (der Zugang des Konnektors), Schreib-Freigaben, Datenregeln und
+  Zugriffsprotokoll; an den Server gehen nur Argumente aus dem eingefrorenen Schema. Anmeldung per OAuth folgt später.
+- **Datenregeln je Konnektor** (*Admin → Konnektoren → Datenregeln*): Regel = Geltungsbereich (Pfad oder Ordner mit `*`
+  und `**`, z. B. `/Gruppen/Finanzen/**`; leer = ganzer Konnektor; Pfade werden vor dem Vergleich vereinheitlicht – dekodiert, ohne `.`/`..`, mit und ohne WebDAV-Präfix wie `files/<Name>/` – und lässt sich ein Pfad nicht sicher bestimmen, gilt die Regel) + **Anweisung in Worten** + für welche Modelle (nur
+  externe oder alle). Beispiel: „Nur Dateien mit Tag public oder internal dürfen an externe Modelle, nie restricted;
+  ungelabelte Dateien sind für alle Modelle gesperrt.“ Bevor ein Werkzeug Inhalte aus dem Bereich abruft, entscheidet ein
+  **Wächter** – ein Modell des Hauptanbieters, nie extern – anhand der **Metadaten** (bei Nextcloud per PROPFIND: Tags,
+  Systemtags, Typ, Größe, Besitzer; sonst Pfad und Ordner), nie anhand der Inhalte. Gesperrt heißt: Das Werkzeug läuft gar
+  nicht, das Modell bekommt nur den Grund; scheitert die Prüfung, ist ebenfalls gesperrt. Entscheidungen gelten im Lauf
+  weiter (Zwischenspeicher) und stehen im Monitoring (`data_rule`). Gilt eine Regel nur für externe Modelle und läuft ein
+  Modell des Hauptanbieters, prüft der Wächter nicht – das Ergebnis wird markiert und beim Wechsel auf ein externes Modell
+  aus dem Verlauf entfernt, und der Chat nimmt danach kein externes Modell mehr an (siehe „Chats mit internen Daten“); Dateien, die ein Abruf im Arbeitsbereich ablegt (`speichern_als`), prüft er dagegen immer wie
+  für ein externes Modell. Werkbank-Befehle und freie HTTP-Anfragen mit Zugängen eines Konnektors mit Datenregeln sind
+  gesperrt. Ordnerlisten (`dav_list`, `mail_folders`) gelten als Metadaten und werden nicht geprüft. Das Modell kennt die
+  Regeln aus der Anleitung des Konnektors (Labels setzt es nie selbst), verlassen wird sich darauf nicht.
+- **Freigabe je Agent**: Ein Zugang ist in einem Chat oder Cowork erst nutzbar, wenn die Person ihn freigibt. Beim
+  ersten Gebrauch erscheint eine Karte „Zugang „X“ verwenden?“ (auch als Push und im Sprachgespräch): **Einmal
+  erlauben** (nur dieser Aufruf), **Für diesen Chat/dieses Cowork erlauben** (gilt für alle weiteren Läufe darin) oder
+  **Nicht erlauben** (der Lauf macht ohne den Zugang weiter und fragt in diesem Lauf nicht wieder). Teilaufgaben nutzen
+  die Freigaben ihres Hauptchats, eine Freigabe aus einer Teilaufgabe gilt für den Hauptchat. **Vorab erlaubt** sind die
+  Zugänge, die einem Projekt zugeordnet sind – für alle Chats, Coworks und Aufgaben darin. **Geplante Aufgaben und
+  Kacheln** fragen nie: Sie nutzen nur die Zugänge, die in der Aufgabe bzw. Kachel (Abschnitt „Zugänge“) oder in ihrem
+  Projekt erlaubt sind, und nennen jeden abgelehnten im Bericht. Beim Update auf diese Version bekamen vorhandene
+  Aufgaben alle damals vorhandenen Zugänge (markiert zur Durchsicht). Jede Entscheidung steht im Zugriffsprotokoll.
+- **Art des Zugangs** (Pflicht beim Anlegen, im Formular und wenn das Modell einen Zugang vorschlägt): *eigener
+  LLMitMir-Zugang in meinem Nutzerkontext* (empfohlen – App-Passwort oder eigener Token mit minimalen Rechten, Tipps je
+  Typ im Formular), *meine persönlichen Zugangsdaten* (abgeraten) oder *zentraler Systemzugang* (nur im Notfall und nur,
+  wenn der Admin es unter *Admin → Zugänge* erlaubt; ohne Erlaubnis sind zentrale Zugänge gesperrt – kein Modell sieht
+  oder nutzt sie). Zugänge ohne Art (von früher oder aus dem Import) zeigt die Liste mit „Art fehlt“. Der Admin sieht je
+  Person, wie viele Zugänge welcher Art es gibt.
 - **Exchange über EWS** (Typ „Exchange (EWS)“ und GWDG-Exchange): Kalender und Kontakte laufen über Exchange Web
   Services statt über CalDAV. Der Server beantwortet die Zeitraumabfrage selbst (`FindItem` mit `CalendarView`), es
   kommt also kein Archiv mit; jeder Eintrag hat eine stabile `item_id` samt `ChangeKey`, und Ändern wie Löschen
@@ -294,6 +369,63 @@
   nutzen. Fehlt der Schlüssel, startet kein Lauf, und das Ergebnis nennt den Grund. Unter *Geplant* steht, wie viele Anfragen
   und Tokens alle Aufgaben auf diesem Schlüssel je Tag verbrauchen; Läufe auf einem eigenen Aufgaben-Schlüssel zählen nicht zum
   persönlichen Tageskontingent.
+- **Agenten-Identitäten und Zugriffsprotokoll** (*Admin → Monitoring*, nur für Admins): Jeder Lauf gehört zu einem
+  Agenten mit fester ID – ein Chat, ein Cowork, ein Sprachgespräch oder eine Teilaufgabe ist `agt-<Chat-ID>`, eine geplante
+  Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent `agt-<Aufgaben-ID>`; Teilaufgaben nennen ihren Eltern-Agenten.
+  Protokolliert wird jeder Werkzeugaufruf, der andere Systeme erreicht (Home Assistant, Web, Nextcloud/WebDAV, Exchange,
+  E-Mail, HTTP, Werkbank, Benachrichtigungen, Änderungen an Skills, Aufgaben, Zugängen und Dashboards), jede Rückfrage wegen
+  eines nicht erlaubten Servers und jeder Laufbeginn – mit Werkzeug, Zugang, Server und Pfad (ohne Abfrage), Ordner,
+  Dienst und Entitäten, Modell und Modellklasse (Hauptanbieter, extern, kostenpflichtig), Ergebnis und wer entschieden hat
+  (ohne Rückfrage, dauerhaft erlaubt, einmal/immer erlaubt, von der Person abgelehnt, durch Regel gesperrt). **Inhalte
+  kommen nie hinein**: keine Texte, Suchbegriffe, Abfrageparameter, Dateiinhalte, Empfänger (nur ihre Anzahl), Befehle oder
+  Chat-Titel – das Ziel wird aus einer festen Liste von Argumenten gebildet. Interne Schritte (Fortschritt, eigene Dateien,
+  Skills lesen, Teilaufgaben) bleiben draußen. Die Seite zeigt eine Übersicht (Aufrufe, mit Zugang, schreibend, abgelehnt,
+  Fehler, extern, Agenten, Personen), filtert nach Zeitraum, Person, Ergebnis, Modellklasse, Agenten-Art, Zugang, Server,
+  „nur mit Zugang“ und „nur schreibend“, führt per Klick auf einen Agenten zu allen seinen Zugriffen (mit Teilaufgaben) und
+  lädt die Liste als CSV herunter. Der Reiter *Agenten* listet alle Agenten mit erster und letzter Aktivität, Läufen,
+  Aufrufen, benutzten Zugängen und ob sie gerade laufen. Ablage: `.storage/llmitmir_audit/` (eine Datei je Tag);
+  Aufbewahrung einstellbar (7 bis 3650 Tage, Vorgabe 180), ältere Tage löscht LLMitMir stündlich.
+- **Nutzerverwaltung mit Active Directory/LDAP** (*Admin → Nutzerverwaltung*, optional, Vorgabe aus): LLMitMir liest
+  Personen per LDAPS (Bind-Konto mit Leserechten, Basis-DN, Filter, Attribut für den Anmeldenamen) und gleicht die
+  Home-Assistant-Benutzer nach **Gruppen-Zuordnungen** ab – je Gruppe „Admin“ und „LLMitMir“ (Zugriff aufs Panel). Wer in
+  einer zugeordneten Gruppe ist, bekommt einen Benutzer, verknüpft mit dem gewählten Anmeldeanbieter; Admin-Recht, Name
+  und LLMitMir-Zugriff folgen den Gruppen; wer aus allen Gruppen fällt, im Verzeichnis gesperrt ist oder fehlt, wird
+  **deaktiviert, nie gelöscht** (kommt er zurück, wieder aktiviert). Von Hand angelegte Benutzer bleiben unberührt (auch
+  bei gleichem Anmeldenamen), der letzte aktive Admin wird nie deaktiviert oder herabgestuft. Erst der **Probelauf** zeigt
+  alle Änderungen, dann führt „Abgleich ausführen“ sie aus (frisch geplant); auf Wunsch jede Nacht um 4:23. Jeder
+  Abgleich steht im Monitoring (`admin_action`). **Anmeldung** mit dem Verzeichnis-Passwort über den HA-Anmeldeanbieter
+  `command_line`, z. B. in `configuration.yaml`:
+
+  ```yaml
+  homeassistant:
+    auth_providers:
+      - type: homeassistant          # bisherige Benutzer
+      - type: command_line
+        command: /config/ldap-auth.sh   # prüft Benutzer/Passwort per ldapwhoami gegen LDAPS, Exit-Code 0 = gültig
+        meta: true
+  ```
+
+  MFA richten die Personen wie bisher selbst ein. Python-Paket: `ldap3`.
+- **Wartungsmodus vor Neustarts** (Dienste `llmitmir.prepare_restart` und `llmitmir.cancel_restart`, Sensor
+  `sensor.llmitmir_laufende_agenten`): `prepare_restart` (Ankündigung `minutes`, Vorgabe 10; höchste Wartezeit
+  `max_wait`, Vorgabe 30; `restart`, Vorgabe aus; `reason`) kündigt den Neustart allen Personen mit Zugang an – Karte auf
+  der Startseite, Push an ihr Gerät und ein Hinweis über jeder Seite des Panels. Nach der Ankündigungszeit startet nichts
+  Neues mehr (neue Nachrichten werden mit dem Hinweis abgelehnt, geplante Aufgaben warten in der Schlange; nach dem
+  Neustart holt LLMitMir Fälliges nach), laufende Agenten dürfen bis zur Frist fertig werden. Dann ist die Wartung
+  „bereit“ – mit `restart: true` startet LLMitMir Home Assistant selbst neu, sonst wartet ein Playbook oder eine
+  Automation darauf: Zustand des Sensors = laufende Agenten, Attribut `wartung` = off/announced/draining/ready. Beispiel
+  für ein Update von außen: `prepare_restart` mit `minutes: 5`, warten bis `wartung` = `ready`, dann neu starten.
+  Beide Dienste sind Admin-Dienste (wie `homeassistant.restart`): Personen ohne Admin-Rechte werden abgewiesen,
+  Automationen ohne Person dürfen sie aufrufen.
+- **Trusted-AI-Zentrale** (*Admin → Monitoring → Zentrale*): **laufende Agenten** mit „Anhalten“ (alle Läufe samt
+  Teilaufgaben); **Auffälligkeiten** der letzten 24 Stunden gegenüber den 14 Tagen davor (ungewöhnlich viele Aufrufe,
+  viele Sperren, neue Server, Zugriffe aus Chats/Coworks zwischen 0 und 5 Uhr) – jeden Morgen um 6:07 als Karte für alle
+  Admins; **Freigaben entziehen** für einen Zugang oder alle Zugänge einer Person („für diesen Chat erlaubt“ in allen
+  Chats, Zugangslisten der Aufgaben und Kacheln, auf Wunsch die Vorab-Freigabe in Projekten); **Export** jedes Ereignisses
+  an einen Webhook (JSON per POST, https, optional Token im Header) und/oder Syslog (RFC 5424 über UDP, TCP oder TLS,
+  Octet-Counting), gefiltert nach Ereignisart, mit Testknopf und letztem Zustand. Admin-Eingriffe und jede Änderung
+  der Admin-Einstellungen (welcher Bereich, nie Werte) stehen selbst im Protokoll (`admin_action`). Einen Konnektor sperrt der Admin unter *Konnektoren* (aus), externe Modelle je Person unter
+  *Modelle*.
 - **Externe Modelle als Notfall (optional, kostenpflichtig)**: Claude über eine eigene **Microsoft-Foundry-Ressource** (Azure) und/oder
   einen **Anthropic-API-Schlüssel**. Die verfügbaren Modelle fragt LLMitMir mit dem Schlüssel selbst ab (Foundry: jedes bekannte
   Claude-Modell und eigene Deployment-Namen per kostenloser Token-Zählung). Der Admin bringt die Anbieter in eine **Reihenfolge**
@@ -317,6 +449,25 @@
   Hauptchat ausdrücklich gewählt ist. Im Modellmenü stehen sie als eigene Gruppe „Extern (über den Hauptanbieter)“. **Nur die Kosten
   entfallen:** Wie und zu welchem Preis der Anbieter diese Modelle einkauft, ist nicht bekannt – sie werden nicht in Euro gebucht, haben
   kein Monatslimit und zählen wie alle Modelle des Hauptanbieters zum normalen Kontingent.
+- **Chats mit internen Daten für externe Modelle sperren** (`datalock.py`): Beim Wechsel auf ein externes Modell geht der
+  ganze Verlauf mit. Ergebnisse gesperrter Zugänge nimmt LLMitMir zwar heraus, aber was ein Modell daraus gemacht hat
+  (Zusammenfassungen in seinen Antworten, Argumente späterer Aufrufe, Dateien im Arbeitsbereich, Ergebnisse von
+  Teilaufgaben), lässt sich nicht zuverlässig herauslösen. Deshalb bekommt ein Chat eine **dauerhafte Markierung**, sobald
+  darin erfolgreich ein Werkzeug mit einem Zugang ohne Freigabe für externe Modelle lief (auch MCP-Werkzeuge eines
+  Konnektors), der Wächter eine Datenregel nur für externe Modelle nicht geprüft hat, weil ein internes Modell lief, oder
+  ein eigener Skill **„Nur für interne Modelle“** gelesen wurde. Die Markierung bleibt, auch wenn der Zugang später
+  freigegeben wird, und gilt für die ganze Familie: Eine Teilaufgabe markiert ihren Hauptchat mit (gemeinsamer
+  Arbeitsbereich, Ergebnisse fließen zurück) und ist gesperrt, solange ihr Hauptchat es ist. Ein markierter Chat nimmt
+  **kein externes Modell** mehr an – nicht von Hand (im Modellmenü ausgegraut, mit Schloss und Grund), nicht als
+  Ersatz-Angebot oder Notfall-Ausweichmodell, nicht bei geplanten Aufgaben; als letzte Schranke baut der Lauf keine
+  Anfrage an ein externes Modell. Für ein externes Modell beginnt man einen neuen Chat. Chats von vor dieser Version
+  durchsucht LLMitMir beim Öffnen oder beim nächsten Lauf einmal nach denselben Spuren. Der Admin kann die Sperre unter
+  *Admin → Zugänge* abschalten (Standard: an); dann gilt nur das Herausfiltern. Unabhängig davon merkt sich jeder
+  Werkzeug-Aufruf die IDs der benutzten Zugänge (`cred_ids`), damit das Herausfiltern auch nach dem Umbenennen oder Löschen
+  eines Zugangs greift. Skills „nur für interne Modelle“ sehen externe Modelle nicht (weder in der Liste noch über
+  `skill_load`, `skill_file` oder `llmitmir_info`), können sie nicht ändern, und ihre Dateien kommen erst in die Sandbox,
+  wenn der Chat markiert ist. **Nicht abgedeckt:** was die Person selbst in den Chat schreibt oder hochlädt, und
+  Home-Assistant-Daten (Zustände, Verlauf), die nicht über Zugänge laufen.
 - **Import aus Claude**: Ein Prompt, den man in Claude einfügt, überträgt Skills (mit herausgelösten Zugangsdaten),
   geplante Aufgaben, Projekte und Erinnerungen über einen Einmal-Link (Freigaben importierter Aufgaben legt man beim Einschalten selbst fest). Chatverläufe kommen aus dem offiziellen
   Datenexport von claude.ai (ZIP hochladen).

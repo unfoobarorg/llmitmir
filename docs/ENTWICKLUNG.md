@@ -44,7 +44,7 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Stufe | Jobs |
 |---|---|
 | lint | ruff, Syntax aller Python-Module, JSON, Shell-Skripte der Werkbank |
-| test | Unit-Tests mit Python 3.13 und 3.14 · HA-Tests gegen die aktuelle und die Mindestversion · neuestes HA (nur Warnung) · Frontend: tsc, Tests, Bundle und Lizenzdatei aktuell |
+| test | Unit-Tests mit Python 3.13 und 3.14 · HA-Tests gegen die aktuelle und die Mindestversion · neuestes HA (nur Warnung) · Frontend: tsc, Tests, Bundle und Lizenzdatei aktuell · Schwachstellen: `pip-audit` (Abhängigkeiten aus dem Manifest) und `npm audit` (nur Warnung) |
 | release | nur für `main`, Merge Requests nach `main` und Tags: dieselben Tests mit `--runxfail` (kein offener Befund) · ein Tag muss der Version im Manifest entsprechen |
 
 ## Konventionen
@@ -67,9 +67,20 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 | Aufgaben, Teilen | `scheduler.py`, `cron.py`, `sharing.py`, `taskedit.py`, `taskkeys.py`, `tasknotify.py`, `inbox.py` |
 | Dashboards | `dashboards.py`, `access.py`, `boards.py` |
 | Zugänge | `credentials.py`, `credcheck.py`, `ews.py`, `ntlm.py`, `mailbox.py` |
+| Nutzerverwaltung mit AD/LDAP | `idm.py` (Plan HA-frei, `read_directory` mit ldap3, `apply` mit `hass.auth`; WS `admin/idm_preview`, `admin/idm_apply`) |
+| Wartungsmodus, Sensor laufende Agenten | `maintenance.py`, `sensor.py`, `services.yaml` |
+| Trusted-AI-Zentrale: Export, Auffälligkeiten, Entzug | `auditexport.py` (HA-frei; WS `admin/agent_stop`, `admin/revoke`, `admin/anomalies`, `admin/audit_export_test`) |
+| MCP-Konnektoren | `mcp.py` (HA-frei; Werkzeuge je Lauf in `ToolContext.mcp_tools`, WS `admin/mcp_tools`) |
+| Datenregeln, Wächter | `datarules.py` (HA-frei; eingehängt in `ToolContext._data_guard` vor dem Werkzeug) |
+| Chats mit internen Daten sperren | `datalock.py` (HA-frei; markiert in `ToolContext.execute`, Sperre in `Manager.chat_lock`, letzte Schranke in `ToolContext._guard_external` vor jeder Anfrage) |
+| Konnektoren, Nextcloud Login Flow v2 | `connectors.py` (HA-frei; WS `connector/*` in `ws.py`, Seite `frontend/src/connectors.ts`) |
+| Zentrale Skills, Skill-Richtlinien | `skillcheck.py` (Prüflogik HA-frei; `check_skill`/`recheck_all` mit dem Manager) |
+| Freigabe von Zugängen je Agent, Art des Zugangs | `policy.py` (HA-frei; eingehängt in `ToolContext._approve_creds`) |
+| Agenten-Identitäten, Zugriffsprotokoll | `audit.py` (HA-frei; eingehängt in `ToolContext.execute`, Admin → Monitoring in `frontend/src/monitoring.ts`) |
 | Werkzeuge | `tools/` – Übersicht in [WERKZEUGE.md](WERKZEUGE.md) |
 | Frontend | `frontend/src/` (Lit, esbuild, marked + DOMPurify); 3D-Roboter `robot3d.ts`, Sprachgespräch `voice*.ts`, Dashboards `pages3.ts`, `grid.ts`, `tiles/` |
 | Werkbank | `werkbank/` – siehe [WERKBANK.md](WERKBANK.md) |
 
 Daten liegen je Person unter `<config>/.storage/llmitmir/<user_id>/` (Chats als Dateien, `files/`, `tiles/`), die
-Admin-Konfiguration in `.storage/llmitmir.config`, das Kostenbuch in `.storage/llmitmir.billing`.
+Admin-Konfiguration in `.storage/llmitmir.config`, das Kostenbuch in `.storage/llmitmir.billing`, das
+Zugriffsprotokoll in `.storage/llmitmir_audit/` (eine JSONL-Datei je Tag plus `agents.json`).
