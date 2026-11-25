@@ -34,7 +34,7 @@ const MAP: Record<string, string> = {
   subtask: mdi.mdiSubdirectoryArrowRight, back: mdi.mdiArrowLeft,
   calendarEdit: mdi.mdiCalendarEdit, calendarPlus: mdi.mdiCalendarPlus, contact: mdi.mdiAccountBoxOutline,
   up: mdi.mdiArrowUp, arrowDown: mdi.mdiArrowDown, euro: mdi.mdiCurrencyEur, shield: mdi.mdiShieldAlertOutline,
-  share: mdi.mdiShareVariantOutline, dashboard: mdi.mdiViewDashboardOutline, voice: mdi.mdiAccountVoice, micOff: mdi.mdiMicrophoneOff, hangup: mdi.mdiPhoneHangup,
+  share: mdi.mdiShareVariantOutline, plugins: mdi.mdiPuzzleOutline, dashboard: mdi.mdiViewDashboardOutline, voice: mdi.mdiAccountVoice, micOff: mdi.mdiMicrophoneOff, hangup: mdi.mdiPhoneHangup,
 };
 
 export function mdiPath(name: string): string {

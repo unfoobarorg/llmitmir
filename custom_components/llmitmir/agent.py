@@ -2130,10 +2130,17 @@ class ToolContext:
     def allowed_skills(self) -> set[str] | None:
         """Eigene Skills, die dieser Lauf sehen darf (None = alle): die des Projekts (falls es nur bestimmte erlaubt),
         und ein externes Modell nie die mit „Nur für interne Modelle“ (datalock.py)."""
-        if not self.external:
-            return self._allowed_skills
-        return {sid for sid, s in self.store.meta["skills"].items()
-                if not s.get("internal_only") and (self._allowed_skills is None or sid in self._allowed_skills)}
+        skills = self.store.meta["skills"]
+        base = self._allowed_skills
+        if self.external:
+            base = {sid for sid, s in skills.items()
+                    if not s.get("internal_only") and (base is None or sid in base)}
+        # der Skill einer Konnektor-Verbindung gilt nur, solange ihr Zugang hier nutzbar ist (connectors.py)
+        creds = self.creds
+        hidden = {sid for sid, s in skills.items() if s.get("connection_id") and s["connection_id"] not in creds}
+        if hidden:
+            base = (set(skills) if base is None else set(base)) - hidden
+        return base
 
     def has_internal(self) -> bool:
         """Sind interne Daten in diesem Chat oder seinem Hauptchat – unabhängig davon, ob die Sperre an ist?"""
@@ -2169,6 +2176,8 @@ class ToolContext:
             g.add("mcp")  # freigegebene Werkzeuge von MCP-Servern verbundener Konnektoren
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
+        if self.chat.get("connector_setup") and self.task is None:
+            g.add("konnektor")      # geführte Einrichtung eines Konnektors (tools/connector.py)
         if SC.is_sub(self.chat):
             g.add("teilergebnis")   # eine Teilaufgabe meldet ihr Ergebnis, startet aber keine weiteren
         elif (self.task is None and self.chat["kind"] in (KIND_CHAT, KIND_COWORK)
@@ -2191,7 +2200,7 @@ class ToolContext:
         if self.chat.get("sub_tools") is not None:
             # der Hauptchat hat die Werkzeuge der Teilaufgabe eingegrenzt
             g &= set(self.chat["sub_tools"]) | {"files", "skills", "progress"}
-        return (g | ALWAYS_GROUPS | {"unterchat", "teilergebnis"}) & self.available_groups()
+        return (g | ALWAYS_GROUPS | {"unterchat", "teilergebnis", "konnektor"}) & self.available_groups()
 
     def askable_groups(self) -> set[str]:
         """Groups that are not switched on but may be used after asking the person (never in unattended runs)."""
@@ -2295,6 +2304,17 @@ class ToolContext:
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
                 "was erledigt ist, was offen ist, Rückfragen. Bist du fertig, rufe `progress_update` mit `aktuell` = "
                 "Anzahl der Schritte + 1 auf, damit die Liste abgeschlossen ist, bevor du den Bericht schreibst.")
+        setup = self.chat.get("connector_setup")
+        if setup and self.task is None:
+            k = CN.by_id(self.manager.config.data, setup.get("connector_id"))
+            if k and k.get("enabled", True):
+                cred = self.store.meta["credentials"].get(setup.get("credential_id") or "")
+                cred = cred if cred and cred.get("connector_id") == k["id"] else None
+                skill = CN.skill_of(self.store.meta["skills"], cred["id"]) if cred else None
+                parts.append(CN.setup_prompt(k, cred, skill, name))
+            else:
+                parts.append("## Einrichtung eines Konnektors\nDer Konnektor dieses Einrichtungs-Chats ist ausgeschaltet "
+                             "oder gelöscht – sag der Person, dass sie sich an den Admin wenden muss.")
         if SC.is_sub(self.chat):
             parts.append(self.sub_prompt())
         elif "unterchat" in self.groups():
@@ -2669,11 +2689,15 @@ class ToolContext:
             return msg
         msg["label"] = tool.label or name
         msg["icon"] = tool.icon
+        if tool.preview is None and (via := self._connector_label(args)):
+            msg["connector"] = via  # im Chat sichtbar: dieser Aufruf läuft über einen Konnektor
         if self.external and name in ("credential_save", "credential_delete"):
             msg.update(content="Abgelehnt: Zugänge lassen sich mit externen Modellen nicht bearbeiten – die Person kann das "
-                               "auf der Seite „Zugänge“ selbst tun.", status="denied")
+                               "auf der Seite „Plugins → Zugänge“ selbst tun.", status="denied")
             return msg
         asked = False
+        if tool.preview is None and (denied := self._read_only_guard(msg, tool, args)):
+            return denied
         if tool.preview is None and (denied := await self._approve_creds(msg, tool, args)):
             return denied
         if tool.group not in self.groups():
@@ -2748,7 +2772,7 @@ class ToolContext:
         if denied := await self._data_guard(msg, tool, args):
             return denied
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
-                                                      "args": msg["args"]})
+                                                      "args": msg["args"], "connector": msg.get("connector") or ""})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,
                                          "message": dict(msg, status="running", content="")})
         t0 = time.monotonic()
@@ -2775,6 +2799,32 @@ class ToolContext:
         elif CK.looks_like_auth_error(text):
             self._mark_credential_failed(args, text)
         return msg
+
+    def _connector_label(self, args: dict) -> str:
+        """Name der Konnektoren, über die ein Aufruf läuft (bei mehreren Verbindungen mit dem Namen der Verbindung)."""
+        cfg = self.manager.config.data
+        out = []
+        for n in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, n)
+            k = CN.by_id(cfg, (c or {}).get("connector_id"))
+            if k:
+                out.append(k["name"] if c["name"].casefold() == k["name"].casefold() else f"{k['name']} · {c['name']}")
+        return ", ".join(out)
+
+    def _read_only_guard(self, msg: dict, tool, args: dict) -> dict | None:
+        """Zugänge auf „nur lesen“ (credentials.read_only): keine schreibenden Aufrufe, keine Werkbank-Befehle damit."""
+        if not (tool.is_write(args) or tool.name == "shell"):
+            return None
+        for n in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, n)
+            if c and C.read_only(c):
+                self._decided("rule")
+                msg.update(content=f"Abgelehnt: Der Zugang „{c['name']}“ ist auf „nur lesen“ gestellt – schreibende Aufrufe "
+                                   + ("und Werkbank-Befehle " if tool.name == "shell" else "")
+                                   + "damit sind nicht erlaubt. Nur lesend arbeiten und der Person sagen, dass sie das "
+                                   "Recht auf der Seite „Plugins → Konnektoren“ bzw. beim Zugang ändern kann.", status="denied")
+                return msg
+        return None
 
     async def _approve_creds(self, msg: dict, tool, args: dict) -> dict | None:
         """Zugänge brauchen eine Freigabe je Agent (policy.py): einmal, für diesen Chat/dieses Cowork oder nicht.
@@ -2811,7 +2861,8 @@ class ToolContext:
                 return msg
             decision = await self.manager.ask_permission(self.run, {
                 "tool": tool.name, "label": msg["label"], "icon": "mdi:key-outline", "args": msg["args"],
-                "cred": c["name"], "cred_id": c["id"], "cred_scope": c.get("scope") or ""})
+                "cred": c["name"], "cred_id": c["id"], "cred_scope": c.get("scope") or "",
+                "connector": msg.get("connector") or ""})
             self._decided(decision)
             model = self.chat.get("model") or ""
             self.manager.audit.record(AU.EV_CRED, self.agent, self.run.id, tool=tool.name, group=tool.group,
@@ -2906,7 +2957,7 @@ class ToolContext:
         """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.
 
         Gibt die Ablehnung als Nachricht zurück oder None, wenn es weitergehen darf. „Immer erlauben“ trägt den Server
-        beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“); „einmal“ gilt für diesen Lauf."""
+        beim Zugang ein (Seite „Plugins → Zugänge“ → „Erlaubte Server“); „einmal“ gilt für diesen Lauf."""
         host, creds_ = need.get("host") or "?", need.get("creds") or []
         names = ", ".join(f"„{c.get('name')}“" for c in creds_)
         if self.task is not None:

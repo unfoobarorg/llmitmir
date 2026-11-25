@@ -17,6 +17,10 @@ const tileTasks = () => store.data?.boards?.tile_tasks || [];
 
 const pageCss = css`:host { display: block; height: 100%; overflow-y: auto; }
   ${explainerCss}
+  .item.owned { opacity: .55; cursor: default; background: var(--lm-side); }
+  .item.owned:hover { background: var(--lm-side); }
+  .item.owned .btn { opacity: 1; }
+  h3.sub { display: flex; align-items: center; gap: 7px; font-size: 15px; margin: 26px 0 4px; }
   .form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .savebar { position: sticky; bottom: 12px; display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -474,26 +478,58 @@ export class TaskPage extends StoreElement {
 // ---------------------------------------------------------------- skills
 @safeElement("lm-skills")
 export class Skills extends StoreElement {
+  /** In der Plugins-Seite eingebettet: ohne eigene Überschrift. */
+  @property({ type: Boolean }) embedded = false;
   static styles = [base, pageCss];
   render() {
-    const sk = store.data?.skills || [];
-    return html`<div class="page"><div class="row"><h1 class="grow">${t("Skills")}</h1>
-      <button class="btn primary" @click=${() => navigate("/skill/new")}>${icon("plus", 18)} ${t("Neuer Skill")}</button></div>
-      ${isSimple() ? explainer("skills", !sk.length) : html`
-      <p class="hint">Skills sind Anleitungen für wiederkehrende Themen. Das Modell sieht Name und Beschreibung und lädt die ganze Anleitung, wenn sie passt.
-        Zugangsdaten gehören nicht in den Skill-Text, sondern unter ${t("Zugänge")} – im Skill verweist du nur darauf.</p>`}
-      <div class="list">${sk.length ? sk.map((s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
+    const all = store.data?.skills || [];
+    // Skills von Konnektor-Verbindungen gehören zum Konnektor: ausgegraut, nur über die Seite „Konnektoren“ zu öffnen
+    const sk = all.filter((s: any) => !s.connection_id);
+    const kn = all.filter((s: any) => s.connection_id);
+    const item = (s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
         ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description}</div></div>
         ${(s.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${s.credentials.length}</span>` : nothing}
         ${s.internal_only ? html`<span class="chip" title=${t("Nur für interne Modelle")}>${icon("lock", 13)} ${t("intern")}</span>` : nothing}
         ${s.enabled === false ? html`<span class="chip">aus</span>` : nothing}
-        ${checkStateChip(s)}</div>`) : html`<div class="hint">Noch keine Skills.</div>`}</div></div>`;
+        ${checkStateChip(s)}</div>`;
+    return html`<div class=${this.embedded ? "" : "page"}><div class="row">${this.embedded ? html`<span class="grow"></span>` : html`<h1 class="grow">${t("Skills")}</h1>`}
+      <button class="btn primary" @click=${() => navigate("/skill/new")}>${icon("plus", 18)} ${t("Neuer Skill")}</button></div>
+      ${isSimple() ? explainer("skills", !sk.length) : html`
+      <p class="hint">Skills sind Anleitungen für wiederkehrende Themen. Das Modell sieht Name und Beschreibung und lädt die ganze Anleitung, wenn sie passt.
+        Zugangsdaten gehören nicht in den Skill-Text, sondern unter ${t("Zugänge")} – im Skill verweist du nur darauf.</p>`}
+      <div class="list">${sk.length ? sk.map(item) : html`<div class="hint">Noch keine eigenen Skills.</div>`}</div>
+      ${kn.length ? html`<h3 class="sub">${icon("share", 16)} ${t("Skills von Konnektoren")}</h3>
+        <p class="hint">${t("Diese Skills gehören zu einer Verbindung eines Konnektors. Du öffnest und änderst sie über den Konnektor – so bleiben Verbindung und Skill zusammen.")}</p>
+        <div class="list">${kn.map((s: any) => ownedItem("skill", s.name, s.description, s.connection_id))}</div>` : nothing}</div>`;
   }
+}
+
+/** Seite eines Skills oder Zugangs eines Konnektors, die nicht über den Konnektor geöffnet wurde: nur der Weg dorthin. */
+function ownedPage(what: string, name: string, credId: string, back: string) {
+  const c = (store.data?.credentials || []).find((x: any) => x.id === credId);
+  const k = (store.data?.connectors || []).find((x: any) => x.id === c?.connector_id);
+  return html`<div class="page"><div class="row"><button class="iconbtn" @click=${() => navigate(back)}>${icon("left")}</button><h1 class="grow">${name}</h1></div>
+    <div class="checkbox">${icon("share", 18)}<div>${t("{what} gehört zum Konnektor {name}. Damit Verbindung, Zugang und Skill zusammenbleiben, öffnest und änderst du ihn nur über den Konnektor.", { what, name: `„${k?.name || "?"}“` })}
+      <div style="margin-top:8px"><button class="btn primary" @click=${() => navigate("/plugins/connectors")}>${icon("share", 16)} ${t("Zum Konnektor")}</button></div></div></div></div>`;
+}
+
+/** Ausgegrauter Eintrag eines Skills oder Zugangs, der zu einem Konnektor gehört (nicht anklickbar, Weg zum Konnektor). */
+function ownedItem(ic: string, name: string, desc: string, credId: string) {
+  const c = (store.data?.credentials || []).find((x: any) => x.id === credId);
+  const k = (store.data?.connectors || []).find((x: any) => x.id === c?.connector_id);
+  return html`<div class="item owned" aria-disabled="true" title=${t("Gehört zum Konnektor – bearbeiten unter Konnektoren")}>
+    ${icon(ic)}<div class="grow"><div class="ellipsis">${name}</div>${desc ? html`<div class="hint clamp2">${desc}</div>` : nothing}</div>
+    <span class="chip">${icon("share", 13)} ${k?.name || t("Konnektor (aus)")}${c && k && c.name !== k.name ? ` · ${c.name}` : ""}</span>
+    <button class="btn ghost" @click=${(e: Event) => { e.stopPropagation(); navigate("/plugins/connectors"); }}>${t("Zum Konnektor")}</button></div>`;
 }
 
 @safeElement("lm-skill")
 export class SkillPage extends StoreElement {
   @property() skillId = "";
+  /** Über die Seite „Konnektoren“ geöffnet: nur dann lässt sich der Skill einer Verbindung bearbeiten. */
+  @property({ type: Boolean }) viaConnector = false;
+  /** Neuer Skill für diese Verbindung (Zugang eines Konnektors). */
+  @property() connectionId = "";
   @state() private d: any = null;
   @state() private files: any[] = [];
   @state() private tab = "edit";
@@ -504,24 +540,31 @@ export class SkillPage extends StoreElement {
   updated(ch: Map<string, any>) { if (ch.has("skillId")) this.reload(); }
   private async reload() {
     const s = (store.data?.skills || []).find((x: any) => x.id === this.skillId);
-    this.d = s ? JSON.parse(JSON.stringify(s)) : { name: "", description: "", body: "# Anleitung\n\n", credentials: [], enabled: true };
+    this.d = s ? JSON.parse(JSON.stringify(s)) : { name: "", description: "", body: "# Anleitung\n\n", credentials: this.connectionId ? [this.connectionId] : [], enabled: true };
     this.dirty = !s; this.files = s ? await store.api.ws("files", { scope: "skill", owner: s.id }) : [];
   }
   private set(k: string, v: any) { this.d = { ...this.d, [k]: v }; this.dirty = true; }
   private async save() {
-    try { const r = await store.api.ws("skill/save", { skill: this.d }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
-      if (this.skillId === "new") navigate(`/skill/${r.id}`, true); } catch (e: any) { store.notify(e.message); }
+    const conn = this.d.connection_id || this.connectionId;
+    try { const r = await store.api.ws("skill/save", { skill: this.d, ...(conn ? { via_connector: true, connection_id: conn } : {}) });
+      this.dirty = false; store.notify(t("Gespeichert")); await store.load();
+      if (this.skillId === "new") navigate(conn ? `/skill/${r.id}/connector` : `/skill/${r.id}`, true); } catch (e: any) { store.notify(e.message); }
   }
   render() {
     const s = this.d; if (!s) return nothing;
+    const conn = s.connection_id || this.connectionId;
+    if (conn && !this.viaConnector) return ownedPage(t("Skill"), s.name, conn, "/plugins/skills");
+    const back = conn ? "/plugins/connectors" : "/plugins/skills";
     const simple = isSimple();
     const intern = ext().configured || ext().any_access || s.internal_only ? html`<div class="card">
           <label class="row" style="gap:10px;align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:3px" .checked=${!!s.internal_only}
             @change=${(e: any) => this.set("internal_only", e.target.checked)}><span><b>${icon("lock", 15)} ${t("Nur für interne Modelle")}</b><br><span class="hint">${t("Externe Modelle sehen diesen Skill nicht und können ihn nicht laden. Wird er in einem Chat geladen, nimmt dieser Chat danach kein externes Modell mehr an. Für Anleitungen mit internen Inhalten (Namen, Abläufe, Zahlen).")}</span></span></label></div>` : nothing;
-    const extra = html`${intern}<div class="card"><b>${t("Zugänge")}, die dieser Skill nutzt</b><div class="chips" style="margin-top:8px">
-          ${(store.data?.credentials || []).map((c: any) => html`<button class=${(s.credentials || []).includes(c.id) ? "on" : ""}
+    const connCred = conn ? (store.data?.credentials || []).find((c: any) => c.id === conn) : null;
+    const extra = html`${intern}${conn ? html`<div class="card"><b>${t("Zugang")}</b><div class="hint" style="margin-top:6px">${icon("share", 13)}
+          ${t("Dieser Skill gehört fest zur Verbindung {name} und nutzt genau diesen Zugang.", { name: `„${connCred?.name || "?"}“` })}</div></div>` : html`<div class="card"><b>${t("Zugänge")}, die dieser Skill nutzt</b><div class="chips" style="margin-top:8px">
+          ${(store.data?.credentials || []).filter((c: any) => !c.connector_id || (s.credentials || []).includes(c.id)).map((c: any) => html`<button class=${(s.credentials || []).includes(c.id) ? "on" : ""}
             @click=${() => { const set = new Set(s.credentials || []); set.has(c.id) ? set.delete(c.id) : set.add(c.id); this.set("credentials", [...set]); }}>${c.name}</button>`)}
-          ${!(store.data?.credentials || []).length ? html`<span class="hint">Noch keine Zugänge.</span>` : nothing}</div></div>
+          ${!(store.data?.credentials || []).length ? html`<span class="hint">Noch keine Zugänge.</span>` : nothing}</div></div>`}
         ${s.id ? html`<div class="card"><b>${t("Dateien")} (Skripte, Vorlagen, Referenzen)</b>
           ${this.files.map(f => html`<div class="row" style="padding:4px 0"><span class="grow ellipsis" style="font-size:13px">${f.name}</span>
             <button class="iconbtn" title="Ansehen" @click=${() => openFileViewer("skill", s.id, f.name)}>${icon("eye", 16)}</button>
@@ -531,7 +574,7 @@ export class SkillPage extends StoreElement {
             await store.api.upload("skill", s.id, e.target.files); this.files = await store.api.ws("files", { scope: "skill", owner: s.id }); e.target.value = ""; }}></label>
           <div class="hint" style="margin-top:6px">Skripte werden erst mit der Werkbank ausführbar; bis dahin kann das Modell sie lesen.</div></div>` : nothing}`;
     return html`<div class="page">
-      <div class="row"><button class="iconbtn" @click=${() => navigate("/skills")}>${icon("left")}</button><h1 class="grow">${s.id ? s.name : t("Neuer Skill")}</h1>
+      <div class="row"><button class="iconbtn" @click=${() => navigate(back)}>${icon("left")}</button><h1 class="grow">${s.id ? s.name : t("Neuer Skill")}</h1>
         ${switchEl(s.enabled !== false, v => this.set("enabled", v))}</div>
       ${checkBanner(s)}
       <div class="form">
@@ -549,7 +592,8 @@ export class SkillPage extends StoreElement {
             : html`<div class="preview md" style="margin-top:8px">${md(s.body)}</div>`}
           <div class="hint" style="margin-top:6px">Geheimnisse nie hineinschreiben. Verweise mit <code>{{cred:Name:feld}}</code> auf einen Zugang, z. B. <code>{{cred:Hof Nextcloud:password}}</code>.</div></div>
         ${extra}`}
-        ${s.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Skill „${s.name}“ löschen?`)) { await store.api.ws("skill/delete", { skill_id: s.id }); navigate("/skills"); } }}>${icon("trash", 16)} Skill löschen</button></div>` : nothing}
+        ${s.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Skill „${s.name}“ löschen?`)) {
+          try { await store.api.ws("skill/delete", { skill_id: s.id, ...(conn ? { via_connector: true } : {}) }); navigate(back); } catch (e: any) { store.notify(e.message); } } }}>${icon("trash", 16)} Skill löschen</button></div>` : nothing}
       </div>
       ${this.dirty ? html`<div class="savebar fade-in">${s.id ? html`<button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>` : nothing}
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}
@@ -652,6 +696,8 @@ function extUseText(c: any) {
 
 @safeElement("lm-credentials")
 export class Credentials extends StoreElement {
+  /** In der Plugins-Seite eingebettet: ohne eigene Überschrift. */
+  @property({ type: Boolean }) embedded = false;
   static styles = [base, pageCss];
   @state() private checking = false;
   private async checkAll() {
@@ -661,17 +707,19 @@ export class Credentials extends StoreElement {
     finally { this.checking = false; }
   }
   render() {
-    const cs = store.data?.credentials || [];
+    const allc = store.data?.credentials || [];
+    // Zugänge von Konnektor-Verbindungen: ausgegraut, nur über die Seite „Konnektoren“ zu öffnen
+    const cs = allc.filter((c: any) => !c.connector_id);
+    const kn = allc.filter((c: any) => c.connector_id);
     const types = store.data?.credential_types || {};
     const extShown = !!(ext().configured || ext().any_access || cs.some((c: any) => c.external || c.ext_uses));
     // Skills and projects that point at the Zugang – not a usage counter, that is c.uses
     const refs = (id: string) => [...(store.data?.skills || []).filter((s: any) => (s.credentials || []).includes(id)).map((s: any) => s.name),
       ...(store.data?.projects || []).filter((p: any) => (p.credentials || []).includes(id)).map((p: any) => p.name)];
-    const broken = cs.filter((c: any) => c.check && !c.check.ok);
-    return html`<div class="page"><div class="row"><h1 class="grow">${t("Zugänge")}</h1>
-      ${cs.length ? html`<button class="btn" ?disabled=${this.checking} @click=${this.checkAll}>
+    const broken = allc.filter((c: any) => c.check && !c.check.ok);
+    return html`<div class=${this.embedded ? "" : "page"}><div class="row">${this.embedded ? html`<span class="grow"></span>` : html`<h1 class="grow">${t("Zugänge")}</h1>`}
+      ${allc.length ? html`<button class="btn" ?disabled=${this.checking} @click=${this.checkAll}>
         ${icon("shield", 18)} ${this.checking ? t("Prüfe …") : t("Alle prüfen")}</button>` : nothing}
-      ${(store.data?.connectors || []).length ? html`<button class="btn" @click=${() => navigate("/connectors")}>${icon("share", 18)} ${t("Konnektoren")}</button>` : nothing}
       ${store.data?.cred_policy?.free_credentials !== false ? html`<button class="btn primary" @click=${() => navigate("/credential/new")}>${icon("plus", 18)} ${t("Neuer Zugang")}</button>` : nothing}</div>
       ${store.data?.cred_policy?.free_credentials === false ? html`<div class="hint" style="margin-bottom:12px">${t("Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet – neue Systeme verbindest du unter Konnektoren.")}</div>` : nothing}
       ${broken.length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
@@ -692,13 +740,18 @@ export class Credentials extends StoreElement {
         ${useChip(c)}
         ${extUseChip(c)}
         ${expiryChip(c)}
-        ${refs(c.id).length ? html`<span class="chip" title=${`Wird verwendet von: ${refs(c.id).join(", ")}`}>${refs(c.id).length}× verknüpft</span>` : nothing}</div></div>`) : html`<div class="hint">Noch keine Zugänge.</div>`}</div></div>`;
+        ${refs(c.id).length ? html`<span class="chip" title=${`Wird verwendet von: ${refs(c.id).join(", ")}`}>${refs(c.id).length}× verknüpft</span>` : nothing}</div></div>`) : html`<div class="hint">Noch keine eigenen Zugänge.</div>`}</div>
+      ${kn.length ? html`<h3 class="sub">${icon("share", 16)} ${t("Zugänge von Konnektoren")}</h3>
+        <p class="hint">${t("Diese Zugänge sind beim Verbinden eines Konnektors entstanden. Du änderst oder trennst sie über den Konnektor – sonst funktioniert er nicht mehr.")}</p>
+        <div class="list">${kn.map((c: any) => ownedItem(c.check && !c.check.ok ? "alert" : "key", c.name, `${types[c.type]?.label || c.type}${c.fields?.url ? ` · ${c.fields.url}` : ""}`, c.id))}</div>` : nothing}</div>`;
   }
 }
 
 @safeElement("lm-credential")
 export class CredentialPage extends StoreElement {
   @property() credId = "";
+  /** Über die Seite „Konnektoren“ geöffnet: nur dann lässt sich der Zugang einer Verbindung bearbeiten. */
+  @property({ type: Boolean }) viaConnector = false;
   @state() private d: any = null;
   @state() private shown = new Set<string>();
   @state() private revealed: any = null;
@@ -721,7 +774,7 @@ export class CredentialPage extends StoreElement {
   }
   private async save() {
     if (!this.d.scope && !this.d.connector_id) { store.notify(t("Bitte die Art des Zugangs wählen.")); return; }
-    try { const r = await store.api.ws("credential/save", { credential: this.d }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
+    try { const r = await store.api.ws("credential/save", { credential: this.d, ...(this.d.connector_id ? { via_connector: true } : {}) }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
       if (this.credId === "new") navigate(`/credential/${r.id}`, true); else this.reload(); } catch (e: any) { store.notify(e.message); }
   }
   private async check() {
@@ -752,6 +805,8 @@ export class CredentialPage extends StoreElement {
   }
   render() {
     const c = this.d; if (!c) return nothing;
+    if (c.connector_id && !this.viaConnector) return ownedPage(t("Zugang"), c.name, c.id, "/plugins/credentials");
+    const back = c.connector_id ? "/plugins/connectors" : "/plugins/credentials";
     const types = store.data?.credential_types || {};
     const ty = types[c.type] || { fields: [], secret: [] };
     const secret = new Set([...(ty.secret || []), ...(c.secret_fields || [])]);
@@ -773,7 +828,7 @@ export class CredentialPage extends StoreElement {
       header: "Header-Name", key: "Schlüssel", chat_ids: "Chat-IDs", imap_host: "IMAP-Server", smtp_host: "SMTP-Server", ...(ty.labels || {}) };
     const placeholders: Record<string, string> = ty.placeholders || {};
     return html`<div class="page">
-      <div class="row"><button class="iconbtn" @click=${() => navigate("/credentials")}>${icon("left")}</button><h1 class="grow">${c.id ? c.name : t("Neuer Zugang")}</h1></div>
+      <div class="row"><button class="iconbtn" @click=${() => navigate(back)}>${icon("left")}</button><h1 class="grow">${c.id ? c.name : t("Neuer Zugang")}</h1></div>
       <div class="form">
         <div class="two"><label class="f"><span>${t("Name")}</span><input .value=${c.name} placeholder="z. B. Hof Nextcloud" @input=${(e: any) => this.set("name", e.target.value)}></label>
           <label class="f"><span>${t("Typ")}</span><select ?disabled=${!!c.connector_id} @change=${(e: any) => {
@@ -781,7 +836,7 @@ export class CredentialPage extends StoreElement {
             this.d = { ...this.d, type: e.target.value, services: nt.services ? (this.d.services ?? nt.default_services ?? []) : undefined,
               name: this.d.name || (e.target.value === "gwdg" ? "GWDG-Exchange" : e.target.value === "ews" ? "Exchange" : "") }; this.dirty = true; }}>
             ${Object.entries(types).map(([k, v]: any) => html`<option value=${k} ?selected=${c.type === k}>${v.label}</option>`)}</select></label></div>
-        ${c.connector_id ? html`<div class="checkbox">${icon("share", 18)}<div>${t("Verbunden über den Konnektor „{name}“. Adresse und Einstellungen legt der Admin fest; Anmeldedaten änderst du unter Konnektoren.", { name: (store.data?.connectors || []).find((k: any) => k.id === c.connector_id)?.name || "?" })}</div></div>`
+        ${c.connector_id ? html`<div class="checkbox">${icon("share", 18)}<div>${t("Verbunden über den Konnektor „{name}“. Adresse und Einstellungen legt der Admin fest; Anmeldedaten und Rechte änderst du auf der Seite des Konnektors.", { name: (store.data?.connectors || []).find((k: any) => k.id === c.connector_id)?.name || "?" })}</div></div>`
           : html`${ty.hint ? html`<div class="hint">${ty.hint}</div>` : nothing}${this.scopeSection(c)}`}
         ${Object.keys(svcDefs).length ? html`<div class="f"><span>${t("Verwenden für")}</span>
           <div class="svcgrid">${Object.entries(svcDefs).map(([k, l]) => html`<label class="row" style="gap:6px;white-space:nowrap">
@@ -793,7 +848,12 @@ export class CredentialPage extends StoreElement {
               <option value="write" ?selected=${c.access?.[k] === "write"}>lesen und schreiben</option></select>`)}</div>
           <span class="hint">„Nur lesen“ gilt wirklich: Die KI bekommt das Passwort nie und kann dann weder Mails senden,
             verschieben oder löschen noch Termine oder Kontakte anlegen, ändern oder löschen.</span>
-          ${svc.length ? nothing : html`<span class="hint" style="color:var(--lm-err)">Wähl mindestens einen Dienst aus.</span>`}</div>` : nothing}
+          ${svc.length ? nothing : html`<span class="hint" style="color:var(--lm-err)">Wähl mindestens einen Dienst aus.</span>`}</div>`
+          : c.type !== "other" ? html`<label class="f"><span>${t("Was LLMitMir damit darf")}</span>
+            <select @change=${(e: any) => this.set("readonly", e.target.value === "read")}>
+              <option value="write" ?selected=${!c.readonly}>${t("lesen und schreiben")}</option>
+              <option value="read" ?selected=${!!c.readonly}>${t("nur lesen")}</option></select>
+            <span class="hint">${t("„Nur lesen“: schreibende Aufrufe mit diesem Zugang (Anlegen, Ändern, Löschen, Senden) und Werkbank-Befehle damit lehnt LLMitMir ab.")}</span></label>` : nothing}
         ${keys.map(k => html`<label class="f"><span>${labels[k] || k}${secret.has(k) ? html` <span class="chip">${icon("lock", 12)} geheim</span>` : nothing}</span>
           <div class="fieldrow"><input type=${secret.has(k) && !this.shown.has(k) ? "password" : "text"} autocomplete="off" .value=${c.fields?.[k] ?? ""}
             placeholder=${placeholders[k] || (readonly.has(k) ? "Wird beim Speichern automatisch ergänzt" : "")} ?readonly=${readonly.has(k)}
@@ -835,8 +895,8 @@ export class CredentialPage extends StoreElement {
           </div></div>` : nothing}
         ${isSimple() ? html`<div class="hint">${icon("lock", 15)} Deine Passwörter sieht die KI nie – LLMitMir setzt sie erst beim Zugriff im Hintergrund ein.</div>` : nothing}
         ${c.id && !isSimple() ? html`<div class="card hint">Im Skill oder Auftrag verweisen: <code>{{cred:${c.name}:${ty.secret?.[0] || "feld"}}}</code> – oder in Werkzeugen <code>zugang: "${c.name}"</code>.</div>` : nothing}
-        ${c.id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Zugang „${c.name}“ löschen? Skills und Projekte verlieren den Verweis.`)) {
-          await store.api.ws("credential/delete", { credential_id: c.id }); navigate("/credentials"); } }}>${icon("trash", 16)} Zugang löschen</button></div>` : nothing}
+        ${c.id && !c.connector_id ? html`<div><button class="btn danger" @click=${async () => { if (await confirmDialog(`Zugang „${c.name}“ löschen? Skills und Projekte verlieren den Verweis.`)) {
+          await store.api.ws("credential/delete", { credential_id: c.id }); navigate(back); } }}>${icon("trash", 16)} Zugang löschen</button></div>` : nothing}
       </div>
       ${this.dirty ? html`<div class="savebar fade-in">${c.id ? html`<button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>` : nothing}
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}

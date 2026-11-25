@@ -29,10 +29,10 @@ def _account(ctx, name: str, service: str, write: bool = False) -> dict:
     label = C.TYPES["ews" if cred.get("type") == "ews" else "gwdg"]["services"].get(service, service)
     if not acc:
         raise E.EwsError(f"Der Zugang „{cred.get('name')}“ ist nicht für {label} freigegeben "
-                         "(Seite „Zugänge“: den Dienst anhaken).")
+                         "(Seite „Plugins → Zugänge“: den Dienst anhaken).")
     if write and acc != "write":
         raise E.EwsError(f"Der Zugang „{cred.get('name')}“ darf {label} nur lesen – anlegen, ändern und löschen sind "
-                         "gesperrt. Die Person kann das auf der Seite „Zugänge“ ändern.")
+                         "gesperrt. Die Person kann das auf der Seite „Plugins → Zugänge“ ändern.")
     return cred
 
 

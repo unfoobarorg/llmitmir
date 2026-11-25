@@ -9,6 +9,7 @@ import { offerCard, isBilled, isExternal, externalCss, chatLock, ext } from "./e
 import { openFileViewer } from "./viewer";
 import type { SendDetail } from "./composer";
 import "./composer";
+import "./connectors";
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "In der Warteschlange …", thinking: "Denkt nach …", streaming: "Schreibt …", tool: "Arbeitet …",
@@ -172,6 +173,9 @@ export class ChatView extends LitElement {
     .step:hover { background: var(--lm-hover); }
     .step .srow { display: flex; align-items: center; gap: 10px; min-width: 0; }
     .step .lbl { font-weight: 520; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .step .arg { color: var(--lm-muted); min-width: 0; }
+    .step .via { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+      background: var(--lm-accent-soft); color: var(--lm-accent); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .perm.kform { gap: 12px; }
     .step .st { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--lm-faint); font-size: 12px; flex: none; }
     /* Kurze Vorschau auf den Befehl: höchstens zwei Zeilen, jede in einer Zeile gekürzt. */
     .step .prev { font-family: var(--lm-mono); font-size: 11.5px; line-height: 1.45; color: var(--lm-muted); padding-left: 28px; min-width: 0; }
@@ -504,7 +508,9 @@ export class ChatView extends LitElement {
     const prev = !open && m.name === "shell" ? cmdPreview(a) : [];
     const st = m.status;
     return html`<div class="step" @click=${() => { const s = new Set(this.openSteps); open ? s.delete(m.id) : s.add(m.id); this.openSteps = s; }}>
-        <div class="srow">${icon(m.icon || "tools", 18)}<span class="lbl">${m.label || m.name}</span><span class="arg ellipsis">${argText ? `· ${String(argText).slice(0, 80)}` : ""}</span>
+        <div class="srow">${icon(m.icon || "tools", 18)}<span class="lbl">${m.label || m.name}</span>
+        ${m.connector ? html`<span class="via" title=${t("Läuft über den Konnektor {name}", { name: m.connector })}>${icon("share", 12)} ${m.connector}</span>` : nothing}
+        <span class="arg ellipsis">${argText ? `· ${String(argText).slice(0, 80)}` : ""}</span>
         <span class="st">${st === "running" ? html`<span class="spin"></span>` : st === "ok" ? html`<span class="ok">${icon("check", 16)}</span>`
           : st === "denied" ? html`<span class="den">${icon("lock", 16)}</span>` : html`<span class="err">${icon("alert", 16)}</span>`}
           ${m.ms ? (m.ms > 1000 ? (m.ms / 1000).toFixed(1).replace(".", ",") + " s" : m.ms + " ms") : ""}${icon(open ? "down" : "right", 16)}</span></div>
@@ -634,9 +640,22 @@ export class ChatView extends LitElement {
     return html`<div class="pfrom">${icon("subtask", 15)} ${t("aus Teilaufgabe")} <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/chat/${p.chat_id}`); }}>›${p.sub_title || t("Teilaufgabe")}‹</a></div>`;
   }
 
+  /** Formular des Einrichtungs-Chats (Werkzeug konnektor_verbinden): Anmeldedaten gehen direkt an LLMitMir, nie ans Modell. */
+  private connectorFormCard(p: any) {
+    const f = p.connector_form || {};
+    const k = (store.data?.connectors || []).find((x: any) => x.id === f.connector_id);
+    const c = (store.data?.credentials || []).find((x: any) => x.id === f.credential_id);
+    if (!k) return html`<div class="perm">${icon("alert")} ${t("Diesen Konnektor gibt es nicht mehr.")}
+      <button class="btn ghost" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "deny" })}>${t("Schließen")}</button></div>`;
+    return html`<div class="perm kform">
+      <div class="row">${icon("mdi:connection")}<b class="grow">${c ? t("Verbindung {name} ändern", { name: `„${c.name}“` }) : t("{name} verbinden", { name: k.name })}</b></div>
+      <div class="hint">${icon("lock", 13)} ${t("Was du hier einträgst, geht direkt an LLMitMir – die KI sieht dein Passwort oder deinen Token nie.")}</div>
+      <lm-connector-form .connector=${k} .credential=${c || null} .permissionId=${p.id} .suggested=${f.name || ""} .hint=${f.hint || ""}></lm-connector-form></div>`;
+  }
+
   private permCards() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return this.myPerms().map(p => p.steps ? html`<div class="perm">${this.permFrom(p)}
+    return this.myPerms().map(p => p.connector_form ? this.connectorFormCard(p) : p.steps ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("list")}<b class="grow">LLMitMir ist noch nicht fertig – weitere ${p.steps.more} Schritte verwenden?</b></div>
       <div class="hint">${p.steps.used} von ${p.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${p.steps.limit - p.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.${p.steps.lots ? ` Mit ${p.steps.lots} weiteren Schritten wird die Frage so schnell nicht wieder fällig.` : ""}</div>
       <div class="row">
@@ -653,7 +672,8 @@ export class ChatView extends LitElement {
         <button class="btn ghost" title=${t("Ohne diese Änderung weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
     : p.cred ? html`<div class="perm">${this.permFrom(p)}
-      <div class="row">${icon("key")}<b class="grow">${t("Zugang {name} verwenden?", { name: `„${p.cred}“` })}</b></div>
+      <div class="row">${icon("key")}<b class="grow">${t("Zugang {name} verwenden?", { name: `„${p.cred}“` })}</b>
+        ${p.connector ? html`<span class="chip accent">${icon("share", 12)} ${p.connector}</span>` : nothing}</div>
       <div class="hint">${t("LLMitMir möchte für „{label}“ deinen Zugang nutzen. Ein Zugang braucht in jedem Chat und Cowork deine Freigabe.", { label: p.label })}</div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
@@ -776,6 +796,7 @@ export class ChatView extends LitElement {
   private simplePerms() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
     return this.myPerms().map(p => {
+      if (p.connector_form) return html`<div class="bubble ai ask">${this.connectorFormCard(p)}</div>`;
       if (p.change) {
         const del = p.change.aktion === "loeschen";
         const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change.aktion] || p.change.aktion;

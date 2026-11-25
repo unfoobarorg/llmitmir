@@ -2,6 +2,32 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## Unveröffentlicht – Plugins-Seite und geführte Einrichtung von Konnektoren
+
+### Plugins
+- **Neue Seite „Plugins“** im Hauptmenü und unter *Einstellungen → Plugins* (wie in der Claude-Desktop-App) mit den Reitern
+  Konnektoren, Skills und Zugänge. Die bisherigen Menüpunkte Skills, Konnektoren und Zugänge sind darin aufgegangen.
+- **Zugänge und Skills von Konnektoren** stehen ausgegraut unter „… von Konnektoren“ mit dem Namen des Konnektors und
+  lassen sich nur über den Konnektor öffnen, ändern oder löschen – auch nicht mehr versehentlich im Chat.
+
+### Konnektoren
+- **Geführte Einrichtung im Chat:** „Konnektor einrichten“ öffnet einen eigenen Chat, der nach einer
+  Einrichtungsanleitung des Admins Frage für Frage durchführt. Anmeldedaten trägt die Person in ein Formular im Chat ein –
+  das Modell sieht sie nie. LLMitMir prüft die Verbindung sofort.
+- **Direkt nach dem Verbinden festlegen, wofür der Zugang verwendet werden darf:** je Dienst „nur lesen“ oder „lesen
+  und schreiben“ (GWDG/EWS), sonst „nur lesen“ oder „lesen und schreiben“, dazu Freigabe für externe Modelle und
+  Ablaufdatum. Danach kann ein **Skill der Verbindung** hinterlegt werden.
+- **Konnektoren mehrfach verbinden**, z. B. GitLab mit je einem Token für mehrere Projekte (bis zu 10 je Konnektor).
+- **Im Chat sichtbar, wenn ein Konnektor verwendet wird:** Der Schritt trägt den Namen des Konnektors (bei mehreren
+  Verbindungen auch den der Verbindung), statt nur „HTTP-Anfrage“.
+- **Admin:** Konnektoren als Kacheln; ein Klick öffnet den Konnektor zum Bearbeiten. Neues Feld
+  *Einrichtungsanleitung für den geführten Chat*.
+- **GWDG-Exchange:** Die Felder heißen E-Mail-Adresse, Benutzerkennung und Passwort (auch auf der Seite der Konnektoren).
+
+### Zugänge
+- **„Nur lesen“ für alle Zugänge ohne Dienste** (Nextcloud, Token, API-Key …): schreibende Aufrufe und Werkbank-Befehle mit
+  dem Zugang lehnt LLMitMir ab.
+
 ## 2.0.0 – Trusted AI: Kontrolle für Admins, neue Einstellungen
 
 Große Version: LLMitMir bekommt alles, was Admins brauchen, um KI-Agenten nachvollziehbar und kontrolliert laufen zu

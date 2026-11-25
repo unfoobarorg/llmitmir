@@ -13,7 +13,9 @@ from .storage import new_id, now
 MASK = "•••"
 
 
-async def save_skill(m, user_id: str, st, s: dict) -> dict:
+async def save_skill(m, user_id: str, st, s: dict, connection: dict | None = None) -> dict:
+    """Skill speichern. Mit ``connection`` (Zugang einer Konnektor-Verbindung) gehört der Skill fest zu ihr: Er nutzt
+    genau diesen Zugang und lässt sich nur über die Seite „Plugins → Konnektoren“ ändern."""
     sid = s.get("id") or new_id("s")
     old = st.meta["skills"].get(sid, {"created": now()})
     name = str(s.get("name") or old.get("name") or "").strip()
@@ -26,6 +28,11 @@ async def save_skill(m, user_id: str, st, s: dict) -> dict:
                  enabled=bool(s.get("enabled", True)),
                  # „Nur für interne Modelle“ (datalock.py); fehlt das Feld (Änderung im Chat), bleibt es, wie es war
                  internal_only=bool(s.get("internal_only", old.get("internal_only", False))), updated=now())
+    if connection is not None:
+        skill.update(connection_id=connection["id"], connector_id=connection.get("connector_id"),
+                     credentials=[connection["id"]])
+    elif old.get("connection_id"):
+        skill["credentials"] = [old["connection_id"]]  # bleibt an der Verbindung, egal was das Formular schickt
     if SK.policies(m.config.data):
         # bis die Prüfung durch ist, sieht kein Modell den Skill (skillcheck.py); alte Befunde bleiben zum Vergleich
         skill["check"] = dict(old.get("check") or {}, pending=True, state="pending", hash="")
@@ -107,6 +114,8 @@ def build_credential(st, c: dict, allow_central: bool = False, require_scope: bo
                 external=bool(c["external"]) if "external" in c else bool(old.get("external")),
                 # weitere Server, an die der Zugang ohne Rückfrage gehen darf (die aus den Adressfeldern gelten immer)
                 hosts=C.clean_hosts(c["hosts"]) if "hosts" in c else list(old.get("hosts") or []),
+                # „nur lesen“ für Zugänge ohne Dienste (credentials.read_only): schreibende Aufrufe werden abgelehnt
+                readonly=bool(c["readonly"]) if "readonly" in c else bool(old.get("readonly")),
                 updated=now())
     if scope:
         cred["scope"] = scope  # eigener Zugang, persönliche Zugangsdaten oder zentraler Systemzugang
@@ -128,7 +137,7 @@ def check_free(m, old: dict | None) -> None:
     """Neue freie Zugänge (ohne Konnektor) nur, wenn der Admin sie erlaubt."""
     if not old and not CN.free_allowed(m.config.data):
         raise ValueError("Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet. Verbinde stattdessen einen Konnektor "
-                         "(Seite „Konnektoren“).")
+                         "(Seite „Plugins → Konnektoren“).")
 
 
 async def save_credential(m, user_id: str, st, c: dict, connector: dict | None = None) -> dict:
@@ -151,6 +160,10 @@ async def save_credential(m, user_id: str, st, c: dict, connector: dict | None =
 
 async def delete_credential(m, user_id: str, st, cid: str) -> None:
     st.meta["credentials"].pop(cid, None)
+    # der Skill einer Konnektor-Verbindung gehört fest zu ihr und geht mit
+    for sid in [k for k, s in st.meta["skills"].items() if s.get("connection_id") == cid]:
+        st.meta["skills"].pop(sid, None)
+        await st.async_delete_scope("skill", sid)
     for p in st.meta["projects"].values():
         if cid in (p.get("credentials") or []):
             p["credentials"].remove(cid)
