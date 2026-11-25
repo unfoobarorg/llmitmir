@@ -10,6 +10,7 @@ import "./pages";
 import "./pages2";
 import "./pages3";
 import "./settings";
+import "./admin";
 import "./monitoring";
 import "./connectors";
 import "./voice";
@@ -587,8 +588,8 @@ export class LLMitMirPanel extends LitElement {
       case "credentials": return this.wrap(html`<lm-credentials></lm-credentials>`);
       case "connectors": return this.wrap(html`<lm-connectors></lm-connectors>`);
       case "credential": return this.wrap(html`<lm-credential .credId=${id}></lm-credential>`);
-      case "settings": return this.wrap(html`<lm-settings></lm-settings>`);
-      case "admin": return this.wrap(id === "monitoring" ? html`<lm-monitoring></lm-monitoring>` : html`<lm-admin></lm-admin>`);
+      case "settings": return this.wrap(html`<lm-settings .tab=${id || ""}></lm-settings>`);
+      case "admin": return this.wrap(html`<lm-admin .tab=${id || ""}></lm-admin>`);
       default: return this.wrap(html`<lm-home initialMode="chat"></lm-home>`);
     }
   }
@@ -607,7 +608,7 @@ export class LLMitMirPanel extends LitElement {
       const admin = this.access.is_admin;
       return html`<div class="deny"><div class="card"><lm-spark size="30" .active=${false}></lm-spark><h2>${t("Kein Zugriff")}</h2>
         <p class="hint">${admin ? "Du bist Admin, aber für LLMitMir noch nicht freigeschaltet. Lege fest, wer es nutzen darf – auch dich selbst." : "Bitte die Person, die Home Assistant verwaltet, dich für LLMitMir freizuschalten."}</p>
-        ${admin ? html`<lm-admin></lm-admin>` : nothing}</div></div>`;
+        ${admin ? html`<lm-admin embedded tab="people"></lm-admin>` : nothing}</div></div>`;
     }
     if (store.error && !store.data) return html`<div class="deny"><div class="card">${icon("alert")} ${store.error}</div></div>`;
     if (!store.data) return html`<div class="deny"><lm-spark size="32"></lm-spark></div>`;

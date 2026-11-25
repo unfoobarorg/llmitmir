@@ -737,7 +737,7 @@ async def ws_cred_check(hass, conn, msg, m, user, st):
 
 @command(_t("credential/hosts") | {vol.Required("credential_id"): str, vol.Required("hosts"): [str]})
 async def ws_cred_hosts(hass, conn, msg, m, user, st):
-    """Nur die Liste „Erlaubte Server“ eines Zugangs ändern (Einstellungen → Erlaubte Server).
+    """Nur die Liste „Erlaubte Server“ eines Zugangs ändern (Einstellungen → Datenschutz & Freigaben → Erlaubte Server).
 
     Eigener Befehl statt credential/save: Der speichert den ganzen Zugang und würde Felder, die nicht mitgeschickt
     werden (Notiz), leeren. Die Server aus den Adressfeldern gelten immer und stehen hier nicht drin."""
@@ -798,9 +798,9 @@ async def ws_task_save(hass, conn, msg, m, user, st):
         ext = m.external_view(user.id)
         tm = t.get("model") or ""
         if (t.get("external_fallback") or PV.is_external(tm)) and not (ext["has_access"] and ext["consent"]):
-            raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Externe Modelle).")
+            raise ValueError("Für externe Modelle braucht es eine Freigabe durch den Admin und deine Zustimmung (Einstellungen → Modelle → Externe Modelle).")
         if m.is_external(tm) and not ext["consent"]:
-            raise ValueError("Für externe Modelle fehlt noch deine Zustimmung (Einstellungen → Externe Modelle).")
+            raise ValueError("Für externe Modelle fehlt noch deine Zustimmung (Einstellungen → Modelle → Externe Modelle).")
         if m.is_external(tm) and not m.may_use_model(user.id, tm):
             raise ValueError("Dieses Modell ist für dich nicht freigegeben.")
     new_prompt = False

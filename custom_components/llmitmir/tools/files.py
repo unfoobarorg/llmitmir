@@ -62,7 +62,7 @@ def _image_to_jpeg(data: bytes) -> bytes:
 async def vision_read(ctx, images: list[bytes], hint: str = "") -> str:
     model = ctx.manager.default_model(ctx.user_id, "vision")
     if not model:
-        return "Fehler: Kein Bildmodell eingerichtet (Admin → Modelle → Standard für Bilder)."
+        return "Fehler: Kein Bildmodell eingerichtet (Admin → Modelle → Standardmodelle)."
     content = [{"type": "text", "text": READ_PROMPT + (f"\nHinweis: {hint}" if hint else "")}]
     content += [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(b).decode()}}
                 for b in images]
@@ -82,7 +82,7 @@ async def transcribe_audio(ctx, name: str, data: bytes) -> str:
     model = (ctx.manager.config.data.get("provider") or {}).get("transcription_model") or ""
     if not model:
         return ("Fehler: Für diesen Anbieter ist keine Spracherkennung eingerichtet – die Tonaufnahme lässt sich "
-                "deshalb nicht in Text wandeln (Admin → Anbieter).")
+                "deshalb nicht in Text wandeln (Admin → Anbieter & Schlüssel).")
     key = ctx.manager.key_for(ctx.user_id, ctx.store)
     if not key:
         return "Fehler: Kein Schlüssel für die Spracherkennung vorhanden."

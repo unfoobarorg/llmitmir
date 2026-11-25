@@ -79,7 +79,7 @@ def voice_id(voice: str | None) -> str:
 
 
 def enabled(cfg: dict | None) -> bool:
-    """Hat der Admin die eigene Stimme eingeschaltet? (Admin → Sprachausgabe; Standard: an)"""
+    """Hat der Admin die eigene Stimme eingeschaltet? (Admin → Weitere Dienste → Sprachausgabe; Standard: an)"""
     return bool(((cfg or {}).get("speech") or {}).get("enabled", True))
 
 
