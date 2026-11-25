@@ -25,6 +25,7 @@ from . import dashboards as DB
 from . import chatsearch as CS
 from . import credcheck as CK
 from . import credentials as C
+from . import ctxlimit as CL
 from . import inbox as IB
 from . import manage as M
 from . import models as MS
@@ -603,13 +604,32 @@ async def ws_project_delete(hass, conn, msg, m, user, st):
 
 
 # ---------------------------------------------------------------- skills
-@command(_t("skill/save") | {vol.Required("skill"): dict})
+def _guard_connector_item(m, item: dict | None, what: str, via_connector: bool) -> None:
+    """Zugang oder Skill einer Konnektor-Verbindung nur über die Seite „Plugins → Konnektoren“ ändern (``via_connector``)."""
+    if item and item.get("connector_id") and not via_connector:
+        raise ValueError(CN.owner_hint(item, m.config.data, what))
+
+
+@command(_t("skill/save") | {vol.Required("skill"): dict, vol.Optional("via_connector", default=False): bool,
+                             vol.Optional("connection_id"): vol.Any(str, None)})
 async def ws_skill_save(hass, conn, msg, m, user, st):
-    return await M.save_skill(m, user.id, st, msg["skill"])
+    old = st.meta["skills"].get(msg["skill"].get("id") or "")
+    _guard_connector_item(m, old if old and old.get("connection_id") else None, "Der Skill", msg["via_connector"])
+    connection = None
+    if msg.get("connection_id") and not (old or {}).get("connection_id"):
+        # neuer Skill einer Konnektor-Verbindung (über die Seite „Plugins → Konnektoren“), höchstens einer je Verbindung
+        connection = st.meta["credentials"].get(msg["connection_id"])
+        if not msg["via_connector"] or not connection or not connection.get("connector_id"):
+            raise ValueError("Diese Verbindung gibt es nicht (mehr).")
+        if CN.skill_of(st.meta["skills"], connection["id"]):
+            raise ValueError("Zu dieser Verbindung gibt es schon einen Skill.")
+    return await M.save_skill(m, user.id, st, msg["skill"], connection=connection)
 
 
-@command(_t("skill/delete") | {vol.Required("skill_id"): str})
+@command(_t("skill/delete") | {vol.Required("skill_id"): str, vol.Optional("via_connector", default=False): bool})
 async def ws_skill_delete(hass, conn, msg, m, user, st):
+    old = st.meta["skills"].get(msg["skill_id"])
+    _guard_connector_item(m, old if old and old.get("connection_id") else None, "Der Skill", msg["via_connector"])
     await M.delete_skill(m, user.id, st, msg["skill_id"])
     return {"ok": True}
 
@@ -630,8 +650,9 @@ async def _check_one(m, st, user_id: str, cid: str) -> dict | None:
     return res
 
 
-@command(_t("credential/save") | {vol.Required("credential"): dict})
+@command(_t("credential/save") | {vol.Required("credential"): dict, vol.Optional("via_connector", default=False): bool})
 async def ws_cred_save(hass, conn, msg, m, user, st):
+    _guard_connector_item(m, st.meta["credentials"].get(msg["credential"].get("id") or ""), "Der Zugang", msg["via_connector"])
     cred = await M.save_credential(m, user.id, st, msg["credential"])
     # Nach dem Speichern im Hintergrund pruefen: ein falsch eingetragenes Passwort faellt so sofort auf,
     # ohne dass das Speichern auf eine Zeitueberschreitung warten muss.
@@ -648,34 +669,126 @@ def _connector(m, cid: str) -> dict:
     return k
 
 
-async def _connect(hass, m, user_id: str, st, k: dict, fields: dict) -> dict:
-    existing = CN.connection_of(st.meta["credentials"], k["id"])
-    name = existing["name"] if existing else CN.unique_name(st.meta["credentials"], k["name"])
+def _connection(st, k: dict, credential_id: str | None) -> dict | None:
+    """Bestehende Verbindung dieses Konnektors (zum Ändern) oder None für eine neue."""
+    if not credential_id:
+        return None
+    c = st.meta["credentials"].get(credential_id)
+    if not c or c.get("connector_id") != k["id"]:
+        raise ValueError("Diese Verbindung gibt es nicht (mehr).")
+    return c
+
+
+def _form(m, user_id: str, permission_id: str | None) -> dict | None:
+    """Das Formular im Einrichtungs-Chat (Werkzeug ``konnektor_verbinden``), zu dem eine Eingabe gehört."""
+    if not permission_id:
+        return None
+    item = m.permissions.get(permission_id)
+    if not item or item[0] != user_id or item[1].done() or not isinstance(item[2].get("connector_form"), dict):
+        raise ValueError("Dieses Formular ist nicht mehr offen.")
+    return item[2]["connector_form"]
+
+
+async def _connect(hass, m, user_id: str, st, k: dict, fields: dict, credential_id: str | None = None,
+                   name: str | None = None, check: bool = False) -> dict:
+    """Verbindung anlegen (neu, auch mehrfach je Konnektor) oder ihre Anmeldedaten erneuern."""
+    creds = st.meta["credentials"]
+    existing = _connection(st, k, credential_id)
+    if existing is None and len(CN.connections_of(creds, k["id"])) >= CN.MAX_CONNECTIONS:
+        raise ValueError(f"Höchstens {CN.MAX_CONNECTIONS} Verbindungen je Konnektor.")
+    base = str(name or "").strip()[:80] or (existing or {}).get("name") or k["name"]
+    name = CN.unique_name(creds, base, (existing or {}).get("id"))
     cred = await M.save_credential(m, user_id, st, CN.connection_raw(k, fields, existing, name), connector=k)
     if cred.get("type") != "other":
-        hass.async_create_task(_check_one(m, st, user_id, cred["id"]))
-    return cred
+        if check:
+            await _check_one(m, st, user_id, cred["id"])
+        else:
+            hass.async_create_task(_check_one(m, st, user_id, cred["id"]))
+    return st.meta["credentials"].get(cred["id"], cred)
 
 
-@command(_t("connector/connect") | {vol.Required("connector_id"): str, vol.Optional("fields"): dict})
+@command(_t("connector/connect") | {vol.Required("connector_id"): str, vol.Optional("fields"): dict,
+                                    vol.Optional("credential_id"): vol.Any(str, None), vol.Optional("name"): vol.Any(str, None),
+                                    vol.Optional("check", default=False): bool,
+                                    vol.Optional("permission_id"): vol.Any(str, None)})
 async def ws_connector_connect(hass, conn, msg, m, user, st):
-    """Konnektor mit den eigenen Anmeldedaten verbinden (oder sie erneuern) – feste Felder setzt der Konnektor."""
+    """Konnektor mit den eigenen Anmeldedaten verbinden – neu (``credential_id`` leer, auch mehrfach) oder eine bestehende
+    Verbindung erneuern. Feste Felder setzt der Konnektor. ``check`` wartet auf die Prüfung (Assistent)."""
     k = _connector(m, msg["connector_id"])
-    cred = await _connect(hass, m, user.id, st, k, msg.get("fields") or {})
+    form = _form(m, user.id, msg.get("permission_id"))
+    cred = await _connect(hass, m, user.id, st, k, msg.get("fields") or {}, msg.get("credential_id"), msg.get("name"),
+                          check=msg["check"])
+    if form is not None:
+        form["credential_id"] = cred["id"]  # verbunden, auch wenn die Person den zweiten Schritt abbricht
     return mask_credential(cred, C.secret_fields(cred))
 
 
-@command(_t("connector/flow_start") | {vol.Required("connector_id"): str})
+@command(_t("connector/options") | {vol.Required("credential_id"): str, vol.Optional("access"): dict,
+                                    vol.Optional("readonly"): bool, vol.Optional("external"): bool,
+                                    vol.Optional("valid_until"): vol.Any(str, None), vol.Optional("name"): str,
+                                    vol.Optional("permission_id"): vol.Any(str, None)})
+async def ws_connector_options(hass, conn, msg, m, user, st):
+    """Zweiter Schritt des Assistenten: wofür die Verbindung verwendet werden darf (und ihr Name). Mit ``permission_id``
+    schließt das das Formular im Einrichtungs-Chat ab."""
+    c = st.meta["credentials"].get(msg["credential_id"])
+    if not c or not c.get("connector_id"):
+        raise ValueError("Diese Verbindung gibt es nicht (mehr).")
+    k = _connector(m, c["connector_id"])
+    form = _form(m, user.id, msg.get("permission_id"))
+    c.update(CN.clean_options(k, c, msg))
+    if str(msg.get("name") or "").strip():
+        c["name"] = CN.unique_name(st.meta["credentials"], str(msg["name"]).strip()[:80], c["id"])
+    c["updated"] = now()
+    await st.async_save_meta()
+    m.emit(user.id, {"type": "meta", "section": "credentials"})
+    if form is not None:
+        form.update(credential_id=c["id"], done=True)
+        m.answer_permission(user.id, msg["permission_id"], "once")
+    return mask_credential(c, C.secret_fields(c))
+
+
+@command(_t("connector/disconnect") | {vol.Required("credential_id"): str})
+async def ws_connector_disconnect(hass, conn, msg, m, user, st):
+    """Verbindung trennen: Zugang und zugehöriger Skill werden gelöscht."""
+    c = st.meta["credentials"].get(msg["credential_id"])
+    if not c or not c.get("connector_id"):
+        raise ValueError("Diese Verbindung gibt es nicht (mehr).")
+    await M.delete_credential(m, user.id, st, c["id"])
+    return {"ok": True}
+
+
+@command(_t("connector/setup_chat") | {vol.Required("connector_id"): str, vol.Optional("credential_id"): vol.Any(str, None)})
+async def ws_connector_setup_chat(hass, conn, msg, m, user, st):
+    """Geführte Einrichtung: eigener Chat, in dem das Modell nach der Anleitung des Admins Schritt für Schritt hilft."""
+    k = _connector(m, msg["connector_id"])
+    existing = _connection(st, k, msg.get("credential_id"))
+    chat = await m.create_chat(user.id, KIND_CHAT, None, None, tools=["web"])
+    chat["connector_setup"] = {"connector_id": k["id"], "credential_id": (existing or {}).get("id")}
+    chat["title"] = (f"Einrichtung: {existing['name']}" if existing else f"Einrichtung: {k['name']}")[:100]
+    await st.async_save_chat(chat)
+    m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+    text = (f"Ich möchte meine Verbindung „{existing['name']}“ zum Konnektor „{k['name']}“ ändern." if existing
+            else f"Ich möchte den Konnektor „{k['name']}“ einrichten.")
+    await m.send(user, chat["id"], text)
+    return st.chat_summary(chat)
+
+
+@command(_t("connector/flow_start") | {vol.Required("connector_id"): str, vol.Optional("credential_id"): vol.Any(str, None),
+                                       vol.Optional("name"): vol.Any(str, None),
+                                       vol.Optional("permission_id"): vol.Any(str, None)})
 async def ws_connector_flow_start(hass, conn, msg, m, user, st):
     """Nextcloud Login Flow v2: Anmeldeseite öffnen lassen, im Hintergrund auf das App-Passwort warten."""
     k = _connector(m, msg["connector_id"])
     if k["login"] != CN.LOGIN_NEXTCLOUD:
         raise ValueError("Dieser Konnektor wird mit einem Formular verbunden.")
+    _connection(st, k, msg.get("credential_id"))
+    form = _form(m, user.id, msg.get("permission_id"))
     for fid in [f for f, x in m.flows.items() if now() - x["started"] > 3600]:
         m.flows.pop(fid, None)
     info = await CN.flow_start(m.session, CN.nextcloud_base(k["fixed"]["url"]))
     fid = new_id("f")
-    m.flows[fid] = {"user": user.id, "connector_id": k["id"], "status": "waiting", "started": now()}
+    m.flows[fid] = {"user": user.id, "connector_id": k["id"], "status": "waiting", "started": now(),
+                    "credential_id": msg.get("credential_id"), "name": msg.get("name"), "form": form}
     hass.async_create_background_task(_flow_run(hass, m, user.id, fid, k, info), f"llmitmir login flow {fid}")
     return {"flow_id": fid, "login": info["login"]}
 
@@ -693,7 +806,10 @@ async def _flow_run(hass, m, user_id: str, fid: str, k: dict, info: dict) -> Non
                 continue  # kurz nicht erreichbar: weiter warten
             if res:
                 st = await m.user_store(user_id)
-                cred = await _connect(hass, m, user_id, st, k, res)
+                cred = await _connect(hass, m, user_id, st, k, res, flow.get("credential_id"), flow.get("name"),
+                                      check=True)
+                if flow.get("form") is not None:
+                    flow["form"]["credential_id"] = cred["id"]
                 flow.update(status="done", credential_id=cred["id"])
                 break
         else:
@@ -710,7 +826,11 @@ async def ws_connector_flow_status(hass, conn, msg, m, user, st):
         raise ValueError("Unbekannte Anmeldung")
     if msg.get("cancel") and flow["status"] == "waiting":
         flow["status"] = "cancelled"
-    return {k: flow.get(k) for k in ("status", "error", "credential_id")}
+    out = {k: flow.get(k) for k in ("status", "error", "credential_id")}
+    c = st.meta["credentials"].get(flow.get("credential_id") or "")
+    if c:
+        out["credential"] = mask_credential(c, C.secret_fields(c))
+    return out
 
 
 @command(_t("credential/reveal") | {vol.Required("credential_id"): str})
@@ -721,8 +841,9 @@ async def ws_cred_reveal(hass, conn, msg, m, user, st):
     return c
 
 
-@command(_t("credential/delete") | {vol.Required("credential_id"): str})
+@command(_t("credential/delete") | {vol.Required("credential_id"): str, vol.Optional("via_connector", default=False): bool})
 async def ws_cred_delete(hass, conn, msg, m, user, st):
+    _guard_connector_item(m, st.meta["credentials"].get(msg["credential_id"]), "Der Zugang", msg["via_connector"])
     await M.delete_credential(m, user.id, st, msg["credential_id"])
     return {"ok": True}
 
@@ -768,7 +889,7 @@ async def ws_cred_diagnose(hass, conn, msg, m, user, st):
 
 @command(_t("credential/check_all"))
 async def ws_cred_check_all(hass, conn, msg, m, user, st):
-    """Alle Zugaenge pruefen (Knopf „Alle prüfen“ auf der Seite „Zugänge“)."""
+    """Alle Zugaenge pruefen (Knopf „Alle prüfen“ auf der Seite „Plugins → Zugänge“)."""
     ids = list(st.meta["credentials"])
     results = await asyncio.gather(*(_check_one(m, st, user.id, cid) for cid in ids))
     return {"checks": {cid: res for cid, res in zip(ids, results) if res}}
@@ -1185,7 +1306,8 @@ def _admin_view(m, users, devices: list[dict] | None = None) -> dict:
         "task_usage": _task_usage_view(m),
         "allowed_users": cfg.get("allowed_users") or [],
         "quota_default": cfg.get("quota_default"), "quota_users": cfg.get("quota_users") or {},
-        "models": cfg.get("models"), "known_context": KNOWN_CONTEXT, "models_live": m.models_for_users(all_known=True),
+        "models": cfg.get("models"), "known_context": KNOWN_CONTEXT,
+        "learned_context": CL.view((cfg.get("models") or {}).get("context_learned"), time.time()), "models_live": m.models_for_users(all_known=True),
         "auto_models": {r: MS.pick(m.live_models(), r) or "" for r in MS.ROLES},
         "search": cfg.get("search"),
         "speech": {"enabled": SP.enabled(cfg), "installed": SP.available()},

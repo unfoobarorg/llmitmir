@@ -30,6 +30,7 @@ from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
 from . import credentials as C
+from . import ctxlimit as CL
 from . import models as MS
 from . import permissionnotify as PN
 from . import pricing as PR
@@ -94,6 +95,8 @@ class Run:
     parent_id: str | None = None  # Lauf einer Teilaufgabe: ihr Hauptchat ("Stopp" dort hält auch sie an)
     subs_started: int = 0         # Teilaufgaben, die dieser Lauf gestartet hat (höchstens SUB_PER_RUN)
     agent_id: str = ""            # Agent, zu dem der Lauf gehört (audit.py)
+    ctx_factor: float = 1.0       # Anteil des Kontext-Budgets, nachdem der Server „zu lang“ gemeldet hat (ctxlimit.py)
+    ctx_retries: int = 0          # so oft hat dieser Lauf schon deshalb gekürzt und neu gefragt
 
 
 # Werkzeuge, die im selben Schritt parallel laufen (alle anderen nacheinander)
@@ -882,8 +885,28 @@ class Manager:
     def context_size(self, model: str) -> int:
         if PV.is_external(model):
             return int(self.model_info(model).get("context") or 1_000_000)
-        ctx = (self.config.data.get("models") or {}).get("context") or {}
-        return int(ctx.get(model) or KNOWN_CONTEXT.get(model) or DEFAULT_CONTEXT)
+        mm = self.config.data.get("models") or {}
+        return CL.effective((mm.get("context") or {}).get(model), (mm.get("context_learned") or {}).get(model),
+                            KNOWN_CONTEXT.get(model), DEFAULT_CONTEXT, time.time())
+
+    async def note_context_error(self, run: "Run", model: str, text: str) -> bool:
+        """Der Server hat die Anfrage als zu lang abgelehnt: Grenze merken, Budget des Laufs kürzen. True, wenn ein
+        neuer Versuch lohnt."""
+        limit = CL.parse_limit(text)
+        if limit is None or run.ctx_retries >= CL.MAX_RETRIES:
+            return False
+        run.ctx_retries += 1
+        before = self.context_size(model)
+        if limit:
+            mm = self.config.data.setdefault("models", {})
+            if CL.learn(mm.setdefault("context_learned", {}), model, limit, time.time()):
+                await self.config.async_save()
+        if self.context_size(model) >= before:
+            # keine neue (kleinere) Grenze: die Schätzung der Länge lag daneben, also stärker kürzen
+            run.ctx_factor *= CL.SHRINK
+        _LOGGER.info("Run %s: %s rejected the request as too long (limit %s), context now %d tokens at %.0f %%, retry %d",
+                     run.id, model, limit or "?", self.context_size(model), run.ctx_factor * 100, run.ctx_retries)
+        return True
 
     def quota(self, user_id: str) -> dict:
         q = dict(self.config.data.get("quota_default") or {})
@@ -1526,7 +1549,10 @@ class Manager:
                         if not run.switch_to:
                             run.switch.clear()
                         continue
-                    except (QuotaExhausted, ProviderError):
+                    except (QuotaExhausted, ProviderError) as e:
+                        if (not ext and isinstance(e, ProviderError) and not run.cancel.is_set()
+                                and await self.note_context_error(run, chat["model"], str(e))):
+                            continue  # gekürzt neu fragen (ctx.api_messages rechnet mit der neuen Grenze)
                         if not ext and may_fallback and not run.cancel.is_set():
                             fb = self._fallback_for(user.id, proj, st, chat)
                             if fb:
@@ -2130,10 +2156,17 @@ class ToolContext:
     def allowed_skills(self) -> set[str] | None:
         """Eigene Skills, die dieser Lauf sehen darf (None = alle): die des Projekts (falls es nur bestimmte erlaubt),
         und ein externes Modell nie die mit „Nur für interne Modelle“ (datalock.py)."""
-        if not self.external:
-            return self._allowed_skills
-        return {sid for sid, s in self.store.meta["skills"].items()
-                if not s.get("internal_only") and (self._allowed_skills is None or sid in self._allowed_skills)}
+        skills = self.store.meta["skills"]
+        base = self._allowed_skills
+        if self.external:
+            base = {sid for sid, s in skills.items()
+                    if not s.get("internal_only") and (base is None or sid in base)}
+        # der Skill einer Konnektor-Verbindung gilt nur, solange ihr Zugang hier nutzbar ist (connectors.py)
+        creds = self.creds
+        hidden = {sid for sid, s in skills.items() if s.get("connection_id") and s["connection_id"] not in creds}
+        if hidden:
+            base = (set(skills) if base is None else set(base)) - hidden
+        return base
 
     def has_internal(self) -> bool:
         """Sind interne Daten in diesem Chat oder seinem Hauptchat – unabhängig davon, ob die Sperre an ist?"""
@@ -2169,6 +2202,8 @@ class ToolContext:
             g.add("mcp")  # freigegebene Werkzeuge von MCP-Servern verbundener Konnektoren
         if self.chat["kind"] == KIND_CHAT:
             g.discard("progress")
+        if self.chat.get("connector_setup") and self.task is None:
+            g.add("konnektor")      # geführte Einrichtung eines Konnektors (tools/connector.py)
         if SC.is_sub(self.chat):
             g.add("teilergebnis")   # eine Teilaufgabe meldet ihr Ergebnis, startet aber keine weiteren
         elif (self.task is None and self.chat["kind"] in (KIND_CHAT, KIND_COWORK)
@@ -2191,7 +2226,7 @@ class ToolContext:
         if self.chat.get("sub_tools") is not None:
             # der Hauptchat hat die Werkzeuge der Teilaufgabe eingegrenzt
             g &= set(self.chat["sub_tools"]) | {"files", "skills", "progress"}
-        return (g | ALWAYS_GROUPS | {"unterchat", "teilergebnis"}) & self.available_groups()
+        return (g | ALWAYS_GROUPS | {"unterchat", "teilergebnis", "konnektor"}) & self.available_groups()
 
     def askable_groups(self) -> set[str]:
         """Groups that are not switched on but may be used after asking the person (never in unattended runs)."""
@@ -2295,6 +2330,17 @@ class ToolContext:
                 "Lege Ergebnisse mit `file_write` als Datei ab, wenn sie länger sind. Fasse am Ende knapp zusammen: "
                 "was erledigt ist, was offen ist, Rückfragen. Bist du fertig, rufe `progress_update` mit `aktuell` = "
                 "Anzahl der Schritte + 1 auf, damit die Liste abgeschlossen ist, bevor du den Bericht schreibst.")
+        setup = self.chat.get("connector_setup")
+        if setup and self.task is None:
+            k = CN.by_id(self.manager.config.data, setup.get("connector_id"))
+            if k and k.get("enabled", True):
+                cred = self.store.meta["credentials"].get(setup.get("credential_id") or "")
+                cred = cred if cred and cred.get("connector_id") == k["id"] else None
+                skill = CN.skill_of(self.store.meta["skills"], cred["id"]) if cred else None
+                parts.append(CN.setup_prompt(k, cred, skill, name))
+            else:
+                parts.append("## Einrichtung eines Konnektors\nDer Konnektor dieses Einrichtungs-Chats ist ausgeschaltet "
+                             "oder gelöscht – sag der Person, dass sie sich an den Admin wenden muss.")
         if SC.is_sub(self.chat):
             parts.append(self.sub_prompt())
         elif "unterchat" in self.groups():
@@ -2536,7 +2582,7 @@ class ToolContext:
                 out.append({"role": "user", "content": SC.api_text(m)})
         if ext:
             out = C.scrub_obj(out, self._secrets)  # no stored secret goes out, wherever it might appear
-        return _fit_context(out, self.manager.context_size(model))
+        return _fit_context(out, self.manager.context_size(model), self.run.ctx_factor)
 
     def _image_cache(self, name: str) -> str | None:
         return self._img.get(name)
@@ -2669,11 +2715,15 @@ class ToolContext:
             return msg
         msg["label"] = tool.label or name
         msg["icon"] = tool.icon
+        if tool.preview is None and (via := self._connector_label(args)):
+            msg["connector"] = via  # im Chat sichtbar: dieser Aufruf läuft über einen Konnektor
         if self.external and name in ("credential_save", "credential_delete"):
             msg.update(content="Abgelehnt: Zugänge lassen sich mit externen Modellen nicht bearbeiten – die Person kann das "
-                               "auf der Seite „Zugänge“ selbst tun.", status="denied")
+                               "auf der Seite „Plugins → Zugänge“ selbst tun.", status="denied")
             return msg
         asked = False
+        if tool.preview is None and (denied := self._read_only_guard(msg, tool, args)):
+            return denied
         if tool.preview is None and (denied := await self._approve_creds(msg, tool, args)):
             return denied
         if tool.group not in self.groups():
@@ -2748,7 +2798,7 @@ class ToolContext:
         if denied := await self._data_guard(msg, tool, args):
             return denied
         await self.manager._status(self.run, "tool", {"tool": name, "label": msg["label"], "icon": tool.icon,
-                                                      "args": msg["args"]})
+                                                      "args": msg["args"], "connector": msg.get("connector") or ""})
         self.manager.emit(self.user_id, {"type": "message", "chat_id": self.chat_id,
                                          "message": dict(msg, status="running", content="")})
         t0 = time.monotonic()
@@ -2775,6 +2825,32 @@ class ToolContext:
         elif CK.looks_like_auth_error(text):
             self._mark_credential_failed(args, text)
         return msg
+
+    def _connector_label(self, args: dict) -> str:
+        """Name der Konnektoren, über die ein Aufruf läuft (bei mehreren Verbindungen mit dem Namen der Verbindung)."""
+        cfg = self.manager.config.data
+        out = []
+        for n in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, n)
+            k = CN.by_id(cfg, (c or {}).get("connector_id"))
+            if k:
+                out.append(k["name"] if c["name"].casefold() == k["name"].casefold() else f"{k['name']} · {c['name']}")
+        return ", ".join(out)
+
+    def _read_only_guard(self, msg: dict, tool, args: dict) -> dict | None:
+        """Zugänge auf „nur lesen“ (credentials.read_only): keine schreibenden Aufrufe, keine Werkbank-Befehle damit."""
+        if not (tool.is_write(args) or tool.name == "shell"):
+            return None
+        for n in sorted(_creds_in_args(args)):
+            c = C.find(self.creds, n)
+            if c and C.read_only(c):
+                self._decided("rule")
+                msg.update(content=f"Abgelehnt: Der Zugang „{c['name']}“ ist auf „nur lesen“ gestellt – schreibende Aufrufe "
+                                   + ("und Werkbank-Befehle " if tool.name == "shell" else "")
+                                   + "damit sind nicht erlaubt. Nur lesend arbeiten und der Person sagen, dass sie das "
+                                   "Recht auf der Seite „Plugins → Konnektoren“ bzw. beim Zugang ändern kann.", status="denied")
+                return msg
+        return None
 
     async def _approve_creds(self, msg: dict, tool, args: dict) -> dict | None:
         """Zugänge brauchen eine Freigabe je Agent (policy.py): einmal, für diesen Chat/dieses Cowork oder nicht.
@@ -2811,7 +2887,8 @@ class ToolContext:
                 return msg
             decision = await self.manager.ask_permission(self.run, {
                 "tool": tool.name, "label": msg["label"], "icon": "mdi:key-outline", "args": msg["args"],
-                "cred": c["name"], "cred_id": c["id"], "cred_scope": c.get("scope") or ""})
+                "cred": c["name"], "cred_id": c["id"], "cred_scope": c.get("scope") or "",
+                "connector": msg.get("connector") or ""})
             self._decided(decision)
             model = self.chat.get("model") or ""
             self.manager.audit.record(AU.EV_CRED, self.agent, self.run.id, tool=tool.name, group=tool.group,
@@ -2906,7 +2983,7 @@ class ToolContext:
         """Zugangsdaten an einen Server, der für den Zugang nicht erlaubt ist: im Chat fragen, unbeaufsichtigt ablehnen.
 
         Gibt die Ablehnung als Nachricht zurück oder None, wenn es weitergehen darf. „Immer erlauben“ trägt den Server
-        beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“); „einmal“ gilt für diesen Lauf."""
+        beim Zugang ein (Seite „Plugins → Zugänge“ → „Erlaubte Server“); „einmal“ gilt für diesen Lauf."""
         host, creds_ = need.get("host") or "?", need.get("creds") or []
         names = ", ".join(f"„{c.get('name')}“" for c in creds_)
         if self.task is not None:
@@ -3013,9 +3090,9 @@ def _estimate(msgs: list[dict]) -> int:
     return int(n / 3.2)
 
 
-def _fit_context(msgs: list[dict], ctx_size: int) -> list[dict]:
-    """Keep the conversation within ~75 % of the context window."""
-    budget = int(ctx_size * 0.75)
+def _fit_context(msgs: list[dict], ctx_size: int, factor: float = 1.0) -> list[dict]:
+    """Keep the conversation within ~75 % of the context window (less after the server called a request too long)."""
+    budget = int(ctx_size * 0.75 * factor)
     if _estimate(msgs) <= budget:
         return msgs
     msgs = [dict(m) for m in msgs]

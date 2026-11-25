@@ -6,6 +6,15 @@ Anleitung für das Modell. Verbindet eine Person den Konnektor, entsteht ein Zug
 mit ``connector_id`` – die festen Felder setzt LLMitMir bei jedem Speichern und Laden neu, die Person trägt nur ihre
 eigenen Felder ein (oder bekommt sie vom Login Flow: ein App-Passwort in ihrem Nutzerkontext).
 
+Eine Person kann denselben Konnektor mehrfach verbinden (z. B. GitLab mit je einem Token für mehrere Projekte): jede
+Verbindung ist ein eigener Zugang mit eigenem Namen. Zu jeder Verbindung kann ein Skill gehören (``connection_id`` am
+Skill), der festhält, wie dieser Zugang immer verwendet wird. Zugang und Skill einer Verbindung ändert die Person nur über
+die Seite „Plugins → Konnektoren“ – in den Listen „Zugänge“ und „Skills“ sind sie ausgegraut, damit nichts versehentlich verloren geht.
+
+Eingerichtet wird ein Konnektor in einem geführten Chat: Der Admin hinterlegt dafür eine Einrichtungsanleitung
+(``setup``), das Modell führt Frage für Frage durch, Geheimnisse trägt die Person in ein Formular ein (``konnektor_verbinden``),
+nie in den Chat. Direkt nach einer erfolgreichen Verbindung legt sie fest, wofür der Zugang verwendet werden darf.
+
 Ist ein Konnektor ausgeschaltet oder gelöscht, sind seine Zugänge gesperrt (kein Modell sieht sie). Ob Personen
 daneben noch freie Zugänge anlegen dürfen, entscheidet der Admin (``credentials_policy.free_credentials``).
 
@@ -26,6 +35,7 @@ from . import datarules as DR
 LOGIN_FORM, LOGIN_NEXTCLOUD = "form", "nextcloud_flow"
 LOGINS = (LOGIN_FORM, LOGIN_NEXTCLOUD)
 MAX_CONNECTORS = 30
+MAX_CONNECTIONS = 10          # Verbindungen je Person und Konnektor
 FLOW_TIMEOUT = 20 * 60        # so lange wartet LLMitMir auf die Anmeldung im Login Flow
 FLOW_INTERVAL = 3             # Sekunden zwischen zwei Abfragen
 INSTRUCTIONS_MAX = 8000
@@ -96,6 +106,8 @@ def clean(raw: Any) -> list[dict]:
         out.append({"id": _cid(k, i), "name": name, "type": typ, "description": _clip(k.get("description"), 500),
                     "fixed": fixed, "login": login, "hosts": C.clean_hosts(k.get("hosts") or []),
                     "services": services, "instructions": _clip(k.get("instructions"), INSTRUCTIONS_MAX),
+                    # Einrichtungsanleitung für den geführten Chat (nur das Modell im Einrichtungs-Chat sieht sie)
+                    "setup": _clip(k.get("setup"), INSTRUCTIONS_MAX),
                     "rules": DR.clean_rules(k.get("rules"), name), "mcp": mcp,
                     "enabled": k.get("enabled", True) is not False})
     if len(out) > MAX_CONNECTORS:
@@ -128,7 +140,7 @@ def public_view(k: dict) -> dict:
     """Was jede Person vom Konnektor sieht (ohne Anleitung für das Modell)."""
     return {"id": k["id"], "name": k["name"], "type": k["type"], "description": k.get("description", ""),
             "login": k["login"], "fixed": dict(k.get("fixed") or {}), "user_fields": user_fields(k["type"], k.get("fixed") or {}),
-            "services": k.get("services"),
+            "services": k.get("services"), "has_setup": bool(k.get("setup")),
             # Datenregeln: Personen sehen, dass es welche gibt und wofür (Name und Bereich), nicht als Schalter
             "rules": [{"name": r["name"], "scope": r.get("scope", "")} for r in k.get("rules") or [] if r.get("enabled", True)],
             "mcp_tools": [t["name"] for t in (k.get("mcp") or {}).get("tools") or [] if t.get("enabled", True)]
@@ -171,6 +183,104 @@ def sync(meta: dict, cfg: dict) -> int:
 
 def connection_of(creds: dict, cid: str) -> dict | None:
     return next((c for c in creds.values() if c.get("connector_id") == cid), None)
+
+
+def connections_of(creds: dict, cid: str) -> list[dict]:
+    """Alle Verbindungen einer Person mit diesem Konnektor (ältere zuerst)."""
+    return sorted((c for c in creds.values() if c.get("connector_id") == cid), key=lambda c: c.get("created") or 0)
+
+
+def skill_of(skills: dict, cred_id: str) -> dict | None:
+    """Der Skill, der zu einer Verbindung gehört (höchstens einer)."""
+    return next((s for s in skills.values() if s.get("connection_id") == cred_id), None)
+
+
+def owner_hint(cred_or_skill: dict, cfg: dict, what: str) -> str:
+    """Meldung, wenn ein Zugang oder Skill eines Konnektors außerhalb der Konnektor-Seite geändert werden soll."""
+    k = by_id(cfg, cred_or_skill.get("connector_id"))
+    name = k["name"] if k else "einem Konnektor"
+    return (f"{what} „{cred_or_skill.get('name')}“ gehört zum Konnektor „{name}“ und lässt sich nur auf der Seite "
+            "„Konnektoren“ ändern oder löschen – sonst funktioniert der Konnektor nicht mehr.")
+
+
+def clean_options(k: dict, cred: dict, opts: dict) -> dict:
+    """Wofür eine Verbindung verwendet werden darf – direkt nach dem Verbinden gewählt (Assistent der Konnektoren).
+
+    Exchange-Typen: je Dienst des Konnektors „read“ oder „write“. Andere Typen: ``readonly`` (nur lesen) ja/nein.
+    Dazu die Freigabe für externe Modelle und ein Ablaufdatum. Nicht genannte Einstellungen bleiben, wie sie sind."""
+    out: dict[str, Any] = {}
+    svc = cred.get("services") if cred.get("services") is not None else k.get("services")
+    if isinstance(opts.get("access"), dict) and svc:
+        out["access"] = {s: ("write" if opts["access"].get(s) == "write" else "read") for s in svc}
+    if "readonly" in opts and not (C.TYPES.get(k["type"]) or {}).get("services"):
+        out["readonly"] = bool(opts["readonly"])
+    if "external" in opts:
+        out["external"] = bool(opts["external"])
+    if "valid_until" in opts:
+        v = str(opts.get("valid_until") or "").strip()
+        if v and not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            raise ValueError("Ablaufdatum bitte als JJJJ-MM-TT.")
+        out["valid_until"] = v
+    return out
+
+
+def options_text(cred: dict) -> str:
+    """Kurz, wofür die Verbindung verwendet werden darf (für das Modell im Einrichtungs-Chat)."""
+    if cred.get("services"):
+        acc = C.access_text(cred)
+        rights = ", ".join(f"{n}: {r}" for n, r in acc.items())
+    else:
+        rights = "nur lesen" if C.read_only(cred) else "lesen und schreiben"
+    parts = [f"Rechte: {rights}"]
+    parts.append("für externe Modelle freigegeben" if cred.get("external") else "für externe Modelle gesperrt")
+    if cred.get("valid_until"):
+        parts.append(f"gültig bis {cred['valid_until']}")
+    return "; ".join(parts)
+
+
+def setup_prompt(k: dict, cred: dict | None, skill: dict | None, person: str) -> str:
+    """Abschnitt im Systemprompt des geführten Einrichtungs-Chats."""
+    spec = C.TYPES.get(k["type"]) or {}
+    labels = spec.get("labels") or {}
+    own = [labels.get(f, f) for f in user_fields(k["type"], k.get("fixed") or {})]
+    fixed = [f"{labels.get(f, f)} = {v}" for f, v in (k.get("fixed") or {}).items()]
+    lines = [
+        f"## Einrichtung des Konnektors „{k['name']}“",
+        f"Dieser Chat ist ein geführter Einrichtungs-Assistent: Du richtest mit {person} den Konnektor „{k['name']}“ "
+        f"({spec.get('label', k['type'])}) ein" + (f" – genauer: die bestehende Verbindung „{cred['name']}“ ändern" if cred else "")
+        + ". So gehst du vor:",
+        "1. Begrüße kurz und erkläre in ein, zwei Sätzen, was der Konnektor kann. Dann führe Schritt für Schritt durch "
+        "die Anleitung unten: **immer nur eine Frage oder ein Schritt pro Nachricht**, warte auf die Antwort, hilf bei "
+        "Problemen. Kurze, klare Sätze, nummerierte Klickwege mit den Namen, die die Person auf dem Bildschirm sieht.",
+        "2. Passwörter, Tokens und Schlüssel schreibt die Person **nie** in den Chat. Sobald sie die Anmeldedaten bereit "
+        "hat, rufe `konnektor_verbinden` auf: Dann erscheint ein Formular, in das sie sie einträgt – du siehst sie nie. "
+        "Schreibt sie trotzdem ein Geheimnis in den Chat, bitte sie, es zu widerrufen bzw. zu ändern und das neue ins "
+        "Formular einzutragen. Im Formular wählt sie nach erfolgreicher Verbindung auch, wofür der Zugang verwendet werden "
+        "darf (nur lesen oder auch schreiben, externe Modelle). Schlägt die Prüfung fehl, hilf bei der Fehlersuche und "
+        "rufe das Werkzeug erneut auf.",
+        "3. Nach erfolgreicher Verbindung frag, ob ein Skill hinterlegt werden soll, damit LLMitMir diesen Zugang immer "
+        "auf eine bestimmte Art verwendet (z. B. welches Projekt, welche Ordner, welche Regeln). Wenn ja: Erfrage das "
+        "Nötige, formuliere den Skill und lege ihn mit `konnektor_skill` an – die Person bestätigt ihn. Der Skill gehört "
+        "dann fest zu dieser Verbindung.",
+        "4. Fasse zum Schluss in zwei, drei Sätzen zusammen, was eingerichtet ist. Zugang und Skill findet die Person "
+        "später auf der Seite „Plugins → Konnektoren“.",
+        f"Die Person trägt selbst ein: {', '.join(own) or 'nichts (Anmeldung im Browser)'}."
+        + (f" Fest vorgegeben vom Admin: {'; '.join(fixed)}." if fixed else ""),
+    ]
+    if k.get("login") == LOGIN_NEXTCLOUD:
+        lines.append("Anmeldung über den Nextcloud Login Flow: Im Formular klickt die Person auf „Mit Nextcloud anmelden“, "
+                     "meldet sich im neuen Fenster an und erlaubt den Zugriff; LLMitMir bekommt ein eigenes App-Passwort.")
+    if spec.get("hint"):
+        lines.append(f"Hinweis zum Typ: {spec['hint']}")
+    if k.get("description"):
+        lines.append(f"Beschreibung des Admins: {k['description']}")
+    lines.append("### Einrichtungsanleitung des Admins\n" + (k.get("setup") or "(Keine eigene Anleitung hinterlegt – "
+                 "erkläre allgemein, woher die Person die Anmeldedaten bekommt, z. B. ein App-Passwort oder ein eigener "
+                 "Token mit möglichst wenigen Rechten.)"))
+    if cred:
+        lines.append(f"Bestehende Verbindung „{cred['name']}“: {options_text(cred)}."
+                     + (f" Zugehöriger Skill: „{skill['name']}“ – ändern mit `konnektor_skill`." if skill else ""))
+    return "\n".join(lines)
 
 
 def unique_name(creds: dict, base: str, own_id: str | None = None) -> str:

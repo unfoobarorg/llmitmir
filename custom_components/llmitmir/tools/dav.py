@@ -160,10 +160,10 @@ def gwdg_allowed(cred: dict, url: str, write: bool = False) -> str:
             label = C.TYPES["gwdg"]["services"][name]
             acc = C.access(cred, name)
             if not acc:
-                return f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für {label} freigegeben (Seite „Zugänge“)."
+                return f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für {label} freigegeben (Seite „Plugins → Zugänge“)."
             if write and acc != "write":
                 return (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ darf {label} nur lesen – schreiben, ändern und "
-                        "löschen sind gesperrt. Die Person kann das auf der Seite „Zugänge“ ändern.")
+                        "löschen sind gesperrt. Die Person kann das auf der Seite „Plugins → Zugänge“ ändern.")
             return ""
     allowed = [f for n, f in GWDG_FOLDERS.items() if n in svc]
     return ("Fehler: Bei GWDG-Exchange nur " + (" oder ".join(allowed) if allowed else "keine DAV-Ordner")
@@ -174,7 +174,7 @@ def gwdg_allowed(cred: dict, url: str, write: bool = False) -> str:
 STATUS_HINTS = {
     400: "HTTP 400: Anfrage abgelehnt – stimmt der Inhalt (XML/ICS) und die Methode?",
     401: "HTTP 401: Anmeldung abgelehnt – Zugangsdaten prüfen",
-    403: "HTTP 403: Zugriff verweigert – Rechte oder Freigabe fehlen (bei GWDG: Dienst auf der Seite „Zugänge“ freigegeben?)",
+    403: "HTTP 403: Zugriff verweigert – Rechte oder Freigabe fehlen (bei GWDG: Dienst auf der Seite „Plugins → Zugänge“ freigegeben?)",
     404: "HTTP 404: Pfad nicht gefunden – stimmt der Pfad? Ein PROPFIND auf den Elternordner listet den Inhalt",
     405: "HTTP 405: Methode hier nicht erlaubt – dieser Server kann das nicht (z. B. sync-collection)",
     409: "HTTP 409: Konflikt – der Ordner oder Eintrag liegt anders als erwartet",
@@ -497,7 +497,7 @@ async def caldav_events(ctx, a: dict):
     if gwdg:
         if not C.access(cred, "calendar"):
             return (f"Fehler: Der GWDG-Zugang „{cred.get('name')}“ ist nicht für den Kalender freigegeben "
-                    "(auf der Seite „Zugänge“ „Kalender“ anhaken).")
+                    "(auf der Seite „Plugins → Zugänge“ „Kalender“ anhaken).")
         return await _gwdg_events(ctx, cred, kal, von, bis)
     f = lambda d: re.sub(r"[-:]", "", d)[:8] + "T000000Z"  # noqa: E731
     body = (f'<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'

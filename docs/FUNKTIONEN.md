@@ -176,6 +176,12 @@
   schlägt der Chat ein freies, ähnlich gutes vor – der Wechsel geht mitten im Lauf und macht beim aktuellen Schritt
   weiter. Geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. „Stopp“ greift auch,
   während ein Modell hängt.
+- **Kontextgröße je Modell**: SAIA nennt in der Modellliste keine Kontextgröße. LLMitMir rechnet deshalb mit den
+  Angaben aus der GWDG-Modellliste (`KNOWN_CONTEXT` in `const.py`, unbekannte Modelle 128.000 Tokens) oder mit dem Wert,
+  den der Admin unter *Admin → Modelle* einträgt, und hält den Verlauf bei etwa 75 % davon. Lehnt der Server eine Anfrage
+  als zu lang ab, liest LLMitMir die echte Grenze aus der Fehlermeldung (vLLM, SGLang, OpenAI), merkt sie sich 30 Tage
+  (auch unter einem Admin-Wert), kürzt und fragt bis zu dreimal je Lauf neu (`ctxlimit.py`). Nennt der Server keine Zahl,
+  kürzt LLMitMir bei jedem Versuch stärker.
 - **Dashboards**: farbige Übersichten aus Kacheln auf einem Raster wie ein Handy-Startbildschirm (12 Spalten, auf dem
   Tablet 6, auf dem Handy 4 – das rechnet die Oberfläche selbst um). Kacheltypen: Kennzahl mit Verlauf, Diagramm (Linie,
   Fläche, Balken, Donut), Warnungen, Tabelle, Liste mit Status, Fortschritt, 5×5-Risikomatrix, Messuhr, 3D-Szene aus
@@ -230,18 +236,43 @@
   geht nur an **seine Server** (aus seinen Adressen plus der Liste *Erlaubte Server*); für jeden anderen Server fragt
   LLMitMir vorher, geplante Aufgaben lehnen ab. Weiterleitungen auf fremde Server bekommen keine Zugangsdaten.
   Alle erlaubten Server auf einen Blick, nach Zugang, mit Entfernen und Hinzufügen: *Einstellungen → Datenschutz & Freigaben → Erlaubte Server*.
-- **Konnektoren** (Seite *Konnektoren*, eingerichtet unter *Admin → Konnektoren*): vom Admin vorbereitete Anbindungen nach
-  dem Vorbild von Claude und Copilot. Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte
-  Server, bei GWDG/EWS die Dienste, die Anmeldeart und optional eine Anleitung für das Modell fest. Jede Person verbindet
-  nur ihr eigenes Konto: per Formular (nur die Felder, die der Admin offen lässt) oder bei Nextcloud per **Login Flow v2** –
-  sie meldet sich im Browser bei der Nextcloud an und erlaubt den Zugriff, LLMitMir bekommt ein eigenes App-Passwort in
-  ihrem Nutzerkontext (das eigentliche Passwort sieht es nie; die Anmeldeseite muss auf der Nextcloud selbst liegen).
-  Daraus entsteht ein Zugang der Art „eigener Zugang“ mit Verweis auf den Konnektor; die festen Felder setzt LLMitMir bei
-  jedem Speichern und nach jeder Änderung des Admins neu, Formular und Chat können sie nicht ändern. Ist ein Konnektor
-  ausgeschaltet oder gelöscht, sind seine Zugänge gesperrt. Die Anleitung des Konnektors steht im Systemprompt, sobald der
-  Zugang im Lauf sichtbar ist. Mit dem Schalter *Eigene Zugänge ohne Konnektor erlauben* (Vorgabe an) kann der Admin
-  freie Zugänge abschalten – vorhandene bleiben nutzbar, neue gehen nur noch über Konnektoren. Freigabe je Agent gilt für
-  Konnektor-Zugänge genauso.
+- **Plugins** (Hauptmenü und *Einstellungen → Plugins*, wie in der Claude-Desktop-App): eine Seite mit den Reitern
+  *Konnektoren*, *Skills* und *Zugänge*. Skills und Zugänge, die zu einer Konnektor-Verbindung gehören, stehen in ihren
+  Listen ausgegraut unter „… von Konnektoren“ mit dem Namen des Konnektors; öffnen, ändern oder löschen lassen sie sich
+  nur über den Reiter *Konnektoren* (Backend: `via_connector`, im Chat lehnen `credential_*` und `skill_*` sie ab). So
+  bleiben Verbindung, Zugang und Skill zusammen. Die alten Adressen `/skills`, `/credentials` und `/connectors` führen auf
+  die passenden Reiter.
+- **Konnektoren** (Reiter *Konnektoren*, eingerichtet unter *Admin → Zugänge & Konnektoren*, dort als Kacheln – ein
+  Klick öffnet den Konnektor zum Bearbeiten): vom Admin vorbereitete Anbindungen nach dem Vorbild von Claude und Copilot.
+  Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte Server, bei GWDG/EWS die Dienste,
+  die Anmeldeart, eine **Einrichtungsanleitung für den geführten Chat** und optional eine Anleitung für das Modell fest.
+  Jede Person verbindet nur ihr eigenes Konto – **auch mehrfach** (z. B. GitLab mit je einem Token für verschiedene
+  Projekte, bis zu 10 Verbindungen je Konnektor); jede Verbindung ist ein eigener Zugang mit eigenem Namen.
+  - **Geführte Einrichtung:** „Konnektor einrichten“ öffnet einen eigenen Chat. Das Modell folgt der Einrichtungsanleitung
+    des Admins, stellt immer nur eine Frage und hilft bei Problemen. Sobald die Anmeldedaten bereit sind, zeigt es mit
+    `konnektor_verbinden` ein **Formular im Chat**: Passwort oder Token gehen direkt an LLMitMir, das Modell sieht sie nie.
+    LLMitMir prüft die Verbindung sofort; schlägt das fehl, bleibt das Formular offen. Danach folgt der zweite Schritt
+    **„Wofür darf der Zugang verwendet werden?“**: bei GWDG/EWS je Dienst „nur lesen“ oder „lesen und schreiben“, bei
+    anderen Typen „nur lesen“ (empfohlen) oder „lesen und schreiben“, dazu die Freigabe für externe Modelle und ein
+    Ablaufdatum. Anschließend fragt das Modell, ob ein **Skill** hinterlegt werden soll, und legt ihn mit
+    `konnektor_skill` an (mit Bestätigung) – er gehört fest zu dieser Verbindung. Dasselbe Formular gibt es auf der Seite
+    ohne Chat („Ohne Chat“) und für bestehende Verbindungen („Anmeldedaten“, „Rechte“, „Im Chat ändern“).
+  - Bei Nextcloud geht die Anmeldung per **Login Flow v2**: Die Person meldet sich im Browser bei der Nextcloud an und
+    erlaubt den Zugriff, LLMitMir bekommt ein eigenes App-Passwort in ihrem Nutzerkontext (das eigentliche Passwort sieht es
+    nie; die Anmeldeseite muss auf der Nextcloud selbst liegen).
+  - Daraus entsteht ein Zugang der Art „eigener Zugang“ mit Verweis auf den Konnektor; die festen Felder setzt LLMitMir bei
+    jedem Speichern und nach jeder Änderung des Admins neu. Trennen löscht Zugang und Skill der Verbindung. Ist ein
+    Konnektor ausgeschaltet oder gelöscht, sind seine Zugänge und deren Skills gesperrt. Die Anleitung für das Modell steht
+    im Systemprompt, sobald der Zugang im Lauf sichtbar ist. Mit dem Schalter *Eigene Zugänge ohne Konnektor erlauben*
+    (Vorgabe an) kann der Admin freie Zugänge abschalten – vorhandene bleiben nutzbar, neue gehen nur noch über
+    Konnektoren. Freigabe je Agent gilt für Konnektor-Zugänge genauso.
+  - **Im Chat sichtbar:** Läuft ein Werkzeugaufruf (z. B. `http_request`) über den Zugang eines Konnektors, trägt der
+    Schritt im Chat ein Kennzeichen mit dem Namen des Konnektors (bei mehreren Verbindungen auch den der Verbindung) –
+    ebenso die Frage nach der Freigabe des Zugangs.
+- **„Nur lesen“ für alle Zugänge:** Zugänge ohne Dienste (Nextcloud, Token, API-Key, Basic Auth …) lassen sich auf „nur
+  lesen“ stellen (beim Verbinden eines Konnektors oder auf der Seite des Zugangs). Schreibende Werkzeugaufrufe mit ihnen
+  (z. B. `http_request` mit POST, `dav_write`, schreibende MCP-Werkzeuge) und Werkbank-Befehle mit ihren Platzhaltern
+  lehnt LLMitMir ab. Exchange-Zugänge regeln das wie bisher je Dienst.
 - **MCP-Server als Konnektor** (*Admin → Konnektoren*, Typ Bearer-Token, API-Key oder Basic Auth, Haken „MCP-Server“):
   Die feste Adresse ist der MCP-Endpunkt (Streamable HTTP, nur https). Der Admin ruft die Werkzeuge einmal ab (mit
   seinem Token, nur für den Abruf) und gibt sie einzeln frei, je Werkzeug „schreibt“ ja/nein (Vorschlag aus
@@ -319,7 +350,7 @@
   verlangt Pfad oder ID. Ist nichts zu finden, schlägt sie die nächsten ähnlichen Pfade vor. Mit `alle_ordner: true`
   durchsucht `mail_list` den ganzen Baum und gibt zu jedem Treffer den Ordnerpfad aus – das greift auch, wenn eine
   Mail inzwischen woanders einsortiert ist.
-- **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste): GWDG-E-Mail-Adresse und Passwort eintragen (ohne @
+- **GWDG-Exchange als eigener Zugangstyp** (unten in der Typ-Liste): E-Mail-Adresse, Benutzerkennung und Passwort eintragen (ohne @
   wird `@gwdg.de` ergänzt) und anhaken, wofür der Zugang gilt – **E-Mail-Postfach, Kalender und/oder Kontakte**.
   Postfach, Kalender und Kontakte laufen über EWS. Geprüft wird jeder angehakte Dienst einzeln (EWS-`GetFolder` auf
   Posteingang, Kalender bzw. Kontakte).

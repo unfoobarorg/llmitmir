@@ -13,6 +13,7 @@ import "./settings";
 import "./admin";
 import "./monitoring";
 import "./connectors";
+import "./plugins";
 import "./voice";
 
 const LS = "llmitmir.sidebar";
@@ -551,9 +552,7 @@ export class LLMitMirPanel extends LitElement {
         ${ni("/dashboards", "dashboard", t("Dashboards"), p === "dashboards", boardErrors || null)}
         ${ni("/projects", "project", t("Projekte"), p === "projects" || p === "project")}
         ${ni("/tasks", "task", isSimple() ? t("Geplante Aufgaben") : t("Geplant"), p === "tasks" || p === "task", taskBusy || null)}
-        ${ni("/skills", "skill", t("Skills"), p === "skills" || p === "skill")}
-        ${(store.data?.connectors || []).length ? ni("/connectors", "share", t("Konnektoren"), p === "connectors") : nothing}
-        ${ni("/credentials", "key", t("Zugänge"), p === "credentials" || p === "credential")}
+        ${ni("/plugins", "plugins", t("Plugins"), ["plugins", "skills", "skill", "credentials", "credential", "connectors"].includes(p))}
       </div>
       ${this.selecting ? nothing : this.selectStart()}
       <div class="recents">${this.selecting ? nothing : this.projectTree()}${this.recents()}</div>
@@ -583,12 +582,13 @@ export class LLMitMirPanel extends LitElement {
       case "dashboards": return this.wrap(html`<lm-dashboards .boardKey=${id || ""}></lm-dashboards>`);
       case "tasks": return this.wrap(html`<lm-tasks></lm-tasks>`);
       case "task": return this.wrap(html`<lm-task .taskId=${id}></lm-task>`);
-      case "skills": return this.wrap(html`<lm-skills></lm-skills>`);
-      case "skill": return this.wrap(html`<lm-skill .skillId=${id}></lm-skill>`);
-      case "credentials": return this.wrap(html`<lm-credentials></lm-credentials>`);
-      case "connectors": return this.wrap(html`<lm-connectors></lm-connectors>`);
-      case "credential": return this.wrap(html`<lm-credential .credId=${id}></lm-credential>`);
-      case "settings": return this.wrap(html`<lm-settings .tab=${id || ""}></lm-settings>`);
+      // Plugins (plugins.ts): Konnektoren, Skills und Zugänge; die alten Wege führen auf den passenden Reiter
+      case "plugins": return this.wrap(html`<lm-plugins .tab=${id || ""}></lm-plugins>`);
+      case "skills": case "credentials": case "connectors": return this.wrap(html`<lm-plugins .tab=${p}></lm-plugins>`);
+      case "skill": return this.wrap(html`<lm-skill .skillId=${id} ?viaConnector=${this.path[2] === "connector"}
+        .connectionId=${this.path[2] === "connector" ? this.path[3] || "" : ""}></lm-skill>`);
+      case "credential": return this.wrap(html`<lm-credential .credId=${id} ?viaConnector=${this.path[2] === "connector"}></lm-credential>`);
+      case "settings": return this.wrap(html`<lm-settings .tab=${id || ""} .sub=${this.path[2] || ""}></lm-settings>`);
       case "admin": return this.wrap(html`<lm-admin .tab=${id || ""}></lm-admin>`);
       default: return this.wrap(html`<lm-home initialMode="chat"></lm-home>`);
     }
