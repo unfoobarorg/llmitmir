@@ -2567,7 +2567,7 @@ def _creds_in_args(args: dict) -> set[str]:
     names = set()
     if isinstance(args.get("zugang"), str) and args["zugang"].strip():
         names.add(args["zugang"].strip())
-    names |= {m.group(1).strip() for m in C.PLACEHOLDER.finditer(json.dumps(args, ensure_ascii=False))}
+    names |= set(C.placeholder_names(args))  # in den Texten selbst, wie beim Auflösen (nicht in der JSON-Form)
     return names
 
 
