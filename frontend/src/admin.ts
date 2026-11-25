@@ -305,8 +305,9 @@ export class AdminPage extends StoreElement {
             <td class="hint" style="white-space:nowrap">${q.chat || "–"} / ${q.agent || "–"} / ${q.vision || "–"} / ${q.sub || "–"}</td>
             <td class="hint">${(m.input || []).join(", ")} → ${(m.output || []).join(", ")}</td>
             <td><input type="number" style="width:110px" placeholder=${String(a.known_context[m.id] || 128000)} .value=${a.models.context?.[m.id] ?? ""}
-              @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}></td></tr>`; })}</table></div>`,
-        { desc: html`${known.length} Modelle bekannt. Eignung: Chat / Cowork / Bilder / Teilaufgaben (0–100). Kontext leer = bekannter Wert.`,
+              @input=${(e: any) => this.set("models", { ...a.models, context: { ...(a.models.context || {}), [m.id]: e.target.value ? Number(e.target.value) : undefined } })}>
+              ${a.learned_context?.[m.id] ? html`<div class="hint" title="Der Server hat eine zu lange Anfrage mit dieser Grenze abgelehnt. LLMitMir rechnet 30 Tage lang höchstens damit.">Server: ${Number(a.learned_context[m.id]).toLocaleString()}</div>` : nothing}</td></tr>`; })}</table></div>`,
+        { desc: html`${known.length} Modelle bekannt. Eignung: Chat / Cowork / Bilder / Teilaufgaben (0–100). Kontext leer = Angabe des Anbieters. Lehnt der Server eine Anfrage als zu lang ab, rechnet LLMitMir mit der Grenze, die er nennt (auch unter einem eingetragenen Wert).`,
           aside: html`<button class="btn" @click=${this.refresh} ?disabled=${this.loading}>${this.loading ? html`<lm-spark size="16"></lm-spark>` : icon("retry", 16)} ${t("Liste laden")}</button>` })}
       ${this.mainExtGroup(users, known)}`;
   }

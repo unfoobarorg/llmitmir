@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable
@@ -26,6 +27,40 @@ def audio_type(filename: str) -> str:
     """Der Typ, den die Spracherkennung erwartet – aus der Endung, nicht pauschal WAV."""
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     return AUDIO_TYPES.get(ext, "audio/wav")
+
+
+# „Anfrage zu lang“: Zahl nach den Formulierungen der gängigen Server (vLLM, SGLang, OpenAI, llama.cpp, TGI).
+# Was LLMitMir mit der Grenze macht, steht in ctxlimit.py.
+MIN_CONTEXT = 2_048  # kleinere Zahlen in einer Fehlermeldung sind keine Kontextgröße
+_NUM = r"(\d[\d,._]*\d|\d)"
+_LIMIT_PATTERNS = [
+    re.compile(r"maximum context length (?:is|of)\s*" + _NUM, re.I),
+    re.compile(r"max(?:imum)?[_ ]model[_ ]len(?:gth)?\D{0,20}?" + _NUM, re.I),
+    re.compile(r"context (?:window|length|size) (?:is|of)\s*" + _NUM, re.I),
+    re.compile(r"n_ctx(?:_slot)?\s*[=:]?\s*" + _NUM, re.I),
+    re.compile(r"must have less than\s*" + _NUM + r"\s*(?:input\s*)?tokens", re.I),
+]
+_CONTEXT_WORDS = re.compile(
+    r"context[_ ]length[_ ]exceeded|maximum context length|max_model_len|context window|context length|"
+    r"exceeds? the (?:available )?context|prompt is too long|input is too long|too many (?:input )?tokens|"
+    r"input tokens exceed|reduce the length of the (?:messages|prompt)", re.I)
+
+
+def _to_int(s: str) -> int:
+    return int(re.sub(r"[,._]", "", s))
+
+
+def context_limit(text: Any) -> int | None:
+    """Sagt die Fehlermeldung des Servers, dass die Anfrage zu lang war? None: nein; 0: ja, aber ohne Zahl; sonst die Grenze."""
+    t = str(text or "")
+    if not _CONTEXT_WORDS.search(t):
+        return None
+    for p in _LIMIT_PATTERNS:
+        for m in p.finditer(t):
+            n = _to_int(m.group(1))
+            if n >= MIN_CONTEXT:
+                return n
+    return 0
 
 
 class ProviderError(Exception):
@@ -220,7 +255,8 @@ class Provider:
                         st.updated = time.time()
                     if r.status != 200:
                         text = (await r.text())[:400]
-                        if r.status in (400, 422) and "chat_template_kwargs" in body:
+                        if (r.status in (400, 422) and "chat_template_kwargs" in body
+                                and context_limit(text) is None):  # „zu lang“ liegt nicht am Schalter
                             # der Anbieter kennt den Schalter „ohne Denkphase“ nicht: ohne ihn weiter, nicht mehr senden
                             self.template_kwargs_ok = False
                             body.pop("chat_template_kwargs", None)

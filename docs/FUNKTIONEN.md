@@ -176,6 +176,12 @@
   schlägt der Chat ein freies, ähnlich gutes vor – der Wechsel geht mitten im Lauf und macht beim aktuellen Schritt
   weiter. Geplante Aufgaben mit Standardmodell wechseln nach drei Minuten ohne Antwort selbst. „Stopp“ greift auch,
   während ein Modell hängt.
+- **Kontextgröße je Modell**: SAIA nennt in der Modellliste keine Kontextgröße. LLMitMir rechnet deshalb mit den
+  Angaben aus der GWDG-Modellliste (`KNOWN_CONTEXT` in `const.py`, unbekannte Modelle 128.000 Tokens) oder mit dem Wert,
+  den der Admin unter *Admin → Modelle* einträgt, und hält den Verlauf bei etwa 75 % davon. Lehnt der Server eine Anfrage
+  als zu lang ab, liest LLMitMir die echte Grenze aus der Fehlermeldung (vLLM, SGLang, OpenAI), merkt sie sich 30 Tage
+  (auch unter einem Admin-Wert), kürzt und fragt bis zu dreimal je Lauf neu (`ctxlimit.py`). Nennt der Server keine Zahl,
+  kürzt LLMitMir bei jedem Versuch stärker.
 - **Dashboards**: farbige Übersichten aus Kacheln auf einem Raster wie ein Handy-Startbildschirm (12 Spalten, auf dem
   Tablet 6, auf dem Handy 4 – das rechnet die Oberfläche selbst um). Kacheltypen: Kennzahl mit Verlauf, Diagramm (Linie,
   Fläche, Balken, Donut), Warnungen, Tabelle, Liste mit Status, Fortschritt, 5×5-Risikomatrix, Messuhr, 3D-Szene aus

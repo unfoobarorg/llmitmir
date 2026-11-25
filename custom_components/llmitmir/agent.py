@@ -30,6 +30,7 @@ from . import claude_convert as CC
 from . import credcheck as CK
 from . import dashboards as DB
 from . import credentials as C
+from . import ctxlimit as CL
 from . import models as MS
 from . import permissionnotify as PN
 from . import pricing as PR
@@ -94,6 +95,8 @@ class Run:
     parent_id: str | None = None  # Lauf einer Teilaufgabe: ihr Hauptchat ("Stopp" dort hält auch sie an)
     subs_started: int = 0         # Teilaufgaben, die dieser Lauf gestartet hat (höchstens SUB_PER_RUN)
     agent_id: str = ""            # Agent, zu dem der Lauf gehört (audit.py)
+    ctx_factor: float = 1.0       # Anteil des Kontext-Budgets, nachdem der Server „zu lang“ gemeldet hat (ctxlimit.py)
+    ctx_retries: int = 0          # so oft hat dieser Lauf schon deshalb gekürzt und neu gefragt
 
 
 # Werkzeuge, die im selben Schritt parallel laufen (alle anderen nacheinander)
@@ -882,8 +885,28 @@ class Manager:
     def context_size(self, model: str) -> int:
         if PV.is_external(model):
             return int(self.model_info(model).get("context") or 1_000_000)
-        ctx = (self.config.data.get("models") or {}).get("context") or {}
-        return int(ctx.get(model) or KNOWN_CONTEXT.get(model) or DEFAULT_CONTEXT)
+        mm = self.config.data.get("models") or {}
+        return CL.effective((mm.get("context") or {}).get(model), (mm.get("context_learned") or {}).get(model),
+                            KNOWN_CONTEXT.get(model), DEFAULT_CONTEXT, time.time())
+
+    async def note_context_error(self, run: "Run", model: str, text: str) -> bool:
+        """Der Server hat die Anfrage als zu lang abgelehnt: Grenze merken, Budget des Laufs kürzen. True, wenn ein
+        neuer Versuch lohnt."""
+        limit = CL.parse_limit(text)
+        if limit is None or run.ctx_retries >= CL.MAX_RETRIES:
+            return False
+        run.ctx_retries += 1
+        before = self.context_size(model)
+        if limit:
+            mm = self.config.data.setdefault("models", {})
+            if CL.learn(mm.setdefault("context_learned", {}), model, limit, time.time()):
+                await self.config.async_save()
+        if self.context_size(model) >= before:
+            # keine neue (kleinere) Grenze: die Schätzung der Länge lag daneben, also stärker kürzen
+            run.ctx_factor *= CL.SHRINK
+        _LOGGER.info("Run %s: %s rejected the request as too long (limit %s), context now %d tokens at %.0f %%, retry %d",
+                     run.id, model, limit or "?", self.context_size(model), run.ctx_factor * 100, run.ctx_retries)
+        return True
 
     def quota(self, user_id: str) -> dict:
         q = dict(self.config.data.get("quota_default") or {})
@@ -1526,7 +1549,10 @@ class Manager:
                         if not run.switch_to:
                             run.switch.clear()
                         continue
-                    except (QuotaExhausted, ProviderError):
+                    except (QuotaExhausted, ProviderError) as e:
+                        if (not ext and isinstance(e, ProviderError) and not run.cancel.is_set()
+                                and await self.note_context_error(run, chat["model"], str(e))):
+                            continue  # gekürzt neu fragen (ctx.api_messages rechnet mit der neuen Grenze)
                         if not ext and may_fallback and not run.cancel.is_set():
                             fb = self._fallback_for(user.id, proj, st, chat)
                             if fb:
@@ -2556,7 +2582,7 @@ class ToolContext:
                 out.append({"role": "user", "content": SC.api_text(m)})
         if ext:
             out = C.scrub_obj(out, self._secrets)  # no stored secret goes out, wherever it might appear
-        return _fit_context(out, self.manager.context_size(model))
+        return _fit_context(out, self.manager.context_size(model), self.run.ctx_factor)
 
     def _image_cache(self, name: str) -> str | None:
         return self._img.get(name)
@@ -3064,9 +3090,9 @@ def _estimate(msgs: list[dict]) -> int:
     return int(n / 3.2)
 
 
-def _fit_context(msgs: list[dict], ctx_size: int) -> list[dict]:
-    """Keep the conversation within ~75 % of the context window."""
-    budget = int(ctx_size * 0.75)
+def _fit_context(msgs: list[dict], ctx_size: int, factor: float = 1.0) -> list[dict]:
+    """Keep the conversation within ~75 % of the context window (less after the server called a request too long)."""
+    budget = int(ctx_size * 0.75 * factor)
     if _estimate(msgs) <= budget:
         return msgs
     msgs = [dict(m) for m in msgs]
