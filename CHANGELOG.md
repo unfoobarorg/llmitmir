@@ -2,6 +2,13 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 1.1.1 – Sicherheitskorrektur Zugänge
+
+### Zugänge
+- **Platzhalter werden überall gleich erkannt:** Die Prüfungen rund um Platzhalter `{{cred:Name:feld}}` (nur an die
+  Server des Zugangs, Herausfiltern gesperrter Zugänge für externe Modelle) erkennen einen Zugang jetzt genau so, wie
+  er beim Einsetzen gefunden wird. Empfohlenes Update für alle Installationen.
+
 ## 1.1.0 – Tabellen mit Fußzeile, Freigaben melden sich immer
 
 ### Dashboards
