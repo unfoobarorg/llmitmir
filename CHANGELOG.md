@@ -2,21 +2,83 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
-## 1.2.0 – Einstellungen neu geordnet
+## 2.0.0 – Trusted AI: Kontrolle für Admins, neue Einstellungen
+
+Große Version: LLMitMir bekommt alles, was Admins brauchen, um KI-Agenten nachvollziehbar und kontrolliert laufen zu
+lassen – Zugriffsprotokoll, Freigabe jedes Zugangs je Agent, Konnektoren mit Datenregeln, MCP-Server, zentrale Skills,
+Wartungsmodus und Nutzerverwaltung mit AD/LDAP. Dazu sind die Einstellungen neu geordnet.
+
+### Beim Update beachten
+- **Zugänge brauchen jetzt in jedem Chat und Cowork eine Freigabe:** Beim ersten Gebrauch fragt LLMitMir einmal nach
+  (einmal, für diesen Chat oder nicht). Zugänge, die einem Projekt zugeordnet sind, sind dort vorab erlaubt.
+- **Geplante Aufgaben fragen nie:** Sie nutzen nur die Zugänge, die bei der Aufgabe oder im Projekt erlaubt sind.
+  Damit nach dem Update nichts stehen bleibt, bekommen vorhandene Aufgaben einmalig alle Zugänge, die es gerade gibt,
+  und sind zur Durchsicht markiert – bitte dort nur die anhaken, die die Aufgabe wirklich braucht.
+- **Art jedes Zugangs:** Neue Zugänge brauchen eine Art (eigener Zugang im Nutzerkontext, persönliche Zugangsdaten oder
+  zentraler Systemzugang). Vorhandene Zugänge ohne Art laufen weiter und tragen den Hinweis „Art fehlt“. **Zentrale
+  Systemzugänge sind ohne Erlaubnis des Admins gesperrt** (*Admin → Zugänge & Konnektoren*, Vorgabe aus).
+- **Chats mit internen Daten nehmen kein externes Modell mehr an** (Vorgabe an, abschaltbar unter *Admin → Zugänge &
+  Konnektoren*).
+- **Neue Python-Abhängigkeit `ldap3`** (für die Nutzerverwaltung): Home Assistant installiert sie beim Neustart.
+- Die Dienste `llmitmir.prepare_restart` und `llmitmir.cancel_restart` dürfen nur Admins und Automationen aufrufen.
+- Die Werkbank ist unverändert; sie braucht kein Update.
+
+### Zugriffsprotokoll und Monitoring
+- **Agenten mit fester Identität:** Jeder Chat, jedes Cowork und jede Teilaufgabe ist ein Agent; eine geplante Aufgabe
+  oder Kachel ist über alle Läufe derselbe Agent. Protokolliert werden Laufbeginn, jeder Werkzeugaufruf, Rückfragen und
+  Entscheidungen – nur Metadaten (Werkzeug, Zugang, Server und Pfad, Entitäten, Modellklasse, Ergebnis, wer freigegeben
+  hat), nie Texte, Suchbegriffe, Empfänger, Befehle oder Chat-Titel. Aufbewahrung 7 bis 3650 Tage (Vorgabe 180).
+- **Admin → Monitoring:** Übersicht mit Filtern, Agenten-Verzeichnis und CSV-Export. In der **Zentrale** hält der Admin
+  laufende Agenten an, entzieht Freigaben für einen oder alle Zugänge einer Person und sieht Auffälligkeiten der letzten
+  24 Stunden (viele Aufrufe oder Sperren, neue Server, nächtliche Aktivität; morgens als Karte für alle Admins).
+- **Export** jedes Ereignisses an einen Webhook (JSON über https) oder an Syslog (RFC 5424, UDP/TCP/TLS).
+- Änderungen der Admin-Einstellungen (welcher Bereich, nie Werte), Admin-Eingriffe und jeder LDAP-Abgleich stehen selbst
+  im Protokoll.
+
+### Zugänge, Konnektoren und Datenregeln
+- **Konnektoren:** Der Admin bereitet Anbindungen vor (Typ, feste Felder wie die Nextcloud-Adresse, erlaubte Server,
+  Anleitung für das Modell); jede Person verbindet nur ihr eigenes Konto – per Formular oder über den **Nextcloud Login
+  Flow** (eigenes App-Passwort, nur über https). Ausgeschaltete Konnektoren sperren ihre Zugänge. Eigene Zugänge ohne
+  Konnektor lassen sich abschalten.
+- **Datenregeln je Konnektor:** Für einen Bereich (z. B. `/Gruppen/Finanzen/**`) prüft ein Wächter auf dem Hauptanbieter
+  eine Anweisung in Worten anhand der Metadaten (bei Nextcloud: Tags, Typ, Größe, Besitzer) – nie anhand der Inhalte –,
+  bevor ein Werkzeug Inhalte abruft. Im Zweifel gesperrt. Pfade werden vor dem Vergleich vereinheitlicht.
+- **MCP-Server als Konnektor:** Der Admin ruft die Werkzeuge eines entfernten MCP-Servers einmal ab und gibt sie einzeln
+  frei (schreibend ja/nein); Beschreibung und Parameter sind eingefroren. Jede Person nutzt ihren eigenen Token; es
+  gelten Freigabe je Agent, Schreib-Freigaben, Datenregeln und Protokoll.
+- **Interne Daten bleiben intern:** Hat ein Chat einen Zugang ohne Freigabe für externe Modelle benutzt, eine Datenregel
+  nur für interne Modelle durchgelassen oder einen Skill „nur für interne Modelle“ gelesen, nimmt er samt Teilaufgaben
+  kein externes Modell mehr an – auch nicht als Notfall-Ausweichmodell. Schloss im Modellmenü mit Grund.
+- Platzhalter `{{cred:…}}` werden auch in der Markierung interner Daten und im Zugriffsprotokoll so erkannt wie beim
+  Einsetzen (Ergänzung zu 1.1.1).
+
+### Skills
+- **Zentrale Skills:** Vorgaben des Admins für alle Personen, in deren Oberfläche unsichtbar. „Immer aktiv“ steht mit
+  Vorrang im Systemprompt jedes Laufs, „bei Bedarf“ lädt das Modell wie einen eigenen Skill.
+- **Skill-Richtlinien:** Muster, Höchstlänge, verbotene Server, Geheimnisse im Klartext oder ein Prüfauftrag an ein
+  Modell des Hauptanbieters; Aktion sperren, Person benachrichtigen oder protokollieren. Geprüft wird beim Speichern,
+  beim Import und nachts; eine ausstehende sperrende Prüfung sperrt den Skill.
+
+### Betrieb
+- **Wartungsmodus:** `llmitmir.prepare_restart` kündigt einen Neustart an (Startseite, Push, Hinweis über jeder Seite),
+  startet nichts Neues mehr, lässt laufende Agenten bis zur Frist fertig werden und startet Home Assistant auf Wunsch
+  selbst neu; `llmitmir.cancel_restart` bricht ab. Sensor `sensor.llmitmir_laufende_agenten` für Automationen.
+- **Nutzerverwaltung mit Active Directory / LDAP** (optional): legt Home-Assistant-Benutzer nach Gruppen an, passt
+  Admin-Rechte und den Zugriff auf LLMitMir an und deaktiviert, wer aus allen Gruppen fällt – nie löschen. Probelauf,
+  Abgleich von Hand oder nachts. Von Hand angelegte Benutzer und der letzte aktive Admin bleiben unberührt.
 
 ### Oberfläche
-- **Einstellungen wie bei Claude:** Persönliche Einstellungen und Admin-Einstellungen waren eine lange Seite mit über
-  zwanzig Abschnitten. Jetzt sind sie in Bereiche geteilt – links die Liste, rechts übersichtliche Gruppen aus Zeilen
-  „Bezeichnung und kurze Erklärung | Schalter, Auswahl oder Eingabe“. Häkchen sind Schalter geworden, lange Erklärungen
-  stehen hinter „Mehr dazu“, Ansicht und Auswahlen sind große Karten bzw. Listen mit Markierungspunkt.
-- **Persönlich:** Allgemein, Modelle, Funktionen, Benachrichtigungen, Datenschutz & Freigaben, Verbrauch, API-Schlüssel
-  (nur wenn nötig, mit Hinweis bei fehlendem Schlüssel) und Import aus Claude.
-- **Admin:** Personen, Anbieter & Schlüssel, Modelle, Externe Modelle & Kosten, Zugänge & Konnektoren, Skills, Werkbank,
-  Benachrichtigungen, Weitere Dienste und Monitoring (jetzt als Bereich eingebettet).
-- Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/privacy`, `/llmitmir/admin/models` …), Verweise aus anderen
-  Seiten springen direkt dorthin. Auf dem Handy wird die Liste zur waagerechten Leiste. Ungespeicherte Änderungen bleiben
-  beim Wechsel der Bereiche erhalten; Speichern und Verwerfen stehen in einer Leiste unten. Gespeichert wird wie bisher –
-  an den Einstellungen selbst und am Backend ändert sich nichts.
+- **Einstellungen wie bei Claude:** Persönliche und Admin-Einstellungen sind in Bereiche geteilt – links die Liste,
+  rechts Gruppen aus Zeilen mit kurzer Erklärung und Schalter, Auswahl oder Eingabe; lange Erklärungen hinter „Mehr
+  dazu“. Persönlich: Allgemein, Modelle, Funktionen, Benachrichtigungen, Datenschutz & Freigaben, Verbrauch,
+  API-Schlüssel (nur wenn nötig) und Import aus Claude. Admin: Personen, Anbieter & Schlüssel, Modelle, Externe Modelle &
+  Kosten, Zugänge & Konnektoren, Skills, Werkbank, Benachrichtigungen, Weitere Dienste und Monitoring.
+- Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/privacy`, `/llmitmir/admin/models` …); auf dem Handy wird die
+  Liste zur waagerechten Leiste. Ungespeicherte Änderungen bleiben beim Wechsel der Bereiche erhalten.
+
+### Behoben
+- Home Assistant meldete beim Öffnen des Panels einen blockierenden Aufruf: `edge_tts` wird nicht mehr im Event-Loop
+  importiert.
 
 ## 1.1.1 – Sicherheitskorrektur Zugänge
 

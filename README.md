@@ -21,6 +21,9 @@ OpenAI-compatible provider (preset: GWDG / KISSKI SAIA).*
 - **Dashboards** aus Kacheln – Daten live aus Home Assistant oder aus geplanten Läufen
 - **Projekte, Skills, Teilaufgaben** und eine Lebensdauer für Chats
 - **Mehrere Personen** mit getrennten Daten, Schlüsseln und Kontingenten; einfache Ansicht für Laien, Expertenansicht
+- **Kontrolle für Admins:** Zugriffsprotokoll mit Monitoring (Agenten anhalten, Freigaben entziehen, Export an Webhook
+  oder Syslog), **Konnektoren** mit Datenregeln und **MCP-Servern**, zentrale Skills und Skill-Richtlinien,
+  Wartungsmodus vor Neustarts, optional Nutzerverwaltung mit **Active Directory / LDAP**
 - **Optional:** externe Claude-Modelle als kostenpflichtiger Notfall und die **Werkbank** für Programme in Sandboxen
 
 Alles im Detail: [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md) · Werkzeuge: [docs/WERKZEUGE.md](docs/WERKZEUGE.md)
@@ -48,7 +51,12 @@ Voraussetzung: Home Assistant **2025.1** oder neuer. Python-Pakete (werden autom
   Anfragen an externe Modelle (Claude oder Modelle, die der Hauptanbieter als extern kennzeichnet) nur, wenn der Admin
   sie freigibt und die Person zustimmt.
 - **Das Modell sieht nie ein Geheimnis.** Zugänge gehen nur an ihre eigenen Server; für jeden anderen fragt LLMitMir
-  (Übersicht: *Einstellungen → Datenschutz & Freigaben → Erlaubte Server*).
+  (Übersicht: *Einstellungen → Datenschutz & Freigaben → Erlaubte Server*). Jeder Zugang braucht in jedem Chat die
+  Freigabe der Person; zentrale Systemzugänge sind ohne Erlaubnis des Admins gesperrt.
+- **Interne Daten bleiben intern:** Ein Chat, der Daten aus einem nur intern freigegebenen Zugang gelesen hat, nimmt
+  kein externes Modell mehr an. Datenregeln je Konnektor sperren Inhalte, bevor ein Werkzeug sie abruft.
+- **Nachvollziehbar:** Das Zugriffsprotokoll hält fest, welcher Agent mit welchem Zugang worauf zugegriffen hat – nur
+  Metadaten, nie Inhalte; sichtbar nur für Admins (*Admin → Monitoring*).
 - **Nichts geschieht ungefragt:** Schreibende Aktionen brauchen eine Freigabe, geplante Aufgaben dürfen nur, was beim
   Anlegen erlaubt wurde. Ändert jemand eine geteilte Aufgabe, läuft sie erst nach Bestätigung der Eigentümerin oder
   des Eigentümers. Home-Assistant-Werkzeuge laufen mit den Rechten der Person.
@@ -85,6 +93,9 @@ GitHub ist ein Spiegel. Bauen, Tests, CI und Aufbau: [docs/ENTWICKLUNG.md](docs/
 - **Dashboards** made of tiles – data live from Home Assistant or from scheduled runs
 - **Projects, skills, subtasks** and an optional lifetime for chats
 - **Several people** with separate data, keys and quotas; a simple view for non-technical users and an expert view
+- **Control for admins:** access log with monitoring (stop agents, revoke approvals, export to webhook or syslog),
+  **connectors** with data rules and **MCP servers**, central skills and skill policies, maintenance mode before
+  restarts, optional user management with **Active Directory / LDAP**
 - **Optional:** external Claude models as a paid fallback and the **Werkbank** (workbench) for running programs in sandboxes
 
 All details (German): [docs/FUNKTIONEN.md](docs/FUNKTIONEN.md) · Tools: [docs/WERKZEUGE.md](docs/WERKZEUGE.md)
@@ -111,7 +122,12 @@ Requires Home Assistant **2025.1** or newer. Python packages (installed automati
   to Microsoft Edge's read-aloud service (can be switched off under *Admin → Other services → Speech output*); requests to external
   models (Claude, or models the main provider marks as external) only if the admin releases them and the person agrees.
 - **The model never sees a secret.** Credentials only go to their own servers; for any other server LLMitMir asks first
-  (overview: *Settings → Allowed servers*).
+  (overview: *Settings → Privacy & approvals → Allowed servers*). Every credential needs the person's approval in every
+  chat; central system credentials stay locked unless the admin allows them.
+- **Internal data stays internal:** a chat that has read data from a credential released for internal models only no
+  longer accepts an external model. Data rules per connector block content before a tool fetches it.
+- **Traceable:** the access log records which agent used which credential to access what – metadata only, never
+  content; visible to admins only (*Admin → Monitoring*).
 - **Nothing happens unasked:** actions that change something need approval, scheduled tasks may only do what was
   allowed when they were created. If someone changes a shared task, it only runs again once its owner approves.
   Home Assistant tools run with the person's own permissions.
