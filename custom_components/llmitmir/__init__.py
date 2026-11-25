@@ -144,9 +144,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 from .ws import _idm_plan
 
                 actions, _n = await _idm_plan(hass, manager)
+                from . import audit as AU
                 from . import idm as IDM
 
-                await IDM.apply(hass, manager, actions)
+                res = await IDM.apply(hass, manager, actions)
+                # wie der Abgleich von Hand: ins Zugriffsprotokoll (nur Zähler, keine Namen)
+                manager.audit.record(AU.EV_ADMIN, {"id": "system-idm", "kind": "admin", "owner": ""}, "", tool="idm_sync",
+                                     target={"object": AU.clip(", ".join(f"{k} {v}" for k, v in res["counts"].items())
+                                                               or "keine Änderung", 120)},
+                                     outcome="error" if res["errors"] else "ok", decision="auto")
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Abgleich mit dem Verzeichnis fehlgeschlagen")
 

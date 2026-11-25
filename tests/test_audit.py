@@ -248,3 +248,14 @@ def test_placeholder_names_are_found_as_they_are_resolved():
     find = lambda n: next((c for c in creds.values() if c["name"].casefold() == n.strip().casefold()), None)  # noqa: E731
     desc = AU.describe_call("http_request", "http", {"url": "https://x.example/a", "header": {"A": "{{cred:Cloud\t:p}}"}}, find)
     assert [c["id"] for c in desc["creds"]] == ["k1"]
+
+
+def test_changed_admin_sections_are_named_without_values():
+    cfg = {"credentials_policy": {"lock_chats": True}, "audit": {"retention_days": 180}, "shared_key": "alt"}
+    before = AU.config_snapshot(cfg)
+    assert AU.changed_sections(before, cfg) == []
+    cfg["credentials_policy"] = {"lock_chats": False}
+    cfg["shared_key"] = SECRET_TEXT
+    cfg["idm"] = {"enabled": False}
+    changed = AU.changed_sections(before, cfg)
+    assert changed == ["credentials_policy", "idm", "shared_key"] and SECRET_TEXT not in json.dumps(changed)
