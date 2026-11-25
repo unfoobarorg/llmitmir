@@ -227,7 +227,7 @@ async def flow_start(session, base: str) -> dict:
     if not (login and endpoint and token):
         raise ValueError("Unerwartete Antwort der Nextcloud auf den Login Flow.")
     for u in (login, endpoint):
-        if C.host_of(u) != C.host_of(base):
+        if not str(u).startswith("https://") or C.host_of(u) != C.host_of(base):
             raise ValueError("Die Nextcloud verweist für den Login auf einen anderen Server – abgebrochen.")
     return {"login": login, "endpoint": endpoint, "token": token}
 
