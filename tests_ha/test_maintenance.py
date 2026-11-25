@@ -73,3 +73,22 @@ async def test_restart_happens_when_asked(hass, llmitmir):
             if calls:
                 break
     assert calls and m.maintenance.state["state"] == "ready"
+
+
+async def test_maintenance_services_are_for_admins_only(hass, llmitmir, hass_admin_user, hass_read_only_user):
+    """Die Wartung sperrt LLMitMir für alle und kann neu starten: nur Admins (und Automationen ohne Person)."""
+    import pytest
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+
+    m = llmitmir["manager"]
+    for service, data in (("prepare_restart", {"minutes": 5, "restart": True}), ("cancel_restart", {})):
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(DOMAIN, service, data, blocking=True, return_response=True,
+                                           context=Context(user_id=hass_read_only_user.id))
+    assert m.maintenance.state.get("state") in (None, "off") and not m.maintenance.blocks()
+    res = await hass.services.async_call(DOMAIN, "prepare_restart", {"minutes": 5}, blocking=True, return_response=True,
+                                         context=Context(user_id=hass_admin_user.id))
+    assert res["state"] == "announced"
+    await hass.services.async_call(DOMAIN, "cancel_restart", {}, blocking=True, return_response=True)
+    assert not m.maintenance.blocks()
