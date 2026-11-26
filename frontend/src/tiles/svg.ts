@@ -1,4 +1,5 @@
 // Small drawing core for the tiles: scales, nice ticks, paths, arcs and number/time formatting.
+import { t, isDe, dateLocale } from "../i18n";
 // No chart library – the tiles only need lines, areas, bars, donuts, gauges and a risk matrix.
 
 // Series colours: a validated categorical order (colour-blind safe neighbours), separately stepped for dark mode.
@@ -59,40 +60,40 @@ export function fmtNumber(v: number, decimals?: number): string {
   if (v === null || v === undefined || !isFinite(v)) return "–";
   const abs = Math.abs(v);
   const d = decimals ?? (abs >= 100 || Number.isInteger(v) ? 0 : abs >= 10 ? 1 : 2);
-  if (abs >= 1e6) return (v / 1e6).toLocaleString("de-DE", { maximumFractionDigits: 1 }) + " Mio.";
-  return v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (abs >= 1e6) return (v / 1e6).toLocaleString(dateLocale(), { maximumFractionDigits: 1 }) + (isDe() ? " Mio." : "M");
+  return v.toLocaleString(dateLocale(), { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
 export function fmtTick(v: number): string {
   const abs = Math.abs(v);
-  if (abs >= 1e6) return (v / 1e6).toLocaleString("de-DE", { maximumFractionDigits: 1 }) + "M";
-  if (abs >= 1e4) return (v / 1e3).toLocaleString("de-DE", { maximumFractionDigits: 0 }) + "k";
-  return v.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+  if (abs >= 1e6) return (v / 1e6).toLocaleString(dateLocale(), { maximumFractionDigits: 1 }) + "M";
+  if (abs >= 1e4) return (v / 1e3).toLocaleString(dateLocale(), { maximumFractionDigits: 0 }) + "k";
+  return v.toLocaleString(dateLocale(), { maximumFractionDigits: 2 });
 }
 
 /** Label for a time on an axis, depending on the span shown. */
 export function fmtAxisTime(ts: number, span: number): string {
   const d = new Date(ts * 1000);
-  if (span <= 2 * 86400) return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  if (span <= 120 * 86400) return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
-  return d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+  if (span <= 2 * 86400) return d.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
+  if (span <= 120 * 86400) return d.toLocaleDateString(dateLocale(), { day: "2-digit", month: "2-digit" });
+  return d.toLocaleDateString(dateLocale(), { month: "short", year: "2-digit" });
 }
 
 export function fmtWhen(ts?: number | null): string {
   if (!ts) return "";
   const d = new Date(ts * 1000), now = new Date();
-  const hm = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const hm = d.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
   if (d.toDateString() === now.toDateString()) return hm;
-  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " " + hm;
+  return d.toLocaleDateString(dateLocale(), { day: "2-digit", month: "2-digit" }) + " " + hm;
 }
 
 /** "vor 5 min" – for the „aktualisiert“ line of a tile. */
 export function ago(ts?: number | null): string {
   if (!ts) return "";
   const s = Math.max(0, Date.now() / 1000 - ts);
-  if (s < 60) return "gerade eben";
-  if (s < 3600) return `vor ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `vor ${Math.floor(s / 3600)} h`;
+  if (s < 60) return t("gerade eben");
+  if (s < 3600) return t("vor {n} min", { n: Math.floor(s / 60) });
+  if (s < 86400) return t("vor {n} h", { n: Math.floor(s / 3600) });
   return fmtWhen(ts);
 }
 

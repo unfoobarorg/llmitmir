@@ -6,6 +6,7 @@ import {
   arcPath, areaPath, barPath, domainOf, fmtAxisTime, fmtNumber, fmtTick, fmtWhen, linePath, niceTicks, scale, seriesColor,
 } from "./svg";
 import { cellClass, cellColor } from "./table";
+import { t, dateLocale } from "../i18n";
 
 export interface Ctx {
   w: number; h: number;          // content area in px
@@ -83,7 +84,7 @@ function chart(rec: any, c: Ctx) {
     return p ? `${s.name}: ${fmtNumber(p[1])}${d.y_unit ? " " + d.y_unit : ""}` : "";
   }).filter(Boolean).join("\n");
   const bw = Math.max(2, (band - 2) / series.length - 2);
-  return html`<svg class="chart" width=${W} height=${H} viewBox="0 0 ${W} ${H}" role="img" aria-label=${rec.headline || "Diagramm"}>
+  return html`<svg class="chart" width=${W} height=${H} viewBox="0 0 ${W} ${H}" role="img" aria-label=${rec.headline || t("Diagramm")}>
     ${ticks.map(t => svg`<line x1=${pad.l} x2=${W - pad.r} y1=${y(t)} y2=${y(t)} class="grid"></line>
       <text x=${pad.l - 5} y=${y(t) + 3.5} class="ax" text-anchor="end">${fmtTick(t)}</text>`)}
     ${xt.map((t, i) => svg`<text x=${x(t)} y=${H - 4} class="ax"
@@ -169,24 +170,24 @@ function progress(rec: any, c: Ctx) {
 // ------------------------------------------------------------------ alert / list / table / text
 function alert(rec: any) {
   const items: any[] = rec.data?.items || [];
-  if (!items.length) return html`<div class="calm">${icon("check", 22)}<span>Alles ruhig</span></div>`;
+  if (!items.length) return html`<div class="calm">${icon("check", 22)}<span>${t("Alles ruhig")}</span></div>`;
   return html`<div class="alerts">${items.map(i => {
     const [ic, col, label] = SEV[i.severity] || SEV.info;
-    return html`<div class="al" style="--sev:${col}">${icon(ic, 18)}<div class="grow"><div class="at"><b>${i.title}</b><span class="sevl">${label}</span></div>
+    return html`<div class="al" style="--sev:${col}">${icon(ic, 18)}<div class="grow"><div class="at"><b>${i.title}</b><span class="sevl">${t(label)}</span></div>
       ${i.text ? html`<div class="ad">${i.text}</div>` : nothing}
-      <div class="am">${i.since ? html`<span>seit ${fmtWhen(i.since)}</span>` : nothing}${link(i.url)}</div></div></div>`;
+      <div class="am">${i.since ? html`<span>${t("seit {x}", { x: fmtWhen(i.since) })}</span>` : nothing}${link(i.url)}</div></div></div>`;
   })}</div>`;
 }
 
 function list(rec: any, c: Ctx) {
   const max = Number(c.options.max_items) || 50;
   const items: any[] = (rec.data?.items || []).slice(0, max);
-  if (!items.length) return html`<div class="calm">${icon("check", 22)}<span>Nichts offen</span></div>`;
+  if (!items.length) return html`<div class="calm">${icon("check", 22)}<span>${t("Nichts offen")}</span></div>`;
   return html`<ul class="items">${items.map(i => {
     const [ic, col] = STATE[i.state] || ["mdi:circle-small", "var(--lm-faint)"];
-    return html`<li class=${i.state === "erledigt" ? "done" : ""}><span style="color:${col}" title=${i.state || ""}>${icon(ic, 16)}</span>
+    return html`<li class=${i.state === "erledigt" ? "done" : ""}><span style="color:${col}" title=${i.state ? t(i.state) : ""}>${icon(ic, 16)}</span>
       <div class="grow"><div class="it">${i.title}</div>${(i.meta && c.options.show_meta !== false) || i.url ? html`<div class="im">${i.meta || ""} ${link(i.url)}</div>` : nothing}</div>
-      ${i.state ? html`<span class="chip st-${i.state}">${i.state}</span>` : nothing}</li>`;
+      ${i.state ? html`<span class="chip st-${i.state}">${t(i.state)}</span>` : nothing}</li>`;
   })}</ul>`;
 }
 
@@ -207,7 +208,7 @@ function table(rec: any, c: Ctx) {
   if (sort?.key) {
     rows.sort((a, b) => {
       const x = a[sort.key], y = b[sort.key];
-      const r = typeof x === "number" && typeof y === "number" ? x - y : String(x ?? "").localeCompare(String(y ?? ""), "de");
+      const r = typeof x === "number" && typeof y === "number" ? x - y : String(x ?? "").localeCompare(String(y ?? ""), dateLocale());
       return sort.dir === "asc" ? r : -r;
     });
   }
@@ -244,7 +245,7 @@ function matrix(rec: any, c: Ctx) {
     const here = items.filter(i => i.x === x && i.y === y).map(i => "• " + i.title);
     return `${d.axes?.x || "x"} ${x}, ${d.axes?.y || "y"} ${y} – Risiko ${zone(x, y)[1]}` + (here.length ? "\n" + here.join("\n") : "");
   };
-  return html`<svg class="matrix" width=${side + lab + 2} height=${side + lab + 2} role="img" aria-label="Risikomatrix">
+  return html`<svg class="matrix" width=${side + lab + 2} height=${side + lab + 2} role="img" aria-label=${t("Risikomatrix")}>
     ${[1, 2, 3, 4, 5].flatMap(x => [1, 2, 3, 4, 5].map(y => {
       const n = cells.find(q => q.x === x && q.y === y)?.count || 0;
       const [col] = zone(x, y);
@@ -253,12 +254,12 @@ function matrix(rec: any, c: Ctx) {
           class="hit-mark" data-tip=${tip(x, y)}></rect>
         ${n ? svg`<text x=${px + cs / 2} y=${py + cs / 2 + 5} text-anchor="middle" class="mv">${n}</text>` : nothing}`;
     }))}
-    <text x=${lab + side / 2} y=${side + lab - 2} text-anchor="middle" class="ax">${d.axes?.x || "Wahrscheinlichkeit"} →</text>
-    <text x="11" y=${side / 2} text-anchor="middle" class="ax" transform="rotate(-90 11 ${side / 2})">${d.axes?.y || "Auswirkung"} →</text></svg>`;
+    <text x=${lab + side / 2} y=${side + lab - 2} text-anchor="middle" class="ax">${d.axes?.x || t("Wahrscheinlichkeit")} →</text>
+    <text x="11" y=${side / 2} text-anchor="middle" class="ax" transform="rotate(-90 11 ${side / 2})">${d.axes?.y || t("Auswirkung")} →</text></svg>`;
 }
 
 function empty(): TemplateResult {
-  return html`<div class="calm muted">${icon("mdi:timer-sand", 20)}<span>Noch keine Daten</span></div>`;
+  return html`<div class="calm muted">${icon("mdi:timer-sand", 20)}<span>${t("Noch keine Daten")}</span></div>`;
 }
 
 export function renderKind(kind: string, rec: any, c: Ctx): unknown {

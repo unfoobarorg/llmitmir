@@ -23,7 +23,7 @@ import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, menuItemStyles, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
-import { t } from "./i18n";
+import { t, tb, dateLocale } from "./i18n";
 import { defaultLabel, modelName } from "./modelpick";
 import { confirmExternal, isExternal } from "./external";
 import { Robot3D, type RobotState } from "./robot3d";
@@ -168,7 +168,7 @@ export class Voice extends StoreElement {
   firstUpdated() {
     const canvas = this.renderRoot.querySelector("canvas") as HTMLCanvasElement | null;
     try {
-      if (!canvas || !Robot3D.supported()) throw new Error("kein WebGL");
+      if (!canvas || !Robot3D.supported()) throw new Error(t("kein WebGL"));
       const r = this.robot = new Robot3D(canvas, this.isDark());
       r.state = "hello"; r.enter();
       r.onFrame = now => {
@@ -235,7 +235,7 @@ export class Voice extends StoreElement {
     if (this.speaker && this.tts) this.speaker.choice = ttsChoice(this.tts, this.cfg.tts, this.locale);
   }
 
-  private get locale(): string { return store.api?.hass?.language || "de"; }
+  private get locale(): string { return dateLocale(); }
 
   // ---------------------------------------------------------------- Gespräch beginnen und beenden
   private get name(): string { return String(store.data?.settings?.voice_name || ""); }
@@ -469,15 +469,15 @@ export class Voice extends StoreElement {
       const ans = permAnswer(a.hit ? a.rest : text);
       this.notAdding();
       if (!ans) {
-        if (this.permTries++ < 1) this.ack("Sag bitte Ja oder Nein.");
+        if (this.permTries++ < 1) this.ack(t("Sag bitte Ja oder Nein."));
         return;
       }
       const always = ans === "always" && !perm.change && !perm.steps;
       this.permText = "";
       store.api.ws("permission/answer", { permission_id: perm.id, decision: ans === "no" ? "deny" : always ? "always" : "once" })
         .catch((e: any) => this.fail(String(e?.message || e)));
-      if (ans === "no") this.ack("Gut, dann nicht.");
-      else if (always) this.ack("Alles klar, das merke ich mir.");
+      if (ans === "no") this.ack(t("Gut, dann nicht."));
+      else if (always) this.ack(t("Alles klar, das merke ich mir."));
       return;
     }
     // 3. LLMitMir sprach gerade: nur Stopp oder die Anrede zählen, alles andere war nicht für es bestimmt
@@ -485,13 +485,13 @@ export class Voice extends StoreElement {
       const stop = isStop(text) || (a.hit && (!a.rest || isStop(a.rest)));
       if (!stop && !a.hit) return;
       this.interrupt();
-      if (stop) return this.ack("Okay.");
+      if (stop) return this.ack(t("Okay."));
       return this.sendText(a.rest);
     }
     // 4. LLMitMir arbeitet still: Stopp bricht ab, alles andere ist ein Nachsatz
     if (h.phase === "waiting" && (isStop(text) || (a.hit && isStop(a.rest)))) {
       this.interrupt();
-      return this.ack("Okay, ich höre auf.");
+      return this.ack(t("Okay, ich höre auf."));
     }
     // 5. Bereitschaft: nur wer den Namen sagt, meint LLMitMir
     if (h.standby) {
@@ -609,7 +609,7 @@ export class Voice extends StoreElement {
       const prog = store.chats.get(this.chatId || "")?.progress || [];
       const step = prog.find((p: any) => p.status === "laeuft");
       this.doing = step?.text ? `${step.text} …`
-        : DOING[d.tool ? store.data?.tools?.[d.tool]?.group : ""] || (isSimple() || !d.label ? "Ich schaue nach …" : `${d.label} …`);
+        : DOING[d.tool ? store.data?.tools?.[d.tool]?.group : ""] || (isSimple() || !d.label ? t("Ich schaue nach …") : `${tb(d.label)} …`);
     }
     let ph: Phase;
     if (this.speaker?.busy && !this.speaker.hold) ph = "speaking";
@@ -646,7 +646,7 @@ export class Voice extends StoreElement {
     // Wer nach dem Start nichts sagt, wird begrüßt (oder hört, wo der übernommene Chat stand)
     if (this.greetAt && now >= this.greetAt && quietListening && !this.naming) {
       this.greetAt = 0;
-      this.ack(this.resume || "Hallo! Was kann ich für dich tun?"); this.resume = "";
+      this.ack(this.resume || t("Hallo! Was kann ich für dich tun?")); this.resume = "";
     }
     // Die Bitte von eben ist erledigt: jetzt (noch einmal) nach dem Namen fragen
     if (this.askName && quietListening && !this.name && now - this.lastWord > 1500
@@ -676,15 +676,15 @@ export class Voice extends StoreElement {
 
   /** Die Freigabe-Frage in Worten – was genau erlaubt werden soll und wie man antwortet. */
   private permQuestion(p: any): string {
-    const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change?.aktion] || "ändern";
-    const what = p.change ? t("Soll ich {w} „{n}“ {v}?", { w: CHANGE_WHAT[p.change.art] || p.change.art, n: p.change.name, v: verb })
+    const verb = ({ anlegen: t("anlegen"), aendern: t("ändern"), loeschen: t("löschen") } as any)[p.change?.aktion] || t("ändern");
+    const what = p.change ? t("Soll ich {w} „{n}“ {v}?", { w: t(CHANGE_WHAT[p.change.art] || p.change.art), n: p.change.name, v: verb })
       : p.steps || p.tool === "more_steps" ? t("Das waren schon viele Schritte. Soll ich weitermachen?")
       : p.cred ? t("Darf ich deinen Zugang {n} verwenden?", { n: p.cred })
-      : p.group ? t("Darf ich dafür {g} benutzen?", { g: p.group_label || p.group })
-      : t("Darf ich das tun: {l}?", { l: p.label || p.tool });
+      : p.group ? t("Darf ich dafür {g} benutzen?", { g: tb(p.group_label) || p.group })
+      : t("Darf ich das tun: {l}?", { l: tb(p.label) || p.tool });
     if (p.change || p.steps || p.tool === "more_steps") return `${what} ${t("Sag Ja oder Nein.")}`;
     // die ersten Male erklären, was „immer“ bedeutet; danach genügt die kurze Form
-    return `${what} ${t(this.permCount++ < 2 ? "Sag Ja, Nein – oder Immer, dann frage ich in Gesprächen nicht mehr danach." : "Ja, Nein oder Immer?")}`;
+    return `${what} ${t(this.permCount++ < 2 ? t("Sag Ja, Nein – oder Immer, dann frage ich in Gesprächen nicht mehr danach.") : t("Ja, Nein oder Immer?"))}`;
   }
 
   // ---------------------------------------------------------------- Anzeige
@@ -701,7 +701,7 @@ export class Voice extends StoreElement {
     if (this.phase !== "waiting") return nothing;
     if (this.mic?.hearing && this.mic.enabled) return t("Ich höre zu");
     if (run?.status === "retry" || run?.status === "quota_wait") return html`${t("Gerade ist viel los – einen Moment")}<span class="dots"></span>`;
-    if (this.pose === "researching") return t(this.doing || "Ich schaue nach …");
+    if (this.pose === "researching") return t(this.doing || t("Ich schaue nach …"));
     if (this.pose === "thinking") return html`${t("Ich überlege noch")}<span class="dots"></span>`;
     return nothing;
   }
@@ -710,16 +710,16 @@ export class Voice extends StoreElement {
     const p = this.perm(); if (!p) return nothing;
     const answer = (decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision }).catch((e: any) => store.notify(String(e?.message || e)));
     const del = p.change?.aktion === "loeschen";
-    const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change?.aktion] || p.change?.aktion;
+    const ask: Record<string, string> = { anlegen: "Soll ich {what} {name} anlegen?", aendern: "Soll ich {what} {name} ändern?", loeschen: "Soll ich {what} {name} löschen?" };
     return html`<div class="perm">
-      <div>${p.change ? html`Soll ich ${CHANGE_WHAT[p.change.art] || p.change.art} <b>„${p.change.name}“</b> ${verb}?`
-        : p.group ? html`Darf ich dafür <b>${p.group_label || p.group}</b> benutzen?`
-        : html`Darf ich das tun? <b>${p.label}</b>`}</div>
-      ${p.group && p.label ? html`<div class="hint">${p.label}</div>` : nothing}
+      <div>${p.change ? t(ask[p.change.aktion] || ask.aendern, { what: t(CHANGE_WHAT[p.change.art] || p.change.art), name: `„${p.change.name}“` })
+        : p.group ? t("Darf ich dafür {g} benutzen?", { g: tb(p.group_label) || p.group })
+        : html`${t("Darf ich das tun?")} <b>${tb(p.label)}</b>`}</div>
+      ${p.group && p.label ? html`<div class="hint">${tb(p.label)}</div>` : nothing}
       ${p.steps ? nothing : html`<div class="hint">${t("Du kannst auch einfach antworten: Ja, Nein – oder Immer. Einmal Ja gilt für den Rest des Gesprächs.")}</div>`}
-      <div class="brow"><button class="btn primary" @click=${() => answer("once")}>${icon("check", 16)} ${del ? "Ja, löschen" : "Ja"}</button>
+      <div class="brow"><button class="btn primary" @click=${() => answer("once")}>${icon("check", 16)} ${del ? t("Ja, löschen") : t("Ja")}</button>
         ${p.change || p.steps ? nothing : html`<button class="btn" @click=${() => answer("always")}>${t("Immer")}</button>`}
-        <button class="btn" @click=${() => answer("deny")}>Nein</button>
+        <button class="btn" @click=${() => answer("deny")}>${t("Nein")}</button>
         <button class="btn ghost" @click=${() => { const id = this.chatId; this.endSession(); navigate(`/chat/${id}`); }}>${icon("eye", 16)} ${t("Im Chat ansehen")}</button></div></div>`;
   }
 

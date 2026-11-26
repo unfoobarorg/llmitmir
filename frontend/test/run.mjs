@@ -14,6 +14,8 @@ try {
   await build({
     entryPoints: tests.map(f => join(here, f)), outdir: out, bundle: true, platform: "node", format: "esm",
     target: "node20", outExtension: { ".js": ".mjs" }, logLevel: "warning",
+    external: ["typescript"],  // i18n.test.ts liest die Quellen mit dem TypeScript-Parser
+    loader: { ".md": "text" },
   });
   const files = readdirSync(out).filter(f => f.endsWith(".mjs")).map(f => join(out, f));
   const res = spawnSync(process.execPath, ["--test", ...files], { stdio: "inherit", env: { ...process.env, TZ: "Europe/Berlin" } });

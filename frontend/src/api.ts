@@ -1,5 +1,6 @@
 // Websocket/HTTP access and the shared client-side state.
 import { builtVersion, isStale } from "./version";
+import { lang, setLang, t, tb } from "./i18n";
 
 // Version, mit der dieses Skript geladen wurde (aus seiner eigenen Adresse)
 const BUILT = builtVersion(import.meta.url);
@@ -9,7 +10,11 @@ export type Hass = any;
 export class Api {
   constructor(public hass: Hass) {}
   ws<T = any>(type: string, data: Record<string, any> = {}): Promise<T> {
-    return this.hass.connection.sendMessagePromise({ type: `llmitmir/${type}`, ...data });
+    // Fehlermeldungen des Servers sind deutsch – hier einmal zentral in die Sprache der Oberfläche
+    return this.hass.connection.sendMessagePromise({ type: `llmitmir/${type}`, ...data }).catch((e: any) => {
+      if (e && typeof e.message === "string") e.message = tb(e.message);
+      throw e;
+    });
   }
   subscribe(cb: (e: any) => void): Promise<() => Promise<void>> {
     return this.hass.connection.subscribeMessage(cb, { type: "llmitmir/subscribe" });
@@ -30,9 +35,9 @@ export class Api {
         try { r = await this.hass.fetchWithAuth("/api/llmitmir/upload", { method: "POST", body: fd }); if (r!.status < 500) break; } catch { /* retry */ }
         await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
       }
-      if (!r) throw new Error("Upload fehlgeschlagen");
+      if (!r) throw new Error(t("Upload fehlgeschlagen"));
       last = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(last.message || (r.status === 413 ? "Datei zu groß für den Webserver" : `HTTP ${r.status}`));
+      if (!r.ok) throw new Error(tb(last.message) || (r.status === 413 ? t("Datei zu groß für den Webserver") : `HTTP ${r.status}`));
       onProgress?.(Math.min(file.size, (i + 1) * CHUNK), file.size);
     }
     return last;
@@ -51,7 +56,7 @@ export class Api {
   /** Datei als Blob samt Inhaltstyp – Grundlage für den Betrachter (Bild, PDF, Text, Ton, Video). */
   async fileBlob(scope: string, owner: string, name: string): Promise<{ blob: Blob; type: string }> {
     const r = await this.hass.fetchWithAuth(this.filePath(scope, owner, name));
-    if (!r.ok) throw new Error(r.status === 404 ? "Datei nicht gefunden" : `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(r.status === 404 ? t("Datei nicht gefunden") : `HTTP ${r.status}`);
     return { blob: await r.blob(), type: (r.headers.get("content-type") || "").split(";")[0].trim() };
   }
   /** Vorschau einer PDF-Seite (oder eines HEIC/TIFF-Bildes) als JPEG – die mobilen Apps stellen PDFs nicht selbst dar. */
@@ -63,7 +68,7 @@ export class Api {
   /** Word- und Excel-Dateien als fertig maskiertes HTML (docpreview.py) – für den Betrachter. */
   async docHtml(scope: string, owner: string, name: string): Promise<string> {
     const r = await this.hass.fetchWithAuth(`/api/llmitmir/doc/${scope}/${owner}/${name.split("/").map(encodeURIComponent).join("/")}`);
-    if (!r.ok) throw new Error(r.status === 415 ? "Keine Vorschau möglich" : `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(r.status === 415 ? t("Keine Vorschau möglich") : `HTTP ${r.status}`);
     return await r.text();
   }
   async fileUrl(scope: string, owner: string, name: string): Promise<string> {
@@ -72,7 +77,7 @@ export class Api {
   async transcribe(wav: Blob): Promise<string> {
     const r = await this.hass.fetchWithAuth("/api/llmitmir/transcribe", { method: "POST", body: wav, headers: { "Content-Type": "audio/wav" } });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
+    if (!r.ok) throw new Error(tb(j.message) || `HTTP ${r.status}`);
     return j.text || "";
   }
 }
@@ -108,6 +113,14 @@ export class Store extends EventTarget {
   private firstVersion = "";
   async load() {
     this.data = await this.api.ws("bootstrap");
+    // Sprache: Wahl in den Einstellungen, „Automatisch“ folgt Home Assistant
+    setLang(this.data?.settings?.language || "auto", this.api.hass?.language);
+    // Push-Nachrichten und Sprachausgabe kommen vom Server – er erfährt so die Sprache, die hier wirklich gilt
+    const ui = lang();
+    if (this.data?.settings && this.data.settings.ui_lang !== ui) {
+      this.data.settings.ui_lang = ui;
+      this.api.ws("settings/save", { settings: { ui_lang: ui } }).catch(() => { /* nicht wichtig genug für eine Meldung */ });
+    }
     const server = String(this.data?.version || "");
     this.firstVersion = this.firstVersion || server;
     this.newVersion = isStale(BUILT, this.firstVersion, server) ? server : "";

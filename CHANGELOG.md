@@ -2,6 +2,17 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## Unveröffentlicht – Sprachauswahl, durchgängig Englisch
+
+- **Sprachauswahl** unter *Einstellungen → Allgemein → Sprache*: Deutsch, English oder „Automatisch“ (folgt dem Profil
+  in Home Assistant). Weitere Sprachen brauchen nur eine Datei `locales/<code>.json` (siehe docs/ENTWICKLUNG.md).
+- **Englisch durchgängig:** Bisher waren viele Texte trotz englischer Oberfläche deutsch. Jetzt sind alle Seiten,
+  Dialoge, Karten und Hinweise übersetzt, ebenso Fehlermeldungen und Hinweise des Servers (Zeitpläne, Prüfungen der
+  Zugänge, Werkzeugnamen, Kontingente), Push-Nachrichten, Datum und Zahlen, der Prompt für den Import aus Claude und die
+  Anleitung zur Werkbank (docs/WERKBANK.en.md).
+- Die Modelle antworten in der gewählten Sprache; Spracheingabe und Sprachgespräch folgen ihr.
+- Neue Tests verhindern deutsche Texte ohne Übersetzung im Panel und in den Meldungen des Servers.
+
 ## 2.1.0 – Plugins-Seite, geführte Einrichtung von Konnektoren, richtige Kontextgröße
 
 Skills, Konnektoren und Zugänge liegen jetzt zusammen auf der neuen Seite *Plugins*. Konnektoren lassen sich in einem

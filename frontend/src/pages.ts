@@ -3,7 +3,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, fmtTime, daysText, confirmDialog, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
-import { t } from "./i18n";
+import { t, tb } from "./i18n";
 import { defaultLabel } from "./modelpick";
 import { draftNew, draftProject, type SendDetail } from "./composer";
 import { explainer, explainerCss, more } from "./simple";
@@ -17,7 +17,7 @@ export async function startChat(d: SendDetail) {
   if (d.files.length) names = (await store.api.upload("chat", chat.id, d.files)).files.map((f: any) => f.name);
   store.chats.set(chat.id, { ...chat, messages: [], progress: [], usage: {} });
   navigate(`/chat/${chat.id}`);
-  await store.api.ws("chat/send", { chat_id: chat.id, text: d.text || "(siehe Anhang)", attachments: names, model: d.model });
+  await store.api.ws("chat/send", { chat_id: chat.id, text: d.text || "(siehe Anhang)", attachments: names, model: d.model });  // i18n-ok: Kennung, wird nie angezeigt
 }
 
 function greeting() {
@@ -73,8 +73,8 @@ export class Home extends StoreElement {
     const mode = simple ? "chat" : this.mode;
     return html`<div class="wrap">
       ${u && !u.has_key ? html`<div class="card nokey row">${icon("key")}<div class="grow">${d.key_mode === "per_user_own"
-        ? html`Trag zuerst deinen API-Schlüssel ein.` : html`Es ist noch kein API-Schlüssel hinterlegt. ${d.user.is_admin ? "Lege ihn unter Admin fest." : "Bitte den Admin, einen einzutragen."}`}</div>
-        <button class="btn" @click=${() => navigate(d.key_mode === "per_user_own" ? "/settings/keys" : "/admin/providers")}>Öffnen</button></div>` : nothing}
+        ? t("Trag zuerst deinen API-Schlüssel ein.") : `${t("Es ist noch kein API-Schlüssel hinterlegt.")} ${d.user.is_admin ? t("Lege ihn unter Admin fest.") : t("Bitte den Admin, einen einzutragen.")}`}</div>
+        <button class="btn" @click=${() => navigate(d.key_mode === "per_user_own" ? "/settings/keys" : "/admin/providers")}>${t("Öffnen")}</button></div>` : nothing}
       <lm-inbox></lm-inbox>
       <h1><lm-spark size="34" .active=${false}></lm-spark>${greeting()}${name ? `, ${name}` : ""}</h1>
       <lm-composer big ?showMode=${!simple} ?showProject=${!simple} .simple=${simple} .mode=${mode} .model=${this.model} .projectId=${this.projectId} .busy=${this.busy}
@@ -85,23 +85,23 @@ export class Home extends StoreElement {
       <div class="sugg">
         <button class="talk" @click=${() => navigate("/voice")}>${icon("voice", 16)} ${t("Gespräch beginnen")}</button>
         ${simple ? html`
-          <button @click=${() => this.fill("Erkläre mir einfach und verständlich: ", "chat")}>${icon("sparkle", 16)} Etwas erklären lassen</button>
-          <button @click=${() => this.fill("Verbessere diesen Text, freundlich und gut verständlich:\n\n", "chat")}>${icon("edit", 16)} Text verbessern</button>
-          <button @click=${() => this.fill("Suche im Internet nach ", "chat")}>${icon("web", 16)} Im Internet suchen</button>
-          <button @click=${() => this.fill("Wie ist es gerade zu Hause? Ist alles in Ordnung?", "chat")}>${icon("home", 16)} Alles ok zu Hause?</button>
-          <button @click=${() => this.fill("Erinnere mich jeden Tag um 8 Uhr an ", "chat")}>${icon("task", 16)} Regelmäßig erinnern</button>
-          <button @click=${() => this.fill("Was kannst du alles für mich tun? Erkläre es mir einfach, mit ein paar Beispielen.", "chat")}>${icon("info", 16)} Was kannst du?</button>`
+          <button @click=${() => this.fill(t("Erkläre mir einfach und verständlich: "), "chat")}>${icon("sparkle", 16)} ${t("Etwas erklären lassen")}</button>
+          <button @click=${() => this.fill(t("Verbessere diesen Text, freundlich und gut verständlich:\n\n"), "chat")}>${icon("edit", 16)} ${t("Text verbessern")}</button>
+          <button @click=${() => this.fill(t("Suche im Internet nach "), "chat")}>${icon("web", 16)} ${t("Im Internet suchen")}</button>
+          <button @click=${() => this.fill(t("Wie ist es gerade zu Hause? Ist alles in Ordnung?"), "chat")}>${icon("home", 16)} ${t("Alles ok zu Hause?")}</button>
+          <button @click=${() => this.fill(t("Erinnere mich jeden Tag um 8 Uhr an "), "chat")}>${icon("task", 16)} ${t("Regelmäßig erinnern")}</button>
+          <button @click=${() => this.fill(t("Was kannst du alles für mich tun? Erkläre es mir einfach, mit ein paar Beispielen."), "chat")}>${icon("info", 16)} ${t("Was kannst du?")}</button>`
         : this.mode === "chat" ? html`
-          <button @click=${() => this.fill("Erkläre mir verständlich: ", "chat")}>${icon("sparkle", 16)} Erklären</button>
-          <button @click=${() => this.fill("Formuliere diese E-Mail freundlich und knapp um:\n\n", "chat")}>${icon("edit", 16)} Text überarbeiten</button>
-          <button @click=${() => this.fill("Suche im Web nach ", "chat")}>${icon("web", 16)} Im Web suchen</button>`
+          <button @click=${() => this.fill(t("Erkläre mir verständlich: "), "chat")}>${icon("sparkle", 16)} ${t("Erklären")}</button>
+          <button @click=${() => this.fill(t("Formuliere diese E-Mail freundlich und knapp um:\n\n"), "chat")}>${icon("edit", 16)} ${t("Text überarbeiten")}</button>
+          <button @click=${() => this.fill(t("Suche im Web nach "), "chat")}>${icon("web", 16)} ${t("Im Web suchen")}</button>`
         : html`
-          <button @click=${() => this.fill("Wie ist der Zustand im Haus? Prüfe Heizung, offene Fenster und auffällige Sensoren und fasse zusammen.", "cowork")}>${icon("home", 16)} Hausstatus</button>
-          <button @click=${() => this.fill("Lies die Dateien im Ordner … meines Zugangs … und erstelle eine Übersicht als Tabelle.", "cowork")}>${icon("cloud", 16)} Dateien auswerten</button>
-          <button @click=${() => this.fill("Recherchiere zu … und schreibe eine kurze Zusammenfassung mit Quellen in eine Datei.", "cowork")}>${icon("search", 16)} Recherche</button>`}
+          <button @click=${() => this.fill(t("Wie ist der Zustand im Haus? Prüfe Heizung, offene Fenster und auffällige Sensoren und fasse zusammen."), "cowork")}>${icon("home", 16)} ${t("Hausstatus")}</button>
+          <button @click=${() => this.fill(t("Lies die Dateien im Ordner … meines Zugangs … und erstelle eine Übersicht als Tabelle."), "cowork")}>${icon("cloud", 16)} ${t("Dateien auswerten")}</button>
+          <button @click=${() => this.fill(t("Recherchiere zu … und schreibe eine kurze Zusammenfassung mit Quellen in eine Datei."), "cowork")}>${icon("search", 16)} ${t("Recherche")}</button>`}
       </div>
-      <div class="info">${simple ? "KI kann Fehler machen – Wichtiges bitte prüfen. Antworten können je nach Auslastung etwas dauern."
-        : `${d?.provider?.name || ""} · Open-Weight-Modelle – Antworten können je nach Auslastung dauern.`}</div>
+      <div class="info">${simple ? t("KI kann Fehler machen – Wichtiges bitte prüfen. Antworten können je nach Auslastung etwas dauern.")
+        : `${d?.provider?.name || ""} · ${t("Open-Weight-Modelle – Antworten können je nach Auslastung dauern.")}`}</div>
     </div>`;
   }
 }
@@ -149,22 +149,22 @@ export class Chats extends StoreElement {
       <label class="deep"><input type="checkbox" style="width:auto" .checked=${this.deep}
         @change=${(e: any) => { this.deep = e.target.checked; this.queueSearch(); }}>
         ${t("Auch in Nachrichten suchen")}${this.searching ? html` <lm-spark size="14"></lm-spark>` : nothing}</label>
-      <div class="tabs">${(isSimple() ? [["all", t("Alle")], ["task_run", "Ergebnisse geplanter Aufgaben"]]
-        : [["all", t("Alle")], ["chat", "Chats"], ["cowork", "Coworks"], ["task_run", t("Aufgabenläufe")],
+      <div class="tabs">${(isSimple() ? [["all", t("Alle")], ["task_run", t("Ergebnisse geplanter Aufgaben")]]
+        : [["all", t("Alle")], ["chat", t("Chats")], ["cowork", t("Coworks")], ["task_run", t("Aufgabenläufe")],
           ...((store.data?.chats || []).some((c: any) => c.tile_id) ? [["tile_run", t("Kachel-Läufe")]] : [])]).map(([k, l]) =>
         html`<button class=${this.filter === k ? "on" : ""} @click=${() => (this.filter = k)}>${l}</button>`)}</div>
       <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
         ${icon(c.kind === "chat" ? "chat" : c.kind === "cowork" ? "cowork" : "task")}
         <div class="grow"><div class="ellipsis">${c.title || t("Neuer Chat")}</div>
-          <div class="hint">${fmtTime(c.updated)} · ${c.messages} Nachrichten${c.project_id ? ` · ${proj(c.project_id) || ""}` : ""}</div></div>
-        ${c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : c.status === "error" ? html`<span class="chip err">Fehler</span>` : nothing}
+          <div class="hint">${fmtTime(c.updated)} · ${t(c.messages === 1 ? "{n} Nachricht" : "{n} Nachrichten", { n: c.messages })}${c.project_id ? ` · ${proj(c.project_id) || ""}` : ""}</div></div>
+        ${c.status === "running" ? html`<lm-spark size="18"></lm-spark>` : c.status === "error" ? html`<span class="chip err">${t("Fehler")}</span>` : nothing}
         ${c.pinned ? icon("pin", 16) : nothing}</div>`) : html`<div class="hint">${t("Keine Chats")}</div>`}</div>
       ${this.deep && this.q.trim().length >= 2 ? html`<h2 style="margin-top:22px">${t("In Nachrichten")}</h2>
         <div class="list">${extra.length ? extra.map((f: any) => html`<div class="item" @click=${() => navigate(`/chat/${f.chat_id}`)}>
           ${icon(f.kind === "chat" ? "chat" : f.kind === "cowork" ? "cowork" : "task")}
           <div class="grow" style="min-width:0"><div class="ellipsis">${f.title || t("Neuer Chat")}</div>
             ${(f.hits || []).slice(0, 2).map((h: any) => html`<div class="hit">${h.snippet}</div>`)}
-            <div class="hint">${fmtTime(f.updated)} · ${(f.hits || []).length} Treffer</div></div></div>`)
+            <div class="hint">${fmtTime(f.updated)} · ${t("{n} Treffer", { n: (f.hits || []).length })}</div></div></div>`)
           : html`<div class="hint">${this.searching ? t("Wird gesucht …") : t("Keine Treffer in Nachrichten")}</div>`}</div>` : nothing}
       </div>`;
   }
@@ -184,13 +184,13 @@ export class Projects extends StoreElement {
     return html`<div class="page"><div class="row"><h1 class="grow">${t("Projekte")}</h1>
       <button class="btn primary" @click=${this.create}>${icon("plus", 18)} ${t("Neues Projekt")}</button></div>
       ${isSimple() ? explainer("projects", !ps.length)
-        : html`<p class="hint">Projekte bündeln Anweisungen, Dateien, Zugänge und Skills. Chats und Coworks darin starten mit diesem Kontext.</p>`}
+        : html`<p class="hint">${t("Projekte bündeln Anweisungen, Dateien, Zugänge und Skills. Chats und Coworks darin starten mit diesem Kontext.")}</p>`}
       <div class="grid">${ps.map((p: any) => html`<div class="item pc" @click=${() => navigate(`/project/${p.id}`)}>
         <div class="row">${icon("project")}<b class="grow ellipsis">${p.name}</b></div>
-        <div class="hint" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.description || (p.instructions || "").slice(0, 160) || "Noch keine Anweisungen."}</div>
-        <div class="row" style="margin-top:auto"><span class="chip">${count(p.id)} Chats</span>
-          ${p.auto ? html`<span class="chip" title="Von LLMitMir angelegt – neue Gespräche landen hier von selbst">${icon("sparkle", 13)} ${t("automatisch")}</span>` : nothing}
-          ${Number(p.retention_days) > 0 ? html`<span class="chip" title="Chats und Coworks dieses Projekts werden danach gelöscht">${icon("hourglass", 13)} ${daysText(p.retention_days)}</span>` : nothing}${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
+        <div class="hint" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${p.description || (p.instructions || "").slice(0, 160) || t("Noch keine Anweisungen.")}</div>
+        <div class="row" style="margin-top:auto"><span class="chip">${t("{n} Chats", { n: count(p.id) })}</span>
+          ${p.auto ? html`<span class="chip" title=${t("Von LLMitMir angelegt – neue Gespräche landen hier von selbst")}>${icon("sparkle", 13)} ${t("automatisch")}</span>` : nothing}
+          ${Number(p.retention_days) > 0 ? html`<span class="chip" title=${t("Chats und Coworks dieses Projekts werden danach gelöscht")}>${icon("hourglass", 13)} ${daysText(p.retention_days)}</span>` : nothing}${(p.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${(p.credentials || []).length}</span>` : nothing}
           ${(p.skills || []).length ? html`<span class="chip">${icon("skill", 13)} ${(p.skills || []).length}</span>` : nothing}</div></div>`)}
         <div class="item pc new" @click=${this.create}>${icon("plus")} ${t("Neues Projekt")}</div></div></div>`;
   }
@@ -236,7 +236,7 @@ export class ProjectPage extends StoreElement {
     const s = new Set(this.draft[k] || []); s.has(id) ? s.delete(id) : s.add(id); this.set(k, [...s]);
   }
   private async save() {
-    if (!String(this.draft.name || "").trim()) { store.notify("Bitte gib dem Projekt einen Namen."); return; }
+    if (!String(this.draft.name || "").trim()) { store.notify(t("Bitte gib dem Projekt einen Namen.")); return; }
     try {
       const r = await store.api.ws("project/save", { project: this.draft }); this.dirty = false; store.notify(t("Gespeichert")); await store.load();
       if (this.projectId === "new") navigate(`/project/${r.id}`, true);
@@ -249,7 +249,7 @@ export class ProjectPage extends StoreElement {
   }
   render() {
     const p = this.draft;
-    if (!p) return html`<div class="page hint">Projekt nicht gefunden.</div>`;
+    if (!p) return html`<div class="page hint">${t("Projekt nicht gefunden.")}</div>`;
     const d = store.data;
     const chats = (d.chats || []).filter((c: any) => c.project_id === p.id && !c.parent_id);
     const models = d.models || [];
@@ -257,29 +257,29 @@ export class ProjectPage extends StoreElement {
     const writeTools = Object.entries(d.tools || {}).filter(([, v]: any) => v.write && !v.confirm);  // confirm: always asks
     const simple = isSimple();
     const pdays = Number(p.retention_days ?? d.retention?.default ?? 0) || 0;
-    const instrLabel = simple ? "Was soll LLMitMir in diesem Projekt immer wissen?" : t("Anweisungen");
-    const instrPh = simple ? "Zum Beispiel: Worum es geht, wer beteiligt ist, was wichtig ist und wie Antworten aussehen sollen."
-      : "Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)";
-    const adv = (c: unknown) => (simple ? more(c, "Mehr Optionen: Zugänge, Skills, Freigaben") : c);
+    const instrLabel = simple ? t("Was soll LLMitMir in diesem Projekt immer wissen?") : t("Anweisungen");
+    const instrPh = simple ? t("Zum Beispiel: Worum es geht, wer beteiligt ist, was wichtig ist und wie Antworten aussehen sollen.")
+      : t("Was soll das Modell in diesem Projekt immer wissen und beachten? (Rolle, Ziele, Regeln, Formate …)");
+    const adv = (c: unknown) => (simple ? more(c, t("Mehr Optionen: Zugänge, Skills, Freigaben")) : c);
     return html`<div class="page">
       <div class="row"><button class="iconbtn" @click=${() => navigate("/projects")}>${icon("left")}</button>
-        <label class="tw"><input class="title" placeholder="Name des Projekts" aria-label="Name des Projekts" .value=${p.name}
+        <label class="tw"><input class="title" placeholder=${t("Name des Projekts")} aria-label=${t("Name des Projekts")} .value=${p.name}
           @input=${(e: any) => this.set("name", e.target.value)}><span class="pen">${icon("edit", 18)}</span></label></div>
-      <input style="margin:4px 0 18px" placeholder="Kurzbeschreibung" .value=${p.description || ""} @input=${(e: any) => this.set("description", e.target.value)}>
+      <input style="margin:4px 0 18px" placeholder=${t("Kurzbeschreibung")} .value=${p.description || ""} @input=${(e: any) => this.set("description", e.target.value)}>
       ${p.auto ? html`<div class="hint" style="margin:-10px 0 16px">${icon("sparkle", 14)} ${t("Dieses Projekt hat LLMitMir selbst angelegt: Jedes neue Gespräch mit dem Roboter landet hier, damit die Chatliste übersichtlich bleibt. Die Lebensdauer unten gilt ab der letzten Benutzung – du kannst sie ändern oder das Projekt löschen; beim nächsten Gespräch entsteht es neu.")}</div>` : nothing}
-      ${!p.id ? html`<div class="lock">${icon("project", 26)}<b>Neues Projekt</b><span class="hint">Gib einen Namen ein und speichere – danach kannst du Dateien hochladen und Chats und Coworks in diesem Projekt starten.</span>
+      ${!p.id ? html`<div class="lock">${icon("project", 26)}<b>${t("Neues Projekt")}</b><span class="hint">${t("Gib einen Namen ein und speichere – danach kannst du Dateien hochladen und Chats und Coworks in diesem Projekt starten.")}</span>
         <div class="row" style="justify-content:center;margin-top:6px"><button class="btn" @click=${() => navigate("/projects")}>${t("Abbrechen")}</button>
-        <button class="btn primary" @click=${this.save} ?disabled=${!String(p.name || "").trim()}>${icon("check", 16)} Projekt anlegen</button></div></div>
+        <button class="btn primary" @click=${this.save} ?disabled=${!String(p.name || "").trim()}>${icon("check", 16)} ${t("Projekt anlegen")}</button></div></div>
         <h2>${instrLabel}</h2><textarea rows="10" placeholder=${instrPh}
           .value=${p.instructions || ""} @input=${(e: any) => this.set("instructions", e.target.value)}></textarea>` : html`
       <div class="cols"><div>
         <lm-composer ?showMode=${!simple} .simple=${simple} .projectId=${p.id} .mode=${"chat"} .model=${p.model_chat || d.defaults.chat}
-          .draftKey=${draftProject(p.id)} placeholder="Neuer Chat in diesem Projekt …"
+          .draftKey=${draftProject(p.id)} placeholder=${t("Neuer Chat in diesem Projekt …")}
           @send=${async (e: CustomEvent) => { try { await startChat({ ...e.detail, project_id: p.id }); } catch (err: any) { store.notify(err.message); } }}></lm-composer>
-        <h2>Chats & Coworks</h2>
+        <h2>${t("Chats & Coworks")}</h2>
         <div class="list">${chats.length ? chats.map((c: any) => html`<div class="item" @click=${() => navigate(`/chat/${c.id}`)}>
           ${icon(c.kind === "chat" ? "chat" : c.kind === "cowork" ? "cowork" : "task")}<div class="grow ellipsis">${c.title}</div><span class="hint">${fmtTime(c.updated)}</span></div>`)
-          : html`<div class="hint">Noch keine Chats in diesem Projekt.</div>`}</div>
+          : html`<div class="hint">${t("Noch keine Chats in diesem Projekt.")}</div>`}</div>
         <h2>${instrLabel}</h2>
         <textarea rows="12" placeholder=${instrPh}
           .value=${p.instructions || ""} @input=${(e: any) => this.set("instructions", e.target.value)}></textarea>
@@ -287,52 +287,51 @@ export class ProjectPage extends StoreElement {
       <div class="side">
         <div class="card"><h3>${icon("file", 18)} ${t("Dateien")}</h3>
           ${this.files.map(f => html`<div class="row" style="padding:4px 0"><span class="grow ellipsis" style="font-size:13px">${f.name}</span>
-            <button class="iconbtn" title="Ansehen" @click=${() => openFileViewer("project", p.id, f.name)}>${icon("eye", 16)}</button>
-            <button class="iconbtn" title="Herunterladen" @click=${async () => { const a = document.createElement("a"); a.href = await store.api.fileUrl("project", p.id, f.name); a.download = f.name.split("/").pop() || "datei"; document.body.appendChild(a); a.click(); a.remove(); }}>${icon("download", 16)}</button>
+            <button class="iconbtn" title=${t("Ansehen")} @click=${() => openFileViewer("project", p.id, f.name)}>${icon("eye", 16)}</button>
+            <button class="iconbtn" title=${t("Herunterladen")} @click=${async () => { const a = document.createElement("a"); a.href = await store.api.fileUrl("project", p.id, f.name); a.download = f.name.split("/").pop() || "file"; document.body.appendChild(a); a.click(); a.remove(); }}>${icon("download", 16)}</button>
             <button class="iconbtn" @click=${async () => { this.files = await store.api.ws("file/delete", { scope: "project", owner: p.id, name: f.name }); }}>${icon("trash", 16)}</button></div>`)}
-          <label class="btn" style="margin-top:6px">${icon("upload", 16)} Hochladen<input type="file" multiple hidden @change=${this.upload}></label>
-          <div class="hint" style="margin-top:6px">${simple ? "LLMitMir schaut in diese Dateien, wenn sie für eine Frage wichtig sind." : "Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt)."}</div></div>
-        <div class="card"><h3>${icon("hourglass", 18)} Lebensdauer</h3>
+          <label class="btn" style="margin-top:6px">${icon("upload", 16)} ${t("Hochladen")}<input type="file" multiple hidden @change=${this.upload}></label>
+          <div class="hint" style="margin-top:6px">${simple ? t("LLMitMir schaut in diese Dateien, wenn sie für eine Frage wichtig sind.") : t("Das Modell liest sie bei Bedarf mit „Datei lesen“ (Bereich Projekt).")}</div></div>
+        <div class="card"><h3>${icon("hourglass", 18)} ${t("Lebensdauer")}</h3>
           <label class="row hint" style="align-items:center"><input type="checkbox" style="width:auto" .checked=${pdays > 0}
             @change=${(e: any) => this.set("retention_days", e.target.checked ? (d.retention?.suggest || 30) : 0)}>
-            Chats und Coworks dieses Projekts automatisch löschen</label>
-          ${pdays > 0 ? html`<label class="f" style="margin-top:8px"><span>… nach so vielen Tagen</span>
+            ${t("Chats und Coworks dieses Projekts automatisch löschen")}</label>
+          ${pdays > 0 ? html`<label class="f" style="margin-top:8px"><span>${t("… nach so vielen Tagen")}</span>
             <input type="number" min="1" max=${d.retention?.max || 3650} .value=${String(pdays)}
               @change=${(e: any) => this.set("retention_days", Math.max(1, Number(e.target.value) || 1))}></label>` : nothing}
           <div class="hint" style="margin-top:6px">${pdays > 0
-            ? `Derzeit: ${daysText(pdays)} ab der letzten Benutzung; danach wird der Chat samt Anhängen, Arbeitsbereich und Sandbox restlos gelöscht.`
-            : "Aus – die Chats und Coworks dieses Projekts bleiben, bis du sie selbst löschst."}
-            Angeheftete Chats und die Läufe geplanter Aufgaben bleiben.</div></div>
+            ? t("Derzeit: {d} ab der letzten Benutzung; danach wird der Chat samt Anhängen, Arbeitsbereich und Sandbox restlos gelöscht.", { d: daysText(pdays) })
+            : t("Aus – die Chats und Coworks dieses Projekts bleiben, bis du sie selbst löschst.")}
+            ${t("Angeheftete Chats und die Läufe geplanter Aufgaben bleiben.")}</div></div>
         ${adv(html`<div class="card"><h3>${icon("key", 18)} ${t("Zugänge")}</h3><div class="chips">
           ${(d.credentials || []).map((c: any) => html`<button class=${(p.credentials || []).includes(c.id) ? "on" : ""} @click=${() => this.toggle("credentials", c.id)}>${c.name}</button>`)}
-          ${!(d.credentials || []).length ? html`<span class="hint">Noch keine Zugänge angelegt.</span>` : nothing}</div>
+          ${!(d.credentials || []).length ? html`<span class="hint">${t("Noch keine Zugänge angelegt.")}</span>` : nothing}</div>
           <div class="hint" style="margin-top:8px">${t("Ausgewählte Zugänge sind in allen Chats, Coworks und Aufgaben dieses Projekts vorab erlaubt. Jeden anderen Zugang muss die Person beim ersten Gebrauch freigeben.")}</div>
-          <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.credentials_only} @change=${(e: any) => this.set("credentials_only", e.target.checked)}> Nur diese Zugänge erlauben</label></div>
-        ${d.external?.any_access || p.no_external ? html`<div class="card"><h3>${icon("external", 18)} Externe Modelle</h3>
-          <label class="row hint"><input type="checkbox" style="width:auto" .checked=${!!p.no_external} @change=${(e: any) => this.set("no_external", e.target.checked)}> Nie an externe Modelle senden</label>
-          <div class="hint" style="margin-top:6px">Für Projekte mit sensiblen Inhalten: Chats und Aufgaben dieses Projekts laufen dann nur im Rechenzentrum des Hauptanbieters –
-            weder mit kostenpflichtigen externen Modellen (auch nicht im Notfall) noch mit Modellen, die der Hauptanbieter als extern kennzeichnet.</div></div>` : nothing}
+          <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.credentials_only} @change=${(e: any) => this.set("credentials_only", e.target.checked)}> ${t("Nur diese Zugänge erlauben")}</label></div>
+        ${d.external?.any_access || p.no_external ? html`<div class="card"><h3>${icon("external", 18)} ${t("Externe Modelle")}</h3>
+          <label class="row hint"><input type="checkbox" style="width:auto" .checked=${!!p.no_external} @change=${(e: any) => this.set("no_external", e.target.checked)}> ${t("Nie an externe Modelle senden")}</label>
+          <div class="hint" style="margin-top:6px">${t("Für Projekte mit sensiblen Inhalten: Chats und Aufgaben dieses Projekts laufen dann nur im Rechenzentrum des Hauptanbieters – weder mit kostenpflichtigen externen Modellen (auch nicht im Notfall) noch mit Modellen, die der Hauptanbieter als extern kennzeichnet.")}</div></div>` : nothing}
         <div class="card"><h3>${icon("skill", 18)} ${t("Skills")}</h3><div class="chips">
           ${(d.skills || []).map((s: any) => html`<button class=${(p.skills || []).includes(s.id) ? "on" : ""} @click=${() => this.toggle("skills", s.id)}>${s.name}</button>`)}
-          ${!(d.skills || []).length ? html`<span class="hint">Noch keine Skills angelegt.</span>` : nothing}</div>
-          <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.skills_only} @change=${(e: any) => this.set("skills_only", e.target.checked)}> Nur diese Skills anbieten</label></div>
-        ${simple ? nothing : html`<div class="card"><h3>${icon("sparkle", 18)} Modelle</h3>
-          <label class="f"><span>Chat</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
+          ${!(d.skills || []).length ? html`<span class="hint">${t("Noch keine Skills angelegt.")}</span>` : nothing}</div>
+          <label class="row hint" style="margin-top:8px"><input type="checkbox" style="width:auto" .checked=${!!p.skills_only} @change=${(e: any) => this.set("skills_only", e.target.checked)}> ${t("Nur diese Skills anbieten")}</label></div>
+        ${simple ? nothing : html`<div class="card"><h3>${icon("sparkle", 18)} ${t("Modelle")}</h3>
+          <label class="f"><span>${t("Chat")}</span><select @change=${(e: any) => this.set("model_chat", e.target.value || null)}>
             <option value="">${defaultLabel("chat")}</option>${models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${p.model_chat === m.id}>${m.name}</option>`)}</select></label>
-          <label class="f" style="margin-top:8px"><span>Cowork / Aufgaben</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
+          <label class="f" style="margin-top:8px"><span>${t("Cowork / Aufgaben")}</span><select @change=${(e: any) => this.set("model_agent", e.target.value || null)}>
             <option value="">${defaultLabel("agent")}</option>${models.filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${p.model_agent === m.id}>${m.name}</option>`)}</select></label></div>`}
-        <div class="card"><h3>${icon("tools", 18)} ${t("Werkzeuge")} & Freigaben</h3>
+        <div class="card"><h3>${icon("tools", 18)} ${t("Werkzeuge & Freigaben")}</h3>
           <div class="chips">${Object.entries(groups).filter(([g]) => !["files", "skills", "progress", "ha"].includes(g)).map(([g, info]: any) => {
             const on = p.tool_groups == null || p.tool_groups.includes(g);
             return html`<button class=${on ? "on" : ""} @click=${() => {
-              const all = Object.keys(groups); const cur = new Set(p.tool_groups ?? all); cur.has(g) ? cur.delete(g) : cur.add(g); this.set("tool_groups", [...cur]); }}>${info.label}</button>`; })}</div>
-          <div class="hint" style="margin:6px 0 0">${groups.ha?.label || "Home Assistant"} ist immer dabei; Schaltaktionen fragen wie unten eingestellt nach.</div>
-          <div class="hint" style="margin:10px 0 6px">Schreibende Aktionen:</div>
-          ${writeTools.map(([n, v]: any) => html`<div class="row" style="padding:3px 0;font-size:13px"><span class="grow">${v.label}</span>
+              const all = Object.keys(groups); const cur = new Set(p.tool_groups ?? all); cur.has(g) ? cur.delete(g) : cur.add(g); this.set("tool_groups", [...cur]); }}>${tb(info.label)}</button>`; })}</div>
+          <div class="hint" style="margin:6px 0 0">${t("{ha} ist immer dabei; Schaltaktionen fragen wie unten eingestellt nach.", { ha: tb(groups.ha?.label) || "Home Assistant" })}</div>
+          <div class="hint" style="margin:10px 0 6px">${t("Schreibende Aktionen:")}</div>
+          ${writeTools.map(([n, v]: any) => html`<div class="row" style="padding:3px 0;font-size:13px"><span class="grow">${tb(v.label)}</span>
             <select style="width:auto;padding:4px 6px" @change=${(e: any) => this.set("permissions", { ...(p.permissions || {}), [n]: e.target.value })}>
-              ${[["ask", "fragen"], ["allow", "erlauben"], ["deny", "verbieten"]].map(([k, l]) => html`<option value=${k} ?selected=${((p.permissions || {})[n] || "ask") === k}>${l}</option>`)}</select></div>`)}</div>`)}
-        <button class="btn danger" @click=${async () => { if (await confirmDialog(`Projekt „${p.name}“ löschen? Chats bleiben erhalten (ohne Projekt).`)) {
-          try { await store.api.ws("project/delete", { project_id: p.id }); await store.load(); navigate("/projects"); } catch (e: any) { store.notify(e.message); } } }}>${icon("trash", 16)} Projekt löschen</button>
+              ${[["ask", t("fragen")], ["allow", t("erlauben")], ["deny", t("verbieten")]].map(([k, l]) => html`<option value=${k} ?selected=${((p.permissions || {})[n] || "ask") === k}>${l}</option>`)}</select></div>`)}</div>`)}
+        <button class="btn danger" @click=${async () => { if (await confirmDialog(t("Projekt „{name}“ löschen? Chats bleiben erhalten (ohne Projekt).", { name: p.name }))) {
+          try { await store.api.ws("project/delete", { project_id: p.id }); await store.load(); navigate("/projects"); } catch (e: any) { store.notify(e.message); } } }}>${icon("trash", 16)} ${t("Projekt löschen")}</button>
       </div></div>`}
       ${this.dirty && p.id ? html`<div class="savebar fade-in"><button class="btn" @click=${() => this.reload()}>${t("Abbrechen")}</button>
         <button class="btn primary" @click=${this.save}>${icon("check", 16)} ${t("Speichern")}</button></div>` : nothing}

@@ -13,6 +13,16 @@ from __future__ import annotations
 
 import re
 
+try:
+    from . import i18n as I18N
+except ImportError:  # einzeln geladen wie in tests/test_pure.py: i18n.py liegt daneben
+    import importlib.util as _ilu
+    import os as _os
+
+    _spec = _ilu.spec_from_file_location("lm_i18n", _os.path.join(_os.path.dirname(__file__), "i18n.py"))
+    I18N = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(I18N)
+
 MAX_PREVIEW = 160      # so viel der Eingabe steht in der Nachricht
 MAX_LINES = 2          # bei einem Befehl: die ersten beiden Zeilen
 TITLE = "LLMitMir: Freigabe nötig"
@@ -48,39 +58,42 @@ def preview(info: dict) -> str:
     return ""
 
 
-def message(info: dict, chat_title: str = "", simple: bool = False) -> tuple[str, str]:
-    """Titel und Text der Push-Nachricht.
+def message(info: dict, chat_title: str = "", simple: bool = False, lang: str | None = None) -> tuple[str, str]:
+    """Titel und Text der Push-Nachricht in der Sprache der Person (i18n.py).
 
     Einfache Ansicht: ein Satz in Alltagssprache. Expertenansicht: Chat, Werkzeug und Eingabe.
     """
-    label = _one_line(info.get("label") or info.get("group_label") or info.get("tool") or "eine Aktion")
+    def _(text: str, **kw) -> str:
+        return I18N.t(text, lang, **kw)
+
+    label = I18N.tr(_one_line(info.get("label") or info.get("group_label") or info.get("tool") or "eine Aktion"), lang)
     if info.get("cred"):
-        label = f"Zugang ›{_one_line(info['cred'])}‹ verwenden ({label})"
+        label = _("Zugang ›{name}‹ verwenden ({label})", name=_one_line(info["cred"]), label=label)
     elif info.get("change"):
-        label = f"Änderung: {label}"
+        label = _("Änderung: {label}", label=label)
     elif info.get("tool") == "more_steps":
-        label = "Weitere Schritte verwenden?"
+        label = _("Weitere Schritte verwenden?")
     what = preview(info)
-    title = _one_line(chat_title) or TITLE
+    title = _one_line(chat_title) or _(TITLE)
     if info.get("root_chat_id"):
         # aus einer Teilaufgabe: Titel fest, der Text nennt Teilaufgabe und Hauptchat (Link führt in den Hauptchat)
-        sub = _one_line(info.get("sub_title")) or "Teilaufgabe"
+        sub = _one_line(info.get("sub_title")) or _("Teilaufgabe")
         root = _one_line(info.get("root_title"))
-        where = f"Teilaufgabe ›{sub}‹" + (f" im Chat ›{root}‹" if root else "")
+        where = _("Teilaufgabe ›{sub}‹ im Chat ›{root}‹", sub=sub, root=root) if root else _("Teilaufgabe ›{sub}‹", sub=sub)
         if simple:
-            text = f"{where}: Ich brauche deine Erlaubnis – {label}."
-            return SUB_TITLE, text + (f" Es geht um: {what}" if what else "")
+            text = _("{where}: Ich brauche deine Erlaubnis – {label}.", where=where, label=label)
+            return _(SUB_TITLE), text + (" " + _("Es geht um: {what}", what=what) if what else "")
         text = f"{where}\n{label}" + (f"\n{what}" if what else "")
-        return SUB_TITLE, text + "\nAntworten im Hauptchat – ohne Antwort macht die Teilaufgabe ohne die Aktion weiter."
+        return _(SUB_TITLE), text + "\n" + _("Antworten im Hauptchat – ohne Antwort macht die Teilaufgabe ohne die Aktion weiter.")
     if simple:
-        text = f"Ich brauche deine Erlaubnis: {label}."
+        text = _("Ich brauche deine Erlaubnis: {label}.", label=label)
         if what:
-            text += f" Es geht um: {what}"
+            text += " " + _("Es geht um: {what}", what=what)
         return title[:100], text
     text = f"{label}"
     if what:
         text += f"\n{what}"
-    text += "\nAntworten im Chat – ohne Antwort läuft die Frage ab."
+    text += "\n" + _("Antworten im Chat – ohne Antwort läuft die Frage ab.")
     return title[:100], text
 
 

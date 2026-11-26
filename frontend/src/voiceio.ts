@@ -347,12 +347,12 @@ export class Speaker {
       if (!buf && this.choice.kind === "robot" && this.fallback && this.fallback.kind !== "none") {
         // die feste Stimme ist nicht erreichbar: für dieses und alle weiteren Stücke die Ersatzstimme nehmen
         this.choice = this.fallback;
-        if (!this.failed) { this.failed = true; console.warn("LLMitMir: die feste Stimme ist nicht erreichbar – es liest die Sprachausgabe von Home Assistant oder der Browser."); }
+        if (!this.failed) { this.failed = true; console.warn("LLMitMir: die feste Stimme ist nicht erreichbar – es liest die Sprachausgabe von Home Assistant oder der Browser."); }  // i18n-ok: Konsole
         if (this.choice.kind === "ha") buf = await this.synth(item.text, this.choice).catch(() => null);
         if (gen !== this.gen) return;
       } else if (!buf && !this.failed) {
         this.failed = true;
-        console.warn("LLMitMir: die Stimme ist nicht nutzbar – es liest die Sprachausgabe von Home Assistant oder der Browser.");
+        console.warn("LLMitMir: die Stimme ist nicht nutzbar – es liest die Sprachausgabe von Home Assistant oder der Browser.");  // i18n-ok: Konsole
       }
     }
     this.sounding = true;

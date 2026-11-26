@@ -9,6 +9,7 @@ import { HaFeed } from "./ha";
 import { KIND_INFO, renderKind } from "./kinds";
 import { ago, fmtNumber } from "./svg";
 import "./scene";
+import { t as tr, tb as trb } from "../i18n";
 
 const STATUS_INFO: Record<string, [string, string, string]> = {
   ok: ["check", "var(--lm-ok)", "in Ordnung"], warn: ["alert", "var(--lm-warn)", "Warnung"],
@@ -230,13 +231,14 @@ export class TileEl extends LitElement {
 
   render() {
     if (this.hiddenInfo) {
-      return html`<div class="ph">${this.hiddenInfo.exists ? html`${icon("lock", 22)}<div>Kachel von ${this.hiddenInfo.owner_name || "jemand anderem"}<br><span class="hint">nicht für dich freigegeben</span></div>`
-        : html`${icon("mdi:delete-outline", 22)}<div>Kachel gelöscht</div>`}</div>`;
+      return html`<div class="ph">${this.hiddenInfo.exists ? html`${icon("lock", 22)}<div>${tr("Kachel von {owner}", { owner: this.hiddenInfo.owner_name || tr("jemand anderem") })}<br><span class="hint">${tr("nicht für dich freigegeben")}</span></div>`
+        : html`${icon("mdi:delete-outline", 22)}<div>${tr("Kachel gelöscht")}</div>`}</div>`;
     }
     const t = this.tile || {};
     const rec = this.record() || null;
     const status = rec?.status || "empty";
-    const [sIc, sCol, sLabel] = STATUS_INFO[status] || STATUS_INFO.empty;
+    const [sIc, sCol, sLabelDe] = STATUS_INFO[status] || STATUS_INFO.empty;
+    const sLabel = tr(sLabelDe);
     const stale = this.stale(rec);
     const info = KIND_INFO[t.kind] || KIND_INFO.text;
     const scroll = ["alert", "list", "text", "progress"].includes(t.kind);
@@ -244,18 +246,18 @@ export class TileEl extends LitElement {
     const showHead = rec?.headline && !["stat", "gauge"].includes(t.kind) || (rec?.headline && t.kind === "stat" && rec.headline !== t.name);
     return html`<div class="t" style="--acc:${this.color}">
       <div class="hd"><span class="ic">${icon(t.icon || info.icon, 17)}</span>
-        <div class="tt"><span class="ti">${t.name || info.label}</span>
-          <span class="sub">${rec?.updated ? (stale ? "veraltet · " : "") + ago(rec.updated) : src.type === "ha" ? "live aus Home Assistant" : "noch nicht gelaufen"}${rec?.subline ? " · " + rec.subline : ""}</span></div>
-        ${this.runState ? html`<lm-spark size="18" title=${this.runState === "running" ? "wird aktualisiert" : "wartet auf den Lauf"}></lm-spark>` : nothing}
-        <span class="src" title=${src.type === "ha" ? "Daten direkt aus Home Assistant" : "Daten von einem geplanten Lauf"}>${icon(src.type === "ha" ? "mdi:home-assistant" : "robot", 14)}</span>
-        ${rec?.data !== null && rec?.data !== undefined ? html`<span class="dot" style="--sc:${stale ? "var(--lm-faint)" : sCol}" title=${stale ? "veraltet" : sLabel}>${icon(stale ? "clock" : sIc, 14)}<span class="sr">${stale ? "veraltet" : status === "ok" ? "" : sLabel}</span></span>` : nothing}</div>
+        <div class="tt"><span class="ti">${t.name || tr(info.label)}</span>
+          <span class="sub">${rec?.updated ? (stale ? tr("veraltet") + " · " : "") + ago(rec.updated) : src.type === "ha" ? tr("live aus Home Assistant") : tr("noch nicht gelaufen")}${rec?.subline ? " · " + rec.subline : ""}</span></div>
+        ${this.runState ? html`<lm-spark size="18" title=${this.runState === "running" ? tr("wird aktualisiert") : tr("wartet auf den Lauf")}></lm-spark>` : nothing}
+        <span class="src" title=${src.type === "ha" ? tr("Daten direkt aus Home Assistant") : tr("Daten von einem geplanten Lauf")}>${icon(src.type === "ha" ? "mdi:home-assistant" : "robot", 14)}</span>
+        ${rec?.data !== null && rec?.data !== undefined ? html`<span class="dot" style="--sc:${stale ? "var(--lm-faint)" : sCol}" title=${stale ? tr("veraltet") : sLabel}>${icon(stale ? "clock" : sIc, 14)}<span class="sr">${stale ? tr("veraltet") : status === "ok" ? "" : sLabel}</span></span>` : nothing}</div>
       ${showHead ? html`<div class="head2">${rec.headline}</div>` : nothing}
       <div class="bd ${scroll ? "scroll" : ""}" @pointermove=${this.onMove} @pointerleave=${() => (this.tip = null)}>
         ${this.w ? renderKind(t.kind, rec, { w: this.w, h: this.h, color: this.color, dark: this.dark, options: t.options || {}, sort: this.sort,
           setSort: (k: string) => { this.sort = { key: k, dir: this.sort?.key === k && this.sort.dir === "desc" ? "asc" : "desc" }; } }) : nothing}
         ${this.tip ? html`${t.kind === "chart" ? html`<div class="xh" style="left:${this.tip.x}px"></div>` : nothing}<div class="tip" style="left:${this.tip.x}px;top:${this.tip.y}px">${this.tip.text}</div>` : nothing}
       </div>
-      ${rec?.error ? html`<div class="ft err">${icon("alert", 13)}<span>${rec.error}</span></div>`
+      ${rec?.error ? html`<div class="ft err">${icon("alert", 13)}<span>${trb(rec.error)}</span></div>`
         : rec?.notice ? html`<div class="ft note">${icon("info", 13)}<span>${rec.notice}</span></div>` : nothing}
     </div>`;
   }

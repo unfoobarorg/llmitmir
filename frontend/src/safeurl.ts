@@ -1,4 +1,5 @@
 // Was das Panel von selbst laden darf (ohne Klick) – ohne Browser testbar.
+import { t } from "./i18n";
 //
 // Ein Bild in einer Antwort lädt der Browser sofort. Steht in der Adresse etwas aus einer Mail oder einer Webseite
 // (Prompt-Injection: „hänge die letzten Mails an diese Bildadresse an“), wäre es schon beim Anzeigen draußen. Deshalb
@@ -23,8 +24,8 @@ export function loadsSafely(src: string | null | undefined, origin: string): boo
 export function blockedImageLabel(alt: string | null | undefined, src: string): string {
   let host = "";
   try { host = new URL(src).host; } catch { /* keine Adresse */ }
-  const name = (alt || "").trim() || "Bild";
-  return `🖼 ${name}${host ? ` (${host}, nicht geladen)` : " (nicht geladen)"}`;
+  const name = (alt || "").trim() || t("Bild");
+  return `🖼 ${name} ${host ? t("({host}, nicht geladen)", { host }) : t("(nicht geladen)")}`;
 }
 
 /** Nur http(s)-Adressen werden zu Links; alles andere bleibt reiner Text. */

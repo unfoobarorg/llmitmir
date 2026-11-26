@@ -3,7 +3,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state, query } from "lit/decorators.js";
 import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeElement } from "./ui";
 import { store } from "./api";
-import { t } from "./i18n";
+import { t, tb, dateLocale } from "./i18n";
 import { alternative, load, loadDot, type Role } from "./modelpick";
 import { confirmExternal, ext, fmtEur, isExternal, priceText, stepCost } from "./external";
 
@@ -213,8 +213,8 @@ export class Composer extends LitElement {
     } catch (e: any) {
       const blocked = e?.name === "NotAllowedError" || e?.name === "SecurityError";
       store.notify(blocked
-        ? "Mikrofon gesperrt. Ist die Berechtigung erteilt, blockiert vermutlich der Webserver (Header Permissions-Policy: microphone=()) – dort microphone=(self) erlauben."
-        : "Mikrofon nicht verfügbar: " + (e?.message || e));
+        ? t("Mikrofon gesperrt. Ist die Berechtigung erteilt, blockiert vermutlich der Webserver (Header Permissions-Policy: microphone=()) – dort microphone=(self) erlauben.")
+        : t("Mikrofon nicht verfügbar: {e}", { e: e?.message || e }));
     }
   }
 
@@ -280,8 +280,8 @@ export class Composer extends LitElement {
 
   private webSpeech() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { store.notify("Spracheingabe wird von diesem Browser nicht unterstützt."); return; }
-    const r = new SR(); r.lang = store.api.hass.language || "de-DE"; r.interimResults = false;
+    if (!SR) { store.notify(t("Spracheingabe wird von diesem Browser nicht unterstützt.")); return; }
+    const r = new SR(); r.lang = dateLocale(); r.interimResults = false;
     r.onresult = (e: any) => this.setText((this.text ? this.text + " " : "") + e.results[0][0].transcript);
     r.start();
   }
@@ -299,21 +299,21 @@ export class Composer extends LitElement {
     const keyHour = lim.limit_requests_hour ? 1 - (lim.remaining_requests_hour ?? lim.limit_requests_hour) / lim.limit_requests_hour : 0;
     return html`<div class="stats">
       ${cu ? html`<div><div class="k"><b>${t("Kontext")}</b><span>${fmtNum(cu.context || 0)} / ${fmtNum(cu.context_max || this.modelInfo.context || 0)}</span></div>${bar(ctxFrac)}
-        <div class="hint">Wird es voll, kürzt LLMitMir ältere Werkzeugergebnisse und dann die ältesten Nachrichten.</div></div>` : nothing}
-      <div><div class="k"><b>${t("Heute")}</b><span>${today.requests || 0} Anfragen · ${fmtNum(tok)} Tokens</span></div>
-        ${q.requests_day ? html`<div class="k muted"><span>Kontingent Anfragen</span><span>${today.requests || 0} / ${q.requests_day}</span></div>${bar(fr(today.requests, q.requests_day))}` : nothing}
-        ${q.tokens_day ? html`<div class="k muted"><span>Kontingent Tokens</span><span>${fmtNum(tok)} / ${fmtNum(q.tokens_day)}</span></div>${bar(fr(tok, q.tokens_day))}` : nothing}
-        ${!q.requests_day && !q.tokens_day ? html`<div class="hint">Kein persönliches Tageskontingent.</div>` : nothing}</div>
-      ${u.week || u.month ? html`<div><div class="k"><b>${t("Diese Woche")}</b><span>${(u.week?.requests || 0)} Anfragen · ${fmtNum((u.week?.prompt || 0) + (u.week?.completion || 0))} Tokens</span></div>
-        <div class="k"><b>${t("Diesen Monat")}</b><span>${(u.month?.requests || 0)} Anfragen · ${fmtNum((u.month?.prompt || 0) + (u.month?.completion || 0))} Tokens</span></div>
-        <div class="hint">Woche ab Montag, Monat ab dem Ersten – gezählt wird, was auf dem eigenen Schlüssel läuft.</div></div>` : nothing}
-      ${lim.limit_requests_day ? html`<div><div class="k"><b>${t("Schlüssel")}</b><span>${u.key_mode === "shared" ? "gemeinsam" : "persönlich"}</span></div>
-        <div class="k muted"><span>Heute übrig</span><span>${lim.remaining_requests_day} / ${lim.limit_requests_day}</span></div>${bar(keyDay)}
-        <div class="k muted"><span>Diese Stunde übrig</span><span>${lim.remaining_requests_hour} / ${lim.limit_requests_hour}</span></div>${bar(keyHour)}
-        ${lim.reset_requests_day ? html`<div class="hint">Tageslimit setzt in ${fmtDuration(lim.reset_requests_day)} zurück.</div>` : nothing}</div>` :
-        html`<div class="hint">Limits des Schlüssels erscheinen nach der ersten Anfrage.</div>`}
-      ${ext().has_access ? html`<div><div class="k"><b>Kostenpflichtig (extern)</b><span>${fmtEur(ext().month_eur)} / ${fmtEur(ext().limit_eur)}</span></div>
-        ${bar(fr(ext().month_eur, ext().limit_eur))}<div class="hint">Diesen Monat · Limit vom Admin</div></div>` : nothing}
+        <div class="hint">${t("Wird es voll, kürzt LLMitMir ältere Werkzeugergebnisse und dann die ältesten Nachrichten.")}</div></div>` : nothing}
+      <div><div class="k"><b>${t("Heute")}</b><span>${today.requests || 0} ${t("Anfragen")} · ${fmtNum(tok)} ${t("Tokens")}</span></div>
+        ${q.requests_day ? html`<div class="k muted"><span>${t("Kontingent Anfragen")}</span><span>${today.requests || 0} / ${q.requests_day}</span></div>${bar(fr(today.requests, q.requests_day))}` : nothing}
+        ${q.tokens_day ? html`<div class="k muted"><span>${t("Kontingent Tokens")}</span><span>${fmtNum(tok)} / ${fmtNum(q.tokens_day)}</span></div>${bar(fr(tok, q.tokens_day))}` : nothing}
+        ${!q.requests_day && !q.tokens_day ? html`<div class="hint">${t("Kein persönliches Tageskontingent.")}</div>` : nothing}</div>
+      ${u.week || u.month ? html`<div><div class="k"><b>${t("Diese Woche")}</b><span>${(u.week?.requests || 0)} ${t("Anfragen")} · ${fmtNum((u.week?.prompt || 0) + (u.week?.completion || 0))} ${t("Tokens")}</span></div>
+        <div class="k"><b>${t("Diesen Monat")}</b><span>${(u.month?.requests || 0)} ${t("Anfragen")} · ${fmtNum((u.month?.prompt || 0) + (u.month?.completion || 0))} ${t("Tokens")}</span></div>
+        <div class="hint">${t("Woche ab Montag, Monat ab dem Ersten – gezählt wird, was auf dem eigenen Schlüssel läuft.")}</div></div>` : nothing}
+      ${lim.limit_requests_day ? html`<div><div class="k"><b>${t("Schlüssel")}</b><span>${u.key_mode === "shared" ? t("gemeinsam") : t("persönlich")}</span></div>
+        <div class="k muted"><span>${t("Heute übrig")}</span><span>${lim.remaining_requests_day} / ${lim.limit_requests_day}</span></div>${bar(keyDay)}
+        <div class="k muted"><span>${t("Diese Stunde übrig")}</span><span>${lim.remaining_requests_hour} / ${lim.limit_requests_hour}</span></div>${bar(keyHour)}
+        ${lim.reset_requests_day ? html`<div class="hint">${t("Tageslimit setzt in {d} zurück.", { d: fmtDuration(lim.reset_requests_day) })}</div>` : nothing}</div>` :
+        html`<div class="hint">${t("Limits des Schlüssels erscheinen nach der ersten Anfrage.")}</div>`}
+      ${ext().has_access ? html`<div><div class="k"><b>${t("Kostenpflichtig (extern)")}</b><span>${fmtEur(ext().month_eur)} / ${fmtEur(ext().limit_eur)}</span></div>
+        ${bar(fr(ext().month_eur, ext().limit_eur))}<div class="hint">${t("Diesen Monat · Limit vom Admin")}</div></div>` : nothing}
     </div>`;
   }
 
@@ -346,34 +346,31 @@ export class Composer extends LitElement {
     // interne Daten im Verlauf: kein externes Modell mehr (das aktuelle bleibt sichtbar, falls der Chat noch darauf steht)
     const sealed = (m: any) => !!this.lockText && m.external && m.id !== this.model;
     const row = (m: any) => { const l = load(m); const off = sealed(m) || (m.billed && (m.locked || !m.usable));
-      const why = sealed(m) ? t("Gesperrt: interne Daten im Chat") : m.why || "";
+      const why = sealed(m) ? t("Gesperrt: interne Daten im Chat") : tb(m.why);
       return html`<button class="mi ${m.id === this.model ? "sel" : ""}" ?data-close=${!off} ?disabled=${off} style=${off ? "opacity:.55;cursor:default" : ""}
         title=${off ? why : ""} @click=${() => { if (!off) this.pickModel(m.id); }}>
-        <div class="grow"><div class="row">${sealed(m) ? icon("lock", 14) : m.billed ? icon(off ? "lock" : "euro", 14) : m.external ? icon("external", 14) : loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">Standard</span>` : nothing}
-          ${m.id === rec && m.id !== def ? html`<span class="badge" style="color:var(--lm-accent)">Empfohlen</span>` : nothing}
-          ${m.new ? html`<span class="badge" style="color:var(--lm-accent)">neu</span>` : nothing}
-          ${m.billed && m.locked ? html`<span class="badge">nur im Notfall</span>` : nothing}
-          ${m.status === "unavailable" ? html`<span class="badge" style="color:var(--lm-err)">nicht verfügbar</span>` : nothing}</div>
-          <div class="sub">${m.billed ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} je Schritt${off && why ? html` · ${why}` : nothing}`
-            : html`${m.external ? "extern · " : ""}${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? "Bilder · " : ""}${(m.output || []).includes("thought") ? "denkt nach · " : ""}${fmtNum(m.context)} Kontext`}</div></div>
+        <div class="grow"><div class="row">${sealed(m) ? icon("lock", 14) : m.billed ? icon(off ? "lock" : "euro", 14) : m.external ? icon("external", 14) : loadDot(m)}<span class="ellipsis">${m.name}</span>${m.id === def ? html`<span class="badge">${t("Standard")}</span>` : nothing}
+          ${m.id === rec && m.id !== def ? html`<span class="badge" style="color:var(--lm-accent)">${t("Empfohlen")}</span>` : nothing}
+          ${m.new ? html`<span class="badge" style="color:var(--lm-accent)">${t("neu")}</span>` : nothing}
+          ${m.billed && m.locked ? html`<span class="badge">${t("nur im Notfall")}</span>` : nothing}
+          ${m.status === "unavailable" ? html`<span class="badge" style="color:var(--lm-err)">${t("nicht verfügbar")}</span>` : nothing}</div>
+          <div class="sub">${m.billed ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} ${t("je Schritt")}${off && why ? html` · ${why}` : nothing}`
+            : html`${m.external ? `${t("extern")} · ` : ""}${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? `${t("Bilder")} · ` : ""}${(m.output || []).includes("thought") ? `${t("denkt nach")} · ` : ""}${fmtNum(m.context)} ${t("Kontext")}`}</div></div>
         ${m.id === this.model ? icon("check", 18) : nothing}</button>`; };
     const lockNote = this.lockText && (outside.length || paid.length)
       ? html`<div class="hint" style="padding:2px 10px 6px;display:flex;gap:6px">${icon("lock", 14)}<span>${this.lockText}</span></div>` : nothing;
     return html`<div class="mh">${t("Modell")}</div>
       ${free.map(row)}${lockNote ? html`<div class="msep"></div>${lockNote}` : nothing}
-      ${outside.length ? html`<div class="msep"></div><div class="mh">Extern (über den Hauptanbieter)</div>${outside.map(row)}
-        <div class="hint" style="padding:2px 10px 6px">Der Hauptanbieter leitet diese Modelle an kommerzielle Anbieter weiter – keine sensiblen Daten eingeben.
-          Zugänge gibt es dort nur, wenn du sie für externe Modelle freigegeben hast.</div>` : nothing}
-      ${paid.length ? html`<div class="msep"></div><div class="mh">Kostenpflichtig (extern)</div>${paid.map(row)}
-        <div class="hint" style="padding:2px 10px 6px">${fmtEur(ext().month_eur)} von ${fmtEur(ext().limit_eur)} diesen Monat verbraucht. Externe Modelle laufen bei
-          einem anderen Anbieter – keine sensiblen Daten eingeben. ${paid.some(m => m.locked) ? "„Nur im Notfall“ heißt: erst wählbar, wenn die Anbieter davor gerade nicht nutzbar sind." : ""}</div>` : nothing}
+      ${outside.length ? html`<div class="msep"></div><div class="mh">${t("Extern (über den Hauptanbieter)")}</div>${outside.map(row)}
+        <div class="hint" style="padding:2px 10px 6px">${t("Der Hauptanbieter leitet diese Modelle an kommerzielle Anbieter weiter – keine sensiblen Daten eingeben. Zugänge gibt es dort nur, wenn du sie für externe Modelle freigegeben hast.")}</div>` : nothing}
+      ${paid.length ? html`<div class="msep"></div><div class="mh">${t("Kostenpflichtig (extern)")}</div>${paid.map(row)}
+        <div class="hint" style="padding:2px 10px 6px">${t("{a} von {b} diesen Monat verbraucht. Externe Modelle laufen bei einem anderen Anbieter – keine sensiblen Daten eingeben.", { a: fmtEur(ext().month_eur), b: fmtEur(ext().limit_eur) })} ${paid.some(m => m.locked) ? t("„Nur im Notfall“ heißt: erst wählbar, wenn die Anbieter davor gerade nicht nutzbar sind.") : ""}</div>` : nothing}
       <div class="msep"></div>
       <button class="mi" @click=${() => { this.noThinking = !this.noThinking;
         this.dispatchEvent(new CustomEvent("nothinking", { detail: this.noThinking })); this.requestUpdate(); }}>
         ${icon("gauge", 18)}<span class="grow">${t("Schnell antworten")}</span>${this.noThinking ? icon("check", 18) : nothing}</button>
       <div class="hint" style="padding:2px 10px 6px">${t("Ohne Denkphase – das erste Wort zählt. Gut für kurze Fragen, schwächer bei schwierigen.")}</div>
-      <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">Der Punkt zeigt die aktuelle Auslastung beim Anbieter (grün frei, gelb etwas, rot stark).
-        „Standard“ wählt automatisch das passendste Modell, das gerade nicht überlastet ist.</div>`;
+      <div class="msep"></div><div class="hint" style="padding:4px 10px 6px">${t("Der Punkt zeigt die aktuelle Auslastung beim Anbieter (grün frei, gelb etwas, rot stark). „Standard“ wählt automatisch das passendste Modell, das gerade nicht überlastet ist.")}</div>`;
   }
 
   /** The main provider is down: say so and point to the emergency models that are unlocked now (expert view). */
@@ -383,9 +380,8 @@ export class Composer extends LitElement {
     const paid = this.models.filter(m => m.billed && !m.locked && m.usable);
     if (!paid.length) return nothing;
     const cheapest = paid.sort((a, b) => (a.blended || 0) - (b.blended || 0))[0];
-    return html`<div class="bhint">${icon("euro", 18)}<div class="grow">Der Hauptanbieter ist gerade nicht nutzbar${e.main_why ? ` (${e.main_why})` : ""}.
-        Kostenpflichtige Ersatzmodelle sind im Modellmenü freigeschaltet – z. B. <b>${cheapest.name}</b> (${priceText(cheapest.price)}).</div>
-      <button class="btn" @click=${() => this.pickModel(cheapest.id)}>${cheapest.name} nehmen</button>
+    return html`<div class="bhint">${icon("euro", 18)}<div class="grow">${t("Der Hauptanbieter ist gerade nicht nutzbar")}${e.main_why ? ` (${tb(e.main_why)})` : ""}. ${t("Kostenpflichtige Ersatzmodelle sind im Modellmenü freigeschaltet – z. B. {m} ({p}).", { m: cheapest.name, p: priceText(cheapest.price) })}</div>
+      <button class="btn" @click=${() => this.pickModel(cheapest.id)}>${t("{m} nehmen", { m: cheapest.name })}</button>
       <button class="iconbtn" title=${t("Schließen")} @click=${() => { this.dismissed = new Set([...this.dismissed, "__emergency"]); }}>${icon("close", 16)}</button></div>`;
   }
 
@@ -395,9 +391,8 @@ export class Composer extends LitElement {
     if (this.simple || this.busy || !m?.busy || m.billed || this.dismissed.has(m.id)) return nothing;
     const needImage = this.files.some(f => f.type.startsWith("image/")) && (m.input || []).includes("image");
     const alt = alternative(m.id, this.modelRole, needImage);
-    return html`<div class="bhint">${icon("hourglass", 18)}<div class="grow"><b>${m.name}</b> ist gerade ${load(m)?.text || "stark ausgelastet"} – Antworten können
-        sich um Minuten verzögern.${alt ? html` <b>${alt.name}</b> ist frei und ${alt.better ? "mindestens genauso stark" : alt.similar ? "löst das ähnlich gut" : "etwas schwächer, aber deutlich schneller"}.` : " Gerade ist kein ähnlich gutes Modell frei."}</div>
-      ${alt ? html`<button class="btn" @click=${() => this.pickModel(alt.id)}>${alt.name} nehmen</button>` : nothing}
+    return html`<div class="bhint">${icon("hourglass", 18)}<div class="grow">${t("{m} ist gerade {load} – Antworten können sich um Minuten verzögern.", { m: m.name, load: load(m)?.text || t("stark ausgelastet") })}${alt ? html` <b>${alt.name}</b> ${alt.better ? t("ist frei und mindestens genauso stark.") : alt.similar ? t("ist frei und löst die Aufgabe ähnlich gut.") : t("ist frei und etwas schwächer, aber deutlich schneller.")}` : " " + t("Gerade ist kein ähnlich gutes Modell frei.")}</div>
+      ${alt ? html`<button class="btn" @click=${() => this.pickModel(alt.id)}>${t("{m} nehmen", { m: alt.name })}</button>` : nothing}
       <button class="iconbtn" title=${t("Schließen")} @click=${() => { this.dismissed = new Set([...this.dismissed, m.id]); }}>${icon("close", 16)}</button></div>`;
   }
 
@@ -405,19 +400,19 @@ export class Composer extends LitElement {
     const groups = store.data?.tool_groups || {};
     const sel = new Set<string>(this.tools ?? store.data?.settings?.chat_tools ?? ["web", "files", "skills"]);
     const avail = ["web", "files", "skills", "dav", "ews", "http", ...(store.data?.werkbank?.configured ? ["werkbank"] : [])];
-    return html`<div class="mh">${t("Werkzeuge")} im Chat</div>
+    return html`<div class="mh">${t("Werkzeuge im Chat")}</div>
       ${avail.map(g => html`<button class="mi" @click=${() => {
         sel.has(g) ? sel.delete(g) : sel.add(g); this.tools = [...sel];
         this.dispatchEvent(new CustomEvent("tools", { detail: this.tools })); this.requestUpdate(); }}>
-        ${icon(groups[g]?.icon || "tools", 18)}<span class="grow">${groups[g]?.label || g}</span>${sel.has(g) ? icon("check", 18) : nothing}</button>`)}
-      <div class="hint" style="padding:4px 10px 6px">${groups.ha?.label || "Home Assistant"} ist immer dabei. Im Cowork stehen alle Werkzeuge zur Verfügung; schreibende Aktionen fragen nach.</div>`;
+        ${icon(groups[g]?.icon || "tools", 18)}<span class="grow">${tb(groups[g]?.label) || g}</span>${sel.has(g) ? icon("check", 18) : nothing}</button>`)}
+      <div class="hint" style="padding:4px 10px 6px">${t("{ha} ist immer dabei. Im Cowork stehen alle Werkzeuge zur Verfügung; schreibende Aktionen fragen nach.", { ha: tb(groups.ha?.label) || "Home Assistant" })}</div>`;
   }
 
   private projectMenu() {
     const ps = store.data?.projects || [];
     return html`<div class="mh">${t("Projekte")}</div>
       <button class="mi ${!this.projectId ? "sel" : ""}" data-close @click=${() => { this.projectId = null; this.dispatchEvent(new CustomEvent("project", { detail: null })); }}>
-        ${icon("chat", 18)} Ohne Projekt</button>
+        ${icon("chat", 18)} ${t("Ohne Projekt")}</button>
       ${ps.map((p: any) => html`<button class="mi ${p.id === this.projectId ? "sel" : ""}" data-close
         @click=${() => { this.projectId = p.id; this.dispatchEvent(new CustomEvent("project", { detail: p.id })); }}>
         ${icon("project", 18)}<span class="grow ellipsis">${p.name}</span></button>`)}`;
@@ -438,7 +433,7 @@ export class Composer extends LitElement {
       ${this.rec ? html`<div class="rec"><span class="dot"></span><span class="muted">${fmtDuration(secs)}</span>
           <div class="wave">${Array.from({ length: 28 }, (_, i) => html`<i style="height:${4 + Math.abs(Math.sin(i * 1.7 + Date.now() / 160)) * this.recLevel * 24}px"></i>`)}</div>
           <button class="iconbtn" title=${t("Abbrechen")} @click=${() => this.stopRec(false)}>${icon("close")}</button>
-          <button class="send" title="Fertig" @click=${() => this.stopRec(true)}>${icon("check")}</button></div>`
+          <button class="send" title=${t("Fertig")} @click=${() => this.stopRec(true)}>${icon("check")}</button></div>`
         : this.transcribing ? this.transcribingRow()
         : html`<textarea rows="1" .value=${this.text} placeholder=${this.placeholder}
           @input=${(e: any) => { this.text = e.target.value; this.autosize(); }} @keydown=${this.key}
@@ -448,14 +443,14 @@ export class Composer extends LitElement {
           @change=${(e: any) => { this.addFiles(e.target.files); e.target.value = ""; }}></label>
         ${this.mode === "chat" && !this.simple ? html`<lm-menu direction="up"><button slot="trigger" class="iconbtn ${this.tools?.length ? "" : ""}" title=${t("Werkzeuge")}>${icon("tools")}</button>${this.toolsMenu()}</lm-menu>` : nothing}
         ${this.showMode ? html`<span class="seg">
-          <button class=${this.mode === "chat" ? "on" : ""} @click=${() => this.setMode("chat")}>${icon("chat", 16)}<span class="hide-s">Chat</span></button>
+          <button class=${this.mode === "chat" ? "on" : ""} @click=${() => this.setMode("chat")}>${icon("chat", 16)}<span class="hide-s">${t("Chat")}</span></button>
           <button class=${this.mode === "cowork" ? "on" : ""} @click=${() => this.setMode("cowork")}>${icon("cowork", 16)}<span class="hide-s">Cowork</span></button></span>` : nothing}
-        ${this.showProject ? html`<lm-menu direction="up"><button slot="trigger" class="model" title=${t("Projekte")}>${icon("project", 16)}<span class="ellipsis hide-s">${proj?.name || "Projekt"}</span></button>${this.projectMenu()}</lm-menu>` : nothing}
+        ${this.showProject ? html`<lm-menu direction="up"><button slot="trigger" class="model" title=${t("Projekte")}>${icon("project", 16)}<span class="ellipsis hide-s">${proj?.name || t("Projekt")}</span></button>${this.projectMenu()}</lm-menu>` : nothing}
         <span class="grow"></span>
         ${this.simple ? nothing : html`<lm-menu direction="up" align="right"><button slot="trigger" class="meter" title="${t("Kontext")} & ${t("Kontingent")}">
           ${cu ? html`<lm-ring .value=${cf} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Kontingent")}></lm-ring></button>
           ${this.usageMenu()}</lm-menu>
-        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${(this.modelInfo as any).billed ? icon("euro", 14) : (this.modelInfo as any).external ? icon("external", 14) : loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || "Modell wählen"}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
+        <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${(this.modelInfo as any).billed ? icon("euro", 14) : (this.modelInfo as any).external ? icon("external", 14) : loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || t("Modell wählen")}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
         ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"
             @click=${this.toggleRec} ?disabled=${this.transcribing}>${icon("mic")}</button>`
           : !this.rec ? (busy && !this.canQueue

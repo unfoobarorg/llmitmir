@@ -3,6 +3,7 @@
 import { LitElement, css, html, nothing } from "lit";
 import { property } from "lit/decorators.js";
 import { safeElement } from "../ui";
+import { t } from "../i18n";
 
 type M4 = Float32Array;
 const ident = (): M4 => { const m = new Float32Array(16); m[0] = m[5] = m[10] = m[15] = 1; return m; };
@@ -216,7 +217,7 @@ export class SceneEl extends LitElement {
   }
 
   render() {
-    if (this.failed) return html`<div class="no">3D wird hier nicht unterstützt</div>`;
+    if (this.failed) return html`<div class="no">${t("3D wird hier nicht unterstützt")}</div>`;
     const labels = (this.data?.objects || []).filter((o: any) => o.label).slice(0, 8);
     return html`<canvas role="img" aria-label="3D-Szene"></canvas>
       ${labels.length ? html`<div class="lab">${labels.map((o: any) => html`<span><i style="background:${o.color}"></i>${o.label}</span>`)}</div>` : nothing}`;
