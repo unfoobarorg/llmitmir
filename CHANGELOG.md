@@ -2,7 +2,11 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
-## Unveröffentlicht – Plugins-Seite, geführte Einrichtung von Konnektoren, richtige Kontextgröße
+## 2.1.0 – Plugins-Seite, geführte Einrichtung von Konnektoren, richtige Kontextgröße
+
+Skills, Konnektoren und Zugänge liegen jetzt zusammen auf der neuen Seite *Plugins*. Konnektoren lassen sich in einem
+geführten Chat einrichten und mehrfach verbinden, ohne dass das Modell Anmeldedaten sieht. Außerdem rechnet LLMitMir mit
+den richtigen Kontextgrößen der SAIA-Modelle, deshalb werden lange Chats nicht mehr zu früh gekürzt.
 
 ### Plugins
 - **Neue Seite „Plugins“** im Hauptmenü und unter *Einstellungen → Plugins* (wie in der Claude-Desktop-App) mit den Reitern

@@ -88,6 +88,7 @@ async def test_connector_instructions_reach_the_model(hass, llmitmir, hass_ws_cl
 
 async def test_nextcloud_login_flow_creates_an_app_password_connection(hass, llmitmir, hass_ws_client, hass_admin_user):
     from custom_components.llmitmir import connectors as CN
+    from custom_components.llmitmir import credcheck as CK
 
     m = llmitmir["manager"]
     admin = await hass_ws_client(hass)
@@ -95,15 +96,21 @@ async def test_nextcloud_login_flow_creates_an_app_password_connection(hass, llm
     start = AsyncMock(return_value={"login": "https://cloud.example.org/login/v2/flow/x",
                                     "endpoint": "https://cloud.example.org/login/v2/poll", "token": "tok"})
     poll = AsyncMock(side_effect=[None, {"username": "niko", "password": "app-pw-abcdef"}])
-    with patch.object(CN, "flow_start", start), patch.object(CN, "flow_poll", poll), patch.object(CN, "FLOW_INTERVAL", 0):
+    # die Prüfung nach dem Verbinden ginge sonst echt ins Netz (in der CI hängt sie dann bis zum Timeout)
+    check = AsyncMock(return_value={"ok": True, "message": "ok", "at": 1})
+    with (patch.object(CN, "flow_start", start), patch.object(CN, "flow_poll", poll), patch.object(CN, "FLOW_INTERVAL", 0),
+          patch.object(CK, "check_credential", check)):
         res = await _ok(admin, "connector/flow_start", connector_id=view["connectors"][0]["id"])
         assert res["login"].endswith("/flow/x")
-        for _ in range(50):
-            await asyncio.sleep(0)
+        loop = asyncio.get_running_loop()
+        until = loop.time() + 10  # nach Zeit warten, nicht nach Runden: langsame Runner brauchen mehr
+        while loop.time() < until:
+            await asyncio.sleep(0.01)
             status = await _ok(admin, "connector/flow_status", flow_id=res["flow_id"])
             if status["status"] != "waiting":
                 break
-    assert status["status"] == "done"
+    assert status["status"] == "done", status
+    assert check.await_count == 1
     st = await m.user_store(hass_admin_user.id)
     cred = st.meta["credentials"][status["credential_id"]]
     assert cred["fields"] == {"url": "https://cloud.example.org", "username": "niko", "password": "app-pw-abcdef"}
