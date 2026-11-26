@@ -2,6 +2,7 @@
 // The feed turns states, history, statistics, calendars and to-do lists into the same record a tile run writes
 // (status, headline, data …), so the tile types do not care where the numbers came from.
 import { store } from "../api";
+import { t, tb, dateLocale } from "../i18n";
 
 type Rec = { status: string; headline: string; subline?: string; data: any; updated: number | null; error?: string | null; series?: any };
 
@@ -52,8 +53,8 @@ function fmtState(st: any, attr?: string): string {
   const v = valueOf(st, attr);
   const n = num(v);
   const u = unitOf(st, attr);
-  if (n !== null) return n.toLocaleString("de-DE", { maximumFractionDigits: 2 }) + (u ? " " + u : "");
-  if (v === "on") return "an"; if (v === "off") return "aus";
+  if (n !== null) return n.toLocaleString(dateLocale(), { maximumFractionDigits: 2 }) + (u ? " " + u : "");
+  if (v === "on") return t("an"); if (v === "off") return t("aus");
   return String(v ?? "–") + (u ? " " + u : "");
 }
 
@@ -95,7 +96,7 @@ export class HaFeed {
       const unsub = await this.hass.connection.subscribeMessage((e: any) => { this.todo = e.items || []; this.onChange(); },
         { type: "todo/item/subscribe", entity_id: eid });
       this.unsubTodo = unsub;
-    } catch (e: any) { this.error = `To-do-Liste nicht lesbar: ${e?.message || e}`; this.onChange(); }
+    } catch (e: any) { this.error = t("To-do-Liste nicht lesbar: {e}", { e: e?.message || e }); this.onChange(); }
   }
 
   private async fetch(force = false) {
@@ -135,7 +136,7 @@ export class HaFeed {
       this.error = "";
       this.fetched = Date.now();
     } catch (e: any) {
-      this.error = `Home Assistant: ${e?.message || e?.code || e}`;
+      this.error = `Home Assistant: ${tb(String(e?.message || e?.code || e))}`;
     } finally {
       this.busy = false;
       this.onChange();
@@ -169,9 +170,9 @@ export class HaFeed {
     const lastChanged = Math.max(0, ...ids.map(i => Date.parse(states[i]?.last_changed || "") / 1000 || 0)) || null;
     if (!ids.length) return { status: "empty", data: null };
     if (["stat", "gauge", "progress"].includes(kind)) {
-      if (unavailable(first)) return { status: "warn", headline: `${friendly(first, ids[0])}: nicht erreichbar`, data: null, updated: lastChanged };
+      if (unavailable(first)) return { status: "warn", headline: t("{name}: nicht erreichbar", { name: friendly(first, ids[0]) }), data: null, updated: lastChanged };
       const v = num(valueOf(first, src.attribute));
-      if (v === null) return { status: "warn", headline: `${friendly(first, ids[0])}: „${valueOf(first, src.attribute)}“ ist keine Zahl`, data: null };
+      if (v === null) return { status: "warn", headline: t("{name}: „{v}“ ist keine Zahl", { name: friendly(first, ids[0]), v: valueOf(first, src.attribute) }), data: null };
       const status = ruleStatus(v, rules);
       const unit = opts.unit || unitOf(first, src.attribute);
       const headline = String(opts.title || friendly(first, ids[0]));
@@ -184,15 +185,15 @@ export class HaFeed {
       const dec = Number.isInteger(v) ? 0 : 1;
       const delta = prev !== null && isFinite(prev) ? v - prev : null;
       return {
-        status, headline, subline: delta !== null ? "seit 24 Stunden" : "", updated: lastChanged,
+        status, headline, subline: delta !== null ? t("seit 24 Stunden") : "", updated: lastChanged,
         data: { value: v, unit, decimals: opts.decimals ?? dec, trend: [...trend.slice(-29), v],
-          ...(delta !== null ? { delta: (delta > 0 ? "+" : delta < 0 ? "−" : "±") + Math.abs(delta).toLocaleString("de-DE", { maximumFractionDigits: dec }) } : {}) },
+          ...(delta !== null ? { delta: (delta > 0 ? "+" : delta < 0 ? "−" : "±") + Math.abs(delta).toLocaleString(dateLocale(), { maximumFractionDigits: dec }) } : {}) },
       };
     }
     const rows = ids.map(eid => {
       const st = states[eid];
       const v = valueOf(st, src.attribute);
-      return { eid, st, name: friendly(st, eid), text: unavailable(st) ? "nicht erreichbar" : fmtState(st, src.attribute),
+      return { eid, st, name: friendly(st, eid), text: unavailable(st) ? t("nicht erreichbar") : fmtState(st, src.attribute),
         status: unavailable(st) ? "warn" : ruleStatus(v, rules), changed: Date.parse(st?.last_changed || "") / 1000 || null };
     });
     const worst = rows.reduce((a, r) => (RANK[r.status] > RANK[a] ? r.status : a), "ok");
@@ -200,17 +201,17 @@ export class HaFeed {
       const hits = rows.filter(r => (rules.length ? r.status !== "ok" : ["on", "open", "problem", "unavailable"].includes(r.st?.state)));
       return {
         status: hits.length ? (hits.some(r => r.status === "error") ? "error" : "warn") : "ok",
-        headline: hits.length ? `${hits.length} ${hits.length === 1 ? "Meldung" : "Meldungen"}` : "Alles in Ordnung", updated: lastChanged,
+        headline: hits.length ? t(hits.length === 1 ? "{n} Meldung" : "{n} Meldungen", { n: hits.length }) : t("Alles in Ordnung"), updated: lastChanged,
         data: { items: hits.map(r => ({ severity: r.status === "error" ? "critical" : "warn", title: r.name, text: r.text, since: r.changed })) },
       };
     }
     if (kind === "list") {
-      return { status: worst, headline: `${rows.length} Entitäten`, updated: lastChanged,
+      return { status: worst, headline: t("{n} Entitäten", { n: rows.length }), updated: lastChanged,
         data: { items: rows.map(r => ({ title: r.name, meta: r.text, state: r.status === "error" ? "blockiert" : "" })) } };
     }
     if (kind === "table") {
       return { status: worst, headline: "", updated: lastChanged, data: {
-        columns: [{ key: "name", label: "Name", type: "text" }, { key: "wert", label: src.attribute || "Wert", type: "text" },
+        columns: [{ key: "name", label: t("Name"), type: "text" }, { key: "wert", label: src.attribute || t("Wert"), type: "text" },
           { key: "seit", label: "Seit", type: "date" }],
         rows: rows.map(r => ({ name: r.name, wert: r.text, seit: r.changed })), sort: null } };
     }
@@ -246,7 +247,7 @@ export class HaFeed {
       const v = pts[pts.length - 1][1], first = pts[0][1];
       return { status: ruleStatus(v, rules), headline: series[0].name, subline: `letzte ${src.hours || 24} h`, updated: Date.now() / 1000,
         data: { value: v, unit, trend: pts.slice(-30).map(p => p[1]),
-          delta: (v - first > 0 ? "+" : v - first < 0 ? "−" : "±") + Math.abs(v - first).toLocaleString("de-DE", { maximumFractionDigits: 1 }) } };
+          delta: (v - first > 0 ? "+" : v - first < 0 ? "−" : "±") + Math.abs(v - first).toLocaleString(dateLocale(), { maximumFractionDigits: 1 }) } };
     }
     const opts = this.tile.options || {};
     return { status: "ok", headline: "", subline: `letzte ${src.hours || 24} h`, updated: Date.now() / 1000,
@@ -263,7 +264,7 @@ export class HaFeed {
     });
     if (!series.some((s: any) => s.points.length)) return { status: "empty", data: null };
     const unit = unitOf(states[(src.entities || [])[0]]);
-    const label: Record<string, string> = { "5minute": "je 5 Minuten", hour: "je Stunde", day: "je Tag", week: "je Woche", month: "je Monat" };
+    const label: Record<string, string> = { "5minute": t("je 5 Minuten"), hour: t("je Stunde"), day: t("je Tag"), week: t("je Woche"), month: t("je Monat") };
     if (kind === "stat") {
       const pts = series[0].points;
       return { status: "ok", headline: series[0].name, subline: label[st.period] || "", updated: pts[pts.length - 1][0],
@@ -279,15 +280,15 @@ export class HaFeed {
     const evs = this.cache.map((ev: any) => {
       const s = ev.start?.dateTime || ev.start?.date || ev.start;
       const allDay = !ev.start?.dateTime && !!ev.start?.date;
-      const t = Date.parse(s) / 1000;
-      return { t, allDay, title: ev.summary || "(ohne Titel)", place: ev.location || "" };
+      const ts = Date.parse(s) / 1000;
+      return { t: ts, allDay, title: ev.summary || t("(ohne Titel)"), place: ev.location || "" };
     }).sort((a: any, b: any) => a.t - b.t);
-    const when = (e: any) => (e.allDay ? new Date(e.t * 1000).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }) + " ganztägig"
-      : new Date(e.t * 1000).toLocaleString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }));
-    const head = evs.length ? `${evs.length} ${evs.length === 1 ? "Termin" : "Termine"}` : "Keine Termine";
+    const when = (e: any) => (e.allDay ? new Date(e.t * 1000).toLocaleDateString(dateLocale(), { weekday: "short", day: "2-digit", month: "2-digit" }) + t(" ganztägig")
+      : new Date(e.t * 1000).toLocaleString(dateLocale(), { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }));
+    const head = evs.length ? t(evs.length === 1 ? "{n} Termin" : "{n} Termine", { n: evs.length }) : t("Keine Termine");
     if (kind === "table") {
       return { status: "ok", headline: head, updated: this.fetched / 1000, data: {
-        columns: [{ key: "wann", label: "Wann", type: "text" }, { key: "was", label: "Was", type: "text" }, { key: "wo", label: "Ort", type: "text" }],
+        columns: [{ key: "wann", label: t("Wann"), type: "text" }, { key: "was", label: t("Was"), type: "text" }, { key: "wo", label: t("Ort"), type: "text" }],
         rows: evs.map((e: any) => ({ wann: when(e), was: e.title, wo: e.place })), sort: null } };
     }
     return { status: "ok", headline: head, updated: this.fetched / 1000,
@@ -300,10 +301,10 @@ export class HaFeed {
     const open = this.todo.filter(i => i.status !== "completed"), done = this.todo.filter(i => i.status === "completed");
     if (kind === "progress") {
       const p = this.todo.length ? (done.length / this.todo.length) * 100 : 0;
-      return { status: "ok", headline: friendly(states[eid], eid), subline: `${done.length} von ${this.todo.length} erledigt`, updated: Date.now() / 1000,
+      return { status: "ok", headline: friendly(states[eid], eid), subline: t("{a} von {b} erledigt", { a: done.length, b: this.todo.length }), updated: Date.now() / 1000,
         data: { percent: p, steps: this.todo.slice(0, 20).map(i => ({ label: i.summary, done: i.status === "completed" })), milestones: [] } };
     }
-    const fmtDue = (d: any) => (d ? "fällig " + new Date(d).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "");
+    const fmtDue = (d: any) => (d ? t("fällig {d}", { d: new Date(d).toLocaleDateString(dateLocale(), { day: "2-digit", month: "2-digit" }) }) : "");
     return { status: "ok", headline: `${open.length} offen`, updated: Date.now() / 1000,
       data: { items: [...open, ...done].map(i => ({ title: i.summary, state: i.status === "completed" ? "erledigt" : "offen", meta: [fmtDue(i.due), i.description || ""].filter(Boolean).join(" · ") })) } };
   }

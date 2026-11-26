@@ -5,7 +5,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import * as mdi from "./icons";
-import { t } from "./i18n";
+import { t, isDe, dateLocale } from "./i18n";
 import { store } from "./api";
 import { blockedImageLabel, linkable, loadsSafely } from "./safeurl";
 
@@ -52,27 +52,30 @@ export const icon = (name: string, size = 20) =>
 // ------------------------------------------------------------------ formatting
 export const fmtNum = (n: number) => {
   n = Number(n || 0);
-  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(".", ",") + " Mio.";
+  const dec = (s: string) => (isDe() ? s.replace(".", ",") : s);
+  if (n >= 1e6) return dec((n / 1e6).toFixed(n >= 1e7 ? 0 : 1)) + (isDe() ? " Mio." : "M");
   if (n >= 1e4) return Math.round(n / 1000) + "k";
-  if (n >= 1000) return (n / 1000).toFixed(1).replace(".", ",") + "k";
+  if (n >= 1000) return dec((n / 1000).toFixed(1)) + "k";
   return String(Math.round(n));
 };
+/** Zahl für ein Eingabefeld: im Deutschen mit Komma. */
+export const decStr = (v: any) => (isDe() ? String(v).replace(".", ",") : String(v));
 /** Lebensdauer in Tagen als Text: „30 Tage“, „1 Tag“, „aus“ (ohne Angabe ist das Löschen aus). */
 export const daysText = (days?: number | null) => {
   const n = days === null || days === undefined || days === ("" as any) ? 0 : Number(days);
-  if (!Number.isFinite(n) || n <= 0) return "aus";
-  return `${n} Tag${n === 1 ? "" : "e"}`;
+  if (!Number.isFinite(n) || n <= 0) return t("aus");
+  return t(n === 1 ? "{n} Tag" : "{n} Tage", { n });
 };
 export const fmtTime = (ts?: number | string | null) => {
   if (!ts) return "–";
   const d = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
   const now = new Date();
   const same = d.toDateString() === now.toDateString();
-  const hm = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const hm = d.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
   if (same) return hm;
   const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return `gestern ${hm}`;
-  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: d.getFullYear() !== now.getFullYear() ? "2-digit" : undefined }) + " " + hm;
+  if (d.toDateString() === y.toDateString()) return t("gestern {hm}", { hm });
+  return d.toLocaleDateString(dateLocale(), { day: "2-digit", month: "2-digit", year: d.getFullYear() !== now.getFullYear() ? "2-digit" : undefined }) + " " + hm;
 };
 export const fmtDuration = (sec: number) => {
   sec = Math.max(0, Math.round(sec));
@@ -413,7 +416,7 @@ export class VoiceRecorder {
 }
 
 // ------------------------------------------------------------------ confirm dialog
-export function confirmDialog(text: string, okLabel = "Löschen"): Promise<boolean> {
+export function confirmDialog(text: string, okLabel = t("Löschen")): Promise<boolean> {
   return new Promise(resolve => {
     const host = document.querySelector("home-assistant")?.shadowRoot ? document.body : document.body;
     const el = document.createElement("lm-confirm") as Confirm;

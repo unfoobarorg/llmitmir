@@ -156,7 +156,7 @@ export class Viewer extends LitElement {
       </header>
       <div class="body">
         ${k === "loading" ? html`<div class="spin"></div>` : nothing}
-        ${k === "error" ? html`<div class="msg">${icon("alert", 28)}<span>${this.error || "Die Datei lässt sich nicht anzeigen."}</span></div>` : nothing}
+        ${k === "error" ? html`<div class="msg">${icon("alert", 28)}<span>${this.error || t("Die Datei lässt sich nicht anzeigen.")}</span></div>` : nothing}
         ${k === "image" ? html`<img class="pic" src=${this.url} alt=${this.name}>` : nothing}
         ${k === "pdf" ? html`<div class="wrap"><img class="pic" src=${this.url} alt=${this.name}>
           ${this.pages > 1 ? html`<div class="pager"><button ?disabled=${this.page <= 1} @click=${() => this.loadPage(this.page - 1)}>${icon("left", 18)}</button>

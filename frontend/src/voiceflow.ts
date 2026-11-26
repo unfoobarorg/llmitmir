@@ -16,10 +16,11 @@ export type Endpoint = "complete" | "open" | "unclear";
 
 // Nach diesen Wörtern geht ein Satz weiter (Bindewörter, Artikel, Verhältniswörter, Zögern)
 // (ohne „an, auf, aus, ein, zu, vor, nach, mit, um …“: damit enden im Deutschen ganz normale Sätze – „Mach das Licht aus.“)
-const OPEN_END = new Set(("und oder aber denn weil dass ob wenn als wie sondern sowie also dann außerdem beziehungsweise bzw " +
-  "der die den dem des eine einen einem einer eines mein meine meinen meinem dein deine deinen deinem kein keine " +
-  "in im am von vom zum zur für gegen ohne seit wegen zwischen neben " +
-  "äh ähm hm hmm öhm ehm naja sozusagen " +
+// Wortlisten der Spracherkennung, keine Texte der Oberfläche – deshalb ohne t()
+const OPEN_END = new Set(("und oder aber denn weil dass ob wenn als wie sondern sowie also dann außerdem beziehungsweise bzw " + // i18n-ok
+  "der die den dem des eine einen einem einer eines mein meine meinen meinem dein deine deinen deinem kein keine " + // i18n-ok
+  "in im am von vom zum zur für gegen ohne seit wegen zwischen neben " + // i18n-ok
+  "äh ähm hm hmm öhm ehm naja sozusagen " + // i18n-ok
   "and or but because that if when the a an to of for with from so then um uh").split(" "));
 // Ganz kurze Äußerungen, die trotzdem vollständig sind
 const SHORT_OK = /^(ja|nein|nee|nö|doch|okay|ok|genau|richtig|stimmt|danke|bitte|stopp|stop|halt|weiter|gern|gerne|klar|super|tschüss|hallo|yes|no|thanks|sure)\b/i;

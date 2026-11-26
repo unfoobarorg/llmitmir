@@ -1,4 +1,5 @@
 // Der Roboter aus dem LLMitMir-Icon in 3D – für das Sprachgespräch (voice.ts).
+import { t } from "./i18n";
 //
 // Bewusst ohne 3D-Bibliothek: ein paar Hundert Zeilen WebGL reichen für eine Figur aus runden Grundkörpern
 // und halten das Bundle klein. Die Figur besteht aus „aufgeblasenen“ Kugeln (Kugel, Kapsel, abgerundeter
@@ -207,7 +208,7 @@ export class Robot3D {
   constructor(private canvas: HTMLCanvasElement, dark: boolean) {
     const gl = (canvas.getContext("webgl", { antialias: true, alpha: true, premultipliedAlpha: true })
       || canvas.getContext("experimental-webgl")) as WebGLRenderingContext | null;
-    if (!gl) throw new Error("WebGL nicht verfügbar");
+    if (!gl) throw new Error(t("WebGL nicht verfügbar"));
     this.gl = gl;
     this.setDark(dark);
     this.build();

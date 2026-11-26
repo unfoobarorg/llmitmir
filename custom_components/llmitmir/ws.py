@@ -38,6 +38,7 @@ from . import sharing as SH
 from . import taskedit as TE
 from . import speech as SP
 from . import views as V
+from . import i18n as I18N
 from .const import (DOMAIN, KEY_MODES, KEY_SHARED, KIND_CHAT, KIND_COWORK, KIND_TASK_RUN, KNOWN_CONTEXT, ORIGIN_DASHBOARD,
                     PRESETS, TASK_KEY_CHOICES, TASK_KEY_MODES, TASK_KEY_OWN, TILE_RUN_BUDGET, VERSION)
 from .scheduler import describe, next_run, schedule_to_cron
@@ -1234,6 +1235,14 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
         cur["view"] = s["view"]
     if "memory" in s:
         st.meta["memory"] = str(s["memory"])[:20000]
+    if "language" in s:
+        # Sprache der Oberfläche: „auto“ folgt dem Profil in Home Assistant (i18n.py)
+        cur["language"] = I18N.clean_choice(s["language"])
+    if "ui_lang" in s:
+        # die Sprache, die das Panel tatsächlich zeigt – für Push-Nachrichten, Sprachausgabe und den Systemprompt
+        ui = I18N.clean_ui(s["ui_lang"])
+        if ui:
+            cur["ui_lang"] = ui
     await st.async_save_meta()
     m.emit(user.id, {"type": "usage", "usage": m.usage_snapshot(user.id)})
     return {"ok": True}

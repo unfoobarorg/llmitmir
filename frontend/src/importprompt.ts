@@ -1,5 +1,13 @@
 // The prompt a user pastes into Claude to move skills, credentials, scheduled tasks, projects and memory to LLMitMir.
+// i18n-ok-file
+// One text per language of the interface; the JSON keys stay the same.
+import { lang } from "./i18n";
+
 export function claudeImportPrompt(url: string): string {
+  return lang() === "de" ? promptDe(url) : promptEn(url);
+}
+
+function promptDe(url: string): string {
   return `Bitte übertrage meine Inhalte aus diesem Claude-Konto nach „LLMitMir“ in meinem Home Assistant.
 Ziel-URL (Einmal-Link, 24 h gültig, nimmt genau ein JSON per HTTP-POST entgegen):
 ${url}
@@ -46,4 +54,53 @@ So gehst du vor:
 8. Antworte mir am Ende kurz: wie viele Skills, Zugänge, Aufgaben, Projekte übertragen wurden, was du nicht übertragen konntest und warum. Gib dabei KEINE Geheimnisse im Chat aus.
 
 Hinweis: Chatverläufe kannst du nicht auslesen – die übernehme ich separat über den offiziellen Datenexport von claude.ai (Einstellungen → Datenschutz → Daten exportieren), den ich als ZIP in LLMitMir hochlade. Importierte Aufgaben sind in LLMitMir zunächst pausiert, damit ich sie prüfen kann.`;
+}
+
+function promptEn(url: string): string {
+  return `Please transfer my content from this Claude account to “LLMitMir” in my Home Assistant.
+Target URL (one-time link, valid for 24 h, accepts exactly one JSON via HTTP POST):
+${url}
+
+Collect everything you can access with your tools and build ONE JSON object from it following this schema:
+
+{
+  "source": "claude",
+  "memory": "<everything you know about me permanently: memories, personal settings, preferences, notes from memory files – as prose or bullet points>",
+  "credentials": [
+    {"name": "<descriptive, unique name>", "type": "webdav|basic|bearer|header|telegram|imap|ews|gwdg|other",
+     "fields": {"url": "...", "username": "...", "password": "...", "token": "...", "share_token": "...", "chat_ids": "..."},
+     "services": ["<only for type gwdg (GWDG Exchange, fields username = email address, login = user ID and password) and type ews: mail, calendar and/or contacts>"],
+     "access": {"<only for type gwdg and ews, per service>": "read|write"},
+     "notes": "<what for, validity/expiry date, notes>", "secret_fields": ["<only for type other: which fields are secret>"]}
+  ],
+  "skills": [
+    {"name": "...", "description": "<the description from the frontmatter, when the skill applies>",
+     "body": "<full content of SKILL.md without frontmatter, secrets replaced by {{cred:<Name>:<field>}}>",
+     "credentials": ["<names of the credentials the skill uses>"],
+     "files": [{"name": "<relative path, e.g. scripts/ha.py>", "content": "<text content>"}]}
+  ],
+  "projects": [
+    {"name": "...", "description": "...", "instructions": "<project instructions>", "credentials": ["..."], "skills": ["..."],
+     "files": [{"name": "...", "content": "<text>"}]}
+  ],
+  "tasks": [
+    {"name": "...", "prompt": "<full prompt of the scheduled task>",
+     "schedule": {"type": "cron", "cron": "<5 fields: minute hour day month weekday, local time Europe/Berlin>"},
+     "project": "<project name or empty>", "allow_write": [], "note": "<model, time zone, special notes>"}
+  ]
+}
+
+How to proceed:
+1. Skills: list all skills available to you (including your own/synced ones). Read every SKILL.md completely plus its text files (scripts, templates; leave out binary files, at most 200 KB per file).
+2. Extract credentials: all URLs with user name/password, app passwords, API tokens, bot tokens, share links with passwords etc. from skills, projects and tasks become one entry per service in "credentials" (identical credentials only once). In the text, replace the secret with {{cred:<Name>:<field>}} and add the name to the skill's/project's "credentials". Leave nothing out – I want to see and manage the credentials separately in LLMitMir.
+3. Scheduled tasks: list all scheduled tasks/routines (e.g. via list_triggers or RemoteTrigger “list”, all pages with next_cursor). Take over name, full prompt and schedule; remove a “CRON_TZ=…” prefix and convert the schedule to local time Europe/Berlin if it is given in UTC. Replace secrets as in step 2. If a task refers to Claude-specific tools (e.g. Gmail connector, list_triggers), note that in "note".
+4. Projects: take over projects with instructions and text files as far as you can access them. If you can't, leave "projects" empty and tell me.
+5. Memories: summarise in "memory" what you know about me permanently (memory feature, memory files, CLAUDE.md, personal preferences). No content of individual chats.
+6. Send the JSON via HTTP POST to the target URL (Content-Type: application/json), e.g. with curl:
+   curl -sS -X POST -H 'Content-Type: application/json' --data-binary @llmitmir-import.json '${url}'
+   If the JSON is larger than 50 MB, split it into several POSTs with the same keys (the link then only accepts the first – in that case write me the file instead, see 7).
+7. If you have no network access or the POST fails: save the JSON as a file “llmitmir-import.json” and give it to me to download; I'll upload it in LLMitMir under Settings → Import from Claude.
+8. At the end, answer briefly: how many skills, credentials, tasks and projects were transferred, what you couldn't transfer and why. Do NOT output any secrets in the chat.
+
+Note: you can't read chat histories – I'll take those over separately via the official claude.ai data export (Settings → Privacy → Export data), which I upload to LLMitMir as a ZIP. Imported tasks are paused in LLMitMir at first so I can check them.`;
 }

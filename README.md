@@ -20,6 +20,7 @@ OpenAI-compatible provider (preset: GWDG / KISSKI SAIA).*
 - **Geplante Aufgaben**, gebaut für langsame, ausgelastete Modelle; teilbar mit anderen Personen
 - **Dashboards** aus Kacheln – Daten live aus Home Assistant oder aus geplanten Läufen
 - **Projekte, Skills, Teilaufgaben** und eine Lebensdauer für Chats
+- **Deutsch oder Englisch**: Sprache je Person wählbar (*Einstellungen → Allgemein → Sprache*), „Automatisch“ folgt Home Assistant
 - **Mehrere Personen** mit getrennten Daten, Schlüsseln und Kontingenten; einfache Ansicht für Laien, Expertenansicht
 - **Kontrolle für Admins:** Zugriffsprotokoll mit Monitoring (Agenten anhalten, Freigaben entziehen, Export an Webhook
   oder Syslog), **Konnektoren** mit Datenregeln und **MCP-Servern**, zentrale Skills und Skill-Richtlinien,
@@ -92,6 +93,7 @@ GitHub ist ein Spiegel. Bauen, Tests, CI und Aufbau: [docs/ENTWICKLUNG.md](docs/
 - **Scheduled tasks**, built for slow, busy models; shareable with other people
 - **Dashboards** made of tiles – data live from Home Assistant or from scheduled runs
 - **Projects, skills, subtasks** and an optional lifetime for chats
+- **German or English**: language per person (*Settings → General → Language*), “Automatic” follows Home Assistant
 - **Several people** with separate data, keys and quotas; a simple view for non-technical users and an expert view
 - **Control for admins:** access log with monitoring (stop agents, revoke approvals, export to webhook or syslog),
   **connectors** with data rules and **MCP servers**, central skills and skill policies, maintenance mode before

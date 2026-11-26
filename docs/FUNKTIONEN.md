@@ -8,10 +8,17 @@
   geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
   Folgende) schaltet jede Person unter *Einstellungen → Allgemein → Ansicht* frei; Admins legen unter *Admin → Personen → Ansicht* für alle oder
   je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
+- **Sprache: Deutsch oder Englisch**: Unter *Einstellungen → Allgemein → Sprache* wählt jede Person Deutsch, English
+  oder „Automatisch“ (folgt der Sprache ihres Profils in Home Assistant; eine Sprache, die LLMitMir nicht kennt, wird
+  Englisch). Nach dem Speichern lädt die Seite einmal neu. Die Wahl gilt für die ganze Oberfläche samt Datum und Zahlen,
+  für Fehlermeldungen und Hinweise des Servers, Push-Nachrichten (Freigaben, Ergebnisse geplanter Aufgaben), die
+  Spracheingabe und das Sprachgespräch; die Modelle antworten in dieser Sprache, solange die Person nicht selbst in einer
+  anderen schreibt. Die Anleitung zur Werkbank gibt es auf Englisch in [WERKBANK.en.md](WERKBANK.en.md). Inhalte, die
+  jemand selbst geschrieben hat (Skills, Aufträge, Namen), bleiben, wie sie sind.
 - **Einstellungen wie bei Claude**: Persönliche Einstellungen und Admin-Einstellungen sind in Bereiche geteilt – links die
   Liste, rechts Gruppen aus Zeilen mit kurzer Erklärung und Schalter, Auswahl oder Eingabefeld; längere Erklärungen stehen
   hinter „Mehr dazu“. Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/<bereich>`, `/llmitmir/admin/<bereich>`),
-  auf schmalen Bildschirmen wird die Liste zur waagerechten Leiste. Persönlich: *Allgemein* (Ansicht, persönliche Hinweise,
+  auf schmalen Bildschirmen wird die Liste zur waagerechten Leiste. Persönlich: *Allgemein* (Sprache, Ansicht, persönliche Hinweise,
   Bedienung), *Modelle* (Standardmodelle, externe Modelle), *Funktionen* (Teilaufgaben, Werkbank), *Benachrichtigungen*,
   *Datenschutz & Freigaben* (Lebensdauer, Freigaben, erlaubte Server), *Verbrauch*, *API-Schlüssel* (nur wenn der Admin
   eigene Schlüssel vorsieht) und *Import aus Claude*. Admin: *Personen* (Zugriff, Kontingente, Ansicht, AD/LDAP),

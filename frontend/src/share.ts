@@ -5,6 +5,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { base, icon, safeElement } from "./ui";
 import { store, isSimple } from "./api";
+import { t } from "./i18n";
 
 const LEVELS: [string, string][] = [["", "nicht geteilt"], ["view", "ansehen"], ["edit", "bearbeiten"], ["reshare", "bearbeiten und weiter teilen"]];
 const lvl = (e: any) => (!e ? "" : e.reshare && e.edit ? "reshare" : e.edit ? "edit" : e.reshare ? "viewshare" : "view");
@@ -62,7 +63,7 @@ export class Share extends LitElement {
       const view = await store.api.ws(this.kind === "tile" ? "tile/share" : "dashboard/share", msg);
       this.dirty = false;
       this.dispatchEvent(new CustomEvent("saved", { detail: view }));
-      store.notify("Freigaben gespeichert");
+      store.notify(t("Freigaben gespeichert"));
     } catch (e: any) { store.notify(e.message); }
     finally { this.saving = false; }
   }
@@ -71,10 +72,12 @@ export class Share extends LitElement {
     const it = this.item; if (!it) return nothing;
     const r = this.r;
     const simple = isSimple();
-    const what = this.kind === "tile" ? "die Kachel" : "das Dashboard";
+    const tile = this.kind === "tile";
     if (!r.owner && !r.reshare) {
-      return html`<div class="hint">${what === "die Kachel" ? "Diese Kachel" : "Dieses Dashboard"} gehört <b>${it.owner_name || "jemand anderem"}</b>.
-        Du darfst ${r.edit ? "es ansehen und bearbeiten" : "es ansehen"}, aber nicht weitergeben.</div>`;
+      const owner = it.owner_name || t("jemand anderem");
+      return html`<div class="hint">${tile
+        ? (r.edit ? t("Diese Kachel gehört {owner}. Du darfst sie ansehen und bearbeiten, aber nicht weitergeben.", { owner }) : t("Diese Kachel gehört {owner}. Du darfst sie ansehen, aber nicht weitergeben.", { owner }))
+        : (r.edit ? t("Dieses Dashboard gehört {owner}. Du darfst es ansehen und bearbeiten, aber nicht weitergeben.", { owner }) : t("Dieses Dashboard gehört {owner}. Du darfst es ansehen, aber nicht weitergeben.", { owner }))}</div>`;
     }
     const others = new Map<string, any>((it.share?.users || []).map((u: any) => [u.user_id, u]));
     const opts = LEVELS.filter(([k]) => r.owner || k === "" || k === "view" || (k === "edit" && r.edit) || (k === "reshare" && r.edit && r.reshare));
@@ -82,23 +85,24 @@ export class Share extends LitElement {
     const anyEdit = Object.values(this.draft).some(l => l === "edit" || l === "reshare") || ["edit", "reshare"].includes(this.all);
     return html`
       <div class="hint" style="margin-bottom:8px">${simple
-        ? `Andere Personen in diesem Home Assistant sehen ${what} dann bei sich. Du bestimmst, wer nur schaut, wer ändern und wer weitergeben darf.`
-        : `„Bearbeiten“ erlaubt Änderungen, „weiter teilen“ zusätzlich, ${what} an andere weiterzugeben – nie mit mehr Rechten als die eigenen. Nimmst du jemandem das Recht, verlieren auch alle, denen diese Person ${what} gegeben hat, den Zugriff.`}</div>
-      ${r.owner ? html`<div class="row2"><b style="font-size:14px">Für alle</b>
+        ? (tile ? t("Andere Personen in diesem Home Assistant sehen die Kachel dann bei sich. Du bestimmst, wer nur schaut, wer ändern und wer weitergeben darf.")
+          : t("Andere Personen in diesem Home Assistant sehen das Dashboard dann bei sich. Du bestimmst, wer nur schaut, wer ändern und wer weitergeben darf."))
+        : (tile ? t("„Bearbeiten“ erlaubt Änderungen, „weiter teilen“ zusätzlich, die Kachel an andere weiterzugeben – nie mit mehr Rechten als die eigenen. Nimmst du jemandem das Recht, verlieren auch alle, denen diese Person die Kachel gegeben hat, den Zugriff.")
+          : t("„Bearbeiten“ erlaubt Änderungen, „weiter teilen“ zusätzlich, das Dashboard an andere weiterzugeben – nie mit mehr Rechten als die eigenen. Nimmst du jemandem das Recht, verlieren auch alle, denen diese Person das Dashboard gegeben hat, den Zugriff."))}</div>
+      ${r.owner ? html`<div class="row2"><b style="font-size:14px">${t("Für alle")}</b>
         <select @change=${(e: any) => { this.all = e.target.value; this.dirty = true; }}>
-          ${allOpts.map(([k, l]) => html`<option value=${k} ?selected=${this.all === k}>${k ? l : "aus"}</option>`)}</select>
-        <span class="hint">alle, die LLMitMir nutzen – auch später hinzukommende${this.model ? " (bei Modell-Kacheln nur ansehen)" : ""}</span></div>` : nothing}
+          ${allOpts.map(([k, l]) => html`<option value=${k} ?selected=${this.all === k}>${k ? t(l) : t("aus")}</option>`)}</select>
+        <span class="hint">${t("alle, die LLMitMir nutzen – auch später hinzukommende")}${this.model ? t(" (bei Modell-Kacheln nur ansehen)") : ""}</span></div>` : nothing}
       ${this.people.length ? this.people.filter(p => p.id !== it.owner).map(p => {
         const e = others.get(p.id);
         const locked = e && !e.mine;
-        return html`<div class="who"><div><div class="nm">${p.name}</div>${e && e.by !== it.owner ? html`<div class="by">über ${e.by_name || "jemand anderen"}</div>` : nothing}</div>
-          <select ?disabled=${locked} title=${locked ? "Freigegeben von jemand anderem" : ""} @change=${(ev: any) => { this.draft = { ...this.draft, [p.id]: ev.target.value }; this.dirty = true; }}>
-            ${(locked ? LEVELS : opts).map(([k, l]) => html`<option value=${k} ?selected=${(this.draft[p.id] || "") === k}>${l}</option>`)}
-            ${this.draft[p.id] === "viewshare" ? html`<option value="viewshare" selected>ansehen und weiter teilen</option>` : nothing}</select></div>`;
-      }) : html`<div class="hint">Es gibt keine weiteren Personen, die LLMitMir nutzen dürfen.</div>`}
-      ${this.model && anyEdit ? html`<div class="warn">${icon("shield", 18)}<div><b>Achtung:</b> Diese Kachel läuft mit deinen Zugängen und auf deinem Kontingent.
-        Wer sie bearbeiten darf, bestimmt über die Beschreibung, was dabei gelesen wird. Ändert jemand anderes sie, bekommst du eine Benachrichtigung.</div></div>` : nothing}
+        return html`<div class="who"><div><div class="nm">${p.name}</div>${e && e.by !== it.owner ? html`<div class="by">${t("über {name}", { name: e.by_name || t("jemand anderen") })}</div>` : nothing}</div>
+          <select ?disabled=${locked} title=${locked ? t("Freigegeben von jemand anderem") : ""} @change=${(ev: any) => { this.draft = { ...this.draft, [p.id]: ev.target.value }; this.dirty = true; }}>
+            ${(locked ? LEVELS : opts).map(([k, l]) => html`<option value=${k} ?selected=${(this.draft[p.id] || "") === k}>${t(l)}</option>`)}
+            ${this.draft[p.id] === "viewshare" ? html`<option value="viewshare" selected>${t("ansehen und weiter teilen")}</option>` : nothing}</select></div>`;
+      }) : html`<div class="hint">${t("Es gibt keine weiteren Personen, die LLMitMir nutzen dürfen.")}</div>`}
+      ${this.model && anyEdit ? html`<div class="warn">${icon("shield", 18)}<div><b>${t("Achtung:")}</b> ${t("Diese Kachel läuft mit deinen Zugängen und auf deinem Kontingent. Wer sie bearbeiten darf, bestimmt über die Beschreibung, was dabei gelesen wird. Ändert jemand anderes sie, bekommst du eine Benachrichtigung.")}</div></div>` : nothing}
       <div class="row" style="justify-content:flex-end;margin-top:10px">
-        <button class="btn primary" ?disabled=${!this.dirty || this.saving} @click=${this.save}>${icon("check", 16)} Freigaben speichern</button></div>`;
+        <button class="btn primary" ?disabled=${!this.dirty || this.saving} @click=${this.save}>${icon("check", 16)} ${t("Freigaben speichern")}</button></div>`;
   }
 }

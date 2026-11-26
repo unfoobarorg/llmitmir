@@ -3,7 +3,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { Api, store, navigate, isSimple, hassBus } from "./api";
 import { tokens, base, icon, fmtTime, menuItemStyles, confirmDialog, safeElement } from "./ui";
-import { setLang, t } from "./i18n";
+import { setLang, t, tb } from "./i18n";
 import "./composer";
 import "./chat";
 import "./pages";
@@ -177,7 +177,7 @@ export class LLMitMirPanel extends LitElement {
     if (this.initing) return;
     this.initing = true;
     this.inited = true;
-    setLang(this.hass.language);
+    setLang("auto", this.hass.language);  // bis die Einstellungen geladen sind (store.load)
     store.api = new Api(this.hass);
     try {
       this.access = await store.api.ws("access");
@@ -234,7 +234,7 @@ export class LLMitMirPanel extends LitElement {
   private haMenu() { this.dispatchEvent(new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true })); }
 
   private menuBtn() {
-    return this.small || this.collapsed ? html`<button class="iconbtn" slot="menu" title="Menü" @click=${() => (this.small ? (this.drawer = true) : this.toggleCollapse())}>${icon(this.small ? "menu" : "sidebar")}</button>` : nothing;
+    return this.small || this.collapsed ? html`<button class="iconbtn" slot="menu" title=${t("Menü")} @click=${() => (this.small ? (this.drawer = true) : this.toggleCollapse())}>${icon(this.small ? "menu" : "sidebar")}</button>` : nothing;
   }
 
   @state() private openProjects: Set<string> = (() => { try { return new Set(JSON.parse(localStorage.getItem("llmitmir.openProjects") || "[]")); } catch { return new Set(); } })();
@@ -435,12 +435,12 @@ export class LLMitMirPanel extends LitElement {
         const list = chatsOf(p.id);
         return html`<div class="pj ${p.id === curProj && this.path[0] === "project" ? "on" : ""} ${this.drag?.over === p.id ? "drop" : ""}"
             data-drop=${p.id} title=${t("Chat hierher ziehen")}>
-            <button class="iconbtn chev" @click=${(e: Event) => { e.stopPropagation(); this.toggleProject(p.id); }} title=${open ? "Zuklappen" : "Aufklappen"}>${icon(open ? "down" : "right", 16)}</button>
+            <button class="iconbtn chev" @click=${(e: Event) => { e.stopPropagation(); this.toggleProject(p.id); }} title=${open ? t("Zuklappen") : t("Aufklappen")}>${icon(open ? "down" : "right", 16)}</button>
             <span class="grow ellipsis" @click=${() => navigate(`/project/${p.id}`)}>${icon("project", 16)} ${p.name}</span>
             ${list.some((c: any) => store.runs[c.id]) ? html`<lm-spark size="13"></lm-spark>` : nothing}</div>
           ${open ? html`<div class="pjc">${list.slice(0, 8).map((c: any) => this.treeRows(c, cur))}
             ${list.length > 8 ? html`<div class="rc more-all" @click=${() => navigate(`/project/${p.id}`)}>${t("Alle anzeigen")} (${list.length})</div>` : nothing}
-            ${!list.length ? html`<div class="hint" style="padding:4px 10px 6px 30px">Noch keine Chats</div>` : nothing}</div>` : nothing}`;
+            ${!list.length ? html`<div class="hint" style="padding:4px 10px 6px 30px">${t("Noch keine Chats")}</div>` : nothing}</div>` : nothing}`;
       })}`;
   }
 
@@ -509,7 +509,7 @@ export class LLMitMirPanel extends LitElement {
           <button class="mi" data-close @click=${() => this.moveChat(c.id, null)}>${icon("chat", 18)} ${t("Ohne Projekt")}</button>
           ${projects.map((p: any) => html`<button class="mi ${c.project_id === p.id ? "sel" : ""}" data-close @click=${() => this.moveChat(c.id, p.id)}>${icon("project", 18)} ${p.name}</button>`)}` : nothing}
         <div class="msep"></div>
-        <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog(`„${c.title}“ löschen?`)) { await store.api.ws("chat/delete", { chat_id: c.id }); if (c.id === cur) navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
+        <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog(t("„{name}“ löschen?", { name: c.title || t("Neuer Chat") }))) { await store.api.ws("chat/delete", { chat_id: c.id }); if (c.id === cur) navigate("/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
       </lm-menu></div>`;
   }
 
@@ -543,7 +543,7 @@ export class LLMitMirPanel extends LitElement {
     return html`<nav class="${this.collapsed && !this.small ? "col" : ""} ${this.drawer ? "open" : ""}">
       <div class="brand">${this.small ? html`<button class="iconbtn" title="Home Assistant" @click=${this.haMenu}>${icon("mdi:home-assistant")}</button>` : nothing}
         <lm-spark size="22" .active=${running > 0}></lm-spark><b class="grow">LLMitMir</b>
-        <button class="iconbtn" title="Seitenleiste" @click=${this.toggleCollapse}>${icon(this.small ? "close" : "sidebar")}</button></div>
+        <button class="iconbtn" title=${t("Seitenleiste")} @click=${this.toggleCollapse}>${icon(this.small ? "close" : "sidebar")}</button></div>
       <div class="nv">
         <button class="ni new" title=${t("Neuer Chat")} @click=${() => navigate("/")}><span class="plus">${icon("plus", 18)}</span><span class="lbl">${t("Neuer Chat")}</span></button>
         ${isSimple() ? nothing : ni("/cowork", "cowork", t("Neues Cowork"), p === "cowork")}
@@ -599,7 +599,7 @@ export class LLMitMirPanel extends LitElement {
   /** Hinweis vor einem Neustart von Home Assistant (maintenance.py) – über jeder Seite, auch im Chat. */
   private maintBanner() {
     const mt = store.data?.maintenance;
-    return mt && mt.state && mt.state !== "off" ? html`<div class="maint">${icon("alert", 16)}<span>${mt.message || ""}</span></div>` : nothing;
+    return mt && mt.state && mt.state !== "off" ? html`<div class="maint">${icon("alert", 16)}<span>${tb(mt.message)}</span></div>` : nothing;
   }
 
   render() {
@@ -607,10 +607,10 @@ export class LLMitMirPanel extends LitElement {
     if (!this.access.allowed) {
       const admin = this.access.is_admin;
       return html`<div class="deny"><div class="card"><lm-spark size="30" .active=${false}></lm-spark><h2>${t("Kein Zugriff")}</h2>
-        <p class="hint">${admin ? "Du bist Admin, aber für LLMitMir noch nicht freigeschaltet. Lege fest, wer es nutzen darf – auch dich selbst." : "Bitte die Person, die Home Assistant verwaltet, dich für LLMitMir freizuschalten."}</p>
+        <p class="hint">${admin ? t("Du bist Admin, aber für LLMitMir noch nicht freigeschaltet. Lege fest, wer es nutzen darf – auch dich selbst.") : t("Bitte die Person, die Home Assistant verwaltet, dich für LLMitMir freizuschalten.")}</p>
         ${admin ? html`<lm-admin embedded tab="people"></lm-admin>` : nothing}</div></div>`;
     }
-    if (store.error && !store.data) return html`<div class="deny"><div class="card">${icon("alert")} ${store.error}</div></div>`;
+    if (store.error && !store.data) return html`<div class="deny"><div class="card">${icon("alert")} ${tb(store.error)}</div></div>`;
     if (!store.data) return html`<div class="deny"><lm-spark size="32"></lm-spark></div>`;
     return html`<div class="app ${this.small ? "small" : ""}">
       ${this.sidebar()}

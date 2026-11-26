@@ -3,7 +3,7 @@ import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, fmtTime, safeElement } from "./ui";
 import { store, navigate } from "./api";
-import { t } from "./i18n";
+import { t, tb } from "./i18n";
 import { AGENT_KINDS, MODEL_CLASSES, RANGES, agentLabel, credsText, outcomeText, shortId, targetText, toCsv } from "./auditview";
 
 const styles = css`:host { display: block; height: 100%; overflow-y: auto; }
@@ -93,36 +93,36 @@ export class MonitoringPage extends StoreElement {
     return html`
       <div class="filters">
         <select @change=${(e: any) => { this.days = Number(e.target.value); this.load(); }}>
-          ${RANGES.map(([d, l]) => html`<option value=${d} ?selected=${this.days === d}>${l}</option>`)}</select>
-        ${sel("user", Object.entries(names), "alle Personen")}
-        ${sel("outcome", [["ok", "ausgeführt"], ["denied", "abgelehnt"], ["error", "Fehler"]], "jedes Ergebnis")}
-        ${sel("model_class", Object.entries(MODEL_CLASSES), "jede Modellklasse")}
-        ${sel("agent_kind", Object.entries(AGENT_KINDS).map(([k, v]) => [k, v.label] as [string, string]), "jede Agenten-Art")}
-        <input type="text" placeholder="Zugang" .value=${f.cred || ""} @change=${(e: any) => this.setF("cred", e.target.value.trim())}>
-        <input type="text" placeholder="Server" .value=${f.host || ""} @change=${(e: any) => this.setF("host", e.target.value.trim())}>
-        <label class="cb"><input type="checkbox" .checked=${!!f.only_creds} @change=${(e: any) => this.setF("only_creds", e.target.checked)}> nur mit Zugang</label>
-        <label class="cb"><input type="checkbox" .checked=${!!f.write} @change=${(e: any) => this.setF("write", e.target.checked)}> nur schreibend</label>
-        ${f.agent_tree ? html`<span class="chip">${icon("robot", 13)} ${agentLabel(f.agent_tree, r?.agents?.[f.agent_tree])} (mit Teilaufgaben)
-          <button class="iconbtn" title="Filter entfernen" @click=${() => this.setF("agent_tree", "")}>${icon("close", 13)}</button></span>` : nothing}
+          ${RANGES.map(([d, l]) => html`<option value=${d} ?selected=${this.days === d}>${t(l)}</option>`)}</select>
+        ${sel("user", Object.entries(names), t("alle Personen"))}
+        ${sel("outcome", [["ok", t("ausgeführt")], ["denied", t("abgelehnt")], ["error", t("Fehler")]], t("jedes Ergebnis"))}
+        ${sel("model_class", Object.entries(MODEL_CLASSES).map(([k, v]) => [k, t(v)] as [string, string]), t("jede Modellklasse"))}
+        ${sel("agent_kind", Object.entries(AGENT_KINDS).map(([k, v]) => [k, t(v.label)] as [string, string]), t("jede Agenten-Art"))}
+        <input type="text" placeholder=${t("Zugang")} .value=${f.cred || ""} @change=${(e: any) => this.setF("cred", e.target.value.trim())}>
+        <input type="text" placeholder=${t("Server")} .value=${f.host || ""} @change=${(e: any) => this.setF("host", e.target.value.trim())}>
+        <label class="cb"><input type="checkbox" .checked=${!!f.only_creds} @change=${(e: any) => this.setF("only_creds", e.target.checked)}> ${t("nur mit Zugang")}</label>
+        <label class="cb"><input type="checkbox" .checked=${!!f.write} @change=${(e: any) => this.setF("write", e.target.checked)}> ${t("nur schreibend")}</label>
+        ${f.agent_tree ? html`<span class="chip">${icon("robot", 13)} ${agentLabel(f.agent_tree, r?.agents?.[f.agent_tree])} (${t("mit Teilaufgaben")})
+          <button class="iconbtn" title=${t("Filter entfernen")} @click=${() => this.setF("agent_tree", "")}>${icon("close", 13)}</button></span>` : nothing}
         <span class="grow"></span>
-        <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.load()}>${icon("retry", 15)} Aktualisieren</button>
+        <button class="btn ghost" ?disabled=${this.busy} @click=${() => this.load()}>${icon("retry", 15)} ${t("Aktualisieren")}</button>
         <button class="btn ghost" ?disabled=${!r?.events?.length} @click=${() => this.download()}>${icon("download", 15)} CSV</button>
       </div>
       ${s ? html`<div class="tiles">
-        ${[["Werkzeugaufrufe", s.tool_calls], ["mit Zugang", s.with_creds], ["schreibend", s.writes], ["abgelehnt", s.denied],
-          ["Fehler", s.errors], ["mit externem Modell", s.external], ["Agenten", s.agents], ["Personen", s.users]]
+        ${[[t("Werkzeugaufrufe"), s.tool_calls], [t("mit Zugang"), s.with_creds], [t("schreibend"), s.writes], [t("abgelehnt"), s.denied],
+          [t("Fehler"), s.errors], [t("mit externem Modell"), s.external], [t("Agenten"), s.agents], [t("Personen"), s.users]]
           .map(([l, v]) => html`<div class="tile"><b>${v}</b><span>${l}</span></div>`)}</div>` : nothing}
-      ${r?.more ? html`<div class="hint" style="margin-bottom:8px">${icon("info", 14)} Es gibt mehr Treffer als angezeigt (neueste 1000). Die Zahlen oben zählen alle – für die Liste den Zeitraum oder die Filter eingrenzen.</div>` : nothing}
-      ${!r ? html`<lm-spark></lm-spark>` : !r.events.length ? html`<div class="hint">Keine Zugriffe in diesem Zeitraum.</div>` : html`<div class="tw"><table>
-        <tr><th>Zeit</th><th>Person</th><th>Agent</th><th>Werkzeug</th><th>Zugang</th><th>Ziel</th><th>Modell</th><th>Ergebnis</th></tr>
+      ${r?.more ? html`<div class="hint" style="margin-bottom:8px">${icon("info", 14)} ${t("Es gibt mehr Treffer als angezeigt (neueste 1000). Die Zahlen oben zählen alle – für die Liste den Zeitraum oder die Filter eingrenzen.")}</div>` : nothing}
+      ${!r ? html`<lm-spark></lm-spark>` : !r.events.length ? html`<div class="hint">${t("Keine Zugriffe in diesem Zeitraum.")}</div>` : html`<div class="tw"><table>
+        <tr><th>${t("Zeit")}</th><th>${t("Person")}</th><th>${t("Agent")}</th><th>${t("Werkzeug")}</th><th>${t("Zugang")}</th><th>${t("Ziel")}</th><th>${t("Modell")}</th><th>${t("Ergebnis")}</th></tr>
         ${r.events.map((ev: any) => html`<tr>
           <td class="nw">${fmtTime(ev.ts)}</td>
           <td class="nw">${names[ev.user] || shortId(ev.user)}</td>
           <td>${this.agentCell(ev.agent, r.agents?.[ev.agent])}${ev.parent ? html`<div class="id">in ${agentLabel(ev.parent, r.agents?.[ev.parent])}</div>` : nothing}</td>
-          <td class="nw">${ev.kind === "host_approval" ? html`${icon("shield", 13)} ` : ev.kind === "cred_approval" ? html`${icon("key", 13)} Freigabe · ` : nothing}${ev.tool || "–"}${ev.write ? html` <span class="chip">schreibt</span>` : nothing}</td>
+          <td class="nw">${ev.kind === "host_approval" ? html`${icon("shield", 13)} ` : ev.kind === "cred_approval" ? html`${icon("key", 13)} ${t("Freigabe")} · ` : nothing}${ev.tool || "–"}${ev.write ? html` <span class="chip">${t("schreibt")}</span>` : nothing}</td>
           <td>${credsText(ev) ? html`${icon("key", 13)} ${credsText(ev)}` : nothing}</td>
           <td class="tgt">${targetText(ev)}</td>
-          <td class=${ev.model_class && ev.model_class !== "main" ? "ext" : ""}>${ev.model || ""}${ev.model_class && ev.model_class !== "main" ? html`<div class="id">${MODEL_CLASSES[ev.model_class]}</div>` : nothing}</td>
+          <td class=${ev.model_class && ev.model_class !== "main" ? "ext" : ""}>${ev.model || ""}${ev.model_class && ev.model_class !== "main" ? html`<div class="id">${t(MODEL_CLASSES[ev.model_class] || ev.model_class)}</div>` : nothing}</td>
           <td class=${ev.outcome === "denied" ? "denied" : ev.outcome === "error" ? "error" : ""}>${outcomeText(ev)}</td></tr>`)}
       </table></div>`}`;
   }
@@ -132,12 +132,12 @@ export class MonitoringPage extends StoreElement {
     if (!a) return html`<lm-spark></lm-spark>`;
     const running = new Set(a.running || []);
     const byId = Object.fromEntries((a.agents || []).map((x: any) => [x.id, x]));
-    if (!a.agents.length) return html`<div class="hint">Noch keine Agenten erfasst. Jeder Chat, jedes Cowork, jede Teilaufgabe, geplante Aufgabe und Kachel erscheint hier, sobald sie arbeitet.</div>`;
+    if (!a.agents.length) return html`<div class="hint">${t("Noch keine Agenten erfasst. Jeder Chat, jedes Cowork, jede Teilaufgabe, geplante Aufgabe und Kachel erscheint hier, sobald sie arbeitet.")}</div>`;
     return html`<div class="tw"><table>
-      <tr><th>Agent</th><th>ID</th><th>Person</th><th>Zuerst</th><th>Zuletzt</th><th class="num">Läufe</th><th class="num">Aufrufe</th><th>Zugänge</th><th>Modell</th></tr>
+      <tr><th>${t("Agent")}</th><th>ID</th><th>${t("Person")}</th><th>${t("Zuerst")}</th><th>${t("Zuletzt")}</th><th class="num">${t("Läufe")}</th><th class="num">${t("Aufrufe")}</th><th>${t("Zugänge")}</th><th>${t("Modell")}</th></tr>
       ${a.agents.map((x: any) => html`<tr>
-        <td>${this.agentCell(x.id, x)}${running.has(x.id) ? html` <span class="chip ok">läuft</span>` : nothing}
-          ${x.parent ? html`<div class="id">in ${agentLabel(x.parent, byId[x.parent])}</div>` : nothing}</td>
+        <td>${this.agentCell(x.id, x)}${running.has(x.id) ? html` <span class="chip ok">${t("läuft")}</span>` : nothing}
+          ${x.parent ? html`<div class="id">${t("in {x}", { x: agentLabel(x.parent, byId[x.parent]) })}</div>` : nothing}</td>
         <td class="id">${x.id}</td>
         <td class="nw">${a.names?.[x.owner] || shortId(x.owner)}</td>
         <td class="nw">${fmtTime(x.first_seen)}</td><td class="nw">${fmtTime(x.last_seen)}</td>
@@ -148,14 +148,14 @@ export class MonitoringPage extends StoreElement {
   }
 
   private async stopAgent(id: string) {
-    try { const r = await store.api.ws("admin/agent_stop", { agent_id: id }); store.notify(`${r.stopped} Lauf/Läufe angehalten`); this.load(); }
+    try { const r = await store.api.ws("admin/agent_stop", { agent_id: id }); store.notify(t("{n} Lauf/Läufe angehalten", { n: r.stopped })); this.load(); }
     catch (e: any) { store.notify(e.message); }
   }
   private async revoke() {
     if (!this.rv.user) return;
     try {
       const r = await store.api.ws("admin/revoke", { user_id: this.rv.user, credential_id: this.rv.cred || null, projects: this.rv.projects });
-      store.notify(`Entzogen: ${r.chats} Chats, ${r.tasks} Aufgaben${this.rv.projects ? `, ${r.projects} Projekte` : ""}`);
+      store.notify(this.rv.projects ? t("Entzogen: {c} Chats, {a} Aufgaben, {p} Projekte", { c: r.chats, a: r.tasks, p: r.projects }) : t("Entzogen: {c} Chats, {a} Aufgaben", { c: r.chats, a: r.tasks }));
     } catch (e: any) { store.notify(e.message); }
   }
   private setExp(path: string, v: any) {
@@ -168,7 +168,7 @@ export class MonitoringPage extends StoreElement {
     try {
       if (this.ctl.expDirty) { await store.api.ws("admin/save", { config: { audit: { export: this.ctl.export } } }); this.ctl = { ...this.ctl, expDirty: false }; }
       if (test) { const r = await store.api.ws("admin/audit_export_test"); this.ctl = { ...this.ctl, state: r.state }; }
-      store.notify(test ? "Test gesendet – Ergebnis unten" : t("Gespeichert"));
+      store.notify(test ? t("Test gesendet – Ergebnis unten") : t("Gespeichert"));
     } catch (e: any) { store.notify(e.message); }
   }
   private controlTab() {
@@ -177,64 +177,60 @@ export class MonitoringPage extends StoreElement {
     const running = (a.agents || []).filter((x: any) => (a.running || []).includes(x.id));
     const ex = c.export || {}; const wh = ex.webhook || {}; const sl = ex.syslog || {};
     const kinds: string[] = ex.kinds || ["run", "tool", "host_approval", "cred_approval", "skill_check", "data_rule", "admin_action"];
-    const allKinds: [string, string][] = [["run", "Laufbeginn"], ["tool", "Werkzeugaufrufe"], ["host_approval", "fremde Server"], ["cred_approval", "Zugangs-Freigaben"],
-      ["skill_check", "Skill-Prüfungen"], ["data_rule", "Datenregeln"], ["admin_action", "Admin-Eingriffe"]];
-    const st = (k: string) => c.state?.[k] ? html`<div class="hint">${c.state[k].error ? html`<span class="denied">Letzter Versuch ${fmtTime(c.state[k].at)}: ${c.state[k].error}</span>` : `Zuletzt ${fmtTime(c.state[k].at)}: ${c.state[k].sent} Ereignisse`}</div>` : nothing;
+    const allKinds: [string, string][] = [["run", t("Laufbeginn")], ["tool", t("Werkzeugaufrufe")], ["host_approval", t("fremde Server")], ["cred_approval", t("Zugangs-Freigaben")],
+      ["skill_check", t("Skill-Prüfungen")], ["data_rule", t("Datenregeln")], ["admin_action", t("Admin-Eingriffe")]];
+    const st = (k: string) => c.state?.[k] ? html`<div class="hint">${c.state[k].error ? html`<span class="denied">${t("Letzter Versuch {x}", { x: fmtTime(c.state[k].at) })}: ${tb(c.state[k].error)}</span>` : t("Zuletzt {x}: {n} Ereignisse", { x: fmtTime(c.state[k].at), n: c.state[k].sent })}</div>` : nothing;
     return html`
-      <section><h2>${icon("robot", 18)} Laufende Agenten</h2>
-        ${running.length ? html`<div class="tw"><table><tr><th>Agent</th><th>Person</th><th>seit</th><th></th></tr>
+      <section><h2>${icon("robot", 18)} ${t("Laufende Agenten")}</h2>
+        ${running.length ? html`<div class="tw"><table><tr><th>${t("Agent")}</th><th>${t("Person")}</th><th>${t("seit")}</th><th></th></tr>
           ${running.map((x: any) => html`<tr><td>${this.agentCell(x.id, x)}</td><td>${a.names?.[x.owner] || shortId(x.owner)}</td><td class="nw">${fmtTime(x.last_seen)}</td>
-            <td><button class="btn ghost danger" @click=${() => this.stopAgent(x.id)}>${icon("stop", 14)} Anhalten</button></td></tr>`)}</table></div>`
-          : html`<div class="hint">Gerade läuft kein Agent.</div>`}</section>
-      <section><h2>${icon("alert", 18)} Auffälligkeiten (24 Stunden)</h2>
-        ${c.anomalies.length ? html`<div class="tw"><table>${c.anomalies.map((i: any) => html`<tr><td class="nw">${i.user_name || shortId(i.user)}</td><td>${i.text}</td>
-            <td><button class="btn ghost" @click=${() => { this.tab = "events"; this.f = { user: i.user }; this.days = 1; this.load(); }}>Zugriffe</button></td></tr>`)}</table></div>`
-          : html`<div class="hint">Nichts Auffälliges: keine ungewöhnlich vielen Aufrufe oder Sperren, keine neuen Server, keine nächtliche Aktivität in Chats.</div>`}
-        <div class="hint">Admins bekommen Auffälligkeiten jeden Morgen um 6:07 als Karte auf der Startseite.</div></section>
-      <section><h2>${icon("key", 18)} Freigaben entziehen</h2>
-        <div class="hint" style="margin-bottom:8px">Nimmt „für diesen Chat erlaubt“ in allen Chats und Coworks und die Zugangslisten geplanter Aufgaben und Kacheln zurück – für einen Zugang
-          oder alle Zugänge einer Person. Danach fragt LLMitMir wieder nach; Aufgaben nutzen den Zugang erst, wenn die Person ihn neu erlaubt.</div>
+            <td><button class="btn ghost danger" @click=${() => this.stopAgent(x.id)}>${icon("stop", 14)} ${t("Anhalten")}</button></td></tr>`)}</table></div>`
+          : html`<div class="hint">${t("Gerade läuft kein Agent.")}</div>`}</section>
+      <section><h2>${icon("alert", 18)} ${t("Auffälligkeiten (24 Stunden)")}</h2>
+        ${c.anomalies.length ? html`<div class="tw"><table>${c.anomalies.map((i: any) => html`<tr><td class="nw">${i.user_name || shortId(i.user)}</td><td>${tb(i.text)}</td>
+            <td><button class="btn ghost" @click=${() => { this.tab = "events"; this.f = { user: i.user }; this.days = 1; this.load(); }}>${t("Zugriffe")}</button></td></tr>`)}</table></div>`
+          : html`<div class="hint">${t("Nichts Auffälliges: keine ungewöhnlich vielen Aufrufe oder Sperren, keine neuen Server, keine nächtliche Aktivität in Chats.")}</div>`}
+        <div class="hint">${t("Admins bekommen Auffälligkeiten jeden Morgen um 6:07 als Karte auf der Startseite.")}</div></section>
+      <section><h2>${icon("key", 18)} ${t("Freigaben entziehen")}</h2>
+        <div class="hint" style="margin-bottom:8px">${t("Nimmt „für diesen Chat erlaubt“ in allen Chats und Coworks und die Zugangslisten geplanter Aufgaben und Kacheln zurück – für einen Zugang oder alle Zugänge einer Person. Danach fragt LLMitMir wieder nach; Aufgaben nutzen den Zugang erst, wenn die Person ihn neu erlaubt.")}</div>
         <div class="filters">
           <select @change=${async (e: any) => { this.rv = { ...this.rv, user: e.target.value, cred: "" }; }}>
-            <option value="">Person wählen</option>${c.users.map((u: any) => html`<option value=${u.id} ?selected=${this.rv.user === u.id}>${u.name}</option>`)}</select>
-          <input type="text" placeholder="Zugangs-ID (leer = alle Zugänge)" .value=${this.rv.cred} @input=${(e: any) => (this.rv = { ...this.rv, cred: e.target.value.trim() })}>
-          <label class="cb"><input type="checkbox" .checked=${this.rv.projects} @change=${(e: any) => (this.rv = { ...this.rv, projects: e.target.checked })}> auch Vorab-Freigaben in Projekten</label>
-          <button class="btn danger" ?disabled=${!this.rv.user} @click=${() => this.revoke()}>Entziehen</button></div>
-        <div class="hint">Die Zugangs-ID steht im Reiter „Agenten“ und in den Zugriffen (Filter „Zugang“ nimmt auch den Namen).</div></section>
-      <section><h2>${icon("upload", 18)} Export in Drittsysteme</h2>
-        <div class="hint" style="margin-bottom:8px">Jedes Ereignis geht zusätzlich an die gewählten Ziele – dieselben Metadaten wie hier, nie Inhalte.</div>
+            <option value="">${t("Person wählen")}</option>${c.users.map((u: any) => html`<option value=${u.id} ?selected=${this.rv.user === u.id}>${u.name}</option>`)}</select>
+          <input type="text" placeholder=${t("Zugangs-ID (leer = alle Zugänge)")} .value=${this.rv.cred} @input=${(e: any) => (this.rv = { ...this.rv, cred: e.target.value.trim() })}>
+          <label class="cb"><input type="checkbox" .checked=${this.rv.projects} @change=${(e: any) => (this.rv = { ...this.rv, projects: e.target.checked })}> ${t("auch Vorab-Freigaben in Projekten")}</label>
+          <button class="btn danger" ?disabled=${!this.rv.user} @click=${() => this.revoke()}>${t("Entziehen")}</button></div>
+        <div class="hint">${t("Die Zugangs-ID steht im Reiter „Agenten“ und in den Zugriffen (Filter „Zugang“ nimmt auch den Namen).")}</div></section>
+      <section><h2>${icon("upload", 18)} ${t("Export in Drittsysteme")}</h2>
+        <div class="hint" style="margin-bottom:8px">${t("Jedes Ereignis geht zusätzlich an die gewählten Ziele – dieselben Metadaten wie hier, nie Inhalte.")}</div>
         <div class="card" style="display:grid;gap:8px">
-          <label class="cb"><input type="checkbox" .checked=${!!wh.enabled} @change=${(e: any) => this.setExp("webhook.enabled", e.target.checked)}> <b>Webhook (JSON per POST)</b></label>
+          <label class="cb"><input type="checkbox" .checked=${!!wh.enabled} @change=${(e: any) => this.setExp("webhook.enabled", e.target.checked)}> <b>${t("Webhook (JSON per POST)")}</b></label>
           <div class="filters"><input type="text" style="min-width:260px" placeholder="https://siem.example.org/llmitmir" .value=${wh.url || ""} @input=${(e: any) => this.setExp("webhook.url", e.target.value)}>
-            <input type="text" placeholder="Header (Authorization)" .value=${wh.header || ""} @input=${(e: any) => this.setExp("webhook.header", e.target.value)}>
-            <input type="password" autocomplete="off" placeholder="Token (optional)" .value=${wh.token || ""} @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }}
+            <input type="text" placeholder=${t("Header (Authorization)")} .value=${wh.header || ""} @input=${(e: any) => this.setExp("webhook.header", e.target.value)}>
+            <input type="password" autocomplete="off" placeholder=${t("Token (optional)")} .value=${wh.token || ""} @focus=${(e: any) => { if (e.target.value === "•••") e.target.value = ""; }}
               @input=${(e: any) => this.setExp("webhook.token", e.target.value)}></div>${st("webhook")}
-          <label class="cb"><input type="checkbox" .checked=${!!sl.enabled} @change=${(e: any) => this.setExp("syslog.enabled", e.target.checked)}> <b>Syslog (RFC 5424)</b></label>
-          <div class="filters"><input type="text" placeholder="Server" .value=${sl.host || ""} @input=${(e: any) => this.setExp("syslog.host", e.target.value)}>
-            <input type="text" style="width:90px" placeholder="Port" .value=${String(sl.port || "")} @input=${(e: any) => this.setExp("syslog.port", e.target.value)}>
+          <label class="cb"><input type="checkbox" .checked=${!!sl.enabled} @change=${(e: any) => this.setExp("syslog.enabled", e.target.checked)}> <b>${t("Syslog (RFC 5424)")}</b></label>
+          <div class="filters"><input type="text" placeholder=${t("Server")} .value=${sl.host || ""} @input=${(e: any) => this.setExp("syslog.host", e.target.value)}>
+            <input type="text" style="width:90px" placeholder=${t("Port")} .value=${String(sl.port || "")} @input=${(e: any) => this.setExp("syslog.port", e.target.value)}>
             <select @change=${(e: any) => this.setExp("syslog.protocol", e.target.value)}>${["udp", "tcp", "tls"].map(p => html`<option value=${p} ?selected=${(sl.protocol || "udp") === p}>${p.toUpperCase()}</option>`)}</select></div>${st("syslog")}
           <div class="filters">${allKinds.map(([k, l]) => html`<label class="cb"><input type="checkbox" .checked=${kinds.includes(k)}
             @change=${(e: any) => this.setExp("kinds", e.target.checked ? [...kinds, k] : kinds.filter(x => x !== k))}> ${l}</label>`)}</div>
           <div class="row" style="gap:8px"><button class="btn primary" ?disabled=${!c.expDirty} @click=${() => this.saveExport()}>${t("Speichern")}</button>
-            <button class="btn" @click=${() => this.saveExport(true)}>Test senden</button></div></div></section>`;
+            <button class="btn" @click=${() => this.saveExport(true)}>${t("Test senden")}</button></div></div></section>`;
   }
 
   render() {
     return html`<div class=${this.embedded ? "embedded" : "page"}>
       ${this.embedded ? nothing : html`<div class="row"><button class="btn ghost" @click=${() => navigate("/admin")}>${icon("back", 16)} ${t("Admin")}</button></div>
       <h1>${icon("shield", 22)} ${t("Monitoring")}</h1>
-      <div class="hint">Welcher Agent mit welchem Zugang worauf zugegriffen hat – nur für Admins sichtbar. Erfasst werden nur Metadaten:
-        Werkzeug, Zugang, Server und Pfad, Entitäten, Modell, Ergebnis und wer freigegeben hat. Inhalte (Texte, Suchbegriffe, Dateien,
-        Empfänger, Chat-Titel) stehen nie im Protokoll. Jeder Chat, jedes Cowork und jede Teilaufgabe ist ein eigener Agent; eine geplante
-        Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent.</div>`}
+      <div class="hint">${t("Welcher Agent mit welchem Zugang worauf zugegriffen hat – nur für Admins sichtbar. Erfasst werden nur Metadaten: Werkzeug, Zugang, Server und Pfad, Entitäten, Modell, Ergebnis und wer freigegeben hat. Inhalte (Texte, Suchbegriffe, Dateien, Empfänger, Chat-Titel) stehen nie im Protokoll. Jeder Chat, jedes Cowork und jede Teilaufgabe ist ein eigener Agent; eine geplante Aufgabe oder Kachel ist über alle ihre Läufe derselbe Agent.")}</div>`}
       <div class="tabs">${([["events", t("Zugriffe")], ["agents", t("Agenten")], ["control", t("Zentrale")]] as const).map(([k, l]) =>
         html`<button class=${this.tab === k ? "on" : ""} @click=${() => { this.tab = k; this.load(); }}>${l}</button>`)}</div>
       ${this.tab === "events" ? this.eventsTab() : this.tab === "agents" ? this.agentsTab() : this.controlTab()}
-      <section style="margin-top:26px"><h2>${icon("hourglass", 18)} Aufbewahrung</h2>
+      <section style="margin-top:26px"><h2>${icon("hourglass", 18)} ${t("Aufbewahrung")}</h2>
         <div class="row" style="flex-wrap:wrap;gap:8px"><input type="number" min="7" max="3650" style="width:110px" .value=${String(this.retention)}
-          @input=${(e: any) => { this.retention = e.target.value; this.retDirty = true; }}> <span>Tage</span>
+          @input=${(e: any) => { this.retention = e.target.value; this.retDirty = true; }}> <span>${t("Tage")}</span>
           <button class="btn primary" ?disabled=${!this.retDirty} @click=${() => this.saveRetention()}>${t("Speichern")}</button></div>
-        <div class="hint">Ältere Einträge löscht LLMitMir stündlich (7 bis 3650 Tage, Vorgabe 180). Das Agenten-Verzeichnis behält Agenten, die in dieser Frist aktiv waren.</div></section>
+        <div class="hint">${t("Ältere Einträge löscht LLMitMir stündlich (7 bis 3650 Tage, Vorgabe 180). Das Agenten-Verzeichnis behält Agenten, die in dieser Frist aktiv waren.")}</div></section>
     </div>`;
   }
 }
