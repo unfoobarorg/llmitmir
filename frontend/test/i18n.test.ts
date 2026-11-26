@@ -9,7 +9,8 @@ import { join, relative } from "node:path";
 import en from "../../custom_components/llmitmir/locales/en.json";
 import { compile, lang, resolveLang, setLang, t, tb } from "../src/i18n";
 
-const require = createRequire(import.meta.url);
+// Der Test läuft gebündelt aus einem Temp-Ordner: typescript vom Repo aus auflösen.
+const require = createRequire(join(process.cwd(), "package.json"));
 const ts = require("typescript");
 const SRC = join(process.cwd(), "frontend", "src");
 const EN = en as Record<string, string>;
