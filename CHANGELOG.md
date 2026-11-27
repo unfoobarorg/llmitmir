@@ -6,7 +6,8 @@ Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe G
 
 LLMitMir spricht jetzt durchgängig Englisch oder Deutsch, je nach Wahl in den Einstellungen. Die Limits zeigt es wie die
 Claude-Desktop-App als Prozent mit Rücksetzzeit statt als Rohzahlen, und wird eine Antwort lang, fragt eine Meldung über dem
-Eingabefeld, wie es weitergehen soll – mit „Weitermachen“, „Zum Ende kommen“ oder „Stopp“.
+Eingabefeld, wie es weitergehen soll – mit „Weitermachen“, „Zum Ende kommen“ oder „Stopp“. Lange Codeblöcke stehen
+eingeklappt da und haben einen Kopierknopf, und der Admin kann die Reihenfolge der Konnektoren festlegen.
 
 ### Sprachauswahl und durchgängig Englisch
 - **Sprachauswahl** unter *Einstellungen → Allgemein → Sprache*: Deutsch, English oder „Automatisch“ (folgt dem Profil
@@ -36,6 +37,16 @@ Eingabefeld, wie es weitergehen soll – mit „Weitermachen“, „Zum Ende kom
   genauen Zahlen bleiben verborgen. Die Frage kommt jetzt **auch in der einfachen Ansicht**.
 - Endet eine Antwort am Limit, bietet eine **rote Meldung** an, mit einem Klick weiterzumachen.
 - Das Menü am Eingabefeld zeigt während einer Antwort, wie viel von ihren Modellaufrufen verbraucht ist.
+
+### Codeblöcke im Chat
+- Jeder Codeblock hat eine Kopfzeile mit Sprache und **Kopieren** oben rechts – der ganze Inhalt landet mit einem Klick in
+  der Zwischenablage.
+- **Lange Codeblöcke** (mehr als 15 Zeilen) stehen eingeklappt da und lassen sich mit „Alle … Zeilen anzeigen“ weich
+  aufklappen. Mehrere Blöcke hintereinander bleiben so übersichtlich.
+
+### Konnektoren umsortieren
+- Unter *Admin → Zugänge & Konnektoren* gibt es **Reihenfolge ändern**: Kacheln ziehen oder mit Pfeilen verschieben. In
+  dieser Reihenfolge sehen alle Personen die Konnektoren (bisher nach dem Anlegedatum).
 
 ## 2.1.0 – Plugins-Seite, geführte Einrichtung von Konnektoren, richtige Kontextgröße
 

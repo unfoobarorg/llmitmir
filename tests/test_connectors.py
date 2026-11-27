@@ -30,6 +30,17 @@ def test_catalog_is_validated():
     assert gw["services"] == ["calendar"]
 
 
+def test_admin_order_is_kept_and_ids_survive_reordering():
+    """Der Admin sortiert die Konnektoren um: Reihenfolge der Liste = Anzeige für alle, die Kennungen bleiben."""
+    first = CN.clean([NC, {"name": "Wetter", "type": "bearer", "fixed": {"url": "https://api.wetter.example"}},
+                      {"name": "GitLab", "type": "bearer", "fixed": {"url": "https://git.example.org"}, "enabled": False}])
+    ids = {k["name"]: k["id"] for k in first}
+    again = CN.clean([first[2], first[0], first[1]])
+    assert [k["name"] for k in again] == ["GitLab", "Nextcloud", "Wetter"]
+    assert {k["name"]: k["id"] for k in again} == ids          # Zugänge der Personen hängen an der Kennung
+    assert [k["name"] for k in CN.enabled({"connectors": again})] == ["Nextcloud", "Wetter"]
+
+
 def test_connection_uses_fixed_fields_and_own_fields_only():
     k = CN.clean([NC])[0]
     raw = CN.connection_raw(k, {"username": "niko", "password": "app-pw", "url": "https://evil.example"})
