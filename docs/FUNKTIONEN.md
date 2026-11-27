@@ -30,7 +30,8 @@
   und Tabellen als lesbarer Ausschnitt, ohne Makros und ohne Formeln). Das funktioniert im Browser und in den mobilen
   Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter nicht
   darstellen kann, lässt sich herunterladen.
-- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
+- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown (Codeblöcke mit Kopierknopf, lange Blöcke ab 16
+  Zeilen eingeklappt und aufklappbar), Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
   sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben; zwei Anhänge mit demselben Namen
   bleiben beide erhalten, der zweite heißt dann `image (2).png`) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
@@ -250,7 +251,8 @@
   bleiben Verbindung, Zugang und Skill zusammen. Die alten Adressen `/skills`, `/credentials` und `/connectors` führen auf
   die passenden Reiter.
 - **Konnektoren** (Reiter *Konnektoren*, eingerichtet unter *Admin → Zugänge & Konnektoren*, dort als Kacheln – ein
-  Klick öffnet den Konnektor zum Bearbeiten): vom Admin vorbereitete Anbindungen nach dem Vorbild von Claude und Copilot.
+  Klick öffnet den Konnektor zum Bearbeiten, *Reihenfolge ändern* sortiert sie per Ziehen oder Pfeilen; in dieser
+  Reihenfolge sehen alle Personen sie): vom Admin vorbereitete Anbindungen nach dem Vorbild von Claude und Copilot.
   Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte Server, bei GWDG/EWS die Dienste,
   die Anmeldeart, eine **Einrichtungsanleitung für den geführten Chat** und optional eine Anleitung für das Modell fest.
   Jede Person verbindet nur ihr eigenes Konto – **auch mehrfach** (z. B. GitLab mit je einem Token für verschiedene

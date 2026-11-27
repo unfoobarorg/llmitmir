@@ -2,7 +2,22 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
-## Unveröffentlicht – Sprachauswahl, durchgängig Englisch
+## 2.2.0 – Sprachauswahl, Limits in Prozent, neue Meldung zu Modellaufrufen
+
+LLMitMir spricht jetzt durchgängig Englisch oder Deutsch, je nach Wahl in den Einstellungen. Die Limits zeigt es wie die
+Claude-Desktop-App als Prozent mit Rücksetzzeit statt als Rohzahlen, und wird eine Antwort lang, fragt eine Meldung über dem
+Eingabefeld, wie es weitergehen soll – mit „Weitermachen“, „Zum Ende kommen“ oder „Stopp“. Lange Codeblöcke stehen
+eingeklappt da und haben einen Kopierknopf, und der Admin kann die Reihenfolge der Konnektoren festlegen.
+
+### Sprachauswahl und durchgängig Englisch
+- **Sprachauswahl** unter *Einstellungen → Allgemein → Sprache*: Deutsch, English oder „Automatisch“ (folgt dem Profil
+  in Home Assistant). Weitere Sprachen brauchen nur eine Datei `locales/<code>.json` (siehe docs/ENTWICKLUNG.md).
+- **Englisch durchgängig:** Bisher waren viele Texte trotz englischer Oberfläche deutsch. Jetzt sind alle Seiten,
+  Dialoge, Karten und Hinweise übersetzt, ebenso Fehlermeldungen und Hinweise des Servers (Zeitpläne, Prüfungen der
+  Zugänge, Werkzeugnamen, Kontingente), Push-Nachrichten, Datum und Zahlen, der Prompt für den Import aus Claude und die
+  Anleitung zur Werkbank (docs/WERKBANK.en.md).
+- Die Modelle antworten in der gewählten Sprache; Spracheingabe und Sprachgespräch folgen ihr.
+- Neue Tests verhindern deutsche Texte ohne Übersetzung im Panel und in den Meldungen des Servers.
 
 ### Limits verständlich in Prozent (wie in der Claude-Desktop-App)
 - **Nutzungslimits nur noch in Prozent:** Das Menü am Ring neben dem Eingabefeld und *Einstellungen → Verbrauch*
@@ -23,14 +38,15 @@ Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe G
 - Endet eine Antwort am Limit, bietet eine **rote Meldung** an, mit einem Klick weiterzumachen.
 - Das Menü am Eingabefeld zeigt während einer Antwort, wie viel von ihren Modellaufrufen verbraucht ist.
 
-- **Sprachauswahl** unter *Einstellungen → Allgemein → Sprache*: Deutsch, English oder „Automatisch“ (folgt dem Profil
-  in Home Assistant). Weitere Sprachen brauchen nur eine Datei `locales/<code>.json` (siehe docs/ENTWICKLUNG.md).
-- **Englisch durchgängig:** Bisher waren viele Texte trotz englischer Oberfläche deutsch. Jetzt sind alle Seiten,
-  Dialoge, Karten und Hinweise übersetzt, ebenso Fehlermeldungen und Hinweise des Servers (Zeitpläne, Prüfungen der
-  Zugänge, Werkzeugnamen, Kontingente), Push-Nachrichten, Datum und Zahlen, der Prompt für den Import aus Claude und die
-  Anleitung zur Werkbank (docs/WERKBANK.en.md).
-- Die Modelle antworten in der gewählten Sprache; Spracheingabe und Sprachgespräch folgen ihr.
-- Neue Tests verhindern deutsche Texte ohne Übersetzung im Panel und in den Meldungen des Servers.
+### Codeblöcke im Chat
+- Jeder Codeblock hat eine Kopfzeile mit Sprache und **Kopieren** oben rechts – der ganze Inhalt landet mit einem Klick in
+  der Zwischenablage.
+- **Lange Codeblöcke** (mehr als 15 Zeilen) stehen eingeklappt da und lassen sich mit „Alle … Zeilen anzeigen“ weich
+  aufklappen. Mehrere Blöcke hintereinander bleiben so übersichtlich.
+
+### Konnektoren umsortieren
+- Unter *Admin → Zugänge & Konnektoren* gibt es **Reihenfolge ändern**: Kacheln ziehen oder mit Pfeilen verschieben. In
+  dieser Reihenfolge sehen alle Personen die Konnektoren (bisher nach dem Anlegedatum).
 
 ## 2.1.0 – Plugins-Seite, geführte Einrichtung von Konnektoren, richtige Kontextgröße
 

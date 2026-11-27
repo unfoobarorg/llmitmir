@@ -2459,5 +2459,15 @@
   "{a} von {b} Modellaufrufen": "{a} of {b} model requests",
   "Wird es knapp, fragt LLMitMir, wie es weitergehen soll.": "When it gets tight, LLMitMir asks how to continue.",
   "Limit erreicht": "Limit reached",
-  "_Angehalten._": "_Stopped._"
+  "_Angehalten._": "_Stopped._",
+  "Code": "code",
+  "{n} Zeilen": "{n} lines",
+  "Code kopieren": "Copy code",
+  "Alle {n} Zeilen anzeigen": "Show all {n} lines",
+  "Einklappen": "Collapse",
+  "Zieh die Kacheln an die gewünschte Stelle oder nimm die Pfeile. In dieser Reihenfolge sehen alle Personen die Konnektoren. Gespeichert wird über die Speicherleiste.": "Drag the tiles to where you want them or use the arrows. Everyone sees the connectors in this order. Save with the save bar.",
+  "Ziehen zum Umsortieren": "Drag to reorder",
+  "Nach vorn": "Move forward",
+  "Nach hinten": "Move back",
+  "Reihenfolge ändern": "Change order"
 }

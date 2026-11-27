@@ -35,6 +35,8 @@ export class AdminPage extends StoreElement {
   @state() private provBusy = "";
   /** Geöffneter Konnektor in der Kachel-Übersicht (Index), -1 = Übersicht. */
   @state() private knOpen = -1;
+  @state() private knSort = false;          // Konnektoren umsortieren (Pfeile und Ziehen statt Öffnen)
+  @state() private knDrag = -1;             // gerade gezogene Kachel
   static styles = [base, settingsCss, extraCss, taskUsageCss, css`
     .kntiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; padding: 14px 16px; }
     .kntile { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 12px; border: 1px solid var(--lm-line); border-radius: 12px;
@@ -47,6 +49,13 @@ export class AdminPage extends StoreElement {
     .kntile .ktx b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .kntile .kchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
     .kntile .kgo { color: var(--lm-muted); align-self: center; }
+    .kntiles.sorting .kntile { cursor: grab; user-select: none; transition: transform .15s, box-shadow .15s, opacity .15s; }
+    .kntiles.sorting .kntile:active { cursor: grabbing; }
+    .kntiles.sorting .kntile.drag { opacity: .55; transform: scale(.98); box-shadow: 0 0 0 2px var(--lm-accent); }
+    .kntile .kgrip { color: var(--lm-faint); align-self: center; margin: 0 -4px 0 -6px; }
+    .kntile .kmove { display: flex; flex-direction: column; gap: 2px; align-self: center; }
+    .kntile .kmove .iconbtn { width: 28px; height: 28px; }
+    .kntile .kmove .iconbtn[disabled] { opacity: .3; }
     .kform { display: grid; gap: 12px; }`];
   connectedCallback() { super.connectedCallback(); this.load(); }
   private async load() { try { this.a = await store.api.ws("admin/get"); this.dirty = false; } catch (e: any) { store.notify(e.message); } }
@@ -74,6 +83,12 @@ export class AdminPage extends StoreElement {
     this.loading = false;
   }
   private setList(k: string, i: number, patch: any) { this.set(k, (this.a[k] || []).map((x: any, j: number) => (j === i ? { ...x, ...patch } : x))); }
+  /** Eintrag i einer Liste an Stelle j verschieben (Reihenfolge der Konnektoren). */
+  private moveItem(k: string, i: number, j: number) {
+    const list = [...(this.a[k] || [])];
+    if (i === j || i < 0 || j < 0 || i >= list.length || j >= list.length) return;
+    const [x] = list.splice(i, 1); list.splice(j, 0, x); this.set(k, list);
+  }
   private dropItem(k: string, i: number) { this.set(k, (this.a[k] || []).filter((_: any, j: number) => j !== i)); }
   private users() { return this.a.users.filter((u: any) => u.is_active); }
 
@@ -416,16 +431,29 @@ export class AdminPage extends StoreElement {
     const add = () => { this.set("connectors", [...list, { name: "", type: "webdav", login: "form", fixed: {}, hosts: [], enabled: true }]); this.knOpen = list.length; };
     return group(t("Konnektoren"), html`
       ${list.length ? nothing : empty("share", t("Noch keine Konnektoren. Ein Konnektor ist eine vorbereitete Anbindung, z. B. an die Nextcloud – jede Person verbindet nur noch ihr Konto."))}
-      <div class="kntiles">${list.map((x: any, j: number) => html`<button class="kntile ${x.enabled === false ? "off" : ""}" @click=${() => (this.knOpen = j)}>
+      ${this.knSort ? html`<div class="pad"><div class="hint">${icon("info", 13)} ${t("Zieh die Kacheln an die gewünschte Stelle oder nimm die Pfeile. In dieser Reihenfolge sehen alle Personen die Konnektoren. Gespeichert wird über die Speicherleiste.")}</div></div>` : nothing}
+      <div class="kntiles ${this.knSort ? "sorting" : ""}">${list.map((x: any, j: number) => html`<div class="kntile ${x.enabled === false ? "off" : ""} ${this.knDrag === j ? "drag" : ""}"
+          role="button" tabindex="0" draggable=${this.knSort ? "true" : "false"}
+          @click=${() => { if (!this.knSort) this.knOpen = j; }}
+          @keydown=${(e: KeyboardEvent) => { if (!this.knSort && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); this.knOpen = j; } }}
+          @dragstart=${(e: DragEvent) => { this.knDrag = j; e.dataTransfer?.setData("text/plain", String(j)); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
+          @dragover=${(e: DragEvent) => { if (this.knSort && this.knDrag >= 0) { e.preventDefault(); if (this.knDrag !== j) { this.moveItem("connectors", this.knDrag, j); this.knDrag = j; } } }}
+          @drop=${(e: DragEvent) => { e.preventDefault(); this.knDrag = -1; }}
+          @dragend=${() => (this.knDrag = -1)}>
+          ${this.knSort ? html`<span class="kgrip" title=${t("Ziehen zum Umsortieren")}>${icon("mdi:drag-vertical", 20)}</span>` : nothing}
           <span class="kic">${icon(x.mcp ? "mdi:connection" : x.type === "webdav" ? "cloud" : ["imap", "ews", "gwdg"].includes(x.type) ? "mdi:email-outline" : "key", 20)}</span>
           <span class="ktx"><b>${x.name || t("Ohne Namen")}</b><span class="hint">${tb(types[x.type]?.label) || x.type}${x.login === "nextcloud_flow" ? t(" · Login Flow") : ""}</span>
             <span class="kchips">${x.enabled === false ? html`<span class="chip">${t("aus")}</span>` : html`<span class="chip ok">${t("aktiv")}</span>`}
               ${x.setup ? html`<span class="chip accent" title=${t("Einrichtungsanleitung hinterlegt")}>${icon("chat", 12)} ${t("Anleitung")}</span>` : nothing}
               ${x.mcp ? html`<span class="chip">MCP · ${(x.mcp.tools || []).filter((tl: any) => tl.enabled !== false).length}</span>` : nothing}
               ${(x.rules || []).length ? html`<span class="chip">${icon("shield", 12)} ${x.rules.length}</span>` : nothing}</span></span>
-          <span class="kgo">${icon("right", 18)}</span></button>`)}
-        <button class="kntile add" @click=${add}><span class="kic">${icon("plus", 20)}</span><span class="ktx"><b>${t("Konnektor hinzufügen")}</b></span></button></div>`,
-      { desc });
+          ${this.knSort ? html`<span class="kmove">
+              <button class="iconbtn" title=${t("Nach vorn")} ?disabled=${j === 0} @click=${(e: Event) => { e.stopPropagation(); this.moveItem("connectors", j, j - 1); }}>${icon("up", 16)}</button>
+              <button class="iconbtn" title=${t("Nach hinten")} ?disabled=${j === list.length - 1} @click=${(e: Event) => { e.stopPropagation(); this.moveItem("connectors", j, j + 1); }}>${icon("arrowDown", 16)}</button></span>`
+            : html`<span class="kgo">${icon("right", 18)}</span>`}</div>`)}
+        ${this.knSort ? nothing : html`<button class="kntile add" @click=${add}><span class="kic">${icon("plus", 20)}</span><span class="ktx"><b>${t("Konnektor hinzufügen")}</b></span></button>`}</div>`,
+      { desc, aside: list.length > 1 ? html`<button class="btn ${this.knSort ? "primary" : "ghost"}" @click=${() => { this.knSort = !this.knSort; this.knDrag = -1; }}>
+          ${icon(this.knSort ? "check" : "mdi:sort", 16)} ${this.knSort ? t("Fertig") : t("Reihenfolge ändern")}</button>` : undefined });
   }
   /** Einen Konnektor bearbeiten (aus der Kachel-Übersicht geöffnet). Gespeichert wird wie alles andere über die Speicherleiste. */
   private connectorEditor(x: any, i: number, types: Record<string, any>) {
