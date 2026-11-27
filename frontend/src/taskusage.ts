@@ -2,7 +2,7 @@
 import { css, html, nothing } from "lit";
 import { icon, fmtNum } from "./ui";
 import { t, dateLocale } from "./i18n";
-import { limitRow, limitsCss, showAbsolute, type Limit } from "./limits";
+import { fmtInt, limitRow, limitsCss, showAbsolute, type Limit } from "./limits";
 
 export const taskUsageCss = [limitsCss, css`
   .tu { display: grid; gap: 12px; }
@@ -27,7 +27,7 @@ export function taskKeyLabel(source: string) {
 function keyDay(lim: any): Limit {
   const max = lim.limit_requests_day, used = Math.max(0, max - (lim.remaining_requests_day ?? max));
   return { id: "taskday", label: t("Schlüssel heute (alle Nutzungen)"), frac: Math.min(1, used / max), reset: lim.reset_requests_day || undefined,
-    details: [t("{a} von {b} Anfragen", { a: fmtNum(used), b: fmtNum(max) })] };
+    details: [t("{a} von {b} Anfragen", { a: fmtInt(used), b: fmtInt(max) })] };
 }
 
 /** One usage block. today/mine: {requests, prompt, completion}; days: [{day, requests, prompt, completion}] oldest first. */
@@ -45,8 +45,8 @@ export function usageBlock(o: { title: string; label?: string; accent?: boolean;
       ${o.label ? html`<span class="chip ${o.accent ? "accent" : ""}">${icon("key", 13)} ${o.label}</span>` : nothing}</div>
     ${lim.limit_requests_day ? html`<div class="lims">${limitRow(keyDay(lim), { abs })}</div>` : nothing}
     ${abs ? html`<div class="tu-grid">
-      <div><div class="hint">${o.todayLabel}</div><div class="big">${o.today?.requests || 0} ${t("Anfragen")} · ${fmtNum(tok(o.today))} ${t("Tokens")}</div></div>
-      ${o.mine ? html`<div><div class="hint">${t("davon deine Aufgaben")}</div><div class="big">${o.mine.requests || 0} ${t("Anfragen")} · ${fmtNum(tok(o.mine))} ${t("Tokens")}</div></div>` : nothing}
+      <div><div class="hint">${o.todayLabel}</div><div class="big">${fmtInt(o.today?.requests || 0)} ${t("Anfragen")} · ${fmtNum(tok(o.today))} ${t("Tokens")}</div></div>
+      ${o.mine ? html`<div><div class="hint">${t("davon deine Aufgaben")}</div><div class="big">${fmtInt(o.mine.requests || 0)} ${t("Anfragen")} · ${fmtNum(tok(o.mine))} ${t("Tokens")}</div></div>` : nothing}
     </div>` : nothing}
     ${days.length ? html`<div><div class="tu-bars">${days.map((d, i) => html`<div class=${i === days.length - 1 ? "today" : ""}
         title=${abs ? t("{day}: {r} Anfragen, {n} Tokens", { day: dayLabel(d.day), r: d.requests, n: fmtNum(tok(d)) }) : dayLabel(d.day)} style="height:${Math.max(2, (d.requests / max) * 60)}px"></div>`)}</div>

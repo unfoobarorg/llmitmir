@@ -5,7 +5,7 @@ import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtNum, fmtTime, daysText, copyText, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
 import { t, tb, lang, dateLocale, LANGUAGES, resolveLang } from "./i18n";
-import { fmtPct, limitRow, limitsCss, userLimits } from "./limits";
+import { fmtInt, fmtPct, limitRow, limitsCss, userLimits } from "./limits";
 import { claudeImportPrompt } from "./importprompt";
 import "./plugins";
 import { modelName } from "./modelpick";
@@ -372,9 +372,9 @@ export class SettingsPage extends StoreElement {
           abs, (on) => this.set("usage_absolute", on)))}
       ${group(t("Verlauf"), html`
         ${abs ? html`<div class="kv">
-          <div><span class="hint">${t("Heute")}</span><b>${u.today.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.today))} ${t("Tokens")}</span></div>
-          ${u.week ? html`<div><span class="hint">${t("Diese Woche")}</span><b>${u.week.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.week))} ${t("Tokens")}</span></div>` : nothing}
-          ${u.month ? html`<div><span class="hint">${t("Diesen Monat")}</span><b>${u.month.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.month))} ${t("Tokens")}</span></div>` : nothing}</div>
+          <div><span class="hint">${t("Heute")}</span><b>${fmtInt(u.today.requests)}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.today))} ${t("Tokens")}</span></div>
+          ${u.week ? html`<div><span class="hint">${t("Diese Woche")}</span><b>${fmtInt(u.week.requests)}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.week))} ${t("Tokens")}</span></div>` : nothing}
+          ${u.month ? html`<div><span class="hint">${t("Diesen Monat")}</span><b>${fmtInt(u.month.requests)}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.month))} ${t("Tokens")}</span></div>` : nothing}</div>
           ${u.today.task_requests ? pad(html`<div class="hint">${t("Davon heute geplante Aufgaben: {r} Anfragen · {n} Tokens", { r: u.today.task_requests, n: fmtNum((u.today.task_prompt || 0) + (u.today.task_completion || 0)) })}</div>`) : nothing}` : nothing}
         ${days.length ? pad(html`<div class="bars">${days.map(([day, v]: any) => html`<div title=${abs ? t("{day}: {r} Anfragen, {n} Tokens", { day, r: v.requests, n: fmtNum(v.prompt + v.completion) }) : dayLabel(day)}
             style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">${t("Nutzung je Tag, letzte {n} Tage", { n: days.length })}</div>`)

@@ -2,6 +2,15 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## Unveröffentlicht
+
+### Behoben
+- Menü am Ring neben dem Eingabefeld mit eingeschalteten genauen Zahlen: Beim Kontext lagen Hinweis und Tokenzahl
+  übereinander, und unter *Genaue Zahlen* brachen Zeitraum und Werte wild um. Jetzt stehen die Zahlen sauber unter dem
+  Balken, Anfragen und Tokens rechts untereinander, das Menü ist etwas breiter.
+- Anfragen erscheinen als ganze Zahl mit Tausenderpunkt („4.000“ statt „4,0k“), sehr große Tokenzahlen als „1,2 Mrd.“.
+- „Diese Stunde“ zeigt höchstens „Setzt in 1 Std. zurück“, auch wenn der Anbieter eine längere Rücksetzzeit meldet.
+
 ## 2.2.0 – Sprachauswahl, Limits in Prozent, neue Meldung zu Modellaufrufen
 
 LLMitMir spricht jetzt durchgängig Englisch oder Deutsch, je nach Wahl in den Einstellungen. Die Limits zeigt es wie die
