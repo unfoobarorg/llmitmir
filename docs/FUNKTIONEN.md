@@ -359,7 +359,9 @@
 - **Postfach über EWS:** Bei einem Exchange-Zugang laufen auch die `mail_*`-Werkzeuge über EWS – so beschreibt die
   GWDG den Zugang für Exchange-Konten (Apple Mail, „manuell konfigurieren“); IMAP nennt sie nur als eingeschränkte
   Alternative. Ordner, Nachrichten, Senden, Zustände und Verschieben sind dieselben Werkzeuge wie bei IMAP; der
-  MIME-Inhalt kommt als base64 und geht durch denselben Parser, Text und Anhänge verhalten sich also gleich. Gmail,
+  MIME-Inhalt kommt als base64 und geht durch denselben Parser, Text und Anhänge verhalten sich also gleich. Gesendet
+  wird eine MIME-Datei mit CRLF-Zeilenenden (Exchange liest nackte LF falsch). Anhänge in signierten oder verschachtelten
+  Nachrichten werden gefunden, angehängte Nachrichten als `.eml` gespeichert. Gmail,
   Posteo und Co. bleiben bei IMAP/SMTP.
 - **Ordner über den ganzen Baum:** `mail_folders` listet jeden Ordner mit vollem Pfad, Trennzeichen, Ordner-ID und
   Zählern – bei IMAP über `LIST "" "*"`, bei Exchange aus der `ParentFolderId`-Kette. Optional `baum: true` für eine

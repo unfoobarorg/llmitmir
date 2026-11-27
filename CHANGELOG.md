@@ -15,6 +15,15 @@ Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe G
 - **Admin-Übersicht der zentralen Skills als Kacheln** wie bei den Konnektoren; ein Klick öffnet den Skill zum Bearbeiten.
 
 ### Behoben
+- **Mail-Anhänge mit 0 Byte** (Exchange und IMAP):
+  - *Senden über Exchange (EWS):* Die MIME-Datei ging mit Pythons nackten LF-Zeilenenden an Exchange; Exchange liest
+    MIME nur mit CRLF richtig, Anhänge kamen leer an. Gesendet wird jetzt mit CRLF (auch die Kopie in „Gesendet“
+    über IMAP).
+  - *Lesen signierter Mails:* Bei S/MIME-signierten oder verschachtelten Nachrichten erschien ein namenloser Anhang
+    „anhang-1“ mit 0 Byte, die eigentlichen Dateien fehlten. Container werden jetzt aufgeklappt, die Signatur
+    (`smime.p7s`) erscheint nicht mehr als Anhang.
+  - *Angehängte Nachrichten* („als Anlage weiterleiten“, Outlook-Elemente) kamen mit 0 Byte; sie werden jetzt als
+    `.eml`-Datei gespeichert.
 - Menü am Ring neben dem Eingabefeld mit eingeschalteten genauen Zahlen: Beim Kontext lagen Hinweis und Tokenzahl
   übereinander, und unter *Genaue Zahlen* brachen Zeitraum und Werte wild um. Jetzt stehen die Zahlen sauber unter dem
   Balken, Anfragen und Tokens rechts untereinander, das Menü ist etwas breiter.

@@ -243,7 +243,7 @@ async def mail_send(ctx, a: dict):
                 with _box(acc) as box:
                     sent = MB.find_special(box.folders(), "\\Sent", MB.SENT_NAMES)
                     if sent:
-                        box.append(sent, bytes(msg))
+                        box.append(sent, MB.mime_bytes(msg))
                     out["kopie"] = f"in „{sent}“ abgelegt" if sent else "kein Ordner für Gesendetes gefunden"
             except Exception as e:  # noqa: BLE001 – die Mail ist raus, die Kopie ist Zugabe
                 out["kopie"] = f"nicht abgelegt ({type(e).__name__})"
