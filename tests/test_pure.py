@@ -1267,6 +1267,80 @@ def test_mailbox_message_parsing():
     assert MB.header_summary(FakeIMAP().msg)["betreff"] == "Grüße"
 
 
+
+SIGNED_WITH_PDF = (
+    b'From: a@gwdg.de\r\nSubject: signiert\r\nMIME-Version: 1.0\r\n'
+    b'Content-Type: multipart/signed; protocol="application/pkcs7-signature"; micalg=sha-256; boundary="S"\r\n\r\n'
+    b'--S\r\nContent-Type: multipart/mixed; boundary="M"\r\n\r\n'
+    b'--M\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHallo\r\n'
+    b'--M\r\nContent-Type: application/pdf; name="a.pdf"\r\nContent-Disposition: attachment; filename="a.pdf"\r\n'
+    b'Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQgdGVzdA==\r\n--M--\r\n\r\n'
+    b'--S\r\nContent-Type: application/pkcs7-signature; name="smime.p7s"\r\n'
+    b'Content-Disposition: attachment; filename="smime.p7s"\r\nContent-Transfer-Encoding: base64\r\n\r\nAAAA\r\n--S--\r\n')
+
+
+def test_mail_attachments_in_containers_are_not_empty():
+    """Signierte Mails, verschachtelte Teile und angehängte Nachrichten: kein Anhang mit 0 Byte, keiner verschwindet.
+
+    Vorher lieferte eine S/MIME-signierte Mail einen namenlosen Anhang „anhang-1“ mit 0 Byte (den Container) und die
+    eigentliche PDF fehlte; eine als Anlage weitergeleitete Nachricht (message/rfc822) kam ebenfalls mit 0 Byte.
+    """
+    import email
+    from email.policy import default as POLICY
+
+    MB = _pkg("mailbox")
+    att = MB.attachments(email.message_from_bytes(SIGNED_WITH_PDF, policy=POLICY))
+    assert [(a["name"], a["type"], a["data"]) for a in att] == [("a.pdf", "application/pdf", b"%PDF-1.4 test")]
+    out = MB.parse_message(SIGNED_WITH_PDF)
+    assert out["text"].strip() == "Hallo" and out["anhaenge"] == [{"name": "a.pdf", "typ": "application/pdf", "groesse": 13}]
+
+    forwarded = (b'From: a@gwdg.de\r\nSubject: Fwd\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="B"\r\n\r\n'
+                 b'--B\r\nContent-Type: text/plain\r\n\r\nsiehe Anlage\r\n'
+                 b'--B\r\nContent-Type: message/rfc822\r\nContent-Disposition: attachment\r\n\r\n'
+                 b'From: c@example.org\r\nSubject: Rechnung November\r\n\r\nInnen\r\n'
+                 b'--B\r\nContent-Type: message/rfc822; name="alt.eml"\r\nContent-Disposition: attachment; filename="alt.eml"\r\n\r\n'
+                 b'Subject: alt\r\n\r\nalt\r\n--B--\r\n')
+    att = MB.attachments(email.message_from_bytes(forwarded, policy=POLICY))
+    assert [a["name"] for a in att] == ["Rechnung November.eml", "alt.eml"]
+    assert all(a["data"] for a in att)
+    inner = email.message_from_bytes(att[0]["data"], policy=POLICY)
+    assert inner["Subject"] == "Rechnung November" and inner.get_content().strip() == "Innen"
+
+
+def test_ews_send_uses_crlf_mime_with_full_attachments():
+    """Exchange liest MIME nur mit CRLF richtig – mit Pythons nackten LF kamen gesendete Anhänge mit 0 Byte an."""
+    import asyncio
+    import base64
+    import email
+    import re
+    import types
+    from email.policy import default as POLICY
+
+    MB = _pkg("mailbox")
+    EW = _pkg("tools.mail_ews")
+    pdf = bytes(range(256)) * 40
+    bodies = []
+
+    async def fake_call(ctx, cred, body):
+        bodies.append(body)
+        return {"ok": True, "raw": ""}
+
+    original = EW.call
+    EW.call = fake_call
+    try:
+        cred = {"type": "gwdg", "fields": {"username": "a", "password": "pw", "from": "a@gwdg.de"}}
+        out = asyncio.run(EW.send_message(types.SimpleNamespace(), cred, {"an": "b@example.org", "betreff": "Bericht",
+                                                                          "text": "Hallo\nzweite Zeile"},
+                                          [("bericht.pdf", pdf)], None))
+    finally:
+        EW.call = original
+    assert out["ok"] is True and len(bodies) == 1
+    mime = base64.b64decode(re.search(r"<t:MimeContent[^>]*>([^<]+)</t:MimeContent>", bodies[0]).group(1))
+    assert b"\r\n" in mime and not re.search(rb"(?<!\r)\n", mime), "nackte LF in der MIME-Datei"
+    back = email.message_from_bytes(mime, policy=POLICY)
+    assert [(a["name"], a["data"]) for a in MB.attachments(back)] == [("bericht.pdf", pdf)]
+    assert MB.mime_bytes(back) == mime  # stabil: noch einmal geschrieben bleibt es dieselbe Datei
+
 def test_mailbox_read_only_never_changes_anything():
     MB = load("mailbox")
     imap = FakeIMAP()
@@ -2123,7 +2197,7 @@ def test_ews_mail_parsing():
     assert E.mime_content("<x/>") == b""
 
 
-def test_mail_tools_use_ews_for_exchange():
+def test_mail_tools_use_ews_for_exchange(monkeypatch):
     """Ein Exchange-Zugang läuft ohne IMAP/SMTP: die Werkzeuge gehen über EWS, das Recht gilt weiter."""
     import asyncio
     import types
@@ -2151,7 +2225,7 @@ def test_mail_tools_use_ews_for_exchange():
 
     for name, fn in (("folders", fake_folders), ("list_messages", fake_list),
                      ("change_messages", fake_change), ("send_message", fake_send)):
-        setattr(EW, name, fn)
+        monkeypatch.setattr(EW, name, fn)  # nur für diesen Test – spätere Tests brauchen die echten Funktionen
 
     cred = {"id": "k", "name": "GWDG", "type": "gwdg", "services": ["mail"], "access": {"mail": "write"},
             "fields": {"username": "a@gwdg.de", "password": "pw", "ews_url": "https://email.gwdg.de/EWS/Exchange.asmx"}}

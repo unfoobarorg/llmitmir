@@ -167,7 +167,8 @@ async def send_message(ctx, cred: dict, a: dict, files: list[tuple[str, bytes]],
             ref = {"message_id": str(orig.get("Message-ID") or ""), "references": str(orig.get("References") or "")}
     msg = MB.build_message(sender, str(a.get("an") or ""), str(a.get("betreff") or ""), str(a.get("text") or ""),
                            str(a.get("cc") or ""), str(a.get("bcc") or ""), ref, files)
-    mime = base64.b64encode(bytes(msg)).decode()
+    # CRLF statt Pythons LF: Exchange liest eine MIME-Datei mit nackten LF falsch – Anhänge kamen mit 0 Byte an
+    mime = base64.b64encode(MB.mime_bytes(msg)).decode()
     _check(await call(ctx, cred, E.create_message_mime(mime)), "Senden")
     return {"ok": True, "an": str(a.get("an") or ""), "betreff": msg["Subject"], "message_id": msg["Message-ID"],
             "kopie": "in „Gesendete Elemente“ abgelegt"}

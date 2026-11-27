@@ -342,12 +342,63 @@ def parse_message(raw: bytes) -> dict:
     return out
 
 
+# Signaturen signierter Mails (S/MIME, PGP) sind keine Dateien für die Person – sie bleiben aus der Anhangsliste.
+SIGNATURE_TYPES = {"application/pkcs7-signature", "application/x-pkcs7-signature", "application/pgp-signature"}
+# RFC 5322 verlangt CRLF. Pythons Standard-Policy schreibt nur LF – Exchange liest so eine MIME-Datei falsch
+# (weiche Zeilenumbrüche von quoted-printable blieben stehen, Anhänge kamen mit 0 Byte an).
+CRLF_POLICY = POLICY.clone(linesep="\r\n")
+
+
+def mime_bytes(msg) -> bytes:
+    """Nachricht als MIME-Datei mit CRLF-Zeilenenden – so, wie sie über die Leitung geht (SMTP, IMAP, EWS)."""
+    return msg.as_bytes(policy=CRLF_POLICY)
+
+
+def _attachment_parts(msg):
+    """Alle Anhänge, auch die in Containern.
+
+    ``iter_attachments`` schaut nur eine Ebene tief. Bei einer signierten Mail (``multipart/signed``) oder einer
+    verschachtelten ``multipart/mixed`` liefert es den Container selbst – der hat keinen eigenen Inhalt (0 Byte),
+    und die Dateien darin blieben unsichtbar. Container werden deshalb aufgeklappt.
+    """
+    for part in msg.iter_attachments():
+        if part.get_content_maintype() == "multipart":
+            yield from _attachment_parts(part)
+        elif part.get_content_type() not in SIGNATURE_TYPES:
+            yield part
+
+
+def _attachment_data(part) -> bytes:
+    """Inhalt eines Anhangs. Eine angehängte Nachricht (``message/rfc822``, z. B. „als Anlage weiterleiten“ oder ein
+    Outlook-Element) hat keinen dekodierbaren Inhalt – ``get_payload(decode=True)`` gibt dort None, also 0 Byte.
+    Sie wird als .eml-Datei geschrieben."""
+    if part.get_content_type() == "message/rfc822" or part.is_multipart():
+        inner = part.get_payload()
+        if isinstance(inner, list) and inner:
+            inner = inner[0]
+        if hasattr(inner, "as_bytes"):
+            return inner.as_bytes(policy=CRLF_POLICY)
+        return b""
+    return part.get_payload(decode=True) or b""
+
+
+def _attachment_name(part, i: int) -> str:
+    name = part.get_filename() or ""
+    if part.get_content_type() == "message/rfc822":
+        if not name:
+            inner = part.get_payload()
+            inner = inner[0] if isinstance(inner, list) and inner else inner
+            subject = str(inner.get("Subject") or "").strip() if hasattr(inner, "get") else ""
+            name = (subject[:80] or f"anhang-{i}")
+        if not name.lower().endswith(".eml"):
+            name += ".eml"
+    return re.sub(r"[\\/\r\n\t]+", "_", name or f"anhang-{i}").strip() or f"anhang-{i}"
+
+
 def attachments(msg) -> list[dict]:
     out = []
-    for i, part in enumerate(msg.iter_attachments(), 1):
-        data = part.get_payload(decode=True) or b""
-        name = part.get_filename() or f"anhang-{i}"
-        out.append({"name": re.sub(r"[\\/]+", "_", name), "type": part.get_content_type(), "data": data})
+    for i, part in enumerate(_attachment_parts(msg), 1):
+        out.append({"name": _attachment_name(part, i), "type": part.get_content_type(), "data": _attachment_data(part)})
     return out
 
 
@@ -369,6 +420,7 @@ def build_message(sender: str, an: str, betreff: str, text: str, cc: str = "", b
     # base64 statt 8bit oder quoted-printable: Exchange zerlegt beim Speichern die weichen Zeilenumbrüche von
     # quoted-printable („ausschließlich“ kam als „ausschließli=h“ an) und rohe 8bit-Bytes ebenso. base64 ist
     # davon unabhängig – die Zeilenumbrüche sind Teil des Verfahrens und werden beim Lesen verworfen.
+    # Auf die Leitung (EWS, IMAP) geht die Nachricht über mime_bytes() mit CRLF – nie über bytes(msg) mit nackten LF.
     msg.set_content(text or "", cte="base64")
     import mimetypes
 
