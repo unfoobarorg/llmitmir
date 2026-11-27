@@ -56,6 +56,8 @@ export function resetText(sec?: number): string {
 }
 
 const tok = (x: any) => (x?.prompt || 0) + (x?.completion || 0);
+/** Anfragen als ganze Zahl mit Tausenderpunkt („4.000“), Tokens bleiben kurz („1,2 Mio.“). */
+export const fmtInt = (n: number) => Math.round(n || 0).toLocaleString(dateLocale());
 
 /** Die Limits der Person: diese Stunde und heute (Schlüssel und persönliches Kontingent), externe Kosten im Monat. */
 export function userLimits(u: any = store.data?.usage, e: any = store.data?.external): Limit[] {
@@ -72,11 +74,13 @@ export function userLimits(u: any = store.data?.usage, e: any = store.data?.exte
     const max = lim[`limit_requests_${per}`];
     if (!max) return null;
     const rem = lim[`remaining_requests_${per}`] ?? max;
-    const reset = left(lim[`reset_requests_${per}`]);
+    // ein Stundenfenster setzt spätestens in einer Stunde zurück, ein Tagesfenster spätestens in einem Tag
+    const raw = left(lim[`reset_requests_${per}`]);
+    const reset = raw === undefined ? undefined : Math.min(raw, per === "hour" ? 3600 : 86400);
     const over = reset !== undefined && reset <= 0;
     const used = over ? 0 : Math.max(0, max - rem);
     return { frac: used / max, reset: over ? undefined : reset,
-      detail: t("Schlüssel: {a} von {b} Anfragen", { a: fmtNum(used), b: fmtNum(max) }) + keyNote };
+      detail: t("Schlüssel: {a} von {b} Anfragen", { a: fmtInt(used), b: fmtInt(max) }) + keyNote };
   };
 
   const hour = keyPart("hour");
@@ -91,7 +95,7 @@ export function userLimits(u: any = store.data?.usage, e: any = store.data?.exte
   const tks = newDay ? 0 : Math.max(0, tok(today) - (today.sep_tokens || 0));
   const parts: { frac: number; reset?: number; detail: string }[] = [];
   if (q.requests_day) parts.push({ frac: req / q.requests_day, reset: newDay ? undefined : midnight,
-    detail: t("Dein Tageskontingent: {a} von {b} Anfragen", { a: fmtNum(req), b: fmtNum(q.requests_day) }) });
+    detail: t("Dein Tageskontingent: {a} von {b} Anfragen", { a: fmtInt(req), b: fmtInt(q.requests_day) }) });
   if (q.tokens_day) parts.push({ frac: tks / q.tokens_day, reset: newDay ? undefined : midnight,
     detail: t("Dein Tageskontingent: {a} von {b} Tokens", { a: fmtNum(tks), b: fmtNum(q.tokens_day) }) });
   const day = keyPart("day");
@@ -119,7 +123,7 @@ export function contextLimit(cu: any, fallbackMax = 0): Limit | null {
 export function stepsLimit(st: { used: number; limit: number } | null | undefined): Limit | null {
   if (!st?.limit) return null;
   return { id: "calls", label: t("Modellaufrufe dieser Antwort"), frac: Math.min(1, (st.used || 0) / st.limit),
-    details: [t("{a} von {b} Modellaufrufen", { a: st.used || 0, b: st.limit })] };
+    details: [t("{a} von {b} Modellaufrufen", { a: fmtInt(st.used || 0), b: fmtInt(st.limit) })] };
 }
 
 /** Das am stärksten ausgeschöpfte Limit, das gerade bremst (Stunde, Tag) – für den Ring am Eingabefeld. */
@@ -137,8 +141,8 @@ export function limitRow(l: Limit, o: { abs?: boolean; right?: string; note?: un
     <div class="lim-bar" role="progressbar" aria-label=${l.label} aria-valuemin="0" aria-valuemax="100" aria-valuenow=${pct}>
       <i class=${level(l.frac)} style="width:${l.frac > 0 ? Math.max(2, pct) : 0}%"></i></div>
     <span class="lim-p">${o.right ?? t("{p} verbraucht", { p: fmtPct(l.frac) })}</span>
-    ${o.abs && l.details.length ? html`<div class="lim-d">${l.details.join(" · ")}</div>` : nothing}
-    ${o.note ? html`<div class="lim-d">${o.note}</div>` : nothing}
+    ${o.abs && l.details.length ? html`<div class="lim-d">${l.details.map((d, i) => html`${i ? html`<br>` : nothing}${d}`)}</div>` : nothing}
+    ${o.note ? html`<div class="lim-n">${o.note}</div>` : nothing}
   </div>`;
 }
 
@@ -162,11 +166,12 @@ export function limitWarning(ls: Limit[], billed: boolean): { key: string; text:
 export const limitsCss = css`
   .lims { display: grid; gap: 14px; }
   /* schmal (Menü am Eingabefeld): Name und Prozent, darunter Balken und Rücksetzzeit */
-  .lim { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "l p" "b b" "r r" "d d"; gap: 3px 12px; align-items: center; }
-  .lim-l { grid-area: l; font-weight: 600; min-width: 0; }
-  .lim-r, .lim-d { color: var(--lm-muted); font-size: 12.5px; }
+  .lim { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "l p" "b b" "r r" "d d" "n n"; gap: 3px 12px; align-items: center; }
+  .lim-l { grid-area: l; font-weight: 600; min-width: 0; line-height: 1.3; }
+  .lim-r, .lim-d, .lim-n { color: var(--lm-muted); font-size: 12.5px; line-height: 1.4; }
   .lim-r { grid-area: r; }
-  .lim-d { grid-area: d; }
+  .lim-d { grid-area: d; font-variant-numeric: tabular-nums; }
+  .lim-n { grid-area: n; margin-top: 2px; }
   .lim-p { grid-area: p; color: var(--lm-muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .lim-bar { grid-area: b; height: 8px; border-radius: 5px; background: var(--lm-hover); overflow: hidden; margin: 2px 0; }
   .lim-bar i { display: block; height: 100%; background: var(--lm-accent); border-radius: 5px; transition: width .5s; }
@@ -174,6 +179,6 @@ export const limitsCss = css`
   /* breit (Einstellungen): Name mit Rücksetzzeit | Balken | Prozent in einer Zeile, wie in der Claude-App */
   @media (min-width: 760px) {
     .lims.wide { gap: 18px; }
-    .lims.wide .lim { grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto; grid-template-areas: "l b p" "r b p" "d d d"; gap: 2px 20px; }
+    .lims.wide .lim { grid-template-columns: minmax(180px, 260px) minmax(0, 1fr) auto; grid-template-areas: "l b p" "r b p" "d d d" "n n n"; gap: 2px 20px; }
     .lims.wide .lim-p { min-width: 9em; text-align: right; }
   }`;

@@ -3,7 +3,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state, query } from "lit/decorators.js";
 import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeElement } from "./ui";
 import { store, navigate } from "./api";
-import { contextLimit, stepsLimit, fmtPct, limitRow, limitWarning, limitsCss, showAbsolute, usedFrac, userLimits } from "./limits";
+import { contextLimit, stepsLimit, fmtInt, fmtPct, limitRow, limitWarning, limitsCss, showAbsolute, usedFrac, userLimits } from "./limits";
 import { t, tb, dateLocale } from "./i18n";
 import { alternative, load, loadDot, type Role } from "./modelpick";
 import { confirmExternal, ext, fmtEur, isExternal, priceText, stepCost } from "./external";
@@ -107,13 +107,15 @@ export class Composer extends LitElement {
     .file button { border: 0; background: none; cursor: pointer; color: var(--lm-muted); display: grid; }
     .meter { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 6px; border-radius: 9px; cursor: pointer; }
     .meter:hover { background: var(--lm-hover); }
-    .stats { padding: 4px 6px 2px; font-size: 13px; display: grid; gap: 8px; min-width: min(290px, calc(100vw - 40px)); text-align: left; }
+    .stats { padding: 4px 6px 2px; font-size: 13px; display: grid; gap: 8px; width: min(330px, calc(100vw - 40px)); box-sizing: border-box; text-align: left; }
     .stats .mh { padding: 6px 4px 0; }
     .stats .lims { padding: 0 4px; gap: 12px; }
     .stats .hint { padding: 0 4px; }
-    .stats .nums { display: grid; gap: 4px; padding: 0 4px; }
-    .stats .k { display: flex; justify-content: space-between; gap: 10px; }
-    .stats .k span:last-child { color: var(--lm-muted); font-variant-numeric: tabular-nums; }
+    /* genaue Zahlen: Zeitraum links, Anfragen und Tokens rechts untereinander statt wild umbrochen */
+    .stats .nums { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; padding: 0 4px; align-items: start; }
+    .stats .nl { white-space: nowrap; }
+    .stats .nv { display: grid; justify-items: end; color: var(--lm-muted); font-variant-numeric: tabular-nums; text-align: right; }
+    .stats .nv span { white-space: nowrap; }
     .stats .mi.more { margin-top: 2px; border-top: 1px solid var(--lm-line); border-radius: 0 0 8px 8px; color: var(--lm-muted); font-size: 13px; }
     .bhint.lim { animation: lim-in .38s cubic-bezier(.2, .9, .25, 1.15) both; }
     .bhint.full { background: color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel)); border-color: color-mix(in srgb, var(--lm-err) 40%, var(--lm-line)); }
@@ -304,7 +306,8 @@ export class Composer extends LitElement {
     const ctx = contextLimit(this.chatUsage, this.modelInfo.context || 0);
     const calls = this.busy ? stepsLimit(this.runSteps) : null;
     const tok = (x: any) => (x?.prompt || 0) + (x?.completion || 0);
-    const stat = (label: string, x: any) => html`<div class="k"><span>${label}</span><span>${x?.requests || 0} ${t("Anfragen")} · ${fmtNum(tok(x))} ${t("Tokens")}</span></div>`;
+    const stat = (label: string, x: any) => html`<span class="nl">${label}</span>
+      <span class="nv"><span>${fmtInt(x?.requests || 0)} ${t("Anfragen")}</span> <span>${fmtNum(tok(x))} ${t("Tokens")}</span></span>`;
     return html`<div class="stats">
       ${ctx || calls ? html`<div class="mh">${t("Dieser Chat")}</div><div class="lims">
         ${ctx ? limitRow(ctx, { abs, right: t("{p} belegt", { p: fmtPct(ctx.frac) }), note: t("Wird es voll, kürzt LLMitMir ältere Werkzeugergebnisse und dann die ältesten Nachrichten.") }) : nothing}

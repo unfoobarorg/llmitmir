@@ -53,6 +53,7 @@ export const icon = (name: string, size = 20) =>
 export const fmtNum = (n: number) => {
   n = Number(n || 0);
   const dec = (s: string) => (isDe() ? s.replace(".", ",") : s);
+  if (n >= 1e9) return dec((n / 1e9).toFixed(n >= 1e10 ? 0 : 1)) + (isDe() ? " Mrd." : "B");
   if (n >= 1e6) return dec((n / 1e6).toFixed(n >= 1e7 ? 0 : 1)) + (isDe() ? " Mio." : "M");
   if (n >= 1e4) return Math.round(n / 1000) + "k";
   if (n >= 1000) return dec((n / 1000).toFixed(1)) + "k";
