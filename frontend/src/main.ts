@@ -585,7 +585,8 @@ export class LLMitMirPanel extends LitElement {
       // Plugins (plugins.ts): Konnektoren, Skills und Zugänge; die alten Wege führen auf den passenden Reiter
       case "plugins": return this.wrap(html`<lm-plugins .tab=${id || ""}></lm-plugins>`);
       case "skills": case "credentials": case "connectors": return this.wrap(html`<lm-plugins .tab=${p}></lm-plugins>`);
-      case "skill": return this.wrap(html`<lm-skill .skillId=${id} ?viaConnector=${this.path[2] === "connector"}
+      case "skill": if (this.path[2] === "central") return this.wrap(html`<lm-central-skill .skillId=${id}></lm-central-skill>`);
+        return this.wrap(html`<lm-skill .skillId=${id} ?viaConnector=${this.path[2] === "connector"}
         .connectionId=${this.path[2] === "connector" ? this.path[3] || "" : ""}></lm-skill>`);
       case "credential": return this.wrap(html`<lm-credential .credId=${id} ?viaConnector=${this.path[2] === "connector"}></lm-credential>`);
       case "settings": return this.wrap(html`<lm-settings .tab=${id || ""} .sub=${this.path[2] || ""}></lm-settings>`);

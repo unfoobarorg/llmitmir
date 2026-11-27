@@ -70,9 +70,19 @@ const switchEl = (checked: boolean, onChange: (v: boolean) => void) =>
 /** Aufgaben, deren Lauf an der Hoechstzahl an Schritten gescheitert ist und die noch nicht freigegeben sind. */
 const limitHit = (tasks: any[]) => (tasks || []).filter((x: any) => x.limit_hit && !x.heavy);
 
+/** Eine vorgeschlagene Aufgabe einrichten: geführter Chat, der die Aufgabe am Ende anlegt (die Person bestätigt). */
+async function openSuggestionChat(skillId: string) {
+  try { const chat = await store.api.ws("task/suggestion_chat", { skill_id: skillId }); navigate(`/chat/${chat.id}`); }
+  catch (e: any) { store.notify(e.message); }
+}
+
 @safeElement("lm-tasks")
 export class Tasks extends StoreElement {
-  static styles = [base, pageCss, taskUsageCss];
+  static styles = [base, pageCss, taskUsageCss, css`.suggest { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 8px; }
+    .sug { display: grid; gap: 8px; align-content: start; padding: 12px; border: 1px solid var(--lm-line); border-radius: 12px; background: var(--lm-panel); }
+    .sug.off { opacity: .6; }
+    .sug .sic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: var(--lm-accent-soft); color: var(--lm-accent); flex: none; }`];
+  @state() private showHidden = false;
   @state() private keyDays: any[] | null = null;
   connectedCallback() {
     super.connectedCallback();
@@ -108,8 +118,10 @@ export class Tasks extends StoreElement {
       ${limitHit(tasks).length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
         <div><b>${limitHit(tasks).length === 1 ? t("Eine Aufgabe hat das Limit der Modellaufrufe erreicht") : t("{n} Aufgaben haben das Limit der Modellaufrufe erreicht", { n: limitHit(tasks).length })}:</b>
         ${limitHit(tasks).map((x: any) => x.name).join(", ")}. ${t("Öffne die Aufgabe und gib sie für mehr Modellaufrufe frei – dann hat ein Lauf bis zu 150 statt 60.")}</div></div>` : nothing}
+      ${this.suggestions()}
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item task ${x.limit_hit && !x.heavy ? "bad" : ""}" @click=${() => navigate(`/task/${x.id}`)}>
         ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">${t("importiert – prüfen")}</span>` : nothing}
+          ${x.central_skill_id ? html`<span class="chip" title=${t("Nach einem Vorschlag des Admins eingerichtet – beruht auf einem zentralen Skill")}>${icon("skill", 13)} ${x.central_skill_name || t("zentraler Skill fehlt")}</span>` : nothing}
           ${x.heavy ? html`<span class="chip" title=${t("Besonders aufwändig: bis zu 150 Modellaufrufe je Lauf")}>${icon("list", 13)} ${t("150 Modellaufrufe")}</span>` : nothing}
           ${x.limit_hit && !x.heavy ? html`<span class="chip err" title=${t("Ein Lauf hat das Limit von 60 Modellaufrufen erreicht – die Aufgabe lässt sich für 150 freigeben")}>${icon("alert", 13)} ${t("Limit erreicht")}</span>` : nothing}
           ${x.limit_hit && x.heavy ? html`<span class="chip warn" title=${t("Auch 150 Modellaufrufe haben für einen Lauf nicht gereicht")}>${icon("alert", 13)} ${t("150 Modellaufrufe erschöpft")}</span>` : nothing}
@@ -124,6 +136,25 @@ export class Tasks extends StoreElement {
         ${switchEl(!!x.enabled, async (v) => { await store.api.ws("task/save", { task: { ...x, enabled: v } }); })}
       </div>`) : html`<div class="hint">${isSimple() ? t("Noch keine geplanten Aufgaben.") : t("Noch keine geplanten Aufgaben. Lege eine an oder importiere sie aus Claude (Einstellungen → Import aus Claude).")}</div>`}</div>
       ${tiles.length && showTileTasks() ? this.tileRows(tiles) : nothing}</div>`;
+  }
+
+  /** Vorschläge des Admins (zentrale Skills mit Aufgaben-Vorschlag): „Einrichten“ öffnet einen geführten Chat. */
+  private suggestions() {
+    const all: any[] = store.data?.task_suggestions || [];
+    const shown = all.filter((x: any) => !x.hidden);
+    const hidden = all.length - shown.length;
+    if (!all.length) return nothing;
+    return html`<h3 class="sub" style="margin-top:4px">${icon("sparkle", 16)} ${t("Vorschläge")}</h3>
+      <div class="hint" style="margin:-2px 0 10px">${t("Vom Admin vorbereitete Aufgaben. „Einrichten“ führt dich in einem Chat Schritt für Schritt durch – du passt Auftrag, Zeitplan und Benachrichtigung an deine Wünsche an.")}
+        ${hidden ? html` <a href="#" @click=${(e: Event) => { e.preventDefault(); this.showHidden = !this.showHidden; }}>${this.showHidden ? t("Ausgeblendete verbergen") : t("{n} ausgeblendet – anzeigen", { n: hidden })}</a>` : nothing}</div>
+      <div class="suggest">${(this.showHidden ? all : shown).map((x: any) => html`<div class="sug ${x.hidden ? "off" : ""}">
+        <div class="row" style="gap:8px;align-items:flex-start"><span class="sic">${icon("task", 18)}</span>
+          <div class="grow" style="min-width:0"><b>${x.title}</b><div class="hint">${tb(x.schedule_text)}</div></div>
+          <button class="iconbtn" title=${x.hidden ? t("Wieder anzeigen") : t("Ausblenden")} @click=${() => store.api.ws("task/suggestion_hide", { skill_id: x.skill_id, hidden: !x.hidden }).catch((e: any) => store.notify(e.message))}>${icon(x.hidden ? "eye" : "close", 16)}</button></div>
+        ${x.description ? html`<div class="hint clamp2" style="color:var(--lm-text)">${x.description}</div>` : nothing}
+        ${x.tasks?.length ? html`<div class="hint">${icon("check", 13)} ${t("Eingerichtet: {x}", { x: x.tasks.join(", ") })}</div>` : nothing}
+        <div><button class="btn ${x.tasks?.length ? "" : "primary"}" @click=${() => openSuggestionChat(x.skill_id)}>${icon("chat", 16)} ${x.tasks?.length ? t("Noch einmal einrichten") : t("Einrichten")}</button></div></div>`)}</div>
+      <h3 class="sub">${icon("task", 16)} ${t("Deine Aufgaben")}</h3>`;
   }
 
   /** Tasks of dashboard tiles: own lane, own budget – changed through their tile. */
@@ -389,6 +420,10 @@ export class TaskPage extends StoreElement {
         ? t("Diese Aufgabe gehört {owner} und ist mit dir geteilt. Du darfst Name, Zeitplan, Benachrichtigung und Auftrag ändern und sie starten. Ein neuer Auftrag gilt erst, wenn {owner} ihn bestätigt; Freigaben, Werkzeuge, Modell und Projekt, löschen und weitergeben bleiben bei {owner}.", { owner: x.owner_name })
         : t("Diese Aufgabe gehört jemand anderem und ist mit dir geteilt. Du darfst Name, Zeitplan, Benachrichtigung und Auftrag ändern und sie starten. Ein neuer Auftrag gilt erst, wenn die Person, der sie gehört, ihn bestätigt; Freigaben, Werkzeuge, Modell und Projekt, löschen und weitergeben bleiben bei ihr.")}</div></div>` : nothing}
       ${this.pendingBanner(x, !x.shared)}
+      ${x.central_skill_id ? html`<div class="banner">${icon("skill")}<div>${x.central_skill_name
+        ? html`${t("Nach einem Vorschlag des Admins eingerichtet: Die Aufgabe beruht auf dem zentralen Skill {name}. Den Skill pflegt der Admin; Auftrag, Zeitplan und alles andere hier gehören dir.", { name: `„${x.central_skill_name}“` })}
+          ${x.shared ? nothing : html`<br><a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/skill/${x.central_skill_id}/central`); }}>${t("Skill ansehen")}</a>`}`
+        : t("Nach einem Vorschlag des Admins eingerichtet. Den zentralen Skill, auf dem sie beruht, gibt es nicht mehr – die Aufgabe erledigt, was ohne ihn geht. Frag den Admin.")}</div></div>` : nothing}
       ${x.imported && !x.enabled ? html`<div class="banner">${icon("info")}<div>${t("Aus Claude importiert und deshalb pausiert. Prüfe Auftrag, Zugänge und Freigaben – Verweise auf Claude-Werkzeuge (z. B. Gmail-Connector, list_triggers) gibt es hier nicht.")}${x.imported_note ? html`<br><i>${x.imported_note}</i>` : nothing}</div></div>` : nothing}
       ${x.werkbank_missing ? html`<div class="banner" style="background:color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel))">${icon("mdi:console")}<div>
         <b>${t("Für diese Aufgabe fehlt die Werkbank.")}</b> ${t("Sie läuft trotzdem, erledigt aber nur, was ohne Werkbank geht, und nennt im Ergebnis, was ausgelassen wurde.")}
@@ -478,6 +513,8 @@ export class Skills extends StoreElement {
     // Skills von Konnektor-Verbindungen gehören zum Konnektor: ausgegraut, nur über die Seite „Konnektoren“ zu öffnen
     const sk = all.filter((s: any) => !s.connection_id);
     const kn = all.filter((s: any) => s.connection_id);
+    // zentrale Skills, die die Person über eine eingerichtete Aufgabe nutzt (nur lesen)
+    const zs: any[] = store.data?.used_central_skills || [];
     const item = (s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}`)}>
         ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description}</div></div>
         ${(s.credentials || []).length ? html`<span class="chip">${icon("key", 13)} ${s.credentials.length}</span>` : nothing}
@@ -491,7 +528,12 @@ export class Skills extends StoreElement {
       <div class="list">${sk.length ? sk.map(item) : html`<div class="hint">${t("Noch keine eigenen Skills.")}</div>`}</div>
       ${kn.length ? html`<h3 class="sub">${icon("share", 16)} ${t("Skills von Konnektoren")}</h3>
         <p class="hint">${t("Diese Skills gehören zu einer Verbindung eines Konnektors. Du öffnest und änderst sie über den Konnektor – so bleiben Verbindung und Skill zusammen.")}</p>
-        <div class="list">${kn.map((s: any) => ownedItem("skill", s.name, s.description, s.connection_id))}</div>` : nothing}</div>`;
+        <div class="list">${kn.map((s: any) => ownedItem("skill", s.name, s.description, s.connection_id))}</div>` : nothing}
+      ${zs.length ? html`<h3 class="sub">${icon("shield", 16)} ${t("Zentrale Skills")}</h3>
+        <p class="hint">${t("Diese Skills stellt der Admin bereit. Du siehst sie, weil eine deiner geplanten Aufgaben auf ihnen beruht – ändern kann sie nur der Admin.")}</p>
+        <div class="list">${zs.map((s: any) => html`<div class="item" @click=${() => navigate(`/skill/${s.id}/central`)}>
+          ${icon("skill")}<div class="grow"><div class="ellipsis">${s.name}</div><div class="hint clamp2">${s.description || t("Für: {x}", { x: s.tasks.join(", ") })}</div></div>
+          <span class="chip">${icon("lock", 13)} ${t("zentral")}</span></div>`)}</div>` : nothing}</div>`;
   }
 }
 
@@ -512,6 +554,27 @@ function ownedItem(ic: string, name: string, desc: string, credId: string) {
     ${icon(ic)}<div class="grow"><div class="ellipsis">${name}</div>${desc ? html`<div class="hint clamp2">${desc}</div>` : nothing}</div>
     <span class="chip">${icon("share", 13)} ${k?.name || t("Konnektor (aus)")}${c && k && c.name !== k.name ? ` · ${c.name}` : ""}</span>
     <button class="btn ghost" @click=${(e: Event) => { e.stopPropagation(); navigate("/plugins/connectors"); }}>${t("Zum Konnektor")}</button></div>`;
+}
+
+/** Ein zentraler Skill, den die Person über eine Aufgabe nutzt: nur lesen, mit den Aufgaben, die auf ihm beruhen. */
+@safeElement("lm-central-skill")
+export class CentralSkillPage extends StoreElement {
+  @property() skillId = "";
+  static styles = [base, pageCss];
+  render() {
+    const s = (store.data?.used_central_skills || []).find((x: any) => x.id === this.skillId);
+    const back = html`<button class="iconbtn" @click=${() => navigate("/plugins/skills")}>${icon("left")}</button>`;
+    if (!s) return html`<div class="page"><div class="row">${back}<h1 class="grow">${t("Zentraler Skill")}</h1></div>
+      <div class="hint">${t("Diesen Skill siehst du nicht (mehr) – er gehört zu keiner deiner geplanten Aufgaben, oder der Admin hat ihn ausgeschaltet.")}</div></div>`;
+    const tasks = (store.data?.tasks || []).filter((x: any) => x.central_skill_id === s.id && !x.shared);
+    return html`<div class="page"><div class="row">${back}<h1 class="grow">${s.name}</h1><span class="chip">${icon("lock", 13)} ${t("zentral")}</span></div>
+      <div class="banner">${icon("shield")}<div>${t("Diesen Skill stellt der Admin für alle bereit. Du kannst ihn ansehen, aber nicht ändern. Was deine Aufgabe genau tun soll, legst du in ihrem Auftrag fest.")}</div></div>
+      <div class="form">
+        ${s.description ? html`<div class="card"><b>${t("Beschreibung")}</b><div class="hint" style="margin-top:6px;color:var(--lm-text)">${s.description}</div></div>` : nothing}
+        <div class="card"><b>${t("Deine Aufgaben mit diesem Skill")}</b><div class="list" style="margin-top:8px">${tasks.map((x: any) => html`<div class="item task" @click=${() => navigate(`/task/${x.id}`)}>
+          ${icon("task")}<div class="grow"><div class="ellipsis">${x.name}</div><div class="hint">${tb(x.schedule_text)}</div></div>${icon("right", 18)}</div>`)}</div></div>
+        <div><b>${t("Anleitung")}</b><div class="preview md" style="margin-top:8px">${md(s.body || "")}</div></div></div></div>`;
+  }
 }
 
 @safeElement("lm-skill")

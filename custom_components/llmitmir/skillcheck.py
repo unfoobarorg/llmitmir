@@ -22,6 +22,8 @@ import re
 import time
 from typing import Any
 
+from .cron import describe, parse_cron, schedule_to_cron
+
 _LOGGER = logging.getLogger(__name__)
 
 MODE_ALWAYS, MODE_ON_DEMAND = "always", "on_demand"
@@ -34,6 +36,8 @@ MAX_CENTRAL, MAX_POLICIES = 50, 50
 CENTRAL_BODY_MAX = 20000
 ALWAYS_TOTAL_MAX = 40000      # so viel Text aus zentralen Skills steht höchstens im Systemprompt
 MODEL_SKILL_MAX = 24000       # so viel vom Skill sieht das prüfende Modell
+SUGGESTION_TEXT_MAX = 6000    # Auftrag bzw. Einrichtungshinweise eines Aufgaben-Vorschlags
+SUGGESTION_NOTIFY = ("always", "on_change", "error", "never")
 RUNNING: set = set()          # laufende Prüfungen (Tests warten darauf, beim Entladen egal)
 
 # Vorlagen für die Admin-Seite
@@ -87,11 +91,43 @@ def clean_central(raw: Any) -> list[dict]:
         body = str(s.get("body") or "")
         if len(body) > CENTRAL_BODY_MAX:
             raise ValueError(f"„{name}“ ist zu lang (höchstens {CENTRAL_BODY_MAX} Zeichen).")
-        out.append({"id": _pid(s, "z", i), "name": name, "mode": mode, "description": _clip(s.get("description"), 1024),
-                    "body": body, "enabled": s.get("enabled", True) is not False})
+        item = {"id": _pid(s, "z", i), "name": name, "mode": mode, "description": _clip(s.get("description"), 1024),
+                "body": body, "enabled": s.get("enabled", True) is not False}
+        sug = clean_suggestion(s.get("suggestion"), name)
+        if sug:
+            item["suggestion"] = sug
+        out.append(item)
     if len(out) > MAX_CENTRAL:
         raise ValueError(f"Höchstens {MAX_CENTRAL} zentrale Skills.")
     return out
+
+
+def clean_suggestion(raw: Any, skill_name: str) -> dict | None:
+    """Vorschlag für eine geplante Aufgabe an einem zentralen Skill (None = kein Vorschlag).
+
+    Der Admin schlägt damit allen Personen eine Aufgabe vor, die auf dem Skill beruht. Die Person richtet sie in einem
+    geführten Chat ein (``setup_prompt``) und passt Auftrag, Zeitplan und Benachrichtigung an; ``prompt`` und
+    ``schedule`` sind nur der Ausgangspunkt, ``setup`` sagt dem Modell, was es dabei erfragen soll.
+    """
+    if not isinstance(raw, dict):
+        return None
+    title = _clip(raw.get("title"), 100) or skill_name
+    sched = raw.get("schedule") if isinstance(raw.get("schedule"), dict) else {"type": "daily", "time": "08:00"}
+    try:
+        cron = schedule_to_cron(sched)
+        if cron is None:
+            raise ValueError("ein Vorschlag läuft wiederkehrend, nicht einmalig")
+        parse_cron(cron)
+    except (ValueError, TypeError, KeyError) as e:
+        raise ValueError(f"„{skill_name}“: Der Zeitplan des Vorschlags ist ungültig ({e}).") from None
+    prompt = str(raw.get("prompt") or "").strip()
+    if len(prompt) > SUGGESTION_TEXT_MAX or len(str(raw.get("setup") or "")) > SUGGESTION_TEXT_MAX:
+        raise ValueError(f"„{skill_name}“: Auftrag und Einrichtungshinweise des Vorschlags höchstens je "
+                         f"{SUGGESTION_TEXT_MAX} Zeichen.")
+    return {"enabled": raw.get("enabled", True) is not False, "title": title,
+            "description": _clip(raw.get("description"), 600), "prompt": prompt,
+            "setup": str(raw.get("setup") or "").strip(), "schedule": sched,
+            "notify": raw.get("notify") if raw.get("notify") in SUGGESTION_NOTIFY else "on_change"}
 
 
 def clean_policies(raw: Any) -> list[dict]:
@@ -181,6 +217,125 @@ def always_text(cfg: dict) -> str:
 
 def on_demand(cfg: dict) -> list[dict]:
     return [s for s in central(cfg) if s["mode"] == MODE_ON_DEMAND]
+
+
+# ------------------------------------------------------------------ Aufgaben-Vorschläge an zentralen Skills
+def central_by_id(cfg: dict, sid: str | None) -> dict | None:
+    """Eingeschalteter zentraler Skill mit dieser ID (None, wenn gelöscht oder ausgeschaltet)."""
+    return next((s for s in central(cfg) if sid and s.get("id") == sid), None)
+
+
+def suggestion_of(cfg: dict, sid: str | None) -> tuple[dict, dict] | None:
+    """(Skill, Vorschlag), solange der Admin die Aufgabe vorschlägt – sonst None."""
+    s = central_by_id(cfg, sid)
+    sug = (s or {}).get("suggestion") or {}
+    return (s, sug) if s and sug.get("enabled") else None
+
+
+def find_suggestion(cfg: dict, name: str) -> tuple[dict, dict] | None:
+    """Wie ``suggestion_of``, aber über den Namen des zentralen Skills (so nennt ihn das Modell)."""
+    s = find_central(cfg, name)
+    return suggestion_of(cfg, s["id"]) if s else None
+
+
+def linked_ids(tasks: dict) -> set[str]:
+    """IDs der zentralen Skills, auf denen eigene Aufgaben der Person beruhen (Kachel-Aufgaben nie)."""
+    return {t["central_skill_id"] for t in (tasks or {}).values()
+            if t.get("central_skill_id") and t.get("origin") != "dashboard"}
+
+
+def suggestions_view(cfg: dict, tasks: dict, hidden: list | None = None) -> list[dict]:
+    """Vorschläge für die Seite „Geplant“ – ohne den Text des Skills (der bleibt unsichtbar, bis die Person ihn nutzt)."""
+    used = {}
+    for t in (tasks or {}).values():
+        if t.get("central_skill_id") and t.get("origin") != "dashboard":
+            used.setdefault(t["central_skill_id"], []).append(t.get("name") or "")
+    out = []
+    for s in central(cfg):
+        sug = s.get("suggestion") or {}
+        if not sug.get("enabled"):
+            continue
+        out.append({"skill_id": s["id"], "skill_name": s["name"], "title": sug["title"], "description": sug["description"],
+                    "schedule_text": describe(sug["schedule"]), "tasks": used.get(s["id"], []),
+                    "hidden": s["id"] in set(hidden or [])})
+    return out
+
+
+def visible_central(cfg: dict, tasks: dict) -> list[dict]:
+    """Zentrale Skills, die die Person über eine eingerichtete Aufgabe nutzt: sichtbar, aber nicht änderbar."""
+    ids = linked_ids(tasks)
+    out = []
+    for s in central(cfg):
+        if s["id"] in ids:
+            names = sorted(t.get("name") or "" for t in tasks.values() if t.get("central_skill_id") == s["id"])
+            out.append({"id": s["id"], "name": s["name"], "description": s.get("description") or "", "body": s["body"],
+                        "mode": s["mode"], "tasks": names})
+    return out
+
+
+def task_prompt(cfg: dict, task: dict) -> str:
+    """Abschnitt im Systemprompt eines Laufs, dessen Aufgabe auf einem zentralen Skill beruht (leer ohne Verknüpfung)."""
+    sid = task.get("central_skill_id")
+    if not sid:
+        return ""
+    s = central_by_id(cfg, sid)
+    if s is None:
+        return ("## Zentraler Skill\nDiese Aufgabe wurde nach einem Vorschlag des Admins eingerichtet und beruht auf "
+                "einem zentralen Skill, den es nicht mehr gibt oder der ausgeschaltet ist. Erledige, was ohne ihn geht, "
+                "und nenne das im Bericht, damit die Person sich an den Admin wenden kann.")
+    if s["mode"] == MODE_ALWAYS:
+        return (f"## Zentraler Skill\nDiese Aufgabe beruht auf dem zentralen Skill „{s['name']}“; er steht oben unter "
+                "„Verbindliche Vorgaben“.")
+    return (f"## Zentraler Skill\nDiese Aufgabe beruht auf dem zentralen Skill „{s['name']}“. Lade ihn zu Beginn mit "
+            "`skill_load` und arbeite nach ihm; der Auftrag der Person passt ihn an.")
+
+
+def setup_prompt(cfg: dict, sid: str, person: str, tasks: dict) -> str:
+    """Abschnitt im Systemprompt des geführten Chats, in dem eine Person eine vorgeschlagene Aufgabe einrichtet."""
+    found = suggestion_of(cfg, sid)
+    if not found:
+        return ("## Einrichtung einer vorgeschlagenen Aufgabe\nDer Admin schlägt diese Aufgabe nicht mehr vor (oder der "
+                "zentrale Skill ist ausgeschaltet). Sag das der Person freundlich und lege keine Aufgabe dazu an.")
+    s, sug = found
+    existing = sorted(t.get("name") or "" for t in (tasks or {}).values() if t.get("central_skill_id") == sid)
+    load = (f"Lade zuerst den zentralen Skill „{s['name']}“ mit `skill_load`, damit du weißt, was er braucht und tut."
+            if s["mode"] == MODE_ON_DEMAND else
+            f"Der zentrale Skill „{s['name']}“ steht oben unter „Verbindliche Vorgaben“ – lies ihn, bevor du fragst.")
+    lines = [
+        f"## Einrichtung der vorgeschlagenen Aufgabe „{sug['title']}“",
+        f"Dieser Chat ist ein geführter Einrichtungs-Assistent: Der Admin schlägt allen eine geplante Aufgabe vor, die auf "
+        f"dem zentralen Skill „{s['name']}“ beruht. Du richtest sie mit {person} ein und passt sie an ihre Bedürfnisse "
+        "an. So gehst du vor:",
+        f"1. {load} Ruf dabei in deiner ersten Antwort keine anderen Werkzeuge auf.",
+        "2. Begrüße kurz und erkläre in zwei, drei Sätzen, was die Aufgabe tut und wann sie läuft. Sag auch, dass der "
+        "zentrale Skill vom Admin kommt und nicht geändert werden kann, die Aufgabe selbst aber nach ihren Wünschen.",
+        "3. Führe dann Schritt für Schritt durch die Einrichtung: **immer nur eine Frage pro Nachricht**, warte auf die "
+        "Antwort, mach Vorschläge statt offener Fragen (z. B. „Jeden Werktag um 7:30 – passt das?“). Kläre der Reihe nach, "
+        "soweit es für diese Aufgabe nötig ist: was angepasst werden soll (siehe Einrichtungshinweise des Admins), welche "
+        "Zugänge die Aufgabe nutzen darf, wann sie laufen soll und wann die Person benachrichtigt werden möchte.",
+        "4. Ein geplanter Lauf kann nicht nachfragen. Nutzt der Skill Zugänge (Postfach, Kalender, GitLab …), prüfe in der "
+        "Liste der Zugänge, ob passende da sind, und nimm sie in `zugaenge` auf. Fehlt einer, erkläre in kurzen Schritten, "
+        "wie die Person ihn anlegt (Plugins → Konnektoren bzw. Zugänge), und mach danach weiter. Schreibende Werkzeuge, "
+        "die der Skill ohne Rückfrage braucht, gehören in `freigaben` – erkläre der Person in einem Satz, was sie erlauben.",
+        "5. Hast du alles, fasse die Aufgabe in wenigen Punkten zusammen und lege sie mit `task_save` an – mit "
+        f"`zentraler_skill` = „{s['name']}“ und einem vollständigen `auftrag`, der ohne Rückfragen ausführbar ist und "
+        "alle Wünsche der Person enthält. Die Person sieht die Änderungskarte und bestätigt sie. Lehnt sie ab, frag, was "
+        "anders sein soll.",
+        "6. Sag zum Schluss in zwei Sätzen, dass die Aufgabe unter „Geplant“ steht (dort kann sie sie auch sofort mit "
+        "„Jetzt ausführen“ testen) und der zentrale Skill nun unter „Skills“ zu sehen ist.",
+        f"Vorgeschlagener Zeitplan: {describe(sug['schedule'])} (als zeitplan: {json.dumps(sug['schedule'])}). "
+        f"Vorgeschlagene Benachrichtigung: {sug['notify']}.",
+    ]
+    if sug.get("description"):
+        lines.append(f"Beschreibung des Admins für die Personen: {sug['description']}")
+    lines.append("### Vorgeschlagener Auftrag\n" + (sug.get("prompt") or f"(Keiner hinterlegt – formuliere ihn aus dem "
+                                                     f"Skill „{s['name']}“ und den Antworten der Person.)"))
+    lines.append("### Einrichtungshinweise des Admins\n" + (sug.get("setup") or "(Keine – frag nach dem, was der Skill "
+                                                            "für die Person offenlässt.)"))
+    if existing:
+        lines.append(f"Die Person hat schon Aufgaben nach diesem Vorschlag: {', '.join(existing)}. Frag zu Beginn, ob sie "
+                     "eine weitere anlegen oder eine bestehende ändern möchte (dann `task_save` mit deren Namen).")
+    return "\n".join(lines)
 
 
 def skill_text(skill: dict) -> str:

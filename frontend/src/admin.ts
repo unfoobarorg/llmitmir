@@ -37,6 +37,8 @@ export class AdminPage extends StoreElement {
   @state() private knOpen = -1;
   @state() private knSort = false;          // Konnektoren umsortieren (Pfeile und Ziehen statt Öffnen)
   @state() private knDrag = -1;             // gerade gezogene Kachel
+  /** Geöffneter zentraler Skill in der Kachel-Übersicht (Index), -1 = Übersicht. */
+  @state() private zsOpen = -1;
   static styles = [base, settingsCss, extraCss, taskUsageCss, css`
     .kntiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; padding: 14px 16px; }
     .kntile { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 12px; border: 1px solid var(--lm-line); border-radius: 12px;
@@ -545,21 +547,83 @@ export class AdminPage extends StoreElement {
 
   // ================================================================ Skills
   private skills() { return html`${this.centralSkillsGroup()}${this.skillPoliciesGroup()}`; }
-  /** Zentrale Skills: gelten für alle, in der Oberfläche der Personen unsichtbar (skillcheck.py). */
+  /** Zentrale Skills: gelten für alle, in der Oberfläche der Personen unsichtbar (skillcheck.py).
+   *  Übersicht als Kacheln wie bei den Konnektoren; ein Klick öffnet den Skill zum Bearbeiten. */
   private centralSkillsGroup() {
     const list: any[] = this.a.central_skills || [];
+    const desc = html`${t("Gelten für alle Personen und alle Läufe und erscheinen in deren Oberfläche nicht. „Immer aktiv“ steht im Systemprompt jedes Laufs, „bei Bedarf“ lädt das Modell wie einen eigenen Skill.")}
+      ${more(t("„Immer aktiv“ hat Vorrang vor persönlichen Hinweisen, Projekt-Anweisungen, eigenen Skills und Bitten im Chat. Eigene Skills mit demselben Namen lassen sich nicht anlegen; widersprechende fängt eine Skill-Richtlinie ab (Vorlage „Widerspruch zu zentralen Vorgaben“). Die Inhalte sind nicht geheim. An einem Skill kannst du allen eine geplante Aufgabe vorschlagen – wer sie einrichtet, sieht den Skill danach unter „Skills“, ohne ihn ändern zu können."))}`;
+    const i = this.zsOpen;
+    if (i >= 0 && i < list.length) return group(t("Zentrale Skills"), this.centralSkillEditor(list[i], i), { desc });
+    const add = () => { this.set("central_skills", [...list, { name: "", mode: "always", body: "", enabled: true }]); this.zsOpen = list.length; };
     return group(t("Zentrale Skills"), html`
       ${list.length ? nothing : empty("skill", t("Noch keine zentralen Skills – etwa Stilrichtlinien oder Gebote und Verbote, die für alle gelten."))}
-      ${list.map((x: any, i: number) => itemCard(html`<input placeholder="Name" .value=${x.name || ""} @input=${(e: any) => this.setList("central_skills", i, { name: e.target.value })}>
-          <select @change=${(e: any) => this.setList("central_skills", i, { mode: e.target.value })}>
-            <option value="always" ?selected=${x.mode !== "on_demand"}>${t("immer aktiv")}</option><option value="on_demand" ?selected=${x.mode === "on_demand"}>${t("bei Bedarf")}</option></select>
-          <span class="keep">${toggle(x.enabled !== false, (on) => this.setList("central_skills", i, { enabled: on }), { label: t("aktiv") })}</span>
-          <button class="iconbtn keep" title=${t("Entfernen")} @click=${() => this.dropItem("central_skills", i)}>${icon("trash", 16)}</button>`, html`
-        ${x.mode === "on_demand" ? html`<input placeholder=${t("Beschreibung: wann der Skill gilt")} .value=${x.description || ""} @input=${(e: any) => this.setList("central_skills", i, { description: e.target.value })}>` : nothing}
-        <textarea rows="5" placeholder=${t("Anleitung (Markdown)")} .value=${x.body || ""} @input=${(e: any) => this.setList("central_skills", i, { body: e.target.value })}></textarea>`, x.enabled === false))}
-      <div class="gfoot"><button class="btn" @click=${() => this.set("central_skills", [...list, { name: "", mode: "always", body: "", enabled: true }])}>${icon("plus", 16)} ${t("Zentralen Skill hinzufügen")}</button></div>`,
-      { desc: html`${t("Gelten für alle Personen und alle Läufe und erscheinen in deren Oberfläche nicht. „Immer aktiv“ steht im Systemprompt jedes Laufs, „bei Bedarf“ lädt das Modell wie einen eigenen Skill.")}
-        ${more(t("„Immer aktiv“ hat Vorrang vor persönlichen Hinweisen, Projekt-Anweisungen, eigenen Skills und Bitten im Chat. Eigene Skills mit demselben Namen lassen sich nicht anlegen; widersprechende fängt eine Skill-Richtlinie ab (Vorlage „Widerspruch zu zentralen Vorgaben“). Die Inhalte sind nicht geheim."))}` });
+      <div class="kntiles">${list.map((x: any, j: number) => html`<button class="kntile ${x.enabled === false ? "off" : ""}" @click=${() => (this.zsOpen = j)}>
+          <span class="kic">${icon("skill", 20)}</span>
+          <span class="ktx"><b>${x.name || t("Ohne Namen")}</b><span class="hint clamp2">${x.mode === "on_demand" ? x.description || t("bei Bedarf") : t("immer aktiv")}</span>
+            <span class="kchips">${x.enabled === false ? html`<span class="chip">${t("aus")}</span>` : html`<span class="chip ok">${t("aktiv")}</span>`}
+              <span class="chip">${x.mode === "on_demand" ? t("bei Bedarf") : t("immer aktiv")}</span>
+              ${x.suggestion ? html`<span class="chip ${x.suggestion.enabled !== false ? "accent" : ""}" title=${t("Geplante Aufgabe vorgeschlagen")}>${icon("task", 12)} ${x.suggestion.enabled !== false ? t("Vorschlag") : t("Vorschlag aus")}</span>` : nothing}</span></span>
+          <span class="kgo">${icon("right", 18)}</span></button>`)}
+        <button class="kntile add" @click=${add}><span class="kic">${icon("plus", 20)}</span><span class="ktx"><b>${t("Zentralen Skill hinzufügen")}</b></span></button></div>`,
+      { desc });
+  }
+  /** Einen zentralen Skill bearbeiten (aus der Kachel-Übersicht geöffnet). Gespeichert wird über die Speicherleiste. */
+  private centralSkillEditor(x: any, i: number) {
+    const drop = async () => {
+      if (!(await confirmDialog(t("Zentralen Skill {name} entfernen? Aufgaben, die nach seinem Vorschlag eingerichtet wurden, laufen dann ohne ihn (nach dem Speichern).", { name: `„${x.name || "?"}“` }), t("Entfernen")))) return;
+      this.dropItem("central_skills", i); this.zsOpen = -1;
+    };
+    const set = (patch: any) => this.setList("central_skills", i, patch);
+    return html`<div class="pad"><div class="row" style="flex-wrap:wrap;gap:8px">
+        <button class="btn ghost" @click=${() => (this.zsOpen = -1)}>${icon("left", 16)} ${t("Alle zentralen Skills")}</button><span class="grow"></span>
+        ${toggle(x.enabled !== false, (on) => set({ enabled: on }), { label: t("aktiv") })} <span class="hint">${x.enabled !== false ? t("aktiv") : t("aus")}</span>
+        <button class="btn ghost danger" @click=${drop}>${icon("trash", 16)} ${t("Entfernen")}</button></div></div>
+      ${pad(html`<div class="kform">
+        <div class="two"><label class="f"><span>${t("Name")}</span><input .value=${x.name || ""} @input=${(e: any) => set({ name: e.target.value })}></label>
+          <label class="f"><span>${t("Gilt")}</span><select @change=${(e: any) => set({ mode: e.target.value })}>
+            <option value="always" ?selected=${x.mode !== "on_demand"}>${t("immer aktiv")}</option><option value="on_demand" ?selected=${x.mode === "on_demand"}>${t("bei Bedarf")}</option></select></label></div>
+        ${x.mode === "on_demand" ? html`<label class="f"><span>${t("Beschreibung: wann der Skill gilt")}</span><input .value=${x.description || ""} @input=${(e: any) => set({ description: e.target.value })}></label>` : nothing}
+        <label class="f"><span>${t("Anleitung (Markdown)")}</span><textarea rows="12" class="code" .value=${x.body || ""} @input=${(e: any) => set({ body: e.target.value })}></textarea></label>
+        ${this.suggestionEditor(x, i)}</div>`)}`;
+  }
+  /** Vorschlag für eine geplante Aufgabe an einem zentralen Skill (skillcheck.py): erscheint bei allen unter „Geplant“,
+   *  eingerichtet wird sie in einem geführten Chat. Der Skill wird für eine Person erst mit ihrer Aufgabe sichtbar. */
+  private suggestionEditor(x: any, i: number) {
+    const sg = x.suggestion;
+    if (!sg) return html`<div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div class="grow" style="min-width:200px"><b>${icon("task", 15)} ${t("Geplante Aufgabe vorschlagen")}</b>
+        <div class="hint">${t("Allen Personen eine geplante Aufgabe mit diesem Skill vorschlagen. Sie richten sie in einem geführten Chat nach ihren Wünschen ein.")}</div></div>
+      <button class="btn" @click=${() => this.setList("central_skills", i, { suggestion: { enabled: true, title: x.name || "", description: "", prompt: "", setup: "",
+        schedule: { type: "weekdays", time: "07:30" }, notify: "on_change" } })}>${icon("plus", 16)} ${t("Als geplante Aufgabe vorschlagen")}</button></div>`;
+    const set = (patch: any) => this.setList("central_skills", i, { suggestion: { ...sg, ...patch } });
+    const sc = sg.schedule || { type: "daily", time: "08:00" };
+    const setSc = (patch: any) => set({ schedule: { ...sc, ...patch } });
+    const types: [string, string][] = [["daily", t("täglich")], ["weekdays", t("werktags (Mo–Fr)")], ["weekly", t("an bestimmten Wochentagen")],
+      ["monthly", t("monatlich")], ["interval", t("alle n Stunden")], ["hourly", t("stündlich")]];
+    const dn = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"].map(d => t(d));
+    const notify: [string, string][] = [["always", t("nach jedem Lauf")], ["on_change", t("nur bei neuem Ergebnis, Rückfrage oder Fehler")],
+      ["error", t("nur bei Fehlern")], ["never", t("nie")]];
+    return html`<div class="card kform">
+      <div class="row" style="gap:8px;flex-wrap:wrap"><b class="grow">${icon("task", 15)} ${t("Vorschlag für eine geplante Aufgabe")}</b>
+        ${toggle(sg.enabled !== false, (on) => set({ enabled: on }), { label: t("vorschlagen") })} <span class="hint">${sg.enabled !== false ? t("wird vorgeschlagen") : t("aus")}</span>
+        <button class="btn ghost danger" @click=${() => this.setList("central_skills", i, { suggestion: null })}>${icon("trash", 16)} ${t("Vorschlag entfernen")}</button></div>
+      <div class="hint">${t("Erscheint bei allen Personen unter „Geplant“. „Einrichten“ öffnet einen Chat, der Schritt für Schritt durch die Einrichtung führt und die Aufgabe nach ihren Wünschen anlegt. Wer so eine Aufgabe hat, sieht diesen Skill unter „Skills“ – nur lesend.")}</div>
+      <div class="two"><label class="f"><span>${t("Titel")}</span><input placeholder=${t("z. B. {x}", { x: t("Mails ins Taskboard übernehmen") })} .value=${sg.title || ""} @input=${(e: any) => set({ title: e.target.value })}></label>
+        <label class="f"><span>${t("Kurzbeschreibung für die Personen")}</span><input placeholder=${t("Was die Aufgabe für sie tut")} .value=${sg.description || ""} @input=${(e: any) => set({ description: e.target.value })}></label></div>
+      <label class="f"><span>${t("Vorgeschlagener Auftrag")} <span class="hint">(${t("Ausgangspunkt, den die Person im Chat anpasst")})</span></span>
+        <textarea rows="4" .value=${sg.prompt || ""} @input=${(e: any) => set({ prompt: e.target.value })}></textarea></label>
+      <label class="f"><span>${icon("chat", 14)} ${t("Hinweise für die Einrichtung im Chat")}</span>
+        <textarea rows="4" placeholder=${t("Was erfragt und angepasst werden soll, z. B. welches Postfach, welches Board, welche Zugänge")} .value=${sg.setup || ""} @input=${(e: any) => set({ setup: e.target.value })}></textarea></label>
+      <div class="two"><label class="f"><span>${t("Wiederholung")}</span><select @change=${(e: any) => setSc({ type: e.target.value })}>${types.map(([k, l]) => html`<option value=${k} ?selected=${sc.type === k}>${l}</option>`)}</select></label>
+        ${["daily", "weekdays", "weekly", "monthly", "interval"].includes(sc.type) ? html`<label class="f"><span>${t("Uhrzeit")}</span><input type="time" .value=${sc.time || "08:00"} @change=${(e: any) => setSc({ time: e.target.value })}></label>` : nothing}
+        ${sc.type === "interval" ? html`<label class="f"><span>${t("Alle … Stunden")}</span><input type="number" min="1" max="23" .value=${String(sc.hours || 2)} @change=${(e: any) => setSc({ hours: Number(e.target.value) })}></label>` : nothing}
+        ${sc.type === "hourly" ? html`<label class="f"><span>${t("Zur Minute")}</span><input type="number" min="0" max="59" .value=${String(sc.minute || 0)} @change=${(e: any) => setSc({ minute: Number(e.target.value) })}></label>` : nothing}
+        ${sc.type === "monthly" ? html`<label class="f"><span>${t("Tag im Monat")}</span><input type="number" min="1" max="31" .value=${String(sc.day || 1)} @change=${(e: any) => setSc({ day: Number(e.target.value) })}></label>` : nothing}
+        <label class="f"><span>${t("Benachrichtigen")}</span><select @change=${(e: any) => set({ notify: e.target.value })}>${notify.map(([k, l]) => html`<option value=${k} ?selected=${(sg.notify || "on_change") === k}>${l}</option>`)}</select></label></div>
+      ${sc.type === "weekly" ? html`<div class="row" style="gap:4px;flex-wrap:wrap">${[1, 2, 3, 4, 5, 6, 0].map(d => html`<button class=${(sc.days || [1]).includes(d) ? "btn primary" : "btn ghost"}
+        @click=${() => { const ds = new Set(sc.days || [1]); ds.has(d) ? ds.delete(d) : ds.add(d); setSc({ days: [...ds] }); }}>${dn[d]}</button>`)}</div>` : nothing}
+      <div class="hint">${t("Zeitplan und Benachrichtigung sind nur Vorschläge – die Person kann sie im Chat ändern.")}</div></div>`;
   }
   /** Skill-Richtlinien: Prüfungen aller eigenen Skills mit Aktion (sperren, benachrichtigen, protokollieren). */
   private skillPoliciesGroup() {

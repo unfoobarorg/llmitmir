@@ -230,6 +230,17 @@
   Laufs, vor persönlichen Hinweisen und Projekt-Anweisungen und mit Vorrang vor ihnen, vor eigenen Skills und vor Bitten im
   Chat (Stilrichtlinien, Gebote und Verbote). *Bei Bedarf* steht mit „(zentral)“ in der Skill-Liste des Modells und wird mit
   `skill_load` geladen. Eigene Skills mit dem Namen eines zentralen Skills lassen sich weder anlegen noch importieren.
+  Die Übersicht zeigt die zentralen Skills als Kacheln; ein Klick öffnet einen Skill zum Bearbeiten.
+- **Geplante Aufgaben vorschlagen:** Am zentralen Skill legt der Admin mit *Als geplante Aufgabe vorschlagen* einen
+  Vorschlag an – Titel, Kurzbeschreibung, vorgeschlagener Auftrag, Hinweise für die Einrichtung (was erfragt und angepasst
+  werden soll), Zeitplan und Benachrichtigung. Der Vorschlag steht bei allen Personen unter *Geplant → Vorschläge* (jede
+  kann ihn für sich ausblenden). **Einrichten** öffnet einen geführten Chat: Das Modell lädt den Skill, erklärt die Aufgabe
+  und fragt Schritt für Schritt nach Anpassungen, Zugängen, Freigaben, Zeitplan und Benachrichtigung; am Ende legt es die
+  Aufgabe mit `task_save` (`zentraler_skill`) an, und die Person bestätigt die Änderungskarte. So eingerichtete Aufgaben
+  tragen den zentralen Skill (Chip unter *Geplant*, Hinweis auf der Aufgabe), jeder Lauf lädt ihn zuerst. Die Person sieht
+  den Skill dann unter *Skills → Zentrale Skills* – nur lesend, mit ihren Aufgaben dazu. Die Verknüpfung entsteht nur im
+  Einrichtungs-Chat und nur zu einem Skill mit aktivem Vorschlag; zieht der Admin den Vorschlag zurück, laufen bestehende
+  Aufgaben weiter; schaltet er den Skill aus oder löscht ihn, meldet der Lauf das im Bericht.
 - **Skill-Richtlinien** (*Admin → Skill-Richtlinien*): Prüfungen für alle eigenen Skills – Muster (regulärer Ausdruck),
   Höchstlänge, verbotene Server, Geheimnisse im Klartext oder ein Prüfauftrag in Worten an ein Modell des Hauptanbieters
   (nie extern; der Skill gilt dabei als zu prüfender Text). Je Richtlinie eine Aktion: **sperren** (kein Modell sieht den

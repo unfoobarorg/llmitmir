@@ -2383,6 +2383,11 @@ class ToolContext:
             else:
                 parts.append("## Einrichtung eines Konnektors\nDer Konnektor dieses Einrichtungs-Chats ist ausgeschaltet "
                              "oder gelöscht – sag der Person, dass sie sich an den Admin wenden muss.")
+        task_setup = self.chat.get("task_setup")
+        if task_setup and self.task is None:
+            # geführte Einrichtung einer Aufgabe, die der Admin an einem zentralen Skill vorschlägt (skillcheck.py)
+            parts.append(SK.setup_prompt(self.manager.config.data, task_setup.get("skill_id") or "", name,
+                                         self.store.meta["tasks"]))
         if SC.is_sub(self.chat):
             parts.append(self.sub_prompt())
         elif "unterchat" in self.groups():
@@ -2420,6 +2425,9 @@ class ToolContext:
                 "du der Person schon einmal gemeldet hast und der sich nicht geändert hat, ist ebenfalls „nichts“ – "
                 "„keine neuen Mails“ oder „alles unverändert“ ist keine Neuigkeit. Schicke Statusmeldungen nie zusätzlich "
                 "mit `notify` – die Benachrichtigung ergibt sich aus `task_result`.")
+            central = SK.task_prompt(self.manager.config.data, self.task)
+            if central:
+                parts.append(central)  # nach einem Vorschlag des Admins eingerichtet: auf dem zentralen Skill aufbauen
             prev = (self.task.get("_prev_result") or {}).get("text") or ""
             if prev and not self.is_tile_run:
                 parts.append(f"## Zuletzt gemeldet\nDer Person wurde bei diesem Lauf zuletzt gemeldet: „{prev}“. Ist es "
