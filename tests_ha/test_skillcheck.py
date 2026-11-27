@@ -112,3 +112,61 @@ async def test_model_checks_run_on_the_main_provider_and_fail_closed(hass, llmit
     c2 = st.meta["skills"][skill2["id"]]["check"]
     assert c2["state"] == "pending" and "Anbieter weg" in c2["error"]  # bis zur Prüfung gesperrt
     assert "**Harmlos**" not in _ctx(m, hass_admin_user, st, "sc3").system_prompt()
+
+
+async def test_admin_suggests_a_task_and_the_person_sets_it_up_in_a_chat(hass, llmitmir, hass_ws_client, hass_admin_user):
+    from custom_components.llmitmir.agent import Run, ToolContext
+    from custom_components.llmitmir.tools import REGISTRY
+
+    m = llmitmir["manager"]
+    admin = await hass_ws_client(hass)
+    view = await _ok(admin, "admin/save", config={"central_skills": [
+        {"name": "Postfach-Board", "description": "Mails ins Taskboard", "body": "Ablauf: Labels lesen …", "mode": "on_demand",
+         "suggestion": {"title": "Mails ins Taskboard", "description": "Übernimmt neue Mails als Aufgaben.",
+                        "prompt": "Übertrage neue Mails ins Board.", "setup": "Frag nach dem GitLab-Board.",
+                        "schedule": {"type": "weekdays", "time": "07:30"}}}]})
+    sid = view["central_skills"][0]["id"]
+    assert view["central_skills"][0]["suggestion"]["title"] == "Mails ins Taskboard"
+    boot = await _ok(admin, "bootstrap")
+    assert [s["title"] for s in boot["task_suggestions"]] == ["Mails ins Taskboard"]
+    assert "Ablauf" not in json.dumps(boot["task_suggestions"]) and boot["used_central_skills"] == []
+
+    with patch.object(type(m), "send", AsyncMock(return_value="r1")) as send:
+        chat = await _ok(admin, "task/suggestion_chat", skill_id=sid)
+    assert chat["task_setup"] == {"skill_id": sid} and chat["title"] == "Einrichtung: Mails ins Taskboard"
+    assert "Mails ins Taskboard" in send.await_args.args[2]
+    st = await m.user_store(hass_admin_user.id)
+    full = await st.async_get_chat(chat["id"])
+    ctx = ToolContext(m, hass_admin_user, st, full, Run(id="r-ts", user_id=hass_admin_user.id, chat_id=chat["id"], kind="chat"), None)
+    prompt = ctx.system_prompt()
+    assert "Einrichtung der vorgeschlagenen Aufgabe" in prompt and "GitLab-Board" in prompt and "zentraler_skill" in prompt
+    assert "task_save" in {t["function"]["name"] for t in ctx.tool_specs()}
+
+    args = {"name": "Meine Mails", "auftrag": "Übertrage neue Mails ins Board „Haus“.", "zentraler_skill": "Postfach-Board",
+            "zeitplan": {"type": "weekdays", "time": "07:30"}}
+    ch = await REGISTRY["task_save"].preview(ctx, args)
+    assert {"feld": "Zentraler Skill", "alt": None, "neu": "Postfach-Board"} in ch["felder"]
+    await REGISTRY["task_save"].handler(ctx, args)
+    boot = await _ok(admin, "bootstrap")
+    task = next(t for t in boot["tasks"] if t["name"] == "Meine Mails")
+    assert task["central_skill_id"] == sid and task["central_skill_name"] == "Postfach-Board"
+    assert [(s["name"], s["body"], s["tasks"]) for s in boot["used_central_skills"]] == [
+        ("Postfach-Board", "Ablauf: Labels lesen …", ["Meine Mails"])]
+    assert boot["task_suggestions"][0]["tasks"] == ["Meine Mails"]
+
+    # Das Panel kann die Verknüpfung nicht lösen; der Lauf baut auf dem zentralen Skill auf
+    saved = await _ok(admin, "task/save", task=dict(task, central_skill_id=None, enabled=False))
+    assert saved["central_skill_id"] == sid
+    run_chat = {"id": "tr1", "kind": "task_run", "model": "glm-5.3", "messages": []}
+    tctx = ToolContext(m, hass_admin_user, st, run_chat, Run(id="r-tr1", user_id=hass_admin_user.id, chat_id="tr1", kind="task_run"),
+                       st.meta["tasks"][task["id"]])
+    assert "zentralen Skill „Postfach-Board“" in tctx.system_prompt()
+
+    # Ausblenden gilt nur für diese Person; ein zurückgezogener Vorschlag lässt sich nicht mehr einrichten
+    await _ok(admin, "task/suggestion_hide", skill_id=sid)
+    assert (await _ok(admin, "bootstrap"))["task_suggestions"][0]["hidden"] is True
+    cs = view["central_skills"]
+    await _ok(admin, "admin/save", config={"central_skills": [dict(cs[0], suggestion=dict(cs[0]["suggestion"], enabled=False))]})
+    gone = await _ws(admin, "task/suggestion_chat", skill_id=sid)
+    assert not gone["success"] and "nicht mehr" in gone["error"]["message"]
+    assert (await _ok(admin, "bootstrap"))["used_central_skills"]  # wer die Aufgabe hat, sieht den Skill weiter

@@ -11,6 +11,7 @@ from .. import credentials as C
 from .. import manage as M
 from .. import policy as P
 from .. import sharing as SH
+from .. import skillcheck as SK
 from . import REGISTRY, Tool, obj, register
 
 
@@ -173,6 +174,9 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     other = _find(ctx.store.meta["tasks"], new_name)
     if other is not None and other is not old:
         raise ValueError(f"Es gibt schon eine Aufgabe „{new_name}“.")
+    central_id = cur.get("central_skill_id")
+    if a.get("zentraler_skill") is not None:
+        central_id = _central_link(ctx, str(a["zentraler_skill"]).strip(), central_id)
     notify = a.get("benachrichtigen") or cur.get("notify") or "always"
     if notify not in CH.NOTIFY:
         raise ValueError(f"benachrichtigen: eines von {', '.join(CH.NOTIFY)}")
@@ -181,7 +185,8 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
            "schedule": a.get("zeitplan") or cur.get("schedule"),
            "enabled": bool(a["aktiv"]) if a.get("aktiv") is not None else cur.get("enabled", True),
            "allow_write": perms, "tool_groups": cur.get("tool_groups"), "notify": notify, "requires": requires,
-           "requires_note": cur.get("requires_note") or "", "heavy": heavy, "cred_allow": cred_allow}
+           "requires_note": cur.get("requires_note") or "", "heavy": heavy, "cred_allow": cred_allow,
+           "central_skill_id": central_id}
     if a.get("_share_users") is not None:
         raw["share"] = {"users": a["_share_users"]}
     try:
@@ -191,12 +196,33 @@ def _task_plan(ctx, a: dict) -> tuple[dict | None, dict]:
     return old, new
 
 
+def _central_link(ctx, want: str, current: str | None) -> str | None:
+    """Zentraler Skill, auf dem die Aufgabe beruht: nur einer, zu dem der Admin gerade eine Aufgabe vorschlägt (oder die
+    bestehende Verknüpfung). Leer = Verknüpfung lösen."""
+    if not want:
+        return None
+    cfg = ctx.manager.config.data
+    found = SK.find_suggestion(cfg, want)
+    if found:
+        return found[0]["id"]
+    s = SK.find_central(cfg, want)
+    if s and s["id"] == current:
+        return current
+    offered = ", ".join(f"„{x['skill_name']}“" for x in SK.suggestions_view(cfg, {}))
+    raise ValueError(f"Zum zentralen Skill „{want}“ schlägt der Admin keine Aufgabe vor. Möglich: {offered or 'keiner'}")
+
+
+def _task_meta(ctx, names: dict) -> dict:
+    return {"user_names": names, "creds": ctx.store.meta["credentials"], "projects": ctx.store.meta["projects"],
+            "central": {s["id"]: s["name"] for s in SK.central(ctx.manager.config.data)}}
+
+
 async def task_save_preview(ctx, a: dict) -> dict:
     a = dict(a, _share_users=await _share_users(ctx, a))
     names = {u["user_id"]: u["name"] for u in (a["_share_users"] or [])}
     old, new = _task_plan(ctx, a)
     names.update({uid: await ctx.manager.user_name(uid) for uid in SH.users((old or {}).get("share"))})
-    meta = {"user_names": names, "creds": ctx.store.meta["credentials"], "projects": ctx.store.meta["projects"]}
+    meta = _task_meta(ctx, names)
     ch = CH.build("aufgabe", new["name"], CH.task_fields(old, meta), CH.task_fields(new, meta))
     if not ch["felder"]:
         raise ValueError("Keine Änderung – die Aufgabe ist schon so.")
@@ -215,7 +241,7 @@ async def task_delete_preview(ctx, a: dict) -> dict:
     old = _find(_own_tasks(ctx), _req_name(a))
     if not old:
         raise ValueError(f"Aufgabe „{a.get('name')}“ nicht gefunden.")
-    return CH.build("aufgabe", old["name"], CH.task_fields(old, ctx.store.meta), [])
+    return CH.build("aufgabe", old["name"], CH.task_fields(old, _task_meta(ctx, {})), [])
 
 
 async def task_delete(ctx, a: dict):
@@ -334,6 +360,9 @@ register(Tool("task_save", "llmitmir",
                    "freigaben": {"type": "array", "items": {"type": "string"},
                                  "description": "Schreibende Werkzeuge, die die Aufgabe ohne Rückfrage nutzen darf, z. B. notify, file_write"},
                    "benachrichtigen": {"type": "string", "enum": list(CH.NOTIFY)},
+                   "zentraler_skill": {"type": "string",
+                                       "description": "Nur beim Einrichten einer vom Admin vorgeschlagenen Aufgabe: Name "
+                                                      "des zentralen Skills, auf dem sie beruht (leer = Verknüpfung lösen)"},
                    "braucht_werkbank": {"type": "boolean"},
                    "besonders_aufwaendig": {"type": "boolean",
                                             "description": "Besonders aufwaendige Aufgabe: bis zu 150 statt 60 Schritte je Lauf"},

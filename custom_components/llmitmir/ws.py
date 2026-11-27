@@ -127,6 +127,9 @@ def _task_view(m, user_id: str, t: dict, owner_id: str | None = None, names: dic
                                "notify": bool(e.get("notify"))}
                               for uid, e in ((t.get("share") or {}).get("users") or {}).items()]}
     out["share_text"] = SH.summary(t.get("share"), names)
+    if t.get("central_skill_id"):
+        # nach einem Vorschlag des Admins eingerichtet: Name des zentralen Skills (leer, wenn es ihn nicht mehr gibt)
+        out["central_skill_name"] = (SK.central_by_id(m.config.data, t["central_skill_id"]) or {}).get("name") or ""
     pend = t.get("pending_approval") or {}
     if pend:
         # ein geänderter Auftrag wartet auf die Bestätigung der Eigentümerin bzw. des Eigentümers (taskedit.py)
@@ -216,6 +219,10 @@ async def _bootstrap(hass, m, user, st) -> dict:
                                  "default_services": v.get("default_services", [])}
                              for k, v in C.TYPES.items()},
         "tasks": await _tasks_view(m, user),
+        # Aufgaben-Vorschläge des Admins an zentralen Skills und die zentralen Skills, die die Person über eine
+        # eingerichtete Aufgabe nutzt (sichtbar, nicht änderbar) – skillcheck.py
+        "task_suggestions": SK.suggestions_view(m.config.data, st.meta["tasks"], st.meta["settings"].get("hidden_suggestions")),
+        "used_central_skills": SK.visible_central(m.config.data, st.meta["tasks"]),
         # Dashboards, Kacheln und die Kurzform der Kachel-Aufgaben (boards.py)
         "boards": await m.boards.view(user) if m.boards else None,
         "inbox": IB.prune(st.meta.get("inbox"), now(), IB.minutes(st.meta["settings"])),
@@ -912,7 +919,8 @@ async def _task_for(m, user, task_id: str, need_edit: bool = False) -> tuple[str
 
 @command(_t("task/save") | {vol.Required("task"): dict})
 async def ws_task_save(hass, conn, msg, m, user, st):
-    t = msg["task"]
+    # Die Verknüpfung mit einem zentralen Skill entsteht nur im Einrichtungs-Chat eines Vorschlags (skillcheck.py)
+    t = {k: v for k, v in msg["task"].items() if k != "central_skill_id"}
     owner_id, owner_st, old = user.id, st, None
     if t.get("id"):
         owner_id, owner_st, old = await _task_for(m, user, t["id"], need_edit=True)
@@ -957,6 +965,35 @@ async def ws_task_save(hass, conn, msg, m, user, st):
     m.emit_task(owner_id, task)
     names = await _names(m, [owner_id, *SH.users(task.get("share")), (task.get("pending_approval") or {}).get("by")])
     return _task_view(m, user.id, task, owner_id, names, await _run_chats(owner_st, task))
+
+
+@command(_t("task/suggestion_chat") | {vol.Required("skill_id"): str})
+async def ws_task_suggestion_chat(hass, conn, msg, m, user, st):
+    """Vorgeschlagene Aufgabe einrichten: eigener Chat, in dem das Modell Schritt für Schritt durch die Einrichtung führt
+    und die Aufgabe am Ende mit `task_save` anlegt (die Person bestätigt die Änderungskarte)."""
+    found = SK.suggestion_of(m.config.data, msg["skill_id"])
+    if not found:
+        raise ValueError("Diesen Vorschlag gibt es nicht mehr.")
+    _skill, sug = found
+    chat = await m.create_chat(user.id, KIND_CHAT, None, None)
+    chat["task_setup"] = {"skill_id": msg["skill_id"]}
+    chat["title"] = f"Einrichtung: {sug['title']}"[:100]
+    await st.async_save_chat(chat)
+    m.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
+    await m.send(user, chat["id"], I18N.tr(f"Ich möchte die vorgeschlagene Aufgabe „{sug['title']}“ einrichten.", m.lang(user.id)))
+    return st.chat_summary(chat)
+
+
+@command(_t("task/suggestion_hide") | {vol.Required("skill_id"): str, vol.Optional("hidden", default=True): bool})
+async def ws_task_suggestion_hide(hass, conn, msg, m, user, st):
+    """Einen Vorschlag unter „Geplant“ ausblenden (oder wieder zeigen) – nur für diese Person."""
+    hidden = [x for x in st.meta["settings"].get("hidden_suggestions") or [] if x != msg["skill_id"]]
+    if msg["hidden"]:
+        hidden.append(msg["skill_id"])
+    st.meta["settings"]["hidden_suggestions"] = hidden[-100:]
+    await st.async_save_meta()
+    m.emit(user.id, {"type": "meta", "section": "tasks"})
+    return {"hidden": msg["hidden"]}
 
 
 @command(_t("task/approve") | {vol.Required("task_id"): str, vol.Required("approve"): bool})

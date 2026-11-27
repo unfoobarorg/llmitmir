@@ -197,6 +197,13 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
                 cred_allow=(P.clean_cred_allow(t["cred_allow"], st.meta["credentials"]) if t.get("cred_allow") is not None
                             else list(old.get("cred_allow") or [])),
                 share=share, updated=now())
+    # Nach einem Vorschlag des Admins eingerichtet (skillcheck.py): Die Verknüpfung mit dem zentralen Skill setzt nur
+    # der Einrichtungs-Chat (tools/manage.py prüft sie); das Panel lässt sie, wie sie ist.
+    central_id = t["central_skill_id"] if "central_skill_id" in t else old.get("central_skill_id")
+    if central_id:
+        task["central_skill_id"] = str(central_id)[:40]
+    else:
+        task.pop("central_skill_id", None)
     # Kachel-Aufgabe (boards.py): Herkunft, Kachel und das Schreibrecht in die eigene Kachel bleiben, egal was
     # der Aufrufer schickt. Jede andere Aufgabe darf `dashboard_update` nie verwenden.
     origin = old.get("origin") or (ORIGIN_DASHBOARD if t.get("origin") == ORIGIN_DASHBOARD else None)
@@ -205,6 +212,7 @@ def build_task(st, t: dict, owner_id: str | None = None) -> dict:
         task["tile_id"] = old.get("tile_id") or str(t.get("tile_id") or "")
         task["allow_write"] = sorted(set(task["allow_write"]) | {"dashboard_update"})
         task["share"] = {"users": {}}
+        task.pop("central_skill_id", None)
     else:
         task["allow_write"] = [n for n in task["allow_write"] if n != "dashboard_update"]
     if not task["prompt"].strip():

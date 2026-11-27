@@ -117,3 +117,92 @@ def test_overview_has_no_skill_text():
                            "s2": {"id": "s2", "name": "Gut", "check": {"state": "ok", "findings": []}}}}
     rows = SK.overview({"u1": St()}, {"u1": "Niko"})
     assert [r["skill"] for r in rows] == ["Geheim"] and "VERTRAULICH" not in str(rows) and rows[0]["user_name"] == "Niko"
+
+
+# ------------------------------------------------------------------ Aufgaben-Vorschläge an zentralen Skills
+def _sug_cfg(**sug):
+    return _cfg(central=[
+        {"id": "zmail", "name": "Postfach-Board", "mode": "on_demand", "description": "Mails ins Board", "body": "Geheimer Ablauf",
+         "suggestion": {"title": "Mails ins Taskboard", "description": "Jeden Morgen", "prompt": "Übertrage neue Mails.",
+                        "setup": "Frag nach dem Board.", "schedule": {"type": "weekdays", "time": "07:30"}, **sug}},
+        {"id": "zstil", "name": "Stil", "body": "Sie"}])
+
+
+def test_suggestion_is_validated_and_defaults():
+    s = SK.clean_central([{"name": "X", "suggestion": {"enabled": True}}])[0]["suggestion"]
+    assert s["title"] == "X" and s["schedule"] == {"type": "daily", "time": "08:00"} and s["notify"] == "on_change"
+    assert "suggestion" not in SK.clean_central([{"name": "Y"}])[0]
+    with pytest.raises(ValueError, match="Zeitplan"):
+        SK.clean_central([{"name": "X", "suggestion": {"schedule": {"type": "weekly", "time": "25:99"}}}])
+    with pytest.raises(ValueError, match="höchstens"):
+        SK.clean_central([{"name": "X", "suggestion": {"prompt": "x" * (SK.SUGGESTION_TEXT_MAX + 1)}}])
+
+
+def test_suggestions_for_people_never_carry_the_skill_text():
+    cfg = _sug_cfg()
+    tasks = {"t1": {"name": "Meine Mails", "central_skill_id": "zmail"}, "t2": {"name": "Andere"}}
+    view = SK.suggestions_view(cfg, tasks, ["zmail"])
+    assert view == [{"skill_id": "zmail", "skill_name": "Postfach-Board", "title": "Mails ins Taskboard",
+                     "description": "Jeden Morgen", "schedule_text": "werktags um 07:30", "tasks": ["Meine Mails"],
+                     "hidden": True}]
+    assert "Geheimer Ablauf" not in str(view)
+    assert SK.suggestions_view(_sug_cfg(enabled=False), {}) == []
+
+
+def test_central_skill_becomes_visible_only_through_an_own_task():
+    cfg = _sug_cfg()
+    assert SK.visible_central(cfg, {"t2": {"name": "Andere"}}) == []
+    tile = {"k": {"name": "Kachel", "central_skill_id": "zmail", "origin": "dashboard"}}
+    assert SK.visible_central(cfg, tile) == []
+    vis = SK.visible_central(cfg, {"t1": {"name": "Meine Mails", "central_skill_id": "zmail"}})
+    assert [(v["name"], v["body"], v["tasks"]) for v in vis] == [("Postfach-Board", "Geheimer Ablauf", ["Meine Mails"])]
+    # Der Admin zieht den Vorschlag zurück: Wer die Aufgabe hat, sieht den Skill weiter; schaltet er ihn aus, nicht mehr
+    assert SK.visible_central(_sug_cfg(enabled=False), {"t1": {"central_skill_id": "zmail"}})
+    off = _sug_cfg()
+    off["central_skills"][0]["enabled"] = False
+    assert SK.visible_central(off, {"t1": {"central_skill_id": "zmail"}}) == []
+
+
+def test_suggestion_lookup_and_prompts():
+    cfg = _sug_cfg()
+    assert SK.find_suggestion(cfg, "postfach-board")[0]["id"] == "zmail"
+    assert SK.find_suggestion(cfg, "Stil") is None and SK.suggestion_of(cfg, "fehlt") is None
+    p = SK.setup_prompt(cfg, "zmail", "Niko", {"t1": {"name": "Meine Mails", "central_skill_id": "zmail"}})
+    assert "`skill_load`" in p and "Übertrage neue Mails." in p and "Frag nach dem Board." in p
+    assert "`zentraler_skill` = „Postfach-Board“" in p and "werktags um 07:30" in p and "Meine Mails" in p
+    assert "nicht mehr vor" in SK.setup_prompt(_sug_cfg(enabled=False), "zmail", "Niko", {})
+    assert "`skill_load`" in SK.task_prompt(cfg, {"central_skill_id": "zmail"})
+    assert SK.task_prompt(cfg, {}) == ""
+    assert "nicht mehr gibt" in SK.task_prompt(cfg, {"central_skill_id": "weg"})
+
+
+def test_task_links_to_a_suggested_central_skill_only_through_the_chat_tool():
+    TM = load("tools.manage")
+    MG = load("manage")
+    CH = load("changes")
+
+    class Ctx:
+        user_id = "u1"
+        creds: dict = {}
+
+        def __init__(self, cfg):
+            self.store = type("St", (), {"meta": {"tasks": {}, "projects": {}, "credentials": {}, "skills": {}}})()
+            self.manager = type("M", (), {"config": type("C", (), {"data": cfg})()})()
+
+    ctx = Ctx(_sug_cfg())
+    a = {"name": "Meine Mails", "auftrag": "Übertrage neue Mails nach Board X.", "zeitplan": {"type": "weekdays", "time": "07:30"},
+         "zentraler_skill": "Postfach-Board"}
+    old, new = TM._task_plan(ctx, a)
+    assert old is None and new["central_skill_id"] == "zmail"
+    rows = dict((r[0], r[1]) for r in CH.task_fields(new, TM._task_meta(ctx, {})))
+    assert rows["Zentraler Skill"] == "Postfach-Board"
+    with pytest.raises(ValueError, match="keine Aufgabe vor"):
+        TM._task_plan(ctx, dict(a, zentraler_skill="Stil"))
+    # Das Panel kann die Verknüpfung weder setzen noch lösen: ohne das Feld bleibt sie, wie sie war
+    ctx.store.meta["tasks"][new["id"]] = new
+    again = MG.build_task(ctx.store, {"id": new["id"], "name": "Meine Mails", "prompt": "Anders"})
+    assert again["central_skill_id"] == "zmail"
+    # Zieht der Admin den Vorschlag zurück, bleibt die bestehende Verknüpfung erlaubt
+    ctx.manager.config.data = _sug_cfg(enabled=False)
+    assert TM._task_plan(ctx, {"name": "Meine Mails", "zentraler_skill": "Postfach-Board"})[1]["central_skill_id"] == "zmail"
+    assert "central_skill_id" not in TM._task_plan(ctx, {"name": "Meine Mails", "zentraler_skill": ""})[1]

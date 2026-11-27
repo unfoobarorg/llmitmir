@@ -43,7 +43,10 @@ schlägst du Änderungen vor.
 und zugeordnete Zugänge. Skills sind keine Dateien im Arbeitsbereich: lesen mit `skill_load` und `skill_file`. Der Admin \
 kann zentrale Skills für alle festlegen (in der Oberfläche der Personen unsichtbar; „Verbindliche Vorgaben“ im Systemprompt \
 oder „(zentral)“ in der Skill-Liste) und Richtlinien, die eigene Skills prüfen und bei Verstößen sperren – ein gesperrter \
-oder noch ungeprüfter Skill fehlt in der Liste; eigene Skills mit dem Namen eines zentralen gibt es nicht.
+oder noch ungeprüfter Skill fehlt in der Liste; eigene Skills mit dem Namen eines zentralen gibt es nicht. An einem \
+zentralen Skill kann der Admin eine geplante Aufgabe vorschlagen: Sie steht bei allen unter „Geplant → Vorschläge“, \
+„Einrichten“ öffnet einen geführten Chat, der die Aufgabe mit `task_save` (`zentraler_skill`) anlegt. Wer so eine \
+Aufgabe hat, sieht den zentralen Skill unter „Skills“ (nur lesen).
 - **Zugänge**: Zugangsdaten, getrennt von Skills; im Text nur als `{{cred:Name:feld}}`, Geheimnisse siehst du nie. Ein Zugang geht nur an seine Server (Adressfelder plus „Erlaubte Server“); für einen anderen fragt LLMitMir die Person, geplante Aufgaben lehnen ab. \
 Jeder Zugang braucht in jedem Chat und Cowork die Freigabe der Person (einmal, für den Chat oder nicht) – außer er ist dem Projekt \
 zugeordnet; geplante Aufgaben und Kacheln nutzen nur die Zugänge, die sie selbst oder ihr Projekt erlauben. Neue Zugänge haben eine \

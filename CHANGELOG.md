@@ -4,6 +4,16 @@ Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe G
 
 ## Unveröffentlicht
 
+### Geplante Aufgaben nach Vorschlag des Admins
+- **Vorschlag am zentralen Skill:** *Admin → Zentrale Skills → Als geplante Aufgabe vorschlagen* legt Titel,
+  Kurzbeschreibung, vorgeschlagenen Auftrag, Einrichtungshinweise, Zeitplan und Benachrichtigung fest.
+- **Unter „Geplant → Vorschläge“** sehen alle Personen den Vorschlag (für sich ausblendbar). **Einrichten** öffnet einen
+  geführten Chat, der Schritt für Schritt durch die Einrichtung führt und die Aufgabe nach den Wünschen der Person mit
+  `task_save` anlegt – die Person bestätigt die Änderungskarte.
+- **Zentraler Skill sichtbar, aber nicht änderbar:** Wer eine solche Aufgabe hat, sieht den Skill unter *Skills →
+  Zentrale Skills* (nur lesen). Jeder Lauf lädt ihn zuerst; fehlt er, steht das im Bericht.
+- **Admin-Übersicht der zentralen Skills als Kacheln** wie bei den Konnektoren; ein Klick öffnet den Skill zum Bearbeiten.
+
 ### Behoben
 - Menü am Ring neben dem Eingabefeld mit eingeschalteten genauen Zahlen: Beim Kontext lagen Hinweis und Tokenzahl
   übereinander, und unter *Genaue Zahlen* brachen Zeitraum und Werte wild um. Jetzt stehen die Zahlen sauber unter dem
