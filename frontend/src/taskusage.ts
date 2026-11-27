@@ -1,8 +1,10 @@
 // Usage of all scheduled tasks on the key they run with (tasks page, settings, admin).
 import { css, html, nothing } from "lit";
-import { icon, fmtNum, fmtDuration } from "./ui";
+import { icon, fmtNum } from "./ui";
+import { t, dateLocale } from "./i18n";
+import { limitRow, limitsCss, showAbsolute, type Limit } from "./limits";
 
-export const taskUsageCss = css`
+export const taskUsageCss = [limitsCss, css`
   .tu { display: grid; gap: 12px; }
   .tu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
   .tu-grid .big { font-size: 15px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
@@ -10,21 +12,29 @@ export const taskUsageCss = css`
   .tu-bars div { flex: 1; background: var(--lm-accent); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .8; }
   .tu-bars div.today { opacity: 1; }
   .tu-bars div:hover { opacity: 1; }
-  .tu .warnline { color: var(--lm-warn); }`;
+  .tu .warnline { color: var(--lm-warn); }`];
 
 const tok = (x: any) => (x?.prompt || 0) + (x?.completion || 0);
-const dayLabel = (d: string) => { const [, m, dd] = d.split("-"); return `${dd}.${m}.`; };
+const dayLabel = (d: string) => new Date(d + "T12:00:00").toLocaleDateString(dateLocale(), { day: "2-digit", month: "2-digit" });
 
 export function taskKeyLabel(source: string) {
-  if (source === "shared") return "zentraler Aufgaben-Schlüssel";
-  if (source === "own") return "eigener Aufgaben-Schlüssel";
-  return "gleicher Schlüssel wie Chats & Coworks";
+  if (source === "shared") return t("zentraler Aufgaben-Schlüssel");
+  if (source === "own") return t("eigener Aufgaben-Schlüssel");
+  return t("gleicher Schlüssel wie Chats & Coworks");
+}
+
+/** Tageslimit des Schlüssels als Prozent-Zeile (alle Nutzungen auf diesem Schlüssel). */
+function keyDay(lim: any): Limit {
+  const max = lim.limit_requests_day, used = Math.max(0, max - (lim.remaining_requests_day ?? max));
+  return { id: "taskday", label: t("Schlüssel heute (alle Nutzungen)"), frac: Math.min(1, used / max), reset: lim.reset_requests_day || undefined,
+    details: [t("{a} von {b} Anfragen", { a: fmtNum(used), b: fmtNum(max) })] };
 }
 
 /** One usage block. today/mine: {requests, prompt, completion}; days: [{day, requests, prompt, completion}] oldest first. */
 export function usageBlock(o: { title: string; label?: string; accent?: boolean; todayLabel: string; today: any; mine?: any;
-  limits?: any; days?: any[] | null; notes?: any[] }) {
+  limits?: any; days?: any[] | null; notes?: any[]; abs?: boolean }) {
   const lim = o.limits || {};
+  const abs = o.abs ?? showAbsolute();
   const days = o.days || [];
   const used = days.filter(d => d.requests);
   const max = Math.max(1, ...days.map(d => d.requests || 0));
@@ -33,35 +43,33 @@ export function usageBlock(o: { title: string; label?: string; accent?: boolean;
   return html`<div class="card tu">
     <div class="row" style="flex-wrap:wrap"><b class="grow">${icon("task", 16)} ${o.title}</b>
       ${o.label ? html`<span class="chip ${o.accent ? "accent" : ""}">${icon("key", 13)} ${o.label}</span>` : nothing}</div>
-    <div class="tu-grid">
-      <div><div class="hint">${o.todayLabel}</div><div class="big">${o.today?.requests || 0} Anfragen · ${fmtNum(tok(o.today))} Tokens</div></div>
-      ${o.mine ? html`<div><div class="hint">davon deine Aufgaben</div><div class="big">${o.mine.requests || 0} Anfragen · ${fmtNum(tok(o.mine))} Tokens</div></div>` : nothing}
-      ${lim.limit_requests_day ? html`<div><div class="hint">Schlüssel heute noch frei (alle Nutzungen)</div>
-        <div class="big">${lim.remaining_requests_day ?? lim.limit_requests_day} / ${lim.limit_requests_day} Anfragen</div>
-        ${lim.reset_requests_day ? html`<div class="hint">setzt in ${fmtDuration(lim.reset_requests_day)} zurück</div>` : nothing}</div>` : nothing}
-    </div>
+    ${lim.limit_requests_day ? html`<div class="lims">${limitRow(keyDay(lim), { abs })}</div>` : nothing}
+    ${abs ? html`<div class="tu-grid">
+      <div><div class="hint">${o.todayLabel}</div><div class="big">${o.today?.requests || 0} ${t("Anfragen")} · ${fmtNum(tok(o.today))} ${t("Tokens")}</div></div>
+      ${o.mine ? html`<div><div class="hint">${t("davon deine Aufgaben")}</div><div class="big">${o.mine.requests || 0} ${t("Anfragen")} · ${fmtNum(tok(o.mine))} ${t("Tokens")}</div></div>` : nothing}
+    </div>` : nothing}
     ${days.length ? html`<div><div class="tu-bars">${days.map((d, i) => html`<div class=${i === days.length - 1 ? "today" : ""}
-        title="${dayLabel(d.day)}: ${d.requests} Anfragen, ${fmtNum(tok(d))} Tokens" style="height:${Math.max(2, (d.requests / max) * 60)}px"></div>`)}</div>
-      <div class="hint">Anfragen je Tag, letzte ${days.length} Tage${used.length ? ` · Ø ${avgReq} Anfragen und ${fmtNum(avgTok)} Tokens an Tagen mit Läufen` : ""}</div></div>` : nothing}
+        title=${abs ? t("{day}: {r} Anfragen, {n} Tokens", { day: dayLabel(d.day), r: d.requests, n: fmtNum(tok(d)) }) : dayLabel(d.day)} style="height:${Math.max(2, (d.requests / max) * 60)}px"></div>`)}</div>
+      <div class="hint">${t("Nutzung je Tag, letzte {n} Tage", { n: days.length })}${abs && used.length ? ` · ${t("Ø {r} Anfragen und {n} Tokens an Tagen mit Läufen", { r: avgReq, n: fmtNum(avgTok) })}` : ""}</div></div>` : nothing}
     ${(o.notes || []).filter(Boolean).map(n => html`<div class="hint">${n}</div>`)}
   </div>`;
 }
 
 /** The person's own view (tasks page, settings), from usage.tasks of the bootstrap/usage events. */
-export function taskUsageCard(tk: any, days: any[] | null) {
+export function taskUsageCard(tk: any, days: any[] | null, abs?: boolean) {
   if (!tk) return nothing;
   if (!tk.has_key) return html`<div class="card hint">${tk.missing
-    ? "Für geplante Aufgaben fehlt dein eigener API-Schlüssel – der Admin lässt Aufgaben nur mit eigenen Schlüsseln laufen. Trag ihn in den Einstellungen ein."
-    : "Für geplante Aufgaben ist noch kein API-Schlüssel hinterlegt."}</div>`;
+    ? t("Für geplante Aufgaben fehlt dein eigener API-Schlüssel – der Admin lässt Aufgaben nur mit eigenen Schlüsseln laufen. Trag ihn in den Einstellungen ein.")
+    : t("Für geplante Aufgaben ist noch kein API-Schlüssel hinterlegt.")}</div>`;
   return usageBlock({
-    title: "Verbrauch der geplanten Aufgaben", label: taskKeyLabel(tk.source), accent: tk.separate,
-    todayLabel: tk.shared_by_all ? "Alle geplanten Aufgaben auf diesem Schlüssel heute" : "Deine geplanten Aufgaben heute",
-    today: tk.key_today, mine: tk.shared_by_all ? tk.mine_today : undefined, limits: tk.key_limits, days,
+    title: t("Verbrauch der geplanten Aufgaben"), label: taskKeyLabel(tk.source), accent: tk.separate,
+    todayLabel: tk.shared_by_all ? t("Alle geplanten Aufgaben auf diesem Schlüssel heute") : t("Deine geplanten Aufgaben heute"),
+    today: tk.key_today, mine: tk.shared_by_all ? tk.mine_today : undefined, limits: tk.key_limits, days, abs,
     notes: [
-      tk.fallback ? html`<span class="warnline">${icon("alert", 13)} Der gewählte Aufgaben-Schlüssel ist nicht eingetragen – Aufgaben nutzen so lange den normalen Schlüssel.</span>` : null,
-      tk.missing ? html`<span class="warnline">${icon("alert", 13)} Ohne eigenen Aufgaben-Schlüssel starten keine Läufe – der Admin lässt Aufgaben nur mit eigenen Schlüsseln laufen.</span>` : null,
-      !tk.separate && !tk.fallback ? "Aufgaben teilen sich die Limits mit Chats und Coworks." : null,
-      tk.separate ? "Läufe auf diesem Schlüssel zählen nicht zum persönlichen Tageskontingent." : null,
+      tk.fallback ? html`<span class="warnline">${icon("alert", 13)} ${t("Der gewählte Aufgaben-Schlüssel ist nicht eingetragen – Aufgaben nutzen so lange den normalen Schlüssel.")}</span>` : null,
+      tk.missing ? html`<span class="warnline">${icon("alert", 13)} ${t("Ohne eigenen Aufgaben-Schlüssel starten keine Läufe – der Admin lässt Aufgaben nur mit eigenen Schlüsseln laufen.")}</span>` : null,
+      !tk.separate && !tk.fallback ? t("Aufgaben teilen sich die Limits mit Chats und Coworks.") : null,
+      tk.separate ? t("Läufe auf diesem Schlüssel zählen nicht zum persönlichen Tageskontingent.") : null,
     ],
   });
 }

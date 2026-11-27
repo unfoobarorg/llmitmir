@@ -241,7 +241,7 @@ class TranscribeView(_Base):
         model = (m.config.data.get("provider") or {}).get("transcription_model") or "whisper-1"
         try:
             m.check_quota(user.id)
-            text = await m.provider.transcribe(key, data, "aufnahme.wav", model, hass.config.language)
+            text = await m.provider.transcribe(key, data, "aufnahme.wav", model, m.lang(user.id))  # Sprache der Oberfläche
         except Exception as e:  # noqa: BLE001
             return self.json_message(f"Spracherkennung fehlgeschlagen: {e}", HTTPStatus.BAD_GATEWAY)
         st.add_usage(0, 0)

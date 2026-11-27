@@ -6,7 +6,7 @@ import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, confirmDialog, safeElement } from "./ui";
 import { store, navigate } from "./api";
-import { t } from "./i18n";
+import { t, tb } from "./i18n";
 import { ext } from "./external";
 
 const LABELS: Record<string, string> = { url: "Adresse", username: "Benutzername", password: "Passwort", token: "Token",
@@ -15,7 +15,8 @@ const LABELS: Record<string, string> = { url: "Adresse", username: "Benutzername
 
 /** Beschriftung eines Feldes: die des Typs (z. B. GWDG: E-Mail-Adresse, Benutzerkennung), sonst die allgemeine. */
 export function fieldLabel(type: string, f: string): string {
-  return store.data?.credential_types?.[type]?.labels?.[f] || LABELS[f] || f;
+  const own = store.data?.credential_types?.[type]?.labels?.[f];
+  return own ? tb(own) : LABELS[f] ? t(LABELS[f]) : f;
 }
 
 /** Symbol eines Konnektors nach seinem Typ. */
@@ -166,13 +167,13 @@ export class ConnectorForm extends StoreElement {
       ${flowUi ? (this.flow ? html`<div class="msg">${icon(this.flow.status === "waiting" ? "hourglass" : "alert", 18)}<div>
             ${this.flow.status === "waiting" ? html`${t("Melde dich im neuen Fenster bei der Nextcloud an und erlaube den Zugriff. LLMitMir bekommt dann ein eigenes App-Passwort – dein Passwort sieht es nie.")}
               <div style="margin-top:6px"><a href=${this.flow.login} target="_blank" rel="noopener">${t("Anmeldeseite erneut öffnen")}</a></div>`
-            : this.flow.status === "expired" ? t("Die Anmeldung hat zu lange gedauert. Bitte noch einmal versuchen.") : this.flow.error || t("Die Anmeldung ist fehlgeschlagen.")}</div></div>` : nothing)
+            : this.flow.status === "expired" ? t("Die Anmeldung hat zu lange gedauert. Bitte noch einmal versuchen.") : tb(this.flow.error) || t("Die Anmeldung ist fehlgeschlagen.")}</div></div>` : nothing)
       : k.user_fields.map((f: string) => html`<label class="f"><span>${fieldLabel(k.type, f)}</span>
           <input type=${secret.has(f) ? "password" : "text"} autocomplete="off" placeholder=${c && secret.has(f) ? t("unverändert lassen") : (ty.placeholders || {})[f] || ""}
             .value=${this.fields[f] ?? (c && !secret.has(f) ? c.fields?.[f] || "" : "")}
             @input=${(e: any) => (this.fields = { ...this.fields, [f]: e.target.value })}></label>`)}
       ${store.data?.cred_policy?.tips?.[k.type] ? html`<div class="hint">${store.data.cred_policy.tips[k.type]}</div>` : nothing}
-      ${bad ? html`<div class="msg err">${icon("alert", 18)}<div><b>${t("Die Prüfung ist fehlgeschlagen:")}</b> ${c.check.message}</div></div>` : nothing}
+      ${bad ? html`<div class="msg err">${icon("alert", 18)}<div><b>${t("Die Prüfung ist fehlgeschlagen:")}</b> ${tb(c.check.message)}</div></div>` : nothing}
       <div class="row" style="flex-wrap:wrap">
         ${flowUi ? html`<button class="btn primary" ?disabled=${this.busy || (this.flow?.status === "waiting")} @click=${() => this.startFlow()}>${icon("cloud", 16)} ${c ? t("Neu anmelden") : t("Mit Nextcloud anmelden")}</button>`
           : html`<button class="btn primary" ?disabled=${this.busy} @click=${() => this.connect()}>${this.busy ? html`<lm-spark size="16"></lm-spark>` : icon("check", 16)} ${this.busy ? t("Prüfe …") : t("Verbinden und prüfen")}</button>`}
@@ -248,9 +249,9 @@ export class ConnectorsPage extends StoreElement {
         @done=${async () => { this.open = ""; await store.load(); }} @cancel=${() => (this.open = "")}></lm-connector-form></div>`;
     return html`<div class="conn">
       <div class="row"><b class="grow ellipsis">${c.name}</b>
-        ${bad ? html`<span class="chip err" title=${c.check.message}>${icon("alert", 13)} ${t("Anmeldung prüfen")}</span>` : html`<span class="chip ok">${icon("check", 13)} ${t("verbunden")}</span>`}</div>
+        ${bad ? html`<span class="chip err" title=${tb(c.check.message)}>${icon("alert", 13)} ${t("Anmeldung prüfen")}</span>` : html`<span class="chip ok">${icon("check", 13)} ${t("verbunden")}</span>`}</div>
       <div class="hint">${icon("shield", 13)} ${rightsText(c)}${c.external ? ` · ${t("extern frei")}` : ""}${c.valid_until ? ` · ${t("bis")} ${c.valid_until.split("-").reverse().join(".")}` : ""}</div>
-      ${bad ? html`<div class="hint" style="color:var(--lm-err)">${c.check.message}</div>` : nothing}
+      ${bad ? html`<div class="hint" style="color:var(--lm-err)">${tb(c.check.message)}</div>` : nothing}
       <div class="sk">${icon("skill", 15)} ${sk ? html`<span class="grow ellipsis">${t("Skill")}: ${sk.name}</span>
           <button class="btn ghost tiny" @click=${() => navigate(`/skill/${sk.id}/connector`)}>${t("Bearbeiten")}</button>`
         : html`<span class="grow hint">${t("Kein Skill")}</span>

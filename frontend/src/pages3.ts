@@ -5,7 +5,7 @@ import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtTime, confirmDialog, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
-import { t } from "./i18n";
+import { t, tb } from "./i18n";
 import { explainer, explainerCss } from "./simple";
 import * as G from "./grid";
 import { KIND_INFO, HA_KIND_MODES, MODE_INFO } from "./tiles/kinds";
@@ -37,13 +37,13 @@ function minuteOf(seed: string, cron?: string) {
 export function schedulePresets(seed: string, cron?: string): [string, string, string][] {
   const m = minuteOf(seed, cron), h = m % 30;
   return [
-    ["std", "Stündlich von 7 bis 22 Uhr (Standard)", `${m} 7-22 * * *`],
-    ["hourly", "Stündlich, rund um die Uhr", `${m} * * * *`],
-    ["half", "Alle 30 Minuten von 7 bis 22 Uhr", `${h},${h + 30} 7-22 * * *`],
-    ["two", "Alle 2 Stunden von 7 bis 21 Uhr", `${m} 7-21/2 * * *`],
-    ["work", "Werktags stündlich von 8 bis 18 Uhr", `${m} 8-18 * * 1-5`],
-    ["twice", "Zweimal am Tag (7 und 17 Uhr)", `${m} 7,17 * * *`],
-    ["daily", "Einmal am Tag (7 Uhr)", `${m} 7 * * *`],
+    ["std", t("Stündlich von 7 bis 22 Uhr (Standard)"), `${m} 7-22 * * *`],
+    ["hourly", t("Stündlich, rund um die Uhr"), `${m} * * * *`],
+    ["half", t("Alle 30 Minuten von 7 bis 22 Uhr"), `${h},${h + 30} 7-22 * * *`],
+    ["two", t("Alle 2 Stunden von 7 bis 21 Uhr"), `${m} 7-21/2 * * *`],
+    ["work", t("Werktags stündlich von 8 bis 18 Uhr"), `${m} 8-18 * * 1-5`],
+    ["twice", t("Zweimal am Tag (7 und 17 Uhr)"), `${m} 7,17 * * *`],
+    ["daily", t("Einmal am Tag (7 Uhr)"), `${m} 7 * * *`],
   ];
 }
 function count(spec: string, lo: number, hi: number): number {
@@ -269,11 +269,11 @@ export class Dashboards extends StoreElement {
           ${icon(x.icon || "dashboard", 17)} ${x.name}${x.owner !== me ? html`<span class="own">· ${x.owner_name}</span>` : nothing}</button>`)}</div>`
         : html`<div class="title">${icon(d?.icon || "dashboard", 26)}<h1>${d?.name || t("Dashboards")}</h1></div>`}
       ${d && r.edit ? (this.editing
-        ? html`<button class="btn" @click=${() => (this.library = true)}>${icon("plus", 17)} Kachel</button>
-            <button class="btn primary" @click=${() => { this.editing = false; this.draft = null; }}>${icon("check", 17)} Fertig</button>`
+        ? html`<button class="btn" @click=${() => (this.library = true)}>${icon("plus", 17)} ${t("Kachel")}</button>
+            <button class="btn primary" @click=${() => { this.editing = false; this.draft = null; }}>${icon("check", 17)} ${t("Fertig")}</button>`
         : html`<button class="btn" @click=${() => (this.editing = true)}>${icon("edit", 17)} ${t("Bearbeiten")}</button>`) : nothing}
-      ${d && (r.edit || r.reshare || r.owner) ? html`<button class="iconbtn" title="Einstellungen und Teilen" @click=${() => (this.settings = { ...d })}>${icon("settings")}</button>` : nothing}
-      <button class="iconbtn" title="Neues Dashboard" @click=${() => (this.settings = { new: true, name: "", icon: "mdi:view-dashboard-outline", palette: "aurora" })}>${icon("plus")}</button>
+      ${d && (r.edit || r.reshare || r.owner) ? html`<button class="iconbtn" title=${t("Einstellungen und Teilen")} @click=${() => (this.settings = { ...d })}>${icon("settings")}</button>` : nothing}
+      <button class="iconbtn" title=${t("Neues Dashboard")} @click=${() => (this.settings = { new: true, name: "", icon: "mdi:view-dashboard-outline", palette: "aurora" })}>${icon("plus")}</button>
     </div>`;
   }
 
@@ -299,15 +299,15 @@ export class Dashboards extends StoreElement {
           <lm-tile .tile=${tile} .rec=${store.tileData.get(k)} .color=${tileColor(tile?.color, d.palette, hashIndex(k))}
             ?dark=${dark()} ?editing=${this.editing} .runState=${store.tileRuns[k] || ""} .hiddenInfo=${tile ? null : hidden.get(k) || { exists: false }}></lm-tile>
           ${this.editing ? html`<div class="handles">
-            ${wide ? html`<button class="grip" title="Ziehen zum Verschieben (Pfeiltasten: verschieben, Umschalt+Pfeile: Größe)" @pointerdown=${(e: PointerEvent) => this.startDrag(e, c, "move")}>${icon("mdi:drag", 18)}</button>` : nothing}
-            ${tile ? html`<button class="more" title="Kachel bearbeiten" @click=${() => (this.sheet = { key: k, pid: c.pid })}>${icon("edit", 16)}</button>` : nothing}
-            <button class="del" title="Aus diesem Dashboard entfernen" @click=${() => this.removePlacement(c.pid)}>${icon("close", 17)}</button>
-            ${wide ? html`<button class="rs" title="Ziehen, um die Größe zu ändern" @pointerdown=${(e: PointerEvent) => this.startDrag(e, c, "size")}>${icon("mdi:resize-bottom-right", 16)}</button>`
+            ${wide ? html`<button class="grip" title=${t("Ziehen zum Verschieben (Pfeiltasten: verschieben, Umschalt+Pfeile: Größe)")} @pointerdown=${(e: PointerEvent) => this.startDrag(e, c, "move")}>${icon("mdi:drag", 18)}</button>` : nothing}
+            ${tile ? html`<button class="more" title=${t("Kachel bearbeiten")} @click=${() => (this.sheet = { key: k, pid: c.pid })}>${icon("edit", 16)}</button>` : nothing}
+            <button class="del" title=${t("Aus diesem Dashboard entfernen")} @click=${() => this.removePlacement(c.pid)}>${icon("close", 17)}</button>
+            ${wide ? html`<button class="rs" title=${t("Ziehen, um die Größe zu ändern")} @pointerdown=${(e: PointerEvent) => this.startDrag(e, c, "size")}>${icon("mdi:resize-bottom-right", 16)}</button>`
               : html`<div class="tools">
-                <button title="nach vorn" ?disabled=${idx <= 0} @click=${() => this.saveLayout(G.shift(base, c.pid, -1))}>${icon("up", 16)}</button>
-                <button title="nach hinten" ?disabled=${idx >= order.length - 1} @click=${() => this.saveLayout(G.shift(base, c.pid, 1))}>${icon("arrowDown", 16)}</button>
-                <button title="kleiner" @click=${() => { const o = base.find(x => x.pid === c.pid)!; this.saveLayout(G.resize(base, c.pid, o.w - 2, o.h - 1)); }}>${icon("mdi:minus", 16)}</button>
-                <button title="größer" @click=${() => { const o = base.find(x => x.pid === c.pid)!; this.saveLayout(G.resize(base, c.pid, o.w + 2, o.h + 1)); }}>${icon("plus", 16)}</button></div>`}
+                <button title=${t("nach vorn")} ?disabled=${idx <= 0} @click=${() => this.saveLayout(G.shift(base, c.pid, -1))}>${icon("up", 16)}</button>
+                <button title=${t("nach hinten")} ?disabled=${idx >= order.length - 1} @click=${() => this.saveLayout(G.shift(base, c.pid, 1))}>${icon("arrowDown", 16)}</button>
+                <button title=${t("kleiner")} @click=${() => { const o = base.find(x => x.pid === c.pid)!; this.saveLayout(G.resize(base, c.pid, o.w - 2, o.h - 1)); }}>${icon("mdi:minus", 16)}</button>
+                <button title=${t("größer")} @click=${() => { const o = base.find(x => x.pid === c.pid)!; this.saveLayout(G.resize(base, c.pid, o.w + 2, o.h + 1)); }}>${icon("plus", 16)}</button></div>`}
           </div>` : nothing}</div>`;
       })}</div></div>`;
   }
@@ -320,22 +320,22 @@ export class Dashboards extends StoreElement {
     const sec = (title: string, items: any[]) => items.length ? html`<h3>${title}</h3>${items.map(x => html`<div class="item" style="--acc:${tileColor(x.color, d.palette, hashIndex(x.key))}"
         @click=${async () => { try { await store.api.ws("dashboard/place", { key: d.key, tile: x.key }); this.library = false; await store.loadBoards(); } catch (e: any) { store.notify(e.message); } }}>
       <span class="ic">${icon(x.icon || KIND_INFO[x.kind]?.icon || "mdi:view-grid-outline", 18)}</span>
-      <div class="grow"><div class="row" style="flex-wrap:wrap"><b class="ellipsis">${x.name}</b><span class="chip">${KIND_INFO[x.kind]?.label || x.kind}</span>
-        <span class="chip">${icon(x.source?.type === "ha" ? "mdi:home-assistant" : "robot", 12)} ${x.source?.type === "ha" ? "Home Assistant" : `≈ ${x.task?.runs_per_day ?? "?"} Läufe/Tag`}</span>
-        ${x.task?.paused === "unplaced" ? html`<span class="chip warn">nicht platziert – pausiert</span>` : nothing}
-        ${placedCount(x.key) ? html`<span class="chip">${placedCount(x.key)}× platziert</span>` : nothing}</div>
+      <div class="grow"><div class="row" style="flex-wrap:wrap"><b class="ellipsis">${x.name}</b><span class="chip">${KIND_INFO[x.kind] ? t(KIND_INFO[x.kind].label) : x.kind}</span>
+        <span class="chip">${icon(x.source?.type === "ha" ? "mdi:home-assistant" : "robot", 12)} ${x.source?.type === "ha" ? t("Home Assistant") : `≈ ${x.task?.runs_per_day ?? "?"} ${t("Läufe/Tag")}`}</span>
+        ${x.task?.paused === "unplaced" ? html`<span class="chip warn">${t("nicht platziert – pausiert")}</span>` : nothing}
+        ${placedCount(x.key) ? html`<span class="chip">${t("{n}× platziert", { n: placedCount(x.key) })}</span>` : nothing}</div>
         ${x.description ? html`<div class="hint clamp2">${x.description}</div>` : nothing}</div>
       ${icon("plus", 18)}</div>`)}` : nothing;
     return html`<div class="back" @click=${(e: Event) => e.target === e.currentTarget && (this.library = false)}><div class="sheet small">
-      <div class="sh"><h2>Kachel hinzufügen</h2><button class="iconbtn" @click=${() => (this.library = false)}>${icon("close")}</button></div>
+      <div class="sh"><h2>${t("Kachel hinzufügen")}</h2><button class="iconbtn" @click=${() => (this.library = false)}>${icon("close")}</button></div>
       <div class="sb">
-        <button class="btn primary" @click=${() => { this.library = false; this.sheet = { create: true }; }}>${icon("plus", 17)} Neue Kachel anlegen</button>
-        ${boards().tiles.length ? html`<input placeholder="Kacheln durchsuchen …" .value=${this.libQ} @input=${(e: any) => (this.libQ = e.target.value)}>` : nothing}
+        <button class="btn primary" @click=${() => { this.library = false; this.sheet = { create: true }; }}>${icon("plus", 17)} ${t("Neue Kachel anlegen")}</button>
+        ${boards().tiles.length ? html`<input placeholder=${t("Kacheln durchsuchen …")} .value=${this.libQ} @input=${(e: any) => (this.libQ = e.target.value)}>` : nothing}
         <div class="lib">
-          ${sec("Meine Kacheln", all.filter((x: any) => x.owner === me))}
-          ${sec("Mit mir geteilt", all.filter((x: any) => x.owner !== me && !x.share?.all))}
-          ${sec("Für alle", all.filter((x: any) => x.owner !== me && x.share?.all))}
-          ${!boards().tiles.length ? html`<div class="hint">Noch keine Kacheln. Lege die erste an – sie lässt sich danach auf beliebig vielen Dashboards wiederverwenden.</div>` : nothing}
+          ${sec(t("Meine Kacheln"), all.filter((x: any) => x.owner === me))}
+          ${sec(t("Mit mir geteilt"), all.filter((x: any) => x.owner !== me && !x.share?.all))}
+          ${sec(t("Für alle"), all.filter((x: any) => x.owner !== me && x.share?.all))}
+          ${!boards().tiles.length ? html`<div class="hint">${t("Noch keine Kacheln. Lege die erste an – sie lässt sich danach auf beliebig vielen Dashboards wiederverwenden.")}</div>` : nothing}
         </div></div></div></div>`;
   }
 
@@ -355,22 +355,22 @@ export class Dashboards extends StoreElement {
       } catch (e: any) { store.notify(e.message); }
     };
     return html`<div class="back" @click=${(e: Event) => e.target === e.currentTarget && (this.settings = null)}><div class="sheet small">
-      <div class="sh"><h2>${isNew ? "Neues Dashboard" : `Dashboard „${s.name}“`}</h2><button class="iconbtn" @click=${() => (this.settings = null)}>${icon("close")}</button></div>
+      <div class="sh"><h2>${isNew ? t("Neues Dashboard") : t("Dashboard „{name}“", { name: s.name })}</h2><button class="iconbtn" @click=${() => (this.settings = null)}>${icon("close")}</button></div>
       <div class="sb">
         ${r.edit ? html`
-        <label class="f"><span>${t("Name")}</span><input .value=${s.name || ""} @input=${(e: any) => set("name", e.target.value)} placeholder="z. B. Zuhause, Postfach, Projekt X"></label>
+        <label class="f"><span>${t("Name")}</span><input .value=${s.name || ""} @input=${(e: any) => set("name", e.target.value)} placeholder=${t("z. B. Zuhause, Postfach, Projekt X")}></label>
         <label class="f"><span>${t("Beschreibung")}</span><input .value=${s.description || ""} @input=${(e: any) => set("description", e.target.value)}></label>
-        <div class="f"><span style="font-weight:550;font-size:13px">Icon</span><div class="swatches">${ICONS.map(ic => html`<button class="sw ${s.icon === ic ? "on" : ""}"
+        <div class="f"><span style="font-weight:550;font-size:13px">${t("Icon")}</span><div class="swatches">${ICONS.map(ic => html`<button class="sw ${s.icon === ic ? "on" : ""}"
           style="background:var(--lm-panel);color:var(--lm-text);display:grid;place-items:center" title=${ic} @click=${() => set("icon", ic)}>${icon(ic, 17)}</button>`)}</div></div>
-        <div class="f"><span style="font-weight:550;font-size:13px">Farbwelt</span><div class="swatches">${Object.entries(PALETTES).map(([k, cols]) => html`<button
-          class="btn ${s.palette === k ? "primary" : ""}" @click=${() => set("palette", k)}><span style="display:inline-flex;gap:2px">${cols.slice(0, 4).map(c => html`<i style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block"></i>`)}</span> ${PALETTE_LABELS[k]}</button>`)}</div></div>
-        <div class="row" style="justify-content:flex-end"><button class="btn primary" ?disabled=${!s.name?.trim() || (!isNew && !s._dirty)} @click=${save}>${icon("check", 16)} ${isNew ? "Anlegen" : t("Speichern")}</button></div>` : nothing}
-        ${!isNew ? html`<div class="card"><b>Teilen</b><div style="margin-top:8px"><lm-share kind="dashboard" .item=${s} @saved=${async () => { await store.loadBoards(); }}></lm-share></div>
-          <div class="hint" style="margin-top:8px">Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die auch für sie freigegeben sind – die anderen erscheinen als Platzhalter.</div></div>` : nothing}
+        <div class="f"><span style="font-weight:550;font-size:13px">${t("Farbwelt")}</span><div class="swatches">${Object.entries(PALETTES).map(([k, cols]) => html`<button
+          class="btn ${s.palette === k ? "primary" : ""}" @click=${() => set("palette", k)}><span style="display:inline-flex;gap:2px">${cols.slice(0, 4).map(c => html`<i style="width:10px;height:10px;border-radius:3px;background:${c};display:inline-block"></i>`)}</span> ${t(PALETTE_LABELS[k])}</button>`)}</div></div>
+        <div class="row" style="justify-content:flex-end"><button class="btn primary" ?disabled=${!s.name?.trim() || (!isNew && !s._dirty)} @click=${save}>${icon("check", 16)} ${isNew ? t("Anlegen") : t("Speichern")}</button></div>` : nothing}
+        ${!isNew ? html`<div class="card"><b>${t("Teilen")}</b><div style="margin-top:8px"><lm-share kind="dashboard" .item=${s} @saved=${async () => { await store.loadBoards(); }}></lm-share></div>
+          <div class="hint" style="margin-top:8px">${t("Auf einem geteilten Dashboard sieht jede Person nur die Kacheln, die auch für sie freigegeben sind – die anderen erscheinen als Platzhalter.")}</div></div>` : nothing}
         ${!isNew && r.owner ? html`<div><button class="btn danger" @click=${async () => {
-          if (!(await confirmDialog(`Dashboard „${s.name}“ löschen? Die Kacheln bleiben in der Bibliothek; Modell-Kacheln, die dann nirgends mehr liegen, pausieren.`))) return;
+          if (!(await confirmDialog(t("Dashboard „{name}“ löschen? Die Kacheln bleiben in der Bibliothek; Modell-Kacheln, die dann nirgends mehr liegen, pausieren.", { name: s.name })))) return;
           try { await store.api.ws("dashboard/delete", { key: s.key }); this.settings = null; await store.loadBoards(); navigate("/dashboards", true); } catch (e: any) { store.notify(e.message); }
-        }}>${icon("trash", 16)} Dashboard löschen</button></div>` : nothing}
+        }}>${icon("trash", 16)} ${t("Dashboard löschen")}</button></div>` : nothing}
       </div></div></div>`;
   }
 
@@ -383,22 +383,21 @@ export class Dashboards extends StoreElement {
     return html`<div class="page">
       ${d ? this.header(d) : html`<div class="bar"><div class="title">${icon("dashboard", 26)}<h1>${t("Dashboards")}</h1></div></div>`}
       ${!b.dashboards.length ? html`
-        ${simple ? explainer("dashboards" as any, true) : html`<div class="card" style="margin-bottom:16px"><b>Übersichten aus Kacheln</b>
-          <div class="hint" style="margin-top:6px">Ein Dashboard sammelt farbige Kacheln: Kennzahlen, Diagramme, Listen, Warnungen. Kacheln holen ihre Daten am besten direkt aus Home Assistant (live, ohne KI-Aufrufe);
-          was Home Assistant nicht weiß – etwa Aufgaben aus deinen Mails – erledigt ein geplanter Lauf. Jede Kachel lässt sich auf vielen Dashboards wiederverwenden und teilen.</div></div>`}
-        <div class="empty">${icon("dashboard", 36)}<div>Noch kein Dashboard.</div>
-          <button class="btn primary" @click=${() => (this.settings = { new: true, name: "", icon: "mdi:view-dashboard-outline", palette: "aurora" })}>${icon("plus", 17)} Erstes Dashboard anlegen</button></div>`
-      : !d ? html`<div class="empty">Dieses Dashboard gibt es nicht (mehr) oder es ist nicht für dich freigegeben.
-          <div><button class="btn" @click=${() => navigate("/dashboards", true)}>Zur Übersicht</button></div></div>`
+        ${simple ? explainer("dashboards" as any, true) : html`<div class="card" style="margin-bottom:16px"><b>${t("Übersichten aus Kacheln")}</b>
+          <div class="hint" style="margin-top:6px">${t("Ein Dashboard sammelt farbige Kacheln: Kennzahlen, Diagramme, Listen, Warnungen. Kacheln holen ihre Daten am besten direkt aus Home Assistant (live, ohne KI-Aufrufe); was Home Assistant nicht weiß – etwa Aufgaben aus deinen Mails – erledigt ein geplanter Lauf. Jede Kachel lässt sich auf vielen Dashboards wiederverwenden und teilen.")}</div></div>`}
+        <div class="empty">${icon("dashboard", 36)}<div>${t("Noch kein Dashboard.")}</div>
+          <button class="btn primary" @click=${() => (this.settings = { new: true, name: "", icon: "mdi:view-dashboard-outline", palette: "aurora" })}>${icon("plus", 17)} ${t("Erstes Dashboard anlegen")}</button></div>`
+      : !d ? html`<div class="empty">${t("Dieses Dashboard gibt es nicht (mehr) oder es ist nicht für dich freigegeben.")}
+          <div><button class="btn" @click=${() => navigate("/dashboards", true)}>${t("Zur Übersicht")}</button></div></div>`
       : html`
         ${this.editing && hint ? html`<div class="card hint" style="margin-bottom:12px;display:flex;gap:10px;align-items:center">${icon("info", 18)}
-          <span class="grow">Ziehen am Griff verschiebt, die Ecke unten rechts ändert die Größe (auf dem Handy: lange drücken). Tippen öffnet die Kachel. Pfeiltasten verschieben, mit Umschalt ändern sie die Größe.</span>
+          <span class="grow">${t("Ziehen am Griff verschiebt, die Ecke unten rechts ändert die Größe (auf dem Handy: lange drücken). Tippen öffnet die Kachel. Pfeiltasten verschieben, mit Umschalt ändern sie die Größe.")}</span>
           <button class="btn ghost" @click=${() => { try { localStorage.setItem(LS_EDIT_HINT, "1"); } catch { /* ignore */ } this.requestUpdate(); }}>OK</button></div>` : nothing}
         ${d.description && !this.editing ? html`<div class="hint" style="margin:-6px 0 12px">${d.description}</div>` : nothing}
-        ${(d.placements || []).length || this.editing ? this.grid(d) : html`<div class="empty">Dieses Dashboard ist noch leer.
-          ${d.rights?.edit ? html`<div><button class="btn primary" @click=${() => { this.editing = true; this.library = true; }}>${icon("plus", 17)} Kachel hinzufügen</button></div>` : nothing}</div>`}
+        ${(d.placements || []).length || this.editing ? this.grid(d) : html`<div class="empty">${t("Dieses Dashboard ist noch leer.")}
+          ${d.rights?.edit ? html`<div><button class="btn primary" @click=${() => { this.editing = true; this.library = true; }}>${icon("plus", 17)} ${t("Kachel hinzufügen")}</button></div>` : nothing}</div>`}
         ${b.budget?.limit && b.tiles.some((x: any) => x.rights?.owner && x.source?.type === "model") ? html`<div class="budget" style="margin-top:14px">
-          ${icon("robot", 14)} Kachel-Läufe heute: ${b.budget.used} von ${b.budget.limit}</div>` : nothing}`}
+          ${icon("robot", 14)} ${t("Kachel-Läufe heute: {used} von {limit}", { used: b.budget.used, limit: b.budget.limit })}</div>` : nothing}`}
       ${this.library && d ? this.libraryView(d) : nothing}
       ${this.settings ? this.settingsView() : nothing}
       ${this.sheet ? html`<lm-tile-sheet .tileKey=${this.sheet.key || ""} .create=${!!this.sheet.create} .placeOn=${this.sheet.create ? d?.key || "" : ""}
@@ -476,7 +475,7 @@ export class TileSheet extends StoreElement {
       const res = await store.api.ws("tile/save", { tile: body, place: this.create ? this.placeOn || null : null });
       this.dirty = false;
       await store.loadBoards();
-      store.notify(this.create ? "Kachel angelegt" : t("Gespeichert"));
+      store.notify(this.create ? t("Kachel angelegt") : t("Gespeichert"));
       if (this.create) { this.create = false; this.tileKey = res.key; this.d = null; this.init(); this.tab = "show"; }
       else this.d = { ...this.d, version: res.version };
     } catch (e: any) { store.notify(e.message); }
@@ -485,23 +484,21 @@ export class TileSheet extends StoreElement {
 
   // ---------------------------------------------------------- create: choose source and type
   private chooseSource() {
-    return html`<div class="hint">Woher kommen die Daten der Kachel?</div><div class="choice">
+    return html`<div class="hint">${t("Woher kommen die Daten der Kachel?")}</div><div class="choice">
       <button @click=${() => { this.d = { ...this.d, source: { type: "ha", mode: "state", entities: [], rules: [] } }; this.step = 1; }}>
-        <span class="ic">${icon("mdi:home-assistant", 20)}</span><span><b>Aus Home Assistant</b><span class="hint">Sensoren, Verläufe, Statistiken, Kalender, To-do-Listen.
-        Live, ohne KI-Aufrufe, ohne Kosten. <b>Erste Wahl</b>, wenn Home Assistant die Werte schon kennt.</span></span></button>
+        <span class="ic">${icon("mdi:home-assistant", 20)}</span><span><b>${t("Aus Home Assistant")}</b><span class="hint">${t("Sensoren, Verläufe, Statistiken, Kalender, To-do-Listen. Live, ohne KI-Aufrufe, ohne Kosten.")} <b>${t("Erste Wahl, wenn Home Assistant die Werte schon kennt.")}</b></span></span></button>
       <button @click=${() => { this.d = { ...this.d, source: { type: "model", run_if_changed: [] }, schedule: null, notify: "error" }; this.step = 1; }}>
-        <span class="ic">${icon("robot", 20)}</span><span><b>Von einem geplanten Lauf</b><span class="hint">Die KI holt die Daten regelmäßig selbst – etwa Aufgaben aus Mails,
-        Neuigkeiten von Webseiten oder Einschätzungen. Jeder Lauf zählt gegen dein Tagesbudget.</span></span></button></div>`;
+        <span class="ic">${icon("robot", 20)}</span><span><b>${t("Von einem geplanten Lauf")}</b><span class="hint">${t("Die KI holt die Daten regelmäßig selbst – etwa Aufgaben aus Mails, Neuigkeiten von Webseiten oder Einschätzungen. Jeder Lauf zählt gegen dein Tagesbudget.")}</span></span></button></div>`;
   }
   private chooseKind() {
     const ha = this.d.source?.type === "ha";
-    return html`<div class="hint">Was soll die Kachel zeigen?</div><div class="choice">${Object.entries(KIND_INFO).map(([k, info]) => {
+    return html`<div class="hint">${t("Was soll die Kachel zeigen?")}</div><div class="choice">${Object.entries(KIND_INFO).map(([k, info]) => {
       const modes = HA_KIND_MODES[k] || [];
       const ok = !ha || modes.length;
       return html`<button ?disabled=${!ok} @click=${() => {
         const src = ha ? { ...this.d.source, mode: modes.includes(this.d.source.mode) ? this.d.source.mode : modes[0] } : this.d.source;
-        this.d = { ...this.d, kind: k, name: this.d.name || info.label, source: src }; this.step = 2; this.tab = ha ? "source" : "source"; this.dirty = true; }}>
-        <span class="ic">${icon(info.icon, 20)}</span><span><b>${info.label}</b><span class="hint">${ok ? info.hint : "braucht einen geplanten Lauf"}</span></span></button>`;
+        this.d = { ...this.d, kind: k, name: this.d.name || t(info.label), source: src }; this.step = 2; this.tab = ha ? "source" : "source"; this.dirty = true; }}>
+        <span class="ic">${icon(info.icon, 20)}</span><span><b>${t(info.label)}</b><span class="hint">${ok ? t(info.hint) : t("braucht einen geplanten Lauf")}</span></span></button>`;
     })}</div>`;
   }
 
@@ -515,27 +512,27 @@ export class TileSheet extends StoreElement {
     return html`
       <label class="f"><span>${t("Name")}</span><input ?disabled=${!r.edit} .value=${x.name || ""} @input=${(e: any) => this.set("name", e.target.value)}></label>
       <div class="two">
-        <label class="f"><span>Typ</span><select ?disabled=${!r.edit} @change=${(e: any) => {
+        <label class="f"><span>${t("Typ")}</span><select ?disabled=${!r.edit} @change=${(e: any) => {
             const k = e.target.value;
-            if (x.source?.type === "ha") { const modes = HA_KIND_MODES[k] || []; if (!modes.length) { store.notify("Dieser Typ braucht einen geplanten Lauf."); e.target.value = x.kind; return; }
+            if (x.source?.type === "ha") { const modes = HA_KIND_MODES[k] || []; if (!modes.length) { store.notify(t("Dieser Typ braucht einen geplanten Lauf.")); e.target.value = x.kind; return; }
               this.d = { ...this.d, kind: k, source: { ...x.source, mode: modes.includes(x.source.mode) ? x.source.mode : modes[0] } }; this.dirty = true; }
             else this.set("kind", k); }}>
-          ${Object.entries(KIND_INFO).map(([k, i]) => html`<option value=${k} ?selected=${x.kind === k} ?disabled=${x.source?.type === "ha" && !(HA_KIND_MODES[k] || []).length}>${i.label}</option>`)}</select></label>
-        <label class="f"><span>Icon</span><select ?disabled=${!r.edit} @change=${(e: any) => this.set("icon", e.target.value)}>
-          <option value="">passend zum Typ</option>${ICONS.map(ic => html`<option value=${ic} ?selected=${x.icon === ic}>${ic.slice(4)}</option>`)}</select></label>
+          ${Object.entries(KIND_INFO).map(([k, i]) => html`<option value=${k} ?selected=${x.kind === k} ?disabled=${x.source?.type === "ha" && !(HA_KIND_MODES[k] || []).length}>${t(i.label)}</option>`)}</select></label>
+        <label class="f"><span>${t("Icon")}</span><select ?disabled=${!r.edit} @change=${(e: any) => this.set("icon", e.target.value)}>
+          <option value="">${t("passend zum Typ")}</option>${ICONS.map(ic => html`<option value=${ic} ?selected=${x.icon === ic}>${ic.slice(4)}</option>`)}</select></label>
       </div>
-      <div class="f"><span style="font-weight:550;font-size:13px">Farbe</span><div class="swatches">
+      <div class="f"><span style="font-weight:550;font-size:13px">${t("Farbe")}</span><div class="swatches">
         <button class="btn ${!x.color ? "primary" : ""}" ?disabled=${!r.edit} @click=${() => this.set("color", "")}>automatisch</button>
         ${pal.map(c => html`<button class="sw ${x.color === c ? "on" : ""}" style="background:${c}" title=${c} ?disabled=${!r.edit} @click=${() => this.set("color", c)}></button>`)}
         <input type="color" style="width:44px;height:32px;padding:2px" ?disabled=${!r.edit} .value=${/^#[0-9a-f]{6}$/i.test(x.color || "") ? x.color : "#4f9cf9"} @change=${(e: any) => this.set("color", e.target.value)}></div></div>
-      ${["stat", "gauge"].includes(x.kind) ? html`<div class="two">${html`<label class="f"><span>Einheit (leer = aus der Quelle)</span><input .value=${opts.unit || ""} @input=${(e: any) => this.opt("unit", e.target.value)}></label>`}
-        ${x.kind === "stat" ? numIn("decimals", "Nachkommastellen", "1") : html`<div class="two">${numIn("min", "Minimum")}${numIn("max", "Maximum")}</div>`}</div>` : nothing}
-      ${["list", "alert"].includes(x.kind) ? html`<div class="two">${numIn("max_items", "Höchstens so viele Einträge", "1")}
-        <label class="f"><span>Zusatzinfo</span><select @change=${(e: any) => this.opt("show_meta", e.target.value === "1")}><option value="1" ?selected=${opts.show_meta !== false}>anzeigen</option>
+      ${["stat", "gauge"].includes(x.kind) ? html`<div class="two">${html`<label class="f"><span>${t("Einheit (leer = aus der Quelle)")}</span><input .value=${opts.unit || ""} @input=${(e: any) => this.opt("unit", e.target.value)}></label>`}
+        ${x.kind === "stat" ? numIn("decimals", t("Nachkommastellen"), "1") : html`<div class="two">${numIn("min", t("Minimum"))}${numIn("max", t("Maximum"))}</div>`}</div>` : nothing}
+      ${["list", "alert"].includes(x.kind) ? html`<div class="two">${numIn("max_items", t("Höchstens so viele Einträge"), "1")}
+        <label class="f"><span>${t("Zusatzinfo")}</span><select @change=${(e: any) => this.opt("show_meta", e.target.value === "1")}><option value="1" ?selected=${opts.show_meta !== false}>anzeigen</option>
           <option value="0" ?selected=${opts.show_meta === false}>ausblenden</option></select></label></div>` : nothing}
-      ${x.kind === "chart" && x.source?.type === "ha" ? html`<label class="f"><span>Darstellung</span><select @change=${(e: any) => this.opt("chart", e.target.value)}>
-        ${[["", "automatisch"], ["line", "Linie"], ["area", "Fläche"], ["bar", "Balken"]].map(([k, l]) => html`<option value=${k} ?selected=${(opts.chart || "") === k}>${l}</option>`)}</select></label>` : nothing}
-      ${x.source?.type !== "model" ? html`<label class="f"><span>${t("Beschreibung")} (Notiz für dich und die KI)</span><textarea rows="3" ?disabled=${!r.edit} .value=${x.description || ""}
+      ${x.kind === "chart" && x.source?.type === "ha" ? html`<label class="f"><span>${t("Darstellung")}</span><select @change=${(e: any) => this.opt("chart", e.target.value)}>
+        ${[["", t("automatisch")], ["line", t("Linie")], ["area", t("Fläche")], ["bar", t("Balken")]].map(([k, l]) => html`<option value=${k} ?selected=${(opts.chart || "") === k}>${l}</option>`)}</select></label>` : nothing}
+      ${x.source?.type !== "model" ? html`<label class="f"><span>${t("Beschreibung (Notiz für dich und die KI)")}</span><textarea rows="3" ?disabled=${!r.edit} .value=${x.description || ""}
         @input=${(e: any) => this.set("description", e.target.value)}></textarea></label>` : nothing}`;
   }
 
@@ -545,8 +542,8 @@ export class TileSheet extends StoreElement {
     const all = Object.keys(states).filter(filter);
     const hits = q ? all.filter(e => e.includes(q) || String(friendly(states[e], e)).toLowerCase().includes(q)).slice(0, 12) : [];
     return html`<div class="chips">${list.map(e => html`<span class="chip">${friendly(states[e], e)} <code style="font-size:11px">${e}</code>
-        <button title="entfernen" @click=${() => onChange(list.filter(x => x !== e))}>${icon("close", 13)}</button></span>`)}</div>
-      ${!single || !list.length ? html`<div class="ent"><input placeholder="Entität suchen (Name oder sensor.…)" .value=${this.entQ} @input=${(e: any) => (this.entQ = e.target.value)}></div>
+        <button title=${t("Entfernen")} @click=${() => onChange(list.filter(x => x !== e))}>${icon("close", 13)}</button></span>`)}</div>
+      ${!single || !list.length ? html`<div class="ent"><input placeholder=${t("Entität suchen (Name oder sensor.…)")} .value=${this.entQ} @input=${(e: any) => (this.entQ = e.target.value)}></div>
       ${hits.length ? html`<div class="chips">${hits.map(e => html`<button class="btn" style="min-height:30px;padding:4px 9px;font-size:12.5px"
         @click=${() => { onChange(single ? [e] : [...new Set([...list, e])]); this.entQ = ""; }}>${icon("plus", 13)} ${friendly(states[e], e)}</button>`)}</div>` : nothing}` : nothing}`;
   }
@@ -559,38 +556,38 @@ export class TileSheet extends StoreElement {
       : s.mode === "statistics" ? (e: string) => e.startsWith("sensor.") : (e: string) => !e.startsWith("calendar.") && !e.startsWith("todo.");
     const rules = s.rules || [];
     return html`<fieldset ?disabled=${!r.edit} style="border:0;padding:0;margin:0;display:grid;gap:14px">
-      <label class="f"><span>Quelle in Home Assistant</span><select @change=${(e: any) => this.src("mode", e.target.value)}>
-        ${modes.map(m => html`<option value=${m} ?selected=${s.mode === m} ?disabled=${m === "template" && !admin && s.mode !== "template"}>${MODE_INFO[m].label}${m === "template" && !admin ? " (nur Admins)" : ""}</option>`)}</select>
-        <span class="hint">${MODE_INFO[s.mode]?.hint || ""}</span></label>
-      ${s.mode === "template" ? html`<label class="f"><span>Vorlage (Jinja)</span><textarea class="code" rows="5" ?disabled=${!admin} .value=${s.template || ""}
-          placeholder="{{ states.light | selectattr('state','eq','on') | list | count }} Lichter an" @input=${(e: any) => this.src("template", e.target.value)}></textarea>
-          <span class="hint">${admin ? "Home Assistant wertet die Vorlage aus und aktualisiert die Kachel, sobald sich etwas ändert. Für Kennzahl: eine Zahl; für Liste: eine Zeile je Eintrag." : "Vorlagen dürfen nur Home-Assistant-Admins ändern."}</span></label>`
-      : html`<div class="f"><span style="font-weight:550;font-size:13px">${s.mode === "calendar" ? "Kalender" : s.mode === "todo" ? "To-do-Liste" : "Entitäten"}</span>
+      <label class="f"><span>${t("Quelle in Home Assistant")}</span><select @change=${(e: any) => this.src("mode", e.target.value)}>
+        ${modes.map(m => html`<option value=${m} ?selected=${s.mode === m} ?disabled=${m === "template" && !admin && s.mode !== "template"}>${t(MODE_INFO[m].label)}${m === "template" && !admin ? t(" (nur Admins)") : ""}</option>`)}</select>
+        <span class="hint">${MODE_INFO[s.mode] ? t(MODE_INFO[s.mode].hint) : ""}</span></label>
+      ${s.mode === "template" ? html`<label class="f"><span>${t("Vorlage (Jinja)")}</span><textarea class="code" rows="5" ?disabled=${!admin} .value=${s.template || ""}
+          placeholder=${t("{{ states.light | selectattr('state','eq','on') | list | count }} Lichter an")} @input=${(e: any) => this.src("template", e.target.value)}></textarea>
+          <span class="hint">${admin ? t("Home Assistant wertet die Vorlage aus und aktualisiert die Kachel, sobald sich etwas ändert. Für Kennzahl: eine Zahl; für Liste: eine Zeile je Eintrag.") : t("Vorlagen dürfen nur Home-Assistant-Admins ändern.")}</span></label>`
+      : html`<div class="f"><span style="font-weight:550;font-size:13px">${s.mode === "calendar" ? t("Kalender") : s.mode === "todo" ? "To-do-Liste" : t("Entitäten")}</span>
           ${this.entityPicker(s.entities || [], v => this.src("entities", v), filt, s.mode === "todo" || ["gauge", "progress"].includes(x.kind))}</div>`}
-      ${s.mode === "state" && ["alert", "list", "table", "text"].includes(x.kind) ? html`<label class="f"><span>oder Muster (z. B. sensor.*_battery)</span>
+      ${s.mode === "state" && ["alert", "list", "table", "text"].includes(x.kind) ? html`<label class="f"><span>${t("oder Muster (z. B. sensor.*_battery)")}</span>
         <input class="code" .value=${s.pattern || ""} @input=${(e: any) => this.src("pattern", e.target.value)}></label>` : nothing}
-      ${["state", "history"].includes(s.mode) ? html`<label class="f"><span>Attribut statt Zustand (optional)</span><input .value=${s.attribute || ""} placeholder="z. B. temperature"
+      ${["state", "history"].includes(s.mode) ? html`<label class="f"><span>${t("Attribut statt Zustand (optional)")}</span><input .value=${s.attribute || ""} placeholder=${t("z. B. {x}", { x: "temperature" })}
         @input=${(e: any) => this.src("attribute", e.target.value)}></label>` : nothing}
-      ${s.mode === "history" ? html`<label class="f"><span>Zeitraum</span><select @change=${(e: any) => this.src("hours", Number(e.target.value))}>
-        ${[[6, "6 Stunden"], [24, "24 Stunden"], [48, "2 Tage"], [168, "7 Tage"], [720, "30 Tage"]].map(([h, l]) => html`<option value=${h} ?selected=${(s.hours || 24) === h}>${l}</option>`)}</select></label>` : nothing}
+      ${s.mode === "history" ? html`<label class="f"><span>${t("Zeitraum")}</span><select @change=${(e: any) => this.src("hours", Number(e.target.value))}>
+        ${[[6, t("6 Stunden")], [24, t("24 Stunden")], [48, t("2 Tage")], [168, t("7 Tage")], [720, t("30 Tage")]].map(([h, l]) => html`<option value=${h} ?selected=${(s.hours || 24) === h}>${l}</option>`)}</select></label>` : nothing}
       ${s.mode === "statistics" ? html`<div class="two">
         <label class="f"><span>je</span><select @change=${(e: any) => this.src("statistics", { ...(s.statistics || {}), period: e.target.value })}>
-          ${[["hour", "Stunde"], ["day", "Tag"], ["week", "Woche"], ["month", "Monat"]].map(([k, l]) => html`<option value=${k} ?selected=${(s.statistics?.period || "day") === k}>${l}</option>`)}</select></label>
-        <label class="f"><span>Wert</span><select @change=${(e: any) => this.src("statistics", { ...(s.statistics || {}), stat: e.target.value })}>
-          ${[["mean", "Mittelwert"], ["max", "Höchstwert"], ["min", "Tiefstwert"], ["sum", "Summe (Zähler)"], ["change", "Veränderung (z. B. Verbrauch)"]].map(([k, l]) => html`<option value=${k} ?selected=${(s.statistics?.stat || "mean") === k}>${l}</option>`)}</select></label>
-        <label class="f"><span>Anzahl Zeiträume</span><input type="number" min="2" max="200" .value=${String(s.statistics?.count || 14)}
+          ${[["hour", t("Stunde")], ["day", t("Tag")], ["week", t("Woche")], ["month", t("Monat")]].map(([k, l]) => html`<option value=${k} ?selected=${(s.statistics?.period || "day") === k}>${l}</option>`)}</select></label>
+        <label class="f"><span>${t("Wert")}</span><select @change=${(e: any) => this.src("statistics", { ...(s.statistics || {}), stat: e.target.value })}>
+          ${[["mean", t("Mittelwert")], ["max", t("Höchstwert")], ["min", t("Tiefstwert")], ["sum", t("Summe (Zähler)")], ["change", t("Veränderung (z. B. Verbrauch)")]].map(([k, l]) => html`<option value=${k} ?selected=${(s.statistics?.stat || "mean") === k}>${l}</option>`)}</select></label>
+        <label class="f"><span>${t("Anzahl Zeiträume")}</span><input type="number" min="2" max="200" .value=${String(s.statistics?.count || 14)}
           @change=${(e: any) => this.src("statistics", { ...(s.statistics || {}), count: Number(e.target.value) })}></label></div>` : nothing}
-      ${s.mode === "calendar" ? html`<label class="f"><span>Tage im Voraus</span><input type="number" min="1" max="31" .value=${String(s.days || 7)} @change=${(e: any) => this.src("days", Number(e.target.value))}></label>` : nothing}
-      ${["state", "history"].includes(s.mode) && ["stat", "gauge", "alert", "list", "progress"].includes(x.kind) ? html`<div class="f"><span style="font-weight:550;font-size:13px">Regeln für den Status</span>
-        <span class="hint">Zum Beispiel: unter 20 → Warnung. Bei „Warnungen“ erscheinen nur die Entitäten, auf die eine Regel passt.</span>
+      ${s.mode === "calendar" ? html`<label class="f"><span>${t("Tage im Voraus")}</span><input type="number" min="1" max="31" .value=${String(s.days || 7)} @change=${(e: any) => this.src("days", Number(e.target.value))}></label>` : nothing}
+      ${["state", "history"].includes(s.mode) && ["stat", "gauge", "alert", "list", "progress"].includes(x.kind) ? html`<div class="f"><span style="font-weight:550;font-size:13px">${t("Regeln für den Status")}</span>
+        <span class="hint">${t("Zum Beispiel: unter 20 → Warnung. Bei „Warnungen“ erscheinen nur die Entitäten, auf die eine Regel passt.")}</span>
         ${rules.map((ru: any, i: number) => html`<div class="rule">
           <select @change=${(e: any) => this.src("rules", rules.map((q: any, j: number) => (j === i ? { ...q, if: e.target.value } : q)))}>
-            ${[["below", "kleiner als"], ["above", "größer als"], ["equals", "gleich"], ["not", "ungleich"]].map(([k, l]) => html`<option value=${k} ?selected=${ru.if === k}>${l}</option>`)}</select>
+            ${[["below", t("kleiner als")], ["above", t("größer als")], ["equals", "gleich"], ["not", "ungleich"]].map(([k, l]) => html`<option value=${k} ?selected=${ru.if === k}>${l}</option>`)}</select>
           <input .value=${String(ru.value ?? "")} @input=${(e: any) => this.src("rules", rules.map((q: any, j: number) => (j === i ? { ...q, value: isFinite(Number(e.target.value)) && e.target.value !== "" ? Number(e.target.value) : e.target.value } : q)))}>
           <select @change=${(e: any) => this.src("rules", rules.map((q: any, j: number) => (j === i ? { ...q, status: e.target.value } : q)))}>
-            ${[["warn", "→ Warnung"], ["error", "→ Fehler"], ["ok", "→ in Ordnung"]].map(([k, l]) => html`<option value=${k} ?selected=${ru.status === k}>${l}</option>`)}</select>
+            ${[["warn", "→ Warnung"], ["error", t("→ Fehler")], ["ok", t("→ in Ordnung")]].map(([k, l]) => html`<option value=${k} ?selected=${ru.status === k}>${l}</option>`)}</select>
           <button class="iconbtn" @click=${() => this.src("rules", rules.filter((_: any, j: number) => j !== i))}>${icon("trash", 16)}</button></div>`)}
-        <div><button class="btn" @click=${() => this.src("rules", [...rules, { if: "below", value: 20, status: "warn" }])}>${icon("plus", 15)} Regel</button></div></div>` : nothing}
+        <div><button class="btn" @click=${() => this.src("rules", [...rules, { if: "below", value: 20, status: "warn" }])}>${icon("plus", 15)} ${t("Regel")}</button></div></div>` : nothing}
     </fieldset>`;
   }
 
@@ -620,47 +617,48 @@ export class TileSheet extends StoreElement {
           <button class="btn" @click=${() => this.approvePending(task.id, false)}>${t("Verwerfen")}</button></div>`
         : t("Die geänderte Beschreibung wartet auf die Bestätigung von {owner}. Bis dahin läuft die Kachel nicht.", { owner: live?.owner_name || t("der Person, der sie gehört") })}</div></div>` : nothing;
     return html`${pend}
-      <label class="f"><span>Beschreibung = Auftrag für jeden Lauf</span><textarea rows="7" ?disabled=${!r.edit} .value=${x.description || ""}
-        placeholder="Was zeigt die Kachel, woher kommen die Daten, was ist ein Warnfall? Zum Beispiel: Lies die Mails der letzten 24 Stunden im Zugang „Postfach“, erkenne Aufgaben und liste die offenen auf. Überfällige sind „blockiert“."
+      <label class="f"><span>${t("Beschreibung = Auftrag für jeden Lauf")}</span><textarea rows="7" ?disabled=${!r.edit} .value=${x.description || ""}
+        placeholder=${t("Was zeigt die Kachel, woher kommen die Daten, was ist ein Warnfall? Zum Beispiel: Lies die Mails der letzten 24 Stunden im Zugang „Postfach“, erkenne Aufgaben und liste die offenen auf. Überfällige sind „blockiert“.")}
         @input=${(e: any) => this.set("description", e.target.value)}></textarea>
-        <span class="hint">Das Format der Daten kennt die KI selbst – beschreibe nur, was hinein soll.</span></label>
+        <span class="hint">${t("Das Format der Daten kennt die KI selbst – beschreibe nur, was hinein soll.")}</span></label>
       <div class="two">
-        <label class="f"><span>Wie oft?</span><select ?disabled=${!r.edit} @change=${(e: any) => {
+        <label class="f"><span>${t("Wie oft?")}</span><select ?disabled=${!r.edit} @change=${(e: any) => {
             const v = e.target.value; const p = presets.find(q => q[0] === v);
             if (p) this.set("schedule", { type: "cron", cron: p[2] }); else this.set("schedule", { type: "cron", cron: cron || presets[0][2] }); }}>
           ${presets.map(([k, l]) => html`<option value=${k} ?selected=${preset === k}>${l}</option>`)}
-          <option value="custom" ?selected=${preset === "custom" || preset === "other"}>Eigener Zeitplan (Cron)</option></select></label>
-        ${preset === "custom" || preset === "other" ? html`<label class="f"><span>Cron (Minute Stunde Tag Monat Wochentag)</span><input class="code" ?disabled=${!r.edit} .value=${cron}
+          <option value="custom" ?selected=${preset === "custom" || preset === "other"}>${t("Eigener Zeitplan (Cron)")}</option></select></label>
+        ${preset === "custom" || preset === "other" ? html`<label class="f"><span>${t("Cron (Minute Stunde Tag Monat Wochentag)")}</span><input class="code" ?disabled=${!r.edit} .value=${cron}
           @change=${async (e: any) => { const c = e.target.value.trim(); this.set("schedule", { type: "cron", cron: c });
             try { this.cronPreview = await store.api.ws("task/preview", { schedule: { type: "cron", cron: c } }); } catch (er: any) { this.cronPreview = { error: er.message }; } }}>
-          ${this.cronPreview ? html`<span class="hint">${this.cronPreview.error || this.cronPreview.text}</span>` : nothing}</label>` : html`<div></div>`}
+          ${this.cronPreview ? html`<span class="hint">${this.cronPreview.error || tb(this.cronPreview.text)}</span>` : nothing}</label>` : html`<div></div>`}
       </div>
-      <div class="hint">${icon("robot", 13)} ≈ <b>${isFinite(perDay) ? perDay : "?"}</b> Läufe pro Tag${watch.length ? " (weniger: nur bei Änderung)" : ""} · höchstens alle 15 Minuten
-        ${b.limit ? html` · dein Tagesbudget: ${b.used} von ${b.limit} verbraucht` : nothing}</div>
-      <div class="f"><span style="font-weight:550;font-size:13px">Nur laufen, wenn sich etwas geändert hat (optional)</span>
-        <span class="hint">Wähle Entitäten, z. B. den Zähler ungelesener Mails. Hat sich keine davon seit dem letzten Lauf geändert, entfällt der Lauf – das spart Budget.</span>
+      <div class="hint">${icon("robot", 13)} ≈ <b>${isFinite(perDay) ? perDay : "?"}</b> ${t("Läufe pro Tag")}${watch.length ? t(" (weniger: nur bei Änderung)") : ""} · ${t("höchstens alle 15 Minuten")}
+        ${b.limit ? html` · ${t("dein Tagesbudget: {used} von {limit} verbraucht", { used: b.used, limit: b.limit })}` : nothing}</div>
+      <div class="f"><span style="font-weight:550;font-size:13px">${t("Nur laufen, wenn sich etwas geändert hat (optional)")}</span>
+        <span class="hint">${t("Wähle Entitäten, z. B. den Zähler ungelesener Mails. Hat sich keine davon seit dem letzten Lauf geändert, entfällt der Lauf – das spart Budget.")}</span>
         ${this.entityPicker(watch, v => this.src("run_if_changed", v.slice(0, 5)), () => true)}</div>
       ${r.owner ? html`<div class="two">
-        <label class="f"><span>${isSimple() ? "Nachricht aufs Handy" : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
-          ${[["error", "nur bei Fehlern (Standard)"], ["on_change", "wenn sich die Überschrift ändert, oder bei Fehlern"], ["always", "nach jedem Lauf"], ["never", "nie"]].map(([k, l]) =>
+        <label class="f"><span>${isSimple() ? t("Nachricht aufs Handy") : t("Benachrichtigen")}</span><select @change=${(e: any) => this.set("notify", e.target.value)}>
+          ${[["error", t("nur bei Fehlern (Standard)")], ["on_change", t("wenn sich die Überschrift ändert, oder bei Fehlern")], ["always", t("nach jedem Lauf")], ["never", "nie"]].map(([k, l]) =>
             html`<option value=${k} ?selected=${(x.notify || "error") === k}>${l}</option>`)}</select></label>
-        ${isSimple() ? html`<div></div>` : html`<label class="f"><span>${t("Projekte")} (Zugänge und Skills)</span><select @change=${(e: any) => this.set("project_id", e.target.value || null)}>
-          <option value="">Ohne Projekt</option>${(d.projects || []).map((p: any) => html`<option value=${p.id} ?selected=${x.project_id === p.id}>${p.name}</option>`)}</select></label>`}
+        ${isSimple() ? html`<div></div>` : html`<label class="f"><span>${t("Projekt (Zugänge und Skills)")}</span><select @change=${(e: any) => this.set("project_id", e.target.value || null)}>
+          <option value="">${t("Ohne Projekt")}</option>${(d.projects || []).map((p: any) => html`<option value=${p.id} ?selected=${x.project_id === p.id}>${p.name}</option>`)}</select></label>`}
       </div>
       ${isSimple() ? nothing : html`<div class="two"><label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
           <option value="">automatisch</option>${(d.models || []).filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
         <label class="row" style="gap:8px;margin-top:22px"><input type="checkbox" style="width:auto" .checked=${!!x.heavy} @change=${(e: any) => this.set("heavy", e.target.checked)}>
-          <span>Aufwändig – bis zu 60 statt 30 Schritte je Lauf</span></label></div>`}
-      ${this.credPicker(x)}` : html`<div class="hint">Projekt, Modell und Benachrichtigungen legt ${live?.owner_name || "die Eigentümerin oder der Eigentümer"} fest – die Läufe nutzen deren Zugänge.</div>`}
+          <span>${t("Aufwändig – bis zu 60 statt 30 Modellaufrufe je Lauf")}</span></label></div>`}
+      ${this.credPicker(x)}` : html`<div class="hint">${live?.owner_name ? t("Projekt, Modell und Benachrichtigungen legt {owner} fest – die Läufe nutzen deren Zugänge.", { owner: live.owner_name })
+        : t("Projekt, Modell und Benachrichtigungen legt die Eigentümerin oder der Eigentümer fest – die Läufe nutzen deren Zugänge.")}</div>`}
       ${task ? html`<div class="card status">
-        <div class="row"><b class="grow">Läufe</b>
+        <div class="row"><b class="grow">${t("Läufe")}</b>
           ${r.edit ? html`<button class="btn" ?disabled=${!!store.tileRuns[this.tileKey]} @click=${async () => {
-            try { const res = await store.api.ws("tile/run", { key: this.tileKey }); store.notify(res.position > 0 ? `Wartet (Platz ${res.position})` : "Läuft bereits oder wartet schon"); } catch (e: any) { store.notify(e.message); } }}>
-            ${icon("retry", 15)} Jetzt aktualisieren</button>` : nothing}</div>
-        ${task.paused === "unplaced" ? html`<div class="hint" style="color:var(--lm-warn)">Pausiert, weil die Kachel auf keinem Dashboard liegt.</div>` : nothing}
-        <div>Letzter Lauf: ${task.last_run ? html`${fmtTime(task.last_run.finished || task.last_run.started)} – ${task.last_run.status === "done" ? "erfolgreich" : task.last_run.status === "running" ? "läuft" : "fehlgeschlagen"}` : "noch keiner"}</div>
-        ${task.last_run?.error ? html`<div class="hint" style="color:var(--lm-err)">${task.last_run.error}</div>` : nothing}
-        <div>Nächster Lauf: ${task.enabled && task.next_run ? fmtTime(task.next_run) : "–"}</div>
+            try { const res = await store.api.ws("tile/run", { key: this.tileKey }); store.notify(res.position > 0 ? t("Wartet (Platz {n})", { n: res.position }) : t("Läuft bereits oder wartet schon")); } catch (e: any) { store.notify(e.message); } }}>
+            ${icon("retry", 15)} ${t("Jetzt aktualisieren")}</button>` : nothing}</div>
+        ${task.paused === "unplaced" ? html`<div class="hint" style="color:var(--lm-warn)">${t("Pausiert, weil die Kachel auf keinem Dashboard liegt.")}</div>` : nothing}
+        <div>${t("Letzter Lauf:")} ${task.last_run ? html`${fmtTime(task.last_run.finished || task.last_run.started)} – ${task.last_run.status === "done" ? t("erfolgreich") : task.last_run.status === "running" ? t("läuft") : t("fehlgeschlagen")}` : t("noch keiner")}</div>
+        ${task.last_run?.error ? html`<div class="hint" style="color:var(--lm-err)">${tb(task.last_run.error)}</div>` : nothing}
+        <div>${t("Nächster Lauf:")} ${task.enabled && task.next_run ? fmtTime(task.next_run) : "–"}</div>
         ${r.owner && runs.length ? html`<div class="list" style="margin-top:6px">${runs.slice(0, 5).map((c: any) => html`<div class="item" style="padding:7px 10px" @click=${() => navigate(`/chat/${c.id}`)}>
           ${icon(c.status === "error" ? "alert" : "check", 15)}<span class="grow ellipsis" style="font-size:13px">${c.title}</span></div>`)}</div>` : nothing}</div>` : nothing}`;
   }
@@ -683,58 +681,57 @@ export class TileSheet extends StoreElement {
     const rec = store.tileData.get(this.tileKey);
     const x = this.d;
     if (x.source?.type === "ha" && x.source.mode !== "template") {
-      return html`<div class="hint">Diese Kachel liest ihre Daten live aus Home Assistant, im Browser von allen, die sie ansehen – gespeichert wird nichts.
-        Die Vorschau rechts zeigt den aktuellen Stand.</div>`;
+      return html`<div class="hint">${t("Diese Kachel liest ihre Daten live aus Home Assistant, im Browser von allen, die sie ansehen – gespeichert wird nichts. Die Vorschau rechts zeigt den aktuellen Stand.")}</div>`;
     }
-    return html`${rec?.updated ? html`<div class="hint">Zuletzt geschrieben ${fmtTime(rec.updated)}${rec.by === "run" ? " von einem Lauf" : rec.by === "template" ? " von der Vorlage" : rec.by === "chat" ? " aus einem Chat" : ""}.</div>`
-        : html`<div class="hint">Noch keine Daten.</div>`}
-      ${rec?.error ? html`<div class="hint" style="color:var(--lm-err)">${rec.error}</div>` : nothing}
+    return html`${rec?.updated ? html`<div class="hint">${t(rec.by === "run" ? "Zuletzt geschrieben {x} von einem Lauf." : rec.by === "template" ? "Zuletzt geschrieben {x} von der Vorlage." : rec.by === "chat" ? "Zuletzt geschrieben {x} aus einem Chat." : "Zuletzt geschrieben {x}.", { x: fmtTime(rec.updated) })}</div>`
+        : html`<div class="hint">${t("Noch keine Daten.")}</div>`}
+      ${rec?.error ? html`<div class="hint" style="color:var(--lm-err)">${tb(rec.error)}</div>` : nothing}
       ${rec ? html`<pre class="json">${JSON.stringify({ status: rec.status, headline: rec.headline, subline: rec.subline, data: rec.data }, null, 2)}</pre>` : nothing}
       ${rec && this.r.edit ? html`<div><button class="btn danger" @click=${async () => {
-        if (!(await confirmDialog("Die gespeicherten Daten und den Verlauf dieser Kachel löschen?"))) return;
-        try { await store.api.ws("tile/clear", { key: this.tileKey }); } catch (e: any) { store.notify(e.message); } }}>${icon("trash", 15)} Daten löschen</button></div>` : nothing}`;
+        if (!(await confirmDialog(t("Die gespeicherten Daten und den Verlauf dieser Kachel löschen?")))) return;
+        try { await store.api.ws("tile/clear", { key: this.tileKey }); } catch (e: any) { store.notify(e.message); } }}>${icon("trash", 15)} ${t("Daten löschen")}</button></div>` : nothing}`;
   }
 
   private shareTab() {
     const live = this.live;
-    if (!live) return html`<div class="hint">Teilen geht nach dem ersten Speichern.</div>`;
+    if (!live) return html`<div class="hint">${t("Teilen geht nach dem ersten Speichern.")}</div>`;
     return html`${live.source?.type === "model" ? html`<div class="card"><label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!live.notify_me}
         @change=${async (e: any) => { try { await store.api.ws("tile/notify", { key: live.key, on: e.target.checked }); await store.loadBoards(); } catch (er: any) { store.notify(er.message); } }}>
-        <b>Mich benachrichtigen</b></label><div class="hint" style="margin-top:4px">${live.rights?.owner ? "Du bekommst Nachrichten nach der Einstellung unter „Quelle“ – dieser Schalter gilt für Personen, mit denen die Kachel geteilt ist." : "Du bekommst eine Nachricht auf dein Gerät, wenn ein Lauf dieser Kachel etwas meldet."}</div></div>` : nothing}
+        <b>${t("Mich benachrichtigen")}</b></label><div class="hint" style="margin-top:4px">${live.rights?.owner ? t("Du bekommst Nachrichten nach der Einstellung unter „Quelle“ – dieser Schalter gilt für Personen, mit denen die Kachel geteilt ist.") : t("Du bekommst eine Nachricht auf dein Gerät, wenn ein Lauf dieser Kachel etwas meldet.")}</div></div>` : nothing}
       <lm-share kind="tile" .item=${live} @saved=${async () => { await store.loadBoards(); }}></lm-share>`;
   }
 
   render() {
     const x = this.d;
-    if (!x) return html`<div class="back" @click=${() => this.close()}><div class="sheet small"><div class="sb">Kachel nicht gefunden oder nicht für dich freigegeben.</div></div></div>`;
+    if (!x) return html`<div class="back" @click=${() => this.close()}><div class="sheet small"><div class="sb">${t("Kachel nicht gefunden oder nicht für dich freigegeben.")}</div></div></div>`;
     const r = this.r, live = this.live;
-    const title = this.create ? (this.step < 2 ? "Neue Kachel" : `Neue Kachel: ${KIND_INFO[x.kind]?.label || ""}`) : x.name || "Kachel";
+    const title = this.create ? (this.step < 2 ? t("Neue Kachel") : t("Neue Kachel: {kind}", { kind: KIND_INFO[x.kind] ? t(KIND_INFO[x.kind].label) : "" })) : x.name || t("Kachel");
     const color = tileColor(x.color, this.palette, hashIndex(this.tileKey || x.name || "x"));
     const draftTile = { ...(live || {}), ...x, key: this.tileKey || "neu" };
     const body = this.step === 0 ? this.chooseSource() : this.step === 1 ? this.chooseKind() : html`
-      <div class="tabs">${[["show", "Anzeige"], ["source", "Quelle"], ["data", "Daten"], ["share", "Teilen"]].map(([k, l]) =>
+      <div class="tabs">${[["show", t("Anzeige")], ["source", t("Quelle")], ["data", t("Daten")], ["share", t("Teilen")]].map(([k, l]) =>
         html`<button class=${this.tab === k ? "on" : ""} @click=${() => (this.tab = k)}>${l}</button>`)}</div>
       <div class="layout"><div style="display:grid;gap:14px;min-width:0">
-        ${!r.edit && this.tab !== "share" ? html`<div class="hint">${icon("lock", 13)} Diese Kachel gehört ${live?.owner_name || "jemand anderem"} – du darfst sie nur ansehen.</div>` : nothing}
-        ${live?.changed_by_name && live.changed_by_name !== live.owner_name && r.owner ? html`<div class="hint">Zuletzt geändert von ${live.changed_by_name}.</div>` : nothing}
+        ${!r.edit && this.tab !== "share" ? html`<div class="hint">${icon("lock", 13)} ${t("Diese Kachel gehört {owner} – du darfst sie nur ansehen.", { owner: live?.owner_name || t("jemand anderem") })}</div>` : nothing}
+        ${live?.changed_by_name && live.changed_by_name !== live.owner_name && r.owner ? html`<div class="hint">${t("Zuletzt geändert von {name}.", { name: live.changed_by_name })}</div>` : nothing}
         ${this.tab === "show" ? this.showTab() : this.tab === "source" ? (x.source?.type === "ha" ? this.haSource() : this.modelSource())
           : this.tab === "data" ? this.dataTab() : this.shareTab()}</div>
         <div class="side"><div class="pv"><lm-tile .tile=${draftTile} .rec=${store.tileData.get(this.tileKey)} .color=${color} ?dark=${dark()}
           .runState=${store.tileRuns[this.tileKey] || ""}></lm-tile></div>
-          <div class="hint">${x.source?.type === "ha" ? html`${icon("mdi:home-assistant", 13)} Live aus Home Assistant – keine KI-Aufrufe.` : html`${icon("robot", 13)} Daten von einem geplanten Lauf.`}</div>
-          ${x.source?.type === "model" && !this.create && x.description ? html`<details><summary class="hint">Beschreibung</summary><div class="md hint">${md(x.description)}</div></details>` : nothing}</div></div>`;
+          <div class="hint">${x.source?.type === "ha" ? html`${icon("mdi:home-assistant", 13)} ${t("Live aus Home Assistant – keine KI-Aufrufe.")}` : html`${icon("robot", 13)} ${t("Daten von einem geplanten Lauf.")}`}</div>
+          ${x.source?.type === "model" && !this.create && x.description ? html`<details><summary class="hint">${t("Beschreibung")}</summary><div class="md hint">${md(x.description)}</div></details>` : nothing}</div></div>`;
     return html`<div class="back" @click=${(e: Event) => e.target === e.currentTarget && this.close()}><div class="sheet">
       <div class="sh">${this.step > 0 && this.create ? html`<button class="iconbtn" @click=${() => (this.step = this.step - 1)}>${icon("left")}</button>` : nothing}
         <h2>${title}</h2><button class="iconbtn" @click=${() => this.close()}>${icon("close")}</button></div>
       <div class="sb">${body}</div>
       ${this.step === 2 ? html`<div class="sf">
-        ${!this.create && this.pid && this.boardKey ? html`<button class="btn" @click=${() => this.dispatchEvent(new CustomEvent("remove", { detail: this.pid }))}>${icon("close", 15)} Aus diesem Dashboard entfernen</button>` : nothing}
+        ${!this.create && this.pid && this.boardKey ? html`<button class="btn" @click=${() => this.dispatchEvent(new CustomEvent("remove", { detail: this.pid }))}>${icon("close", 15)} ${t("Aus diesem Dashboard entfernen")}</button>` : nothing}
         ${!this.create && r.owner ? html`<button class="btn danger" @click=${async () => {
-          if (!(await confirmDialog(`Kachel „${x.name}“ überall löschen – auf allen Dashboards, mit Daten${x.source?.type === "model" ? ", Aufgabe und Läufen" : ""}?`))) return;
-          try { await store.api.ws("tile/delete", { key: this.tileKey }); await store.loadBoards(); this.close(); } catch (e: any) { store.notify(e.message); } }}>${icon("trash", 15)} Überall löschen</button>` : nothing}
+          if (!(await confirmDialog(t(x.source?.type === "model" ? "Kachel „{name}“ überall löschen – auf allen Dashboards, mit Daten, Aufgabe und Läufen?" : "Kachel „{name}“ überall löschen – auf allen Dashboards, mit Daten?", { name: x.name })))) return;
+          try { await store.api.ws("tile/delete", { key: this.tileKey }); await store.loadBoards(); this.close(); } catch (e: any) { store.notify(e.message); } }}>${icon("trash", 15)} ${t("Überall löschen")}</button>` : nothing}
         <span class="grow"></span>
         <button class="btn" @click=${() => this.close()}>${t("Schließen")}</button>
-        ${r.edit ? html`<button class="btn primary" ?disabled=${this.busy || (!this.dirty && !this.create)} @click=${this.save}>${icon("check", 16)} ${this.create ? "Anlegen" : t("Speichern")}</button>` : nothing}
+        ${r.edit ? html`<button class="btn primary" ?disabled=${this.busy || (!this.dirty && !this.create)} @click=${this.save}>${icon("check", 16)} ${this.create ? t("Anlegen") : t("Speichern")}</button>` : nothing}
       </div>` : nothing}</div></div>`;
   }
 }

@@ -3,6 +3,7 @@
 import { css, html, nothing } from "lit";
 import { icon } from "./ui";
 import { store } from "./api";
+import { t } from "./i18n";
 import { startChat } from "./pages";
 
 type Kind = "skills" | "tasks" | "credentials" | "projects" | "dashboards";
@@ -12,46 +13,35 @@ interface Explainer { icon: string; title: string; text: string; examples: strin
 const EXPLAIN: Record<Kind, Explainer> = {
   tasks: {
     icon: "task", title: "LLMitMir erledigt etwas regelmäßig für dich",
-    text: "Eine geplante Aufgabe läuft von selbst zu festen Zeiten – auch wenn du gerade nicht hinschaust. Das Ergebnis "
-      + "bekommst du als Nachricht aufs Handy und findest es hier. Ist gerade viel los, startet eine Aufgabe auch mal ein paar Minuten später.",
+    text: "Eine geplante Aufgabe läuft von selbst zu festen Zeiten – auch wenn du gerade nicht hinschaust. Das Ergebnis bekommst du als Nachricht aufs Handy und findest es hier. Ist gerade viel los, startet eine Aufgabe auch mal ein paar Minuten später.",
     examples: ["Jeden Morgen um 7 Uhr: Wetter und Termine des Tages", "Freitags: an die Mülltonne erinnern", "Am Monatsersten: Stromverbrauch zusammenfassen"],
     steps: ["Sag im Chat, was regelmäßig passieren soll und wann.", "LLMitMir schlägt dir die fertige Aufgabe vor.", "Du tippst auf „Übernehmen“ – fertig."],
-    chat: ["Aufgabe im Chat einrichten", "Ich möchte eine geplante Aufgabe einrichten. Erkläre mir in einem Satz, was das ist, und frag mich dann "
-      + "Schritt für Schritt, was regelmäßig passieren soll, wann und ob ich eine Nachricht aufs Handy bekommen möchte. Schlag mir am Ende die fertige Aufgabe vor."],
+    chat: ["Aufgabe im Chat einrichten", "Ich möchte eine geplante Aufgabe einrichten. Erkläre mir in einem Satz, was das ist, und frag mich dann Schritt für Schritt, was regelmäßig passieren soll, wann und ob ich eine Nachricht aufs Handy bekommen möchte. Schlag mir am Ende die fertige Aufgabe vor."],
   },
   dashboards: {
     icon: "dashboard", title: "Alles Wichtige auf einen Blick",
-    text: "Ein Dashboard ist eine bunte Übersicht aus Kacheln – wie die Symbole auf dem Startbildschirm deines Handys. Eine Kachel zeigt "
-      + "zum Beispiel den Stromverbrauch, die Temperatur, deine Termine oder offene Aufgaben. Was Home Assistant schon weiß, erscheint "
-      + "sofort und ohne Wartezeit; für anderes (etwa Aufgaben aus deinen Mails) schaut LLMitMir regelmäßig selbst nach.",
+    text: "Ein Dashboard ist eine bunte Übersicht aus Kacheln – wie die Symbole auf dem Startbildschirm deines Handys. Eine Kachel zeigt zum Beispiel den Stromverbrauch, die Temperatur, deine Termine oder offene Aufgaben. Was Home Assistant schon weiß, erscheint sofort und ohne Wartezeit; für anderes (etwa Aufgaben aus deinen Mails) schaut LLMitMir regelmäßig selbst nach.",
     examples: ["Stromverbrauch heute", "Termine der Woche", "Einkaufsliste", "Offene Aufgaben aus den Mails"],
     steps: ["Lege ein Dashboard an und gib ihm einen Namen.", "Tippe auf „Bearbeiten“ und dann auf „Kachel“.", "Wähle, was die Kachel zeigen soll – fertig."],
-    chat: ["Dashboard im Chat einrichten", "Ich möchte ein Dashboard einrichten. Erkläre mir in einem Satz, was das ist, und frag mich dann, was ich "
-      + "auf einen Blick sehen möchte. Suche dafür zuerst passende Entitäten in Home Assistant und schlag mir dann das Dashboard mit den Kacheln vor."],
+    chat: ["Dashboard im Chat einrichten", "Ich möchte ein Dashboard einrichten. Erkläre mir in einem Satz, was das ist, und frag mich dann, was ich auf einen Blick sehen möchte. Suche dafür zuerst passende Entitäten in Home Assistant und schlag mir dann das Dashboard mit den Kacheln vor."],
   },
   skills: {
     icon: "skill", title: "Anleitungen, die LLMitMir sich merkt",
-    text: "Ein Skill ist wie ein Merkzettel für ein wiederkehrendes Thema: Du erklärst einmal, wie etwas geht. Kommt das Thema später "
-      + "in einem Chat vor, liest LLMitMir die Anleitung von selbst nach – du musst sie nicht jedes Mal neu erklären.",
+    text: "Ein Skill ist wie ein Merkzettel für ein wiederkehrendes Thema: Du erklärst einmal, wie etwas geht. Kommt das Thema später in einem Chat vor, liest LLMitMir die Anleitung von selbst nach – du musst sie nicht jedes Mal neu erklären.",
     examples: ["So schreibe ich E-Mails an Kunden", "Wo welche Unterlagen in der Nextcloud liegen", "Wie unsere Heizung eingestellt wird"],
     steps: ["Erzähl im Chat, worum es geht und was LLMitMir dabei beachten soll.", "LLMitMir schreibt daraus die Anleitung.", "Du tippst auf „Übernehmen“."],
-    chat: ["Skill im Chat anlegen", "Ich möchte einen neuen Skill anlegen. Erkläre mir in einem Satz, was ein Skill ist, und frag mich dann Schritt für "
-      + "Schritt, worum es gehen soll und was du dabei beachten musst. Schlag mir am Ende den fertigen Skill vor."],
+    chat: ["Skill im Chat anlegen", "Ich möchte einen neuen Skill anlegen. Erkläre mir in einem Satz, was ein Skill ist, und frag mich dann Schritt für Schritt, worum es gehen soll und was du dabei beachten musst. Schlag mir am Ende den fertigen Skill vor."],
   },
   credentials: {
     icon: "key", title: "Passwörter sicher hinterlegen",
-    text: "Damit LLMitMir zum Beispiel auf deine Nextcloud, einen Kalender oder einen anderen Dienst zugreifen kann, braucht es "
-      + "Benutzername und Passwort. Die trägst du hier ein. Die KI selbst bekommt dein Passwort nie zu sehen – LLMitMir setzt es erst "
-      + "beim Zugriff im Hintergrund ein und schwärzt es in allen Ergebnissen.",
+    text: "Damit LLMitMir zum Beispiel auf deine Nextcloud, einen Kalender oder einen anderen Dienst zugreifen kann, braucht es Benutzername und Passwort. Die trägst du hier ein. Die KI selbst bekommt dein Passwort nie zu sehen – LLMitMir setzt es erst beim Zugriff im Hintergrund ein und schwärzt es in allen Ergebnissen.",
     examples: ["Nextcloud (Dateien, Kalender, Kontakte)", "Ein Webdienst mit Zugangsschlüssel", "Ein E-Mail-Postfach"],
     steps: ["Tippe auf „Neuer Zugang“ und wähle den Dienst.", "Trag Adresse, Benutzername und Passwort ein.", "Ab jetzt kann LLMitMir den Dienst nutzen, wenn du darum bittest."],
-    chat: ["Im Chat erklären lassen", "Ich möchte einen neuen Zugang einrichten. Frag mich, für welchen Dienst, und erkläre mir einfach, welche Angaben "
-      + "ich dafür brauche und wo ich sie finde. Das Passwort trage ich danach selbst ein."],
+    chat: ["Im Chat erklären lassen", "Ich möchte einen neuen Zugang einrichten. Frag mich, für welchen Dienst, und erkläre mir einfach, welche Angaben ich dafür brauche und wo ich sie finde. Das Passwort trage ich danach selbst ein."],
   },
   projects: {
     icon: "project", title: "Ordner für alles, was zusammengehört",
-    text: "Ein Projekt sammelt Chats, Dateien und Hinweise zu einem Thema. Was du im Projekt hinterlegst, kennt jeder neue Chat darin schon – "
-      + "du musst es nicht jedes Mal wieder erzählen.",
+    text: "Ein Projekt sammelt Chats, Dateien und Hinweise zu einem Thema. Was du im Projekt hinterlegst, kennt jeder neue Chat darin schon – du musst es nicht jedes Mal wieder erzählen.",
     examples: ["Hausbau – mit Plänen und Budget", "Steuern 2026 – mit Belegen", "Verein – mit Satzung und Mitgliederliste"],
     steps: ["Lege ein Projekt an und gib ihm einen Namen.", "Schreib dazu, was LLMitMir wissen soll, und lade Dateien hoch.", "Starte deine Chats direkt im Projekt."],
   },
@@ -90,14 +80,14 @@ export const explainerCss = css`
  *  afterwards folded to one line (the chat shortcut stays visible). */
 export function explainer(kind: Kind, empty: boolean) {
   const e = EXPLAIN[kind];
-  const chatBtn = e.chat ? html`<button class="btn ${empty ? "primary" : ""}" @click=${(ev: Event) => { ev.preventDefault(); chatAbout(e.chat![1]); }}>${icon("chat", 18)} ${e.chat[0]}</button>` : nothing;
-  const body = html`<p>${e.text}</p>
-    <div><div class="hint" style="margin-bottom:6px">Zum Beispiel</div><div class="ex">${e.examples.map(x => html`<span>${x}</span>`)}</div></div>
-    <div><div class="hint" style="margin-bottom:8px">So geht's</div><ol>${e.steps.map(s => html`<li>${s}</li>`)}</ol></div>`;
+  const chatBtn = e.chat ? html`<button class="btn ${empty ? "primary" : ""}" @click=${(ev: Event) => { ev.preventDefault(); chatAbout(t(e.chat![1])); }}>${icon("chat", 18)} ${t(e.chat[0])}</button>` : nothing;
+  const body = html`<p>${t(e.text)}</p>
+    <div><div class="hint" style="margin-bottom:6px">${t("Zum Beispiel")}</div><div class="ex">${e.examples.map(x => html`<span>${t(x)}</span>`)}</div></div>
+    <div><div class="hint" style="margin-bottom:8px">${t("So geht's")}</div><ol>${e.steps.map(s => html`<li>${t(s)}</li>`)}</ol></div>`;
   if (!empty) return html`<details class="explain mini"><summary class="eh"><span class="ic">${icon(e.icon, 22)}</span>
-      <span class="grow"><b>${e.title}</b><span class="hint">So funktioniert's</span></span>${chatBtn}</summary>${body}</details>`;
+      <span class="grow"><b>${t(e.title)}</b><span class="hint">${t("So funktioniert's")}</span></span>${chatBtn}</summary>${body}</details>`;
   return html`<div class="explain">
-    <div class="eh"><span class="ic">${icon(e.icon, 24)}</span><b>${e.title}</b></div>
+    <div class="eh"><span class="ic">${icon(e.icon, 24)}</span><b>${t(e.title)}</b></div>
     ${body}${e.chat ? html`<div class="eb">${chatBtn}</div>` : nothing}</div>`;
 }
 
@@ -108,5 +98,5 @@ export async function chatAbout(text: string) {
 }
 
 /** Collapsed block for options laypeople rarely need. */
-export const more = (content: unknown, label = "Mehr Optionen") =>
+export const more = (content: unknown, label = t("Mehr Optionen")) =>
   html`<details class="more"><summary>${icon("settings", 18)} ${label}</summary><div class="in">${content}</div></details>`;

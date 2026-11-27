@@ -1,231 +1,93 @@
-// German is the source language; English via lookup. t("…") returns the German text if no translation exists.
-const EN: Record<string, string> = {
-  // Einstellungsseiten (setui.ts, settings.ts, admin.ts)
-  "Ungespeicherte Änderungen": "Unsaved changes", "Mehr dazu": "Learn more", "Allgemein": "General", "Modelle": "Models", "Funktionen": "Capabilities", "Benachrichtigungen": "Notifications", "Datenschutz & Freigaben": "Privacy & approvals", "API-Schlüssel": "API keys", "Import aus Claude": "Import from Claude", "Ansicht": "View", "Einfache Ansicht": "Simple view", "Expertenansicht": "Expert view", "Bedienung": "Controls", "Mit Enter senden": "Send with Enter", "Gedanken der Modelle anzeigen": "Show model thoughts", "Was soll LLMitMir immer über dich wissen?": "What should LLMitMir always know about you?", "Standardmodelle": "Default models", "Coworks und geplante Aufgaben": "Coworks and scheduled tasks", "Externe Modelle (auch kostenpflichtig)": "External models (also paid)", "Externe Modelle": "External models", "Zustimmung": "Consent", "zugestimmt": "agreed", "Lesen und zustimmen …": "Read and agree …", "Kosten diesen Monat": "Costs this month", "Was ist bei externen Modellen anders?": "What is different about external models?", "Werkbank": "Workbench", "Status": "Status", "eingerichtet": "set up", "nicht eingerichtet": "not set up", "Anleitung zur Einrichtung": "Setup guide", "Ausblenden": "Hide", "Push-Nachrichten aufs Handy": "Push notifications to your phone", "Gerät": "Device", "Melden, wenn eine Freigabe wartet": "Notify when an approval is waiting", "Auf der Startseite": "On the home page", "Anzeige": "Display", "Anzeigedauer": "Display duration", "stumm geschaltet": "muted", "wieder an": "unmute", "kein Gerät": "no device", "Lebensdauer von Chats und Coworks": "Lifetime of chats and coworks", "Automatisch löschen": "Delete automatically", "Löschen nach": "Delete after", "Tagen": "days", "Freigaben": "Approvals", "Wenn niemand antwortet": "If nobody answers", "Dauerhafte Freigaben": "Permanent approvals", "Zurücksetzen": "Reset", "wird sofort gespeichert": "saved immediately", "Anfragen und Tokens": "Requests and tokens", "Anfragen": "requests", "Diese Woche": "This week", "Diesen Monat": "This month", "Dein Tageskontingent": "Your daily quota", "Kosten externer Modelle": "Costs of external models", "Dein API-Schlüssel": "Your API key", "Schlüssel für {p}": "Key for {p}", "Schlüssel für geplante Aufgaben": "Key for scheduled tasks", "Schlüssel für geplante Aufgaben ({p})": "Key for scheduled tasks ({p})", "Prompt für Claude erzeugen": "Create a prompt for Claude", "Erzeugen": "Create", "Prompt kopieren": "Copy prompt", "Claude schickt alles hierher": "Claude sends everything here", "Chatverläufe": "Chat histories", "Datenexport von claude.ai hochladen": "Upload the claude.ai data export", "Dateien wählen": "Choose files", "Übernommen": "Imported", "Skills, Zugänge, Aufgaben, Projekte und Erinnerungen": "Skills, credentials, tasks, projects and memories", "Personen": "People", "Anbieter & Schlüssel": "Providers & keys", "Externe Modelle & Kosten": "External models & costs", "Zugänge & Konnektoren": "Credentials & connectors", "Weitere Dienste": "Other services", "Wer darf LLMitMir nutzen?": "Who may use LLMitMir?", "Zugriff": "Access", "Person": "Person", "Anfragen/Tag": "Requests/day", "Tokens/Tag": "Tokens/day", "Standard-Kontingent Anfragen/Tag": "Default quota requests/day", "Standard-Kontingent Tokens/Tag": "Default quota tokens/day", "Für alle": "For everyone", "Derzeit": "Currently", "Nutzerverwaltung (Active Directory / LDAP)": "User management (Active Directory / LDAP)", "Mit dem Verzeichnis abgleichen": "Sync with the directory", "Gruppen-Zuordnung": "Group mapping", "Gruppe hinzufügen": "Add group", "Jede Nacht abgleichen": "Sync every night", "Abgleich": "Sync", "Probelauf": "Dry run", "Ausführen": "Run", "Hauptanbieter": "Main provider", "Vorlage": "Template", "Anzeigename": "Display name", "Basis-URL": "Base URL", "Modell für Spracheingabe": "Model for voice input", "Gemeinsamer Schlüssel": "Shared key", "Zentraler Aufgaben-Schlüssel": "Central task key", "Zentraler Aufgaben-Schlüssel (optional)": "Central task key (optional)", "Reihenfolge und Notfall-Anbieter": "Order and fallback providers", "Nach oben": "Move up", "Nach unten": "Move down", "eingeschaltet": "enabled", "Wie funktioniert die Reihenfolge?": "How does the order work?", "Neue Modelle automatisch freigeben": "Enable new models automatically", "Verfügbare Modelle": "Available models", "Frei": "On", "Auslastung": "Load", "Eignung": "Suitability", "Fähigkeiten": "Capabilities", "Liste laden": "Load list", "Externe Modelle des Hauptanbieters": "External models of the main provider", "Preise und Freigaben": "Prices and access", "Umrechnungskurs USD → EUR": "Exchange rate USD → EUR", "Ersatzmodell für Notfälle": "Fallback model", "Kosten und Monatslimits": "Costs and monthly limits", "Standard-Limit je Person": "Default limit per person", "Regeln für Zugänge": "Rules for credentials", "Eigene Zugänge ohne Konnektor erlauben": "Allow own credentials without a connector", "Zentrale Systemzugänge erlauben": "Allow central system credentials", "nur im Notfall": "emergency only", "Konnektor hinzufügen": "Add connector", "aktiv": "active", "Zentrale Skills": "Central skills", "Zentralen Skill hinzufügen": "Add central skill", "Skill-Richtlinien": "Skill policies", "Richtlinie": "Policy", "Ergebnisse der Prüfung": "Check results", "Alle jetzt prüfen": "Check all now", "Verbindung": "Connection", "URL der Werkbank": "Workbench URL", "Token": "Token", "Verbindung testen": "Test connection", "Testen": "Test", "Werkbank entfernen": "Remove workbench", "Was die Werkbank kann": "What the workbench can do", "Geräte und Personen": "Devices and people", "Herkunft": "Source", "Übersicht je Person": "Overview per person", "Websuche": "Web search", "Suchdienst": "Search service", "SearXNG-URL": "SearXNG URL", "Modell-Läufe je Person und Tag": "Model runs per person and day", "Gleichzeitige Kachel-Läufe": "Concurrent tile runs", "Laden": "Load", "Chats und Coworks": "Chats and coworks",
-  "Neuer Chat": "New chat", "Neues Cowork": "New cowork", "Chats": "Chats", "Projekte": "Projects", "Geplant": "Scheduled",
-  "Skills": "Skills", "Zugänge": "Credentials",
-  // Konnektoren einrichten, Plugins-Seite (connectors.ts, plugins.ts)
-  "1 Verbindung": "1 connection", "Alle Konnektoren": "All connectors", "Anleitung": "Guide", "Anmeldedaten": "Sign-in data", "Anmeldedaten behalten, weiter": "Keep sign-in data, continue", "Anmelden": "Sign in", "Auch für externe Modelle freigeben": "Also allow for external models", "Aus (Standard): Externe Modelle sehen diesen Zugang nicht. An: Was sie damit abrufen, geht an den externen Anbieter – das Passwort selbst nie.": "Off (default): external models do not see this credential. On: what they fetch with it goes to the external provider – never the password itself.", "Beschreibung für die Personen": "Description for people", "Danach richtet sich das Modell im Einrichtungs-Chat: Es führt Frage für Frage durch, Passwörter und Tokens trägt die Person in ein Formular ein, das das Modell nie sieht. Anschließend wählt sie, wofür der Zugang verwendet werden darf, und kann einen Skill hinterlegen.": "The model follows this in the setup chat: it guides question by question; passwords and tokens go into a form the model never sees. Afterwards the person chooses what the credential may be used for and can add a skill.", "Der Skill {name} dieser Verbindung wird ebenfalls gelöscht.": "The skill {name} of this connection will be deleted as well.", "Die Prüfung ist fehlgeschlagen:": "The check failed:", "Diese Skills gehören zu einer Verbindung eines Konnektors. Du öffnest und änderst sie über den Konnektor – so bleiben Verbindung und Skill zusammen.": "These skills belong to a connector connection. Open and change them via the connector – so connection and skill stay together.", "Diese Zugänge sind beim Verbinden eines Konnektors entstanden. Du änderst oder trennst sie über den Konnektor – sonst funktioniert er nicht mehr.": "These credentials were created when connecting a connector. Change or disconnect them via the connector – otherwise it stops working.", "Diesen Konnektor gibt es nicht mehr.": "This connector no longer exists.", "Dieser Skill gehört fest zur Verbindung {name} und nutzt genau diesen Zugang.": "This skill belongs to the connection {name} and uses exactly this credential.", "Einrichtungsanleitung für den geführten Chat": "Setup guide for the guided chat", "Einrichtungsanleitung hinterlegt": "Setup guide provided", "Gehört zum Konnektor – bearbeiten unter Konnektoren": "Belongs to the connector – edit under Connectors", "Getrennt": "Disconnected", "Gültig bis": "Valid until", "Im Chat ändern": "Change in chat", "Kein Skill": "No skill", "Konnektor einrichten": "Set up connector", "Konnektor {name} entfernen? Die Zugänge der Personen dazu werden gesperrt (nach dem Speichern).": "Remove connector {name}? People's credentials for it will be locked (after saving).", "Konnektoren hat der Admin vorbereitet: Adresse und Einstellungen stehen fest, du verbindest nur dein eigenes Konto – auch mehrfach, z. B. mit je einem Token für verschiedene Projekte. „Konnektor einrichten“ führt dich in einem Chat Schritt für Schritt durch die Einrichtung.": "The admin prepared these connectors: address and settings are fixed, you only connect your own account – several times if needed, e.g. one token per project. “Set up connector” guides you step by step in a chat.", "Konnektoren verbinden LLMitMir mit anderen Systemen, Skills sind Anleitungen für wiederkehrende Themen, Zugänge enthalten die Anmeldedaten. Was zu einem Konnektor gehört, bearbeitest du über den Konnektor.": "Connectors link LLMitMir to other systems, skills are guides for recurring topics, credentials hold the sign-in data. Whatever belongs to a connector is edited via the connector.", "Konnektoren, Skills und Zugänge. Was zu einem Konnektor gehört, bearbeitest du über den Konnektor.": "Connectors, skills and credentials. Whatever belongs to a connector is edited via the connector.", "LLMitMir darf mit diesem Zugang auch ändern – jede schreibende Aktion fragt trotzdem vorher nach.": "LLMitMir may also make changes with this credential – every write action still asks first.", "LLMitMir darf mit diesem Zugang nur lesen. Schreibende Aufrufe (Anlegen, Ändern, Löschen) und Werkbank-Befehle damit lehnt es ab.": "LLMitMir may only read with this credential. It refuses write calls (create, change, delete) and workbench commands using it.", "Lesen und schreiben": "Read and write", "Läuft dein Token ab, warnt LLMitMir zwei Wochen vorher.": "If your token expires, LLMitMir warns you two weeks before.", "Läuft über den Konnektor {name}": "Runs via the connector {name}", "Name der Verbindung": "Connection name", "Nur lesen (empfohlen)": "Read only (recommended)", "Ohne Chat": "Without chat", "Ohne Namen": "Unnamed", "Ohne geführten Chat: gleich das Formular ausfüllen": "Without guided chat: fill in the form directly", "Plugins": "Plugins", "Rechte": "Permissions", "Skill hinterlegen": "Add skill", "Skills von Konnektoren": "Skills of connectors", "Trotzdem weiter": "Continue anyway", "Verbinden und prüfen": "Connect and check", "Verbindest du den Konnektor mehrfach (z. B. je Projekt ein Token), unterscheidest du die Verbindungen am Namen.": "If you connect the connector several times (e.g. one token per project), the name tells the connections apart.", "Verbindung {name} trennen? Der Zugang wird gelöscht; Aufgaben und Skills, die ihn nutzen, gehen dann nicht mehr.": "Disconnect {name}? The credential will be deleted; tasks and skills using it will stop working.", "Verbindung {name} ändern": "Change connection {name}", "Verbunden über den Konnektor „{name}“. Adresse und Einstellungen legt der Admin fest; Anmeldedaten und Rechte änderst du auf der Seite des Konnektors.": "Connected via the connector “{name}”. The admin sets address and settings; change sign-in data and permissions on the connector page.", "Verbunden – die Anmeldung funktioniert.": "Connected – signing in works.", "Was LLMitMir damit darf": "What LLMitMir may do with it", "Was du hier einträgst, geht direkt an LLMitMir – die KI sieht dein Passwort oder deinen Token nie.": "What you enter here goes straight to LLMitMir – the AI never sees your password or token.", "Weitere Verbindung einrichten": "Set up another connection", "Wofür darf der Zugang verwendet werden?": "What may the credential be used for?", "Zugänge von Konnektoren": "Credentials of connectors", "Zum Konnektor": "Go to connector", "Zurück": "Back", "aus": "off", "bis": "until", "empfohlen": "recommended", "extern frei": "external allowed", "lesen und schreiben": "read and write", "nur lesen": "read only", "optional": "optional", "{name} verbinden": "Connect {name}", "{n} Verbindungen": "{n} connections", "{what} gehört zum Konnektor {name}. Damit Verbindung, Zugang und Skill zusammenbleiben, öffnest und änderst du ihn nur über den Konnektor.": "{what} belongs to the connector {name}. To keep connection, credential and skill together, open and change it only via the connector.", "„Nur lesen“ gilt wirklich: Die KI bekommt das Passwort nie und kann dann weder Mails senden, verschieben oder löschen noch Termine oder Kontakte anlegen, ändern oder löschen.": "“Read only” really applies: the AI never gets the password and cannot send, move or delete mail, nor create, change or delete events or contacts.", "„Nur lesen“: schreibende Aufrufe mit diesem Zugang (Anlegen, Ändern, Löschen, Senden) und Werkbank-Befehle damit lehnt LLMitMir ab.": "“Read only”: LLMitMir refuses write calls with this credential (create, change, delete, send) and workbench commands using it.",
-  "Zentrale": "Control",
-  "MCP-Server mit {n} Werkzeugen": "MCP server with {n} tools",
-  "Datenregeln:": "Data rules:",
-  "Konnektoren": "Connectors", "Verbunden": "Connected", "verbunden": "connected", "nicht verbunden": "not connected", "Verbinden": "Connect", "Trennen": "Disconnect", "Anmeldung prüfen": "Check sign-in", "unverändert lassen": "leave unchanged", "Neu anmelden": "Sign in again", "Mit Nextcloud anmelden": "Sign in with Nextcloud", "Anmeldedaten ändern": "Change credentials", "Zugang ansehen": "View credential", "Anmeldeseite erneut öffnen": "Open sign-in page again", "Verbindung zu {name} trennen? Der Zugang wird gelöscht; Aufgaben und Skills, die ihn nutzen, gehen dann nicht mehr.": "Disconnect {name}? The credential will be deleted; tasks and skills using it will stop working.", "Melde dich im neuen Fenster bei der Nextcloud an und erlaube den Zugriff. LLMitMir bekommt dann ein eigenes App-Passwort – dein Passwort sieht es nie.": "Sign in to Nextcloud in the new window and grant access. LLMitMir then gets its own app password – it never sees your password.", "Die Anmeldung hat zu lange gedauert. Bitte noch einmal versuchen.": "Signing in took too long. Please try again.", "Die Anmeldung ist fehlgeschlagen.": "Signing in failed.", "Konnektoren hat der Admin vorbereitet: Adresse und Einstellungen stehen fest, du verbindest nur dein eigenes Konto. LLMitMir arbeitet dann in deinem Namen und mit deinen Rechten im jeweiligen System – nimm dafür, wo möglich, ein eigenes App-Passwort oder einen eigenen Token.": "The admin prepared these connectors: address and settings are fixed, you only connect your own account. LLMitMir then works in your name and with your rights in that system – where possible, use a separate app password or token.", "Der Admin hat noch keine Konnektoren eingerichtet.": "The admin has not set up any connectors yet.", "Andere Systeme bindest du unter": "You can connect other systems yourself under", "selbst an.": ".", "Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet.": "The admin has switched off own credentials without a connector.", "Eigene Zugänge ohne Konnektor hat der Admin abgeschaltet – neue Systeme verbindest du unter Konnektoren.": "The admin has switched off own credentials without a connector – connect new systems under Connectors.", "Verbunden über einen Konnektor": "Connected via a connector", "Konnektor (aus)": "Connector (off)", "Verbunden über den Konnektor „{name}“. Adresse und Einstellungen legt der Admin fest; Anmeldedaten änderst du unter Konnektoren.": "Connected via the connector “{name}”. The admin sets address and settings; change your sign-in data under Connectors.",
-  "gesperrt": "locked", "wird geprüft": "being checked", "Hinweis": "Note", "Dieser Skill ist gesperrt – eine Richtlinie des Admins verbietet ihn. Kein Modell sieht ihn, bis du ihn änderst.": "This skill is locked – an admin policy forbids it. No model sees it until you change it.", "Die Prüfung war gerade nicht möglich und wird wiederholt. Bis dahin ist der Skill gesperrt.": "The check was not possible just now and will be repeated. Until then the skill is locked.", "Der Skill wird gerade gegen die Richtlinien des Admins geprüft.": "The skill is being checked against the admin's policies.", "Hinweis aus den Richtlinien des Admins:": "Note from the admin's policies:",
-  "Bitte die Art des Zugangs wählen.": "Please choose the kind of credential.", "Art des Zugangs": "Kind of credential", "bitte wählen": "please choose", "Dieser zentrale Zugang ist gesperrt, weil der Admin zentrale Systemzugänge nicht erlaubt.": "This central credential is locked because the admin does not allow central system credentials.", "Öffnen und die Art des Zugangs wählen": "Open it and choose the kind of credential", "Art fehlt": "Kind missing", "zentral": "central", "Zentrale Systemzugänge hat der Admin nicht erlaubt – gesperrt.": "The admin does not allow central system credentials – locked.", "zentral, gesperrt": "central, locked", "persönlich": "personal", "Zugang {name} verwenden?": "Use credential {name}?", "LLMitMir möchte für „{label}“ deinen Zugang nutzen. Ein Zugang braucht in jedem Chat und Cowork deine Freigabe.": "LLMitMir wants to use your credential for “{label}”. A credential needs your approval in every chat and cowork.", "Für dieses Cowork erlauben": "Allow for this cowork", "Für diesen Chat erlauben": "Allow for this chat", "Nicht erlauben": "Don't allow", "„Für diesen Chat erlauben“ gilt für den Hauptchat und alle seine Teilaufgaben.": "“Allow for this chat” applies to the main chat and all its subtasks.", "„Nicht erlauben“: LLMitMir macht ohne diesen Zugang weiter. Für alle Chats eines Projekts erlaubst du Zugänge vorab auf der Projektseite.": "“Don't allow”: LLMitMir continues without this credential. You can pre-approve credentials for all chats of a project on the project page.", "Darf ich dafür deinen Zugang {name} verwenden?": "May I use your credential {name} for this?", "Ja, in diesem Chat immer": "Yes, always in this chat", "Darf ich deinen Zugang {n} verwenden?": "May I use your credential {n}?", "Ausgewählte Zugänge sind in allen Chats, Coworks und Aufgaben dieses Projekts vorab erlaubt. Jeden anderen Zugang muss die Person beim ersten Gebrauch freigeben.": "Selected credentials are pre-approved in all chats, coworks and tasks of this project. Any other credential must be approved on first use.", "Ein geplanter Lauf kann nicht nachfragen: Er nutzt nur die Zugänge, die hier oder im Projekt der Aufgabe erlaubt sind. Alle anderen lehnt er ab und nennt das im Bericht.": "A scheduled run cannot ask: it only uses the credentials allowed here or in the task's project. It refuses all others and says so in its report.", "Beim Update hat LLMitMir alle Zugänge übernommen, die es damals gab, damit die Aufgabe weiterläuft. Bitte nur die anhaken, die sie wirklich braucht.": "During the update LLMitMir carried over all credentials that existed then, so the task keeps running. Please tick only the ones it really needs.", "Im Projekt erlaubt": "Allowed in the project", "Projekt": "Project", "Noch keine Zugänge angelegt.": "No credentials yet.", "Ein Kachel-Lauf kann nicht nachfragen: Er nutzt nur die Zugänge, die hier oder im Projekt erlaubt sind.": "A tile run cannot ask: it only uses the credentials allowed here or in the project.", "Monitoring": "Monitoring", "Zugriffe": "Access log", "Agenten": "Agents", "Einstellungen": "Settings", "Admin": "Admin", "Zuletzt": "Recents",
-  "Angeheftet": "Pinned", "Guten Morgen": "Good morning", "Guten Tag": "Good afternoon", "Guten Abend": "Good evening",
-  "Gute Nacht": "Good night", "Geplante Aufgaben": "Scheduled tasks", "Wie kann ich helfen?": "How can I help?", "Was soll ich erledigen?": "What should I get done?",
-  "Nachricht schreiben …": "Write a message …", "Aufgabe beschreiben …": "Describe the task …", "Antworten …": "Reply …",
-  "Senden": "Send", "Stopp": "Stop", "Anhängen": "Attach", "Spracheingabe": "Voice input", "Werkzeuge": "Tools",
-  "Modell": "Model", "Kontext": "Context", "Heute": "Today", "Kontingent": "Quota", "Schlüssel": "Key",
-  "Denkt nach …": "Thinking …", "Schreibt …": "Writing …", "Wartet auf Freigabe": "Waiting for approval",
-  "Gedanken": "Thoughts", "Schritte": "Steps", "Fortschritt": "Progress", "Dateien": "Files",
-  "Einmal erlauben": "Allow once", "Immer erlauben": "Always allow", "Ablehnen": "Deny", "Übernehmen": "Apply",
-  "Für diesen Chat einschalten": "Turn on for this chat",
-  "Schnell antworten": "Answer quickly",
-  "Ohne Denkphase – das erste Wort zählt. Gut für kurze Fragen, schwächer bei schwierigen.":
-    "Without a thinking phase – the first word counts. Good for short questions, weaker for hard ones.",
-  "Auch in Nachrichten suchen": "Search messages too", "In Nachrichten": "In messages",
-  "Keine Treffer in Nachrichten": "No matches in messages", "Wird gesucht …": "Searching …",
-  "Kopieren": "Copy", "Kopiert": "Copied", "Erneut versuchen": "Retry", "Löschen": "Delete", "Umbenennen": "Rename",
-  "Anheften": "Pin", "Lösen": "Unpin", "Speichern": "Save", "Abbrechen": "Cancel", "Schließen": "Close",
-  "Gespeichert": "Saved", "Name": "Name", "Beschreibung": "Description", "Anweisungen": "Instructions",
-  "Neues Projekt": "New project", "Neue Aufgabe": "New task", "Neuer Skill": "New skill", "Neuer Zugang": "New credential",
-  "Jetzt ausführen": "Run now", "Aktiv": "Active", "Pausiert": "Paused", "Nächster Lauf": "Next run", "Letzter Lauf": "Last run",
-  "Läufe": "Runs", "Auftrag": "Prompt", "Zeitplan": "Schedule", "Benachrichtigen": "Notify", "Typ": "Type",
-  "Notiz": "Note", "Anzeigen": "Show", "Verbergen": "Hide", "Suchen …": "Search …", "Alle": "All",
-  "Aufgabenläufe": "Task runs", "Keine Chats": "No chats", "Kein Zugriff": "No access", "Laden …": "Loading …",
-  "Verbrauch": "Usage", "Importieren": "Import", "Persönliche Hinweise": "Personal notes",
-  "Hört genau hin": "Listening closely", "Sortiert Silben": "Sorting syllables", "Fügt Wörter zusammen": "Piecing words together",
-  "Entziffert Genuschel": "Deciphering mumbles", "Setzt Satzzeichen": "Adding punctuation", "Bringt es zu Papier": "Putting it on paper",
-  "Chats auswählen": "Select chats", "{n} ausgewählt": "{n} selected", "Keine": "None",
-  "Diesen Chat löschen?": "Delete this chat?", "{n} Chats löschen?": "Delete {n} chats?",
-  "Chat gelöscht": "Chat deleted", "{n} Chats gelöscht": "{n} chats deleted",
-  "Alle prüfen": "Check all", "Prüfe …": "Checking …", "Jetzt prüfen": "Check now",
-  "Funktionieren die Zugangsdaten?": "Do the credentials work?", "Zugang funktioniert": "Credential works",
-  "Zurücknehmen": "Take back", "Kommt als Nächstes dran": "Up next", "Wartet · {n}.": "Waiting · {n}.",
-  "Jetzt senden": "Send now",
-  "Senden – kommt nach der laufenden Antwort dran": "Send – goes out after the current answer",
-  "Geplante Aufgabe": "Scheduled task", "Fertig": "Done", "Entfernen": "Remove", "Chat öffnen": "Open chat",
-  "Alle {n} entfernen": "Remove all {n}", "Nur diese entfernen": "Remove just this one",
-  "Benachrichtigungen dieses Chats ausschalten": "Turn off notifications for this chat",
-  "Benachrichtigungen für diesen Chat aus": "Notifications for this chat are off",
-  "In Projekt verschieben": "Move to project", "Ohne Projekt": "No project", "Chat verschieben": "Move chat",
-  "Chat hierher ziehen": "Drag a chat here", "Nach „{p}“ verschoben": "Moved to “{p}”",
-  "Aus dem Projekt entfernt": "Removed from the project", "Noch keine Projekte angelegt.": "No projects yet.",
-  // Sprachgespräch
-  "Gespräch": "Conversation", "Sprechen": "Talk", "Gespräch beginnen": "Start talking", "Gespräch fortsetzen": "Continue talking",
-  "Gespräch beenden": "End conversation", "Im Gespräch sprechen": "Speak in the conversation",
-  "Das Gespräch setzt diesen Chat fort – der Verlauf bleibt erhalten.": "The conversation continues this chat – the history stays.",
-  "Letztes Gespräch fortsetzen": "Continue last conversation", "Im Chat ansehen": "View in chat", "Einen Moment": "One moment",
-  "Hallo! Worüber möchtest du sprechen?": "Hello! What would you like to talk about?",
-  "Ich höre zu": "I'm listening", "Ich höre zu – sprich einfach los": "I'm listening – just start talking", "Ich verstehe": "Getting that",
-  "Ich denke nach": "Thinking", "Gerade ist viel los – einen Moment": "It's busy right now – one moment",
-  "Pause – tippe auf das Mikrofon, wenn es weitergehen soll": "Paused – tap the microphone to continue",
-  "Ich warte auf deine Bestätigung": "Waiting for your confirmation",
-  "Dafür brauche ich kurz deine Bestätigung auf dem Bildschirm.": "I need your confirmation on the screen for that.",
-  "Einmal Ja genügt: Diese Erlaubnis gilt für den Rest des Gesprächs.":
-    "One yes is enough: this permission lasts for the rest of the conversation.",
-  "Das hat gerade leider nicht geklappt.": "Sorry, that didn't work just now.",
-  "Ich suche im Internet …": "Searching the web …", "Ich schaue im Zuhause nach …": "Checking your home …",
-  "Ich schaue in deiner Nextcloud nach …": "Checking your Nextcloud …", "Ich schaue in deinen Kalender …": "Checking your calendar …",
-  "Ich schaue in dein Postfach …": "Checking your mailbox …", "Ich frage einen Dienst ab …": "Querying a service …",
-  "Ich lese Dateien …": "Reading files …", "Ich lese eine Anleitung …": "Reading instructions …", "Ich rechne …": "Calculating …",
-  "Ich schicke eine Nachricht …": "Sending a message …", "Ich schaue in LLMitMir nach …": "Checking LLMitMir …", "Ich schaue nach …": "Looking it up …",
-  "Antwort unterbrechen": "Interrupt the answer", "Mikrofon einschalten": "Turn microphone on", "Mikrofon aus (Pause)": "Microphone off (pause)",
-  "Tippen unterbricht die Antwort": "Tap to interrupt the answer", "Der Roboter von LLMitMir": "The LLMitMir robot",
-  "Stimme": "Voice", "Automatisch": "Automatic", "Stimme des Browsers": "Browser voice", "nur Text": "text only", "Ohne Stimme (nur Text)": "No voice (text only)",
-  "Männliche Stimme": "Male voice", "Roboterstimme": "Robot voice", "Stimme anhören": "Listen to the voice",
-  "Hallo! Ich bin LLMitMir. So klinge ich.": "Hello! I'm LLMitMir. This is how I sound.",
-  "„Automatisch“ nimmt die Roboterstimme – sie klingt auf jedem Gerät gleich. Zur Wahl stehen außerdem die männliche Stimme (tiefer, ohne Maschinenklang) und eine natürliche weibliche Stimme.":
-    "“Automatic” uses the robot voice – it sounds the same on every device. You can also pick the male voice (deeper, no machine effect) or a natural female voice.",
-  "Weibliche Stimme": "Female voice",
-  "Die Stimme des Roboters ist nicht eingerichtet; es liest die Sprachausgabe von Home Assistant oder der Browser.":
-    "The robot's voice is not set up; Home Assistant's text-to-speech or the browser will read instead.",
-  "Schöner klingt es mit einer Sprachausgabe in Home Assistant (z. B. Piper oder Home Assistant Cloud) – LLMitMir nutzt sie dann von selbst.":
-    "It sounds nicer with a text-to-speech engine in Home Assistant (e.g. Piper or Home Assistant Cloud) – LLMitMir then uses it automatically.",
-  "„Automatisch“ nimmt die Stimme deines Sprachassistenten in Home Assistant.": "“Automatic” uses the voice of your Home Assistant voice assistant.",
-  "Wie lange darf eine Sprechpause sein?": "How long may a pause in speech be?", "Kurz – antwortet schnell": "Short – answers quickly",
-  "Normal": "Normal", "Lang – lässt Zeit zum Überlegen": "Long – leaves time to think",
-  "Dazwischenreden unterbricht die Antwort": "Speaking interrupts the answer",
-  "Am besten mit Kopfhörern – sonst hört LLMitMir sich womöglich selbst. Tippen auf den Roboter unterbricht immer.":
-    "Best with headphones – otherwise LLMitMir may hear itself. Tapping the robot always interrupts.",
-  "Gesprochenes als Text mitlesen": "Show what is said as text",
-  "Gilt ab der nächsten Nachricht. Kostenpflichtige Modelle sind mit € markiert.": "Applies from the next message. Paid models are marked with €.",
-  "Beim Anbieter ist kein Modell für die Spracherkennung eingetragen – deshalb hört der Browser zu.":
-    "No speech recognition model is configured at the provider – so the browser listens instead.",
-  "Das Mikrofon ist gesperrt. Bitte erlaube den Zugriff in den Einstellungen des Browsers oder der App.":
-    "The microphone is blocked. Please allow access in the browser or app settings.",
-  "Kein Mikrofon gefunden.": "No microphone found.", "Chat nicht gefunden": "Chat not found",
-  "Dieser Browser kann hier keinen Ton aufnehmen oder abspielen.": "This browser cannot record or play sound here.",
-  "Herunterladen": "Download", "Seite": "Page",
-  "Diese Art von Datei kann der Betrachter nicht anzeigen.": "The viewer cannot display this kind of file.",
-  "Für die Spracherkennung ist beim Anbieter kein Modell eingetragen, und dieser Browser hat keine eigene.":
-    "No speech recognition model is configured at the provider, and this browser has none of its own.",
-  // Gesprächsfluss
-  "Ich überlege noch": "Still thinking", "Wartezeiten mit einem kurzen Satz überbrücken": "Bridge waiting times with a short sentence",
-  "Zum Beispiel „Ich schaue kurz nach.“ – statt still zu warten.": "For example “Let me check.” – instead of waiting in silence.",
-  "Klingt ein Satz fertig, antwortet LLMitMir schon früher; bricht er mitten im Gedanken ab, wartet es etwas länger.":
-    "If a sentence sounds finished, LLMitMir answers sooner; if it breaks off mid-thought, it waits a little longer.",
-  "Hm, Moment.": "Hm, one moment.", "Lass mich kurz überlegen.": "Let me think for a second.", "Mhm, einen Augenblick.": "Mhm, just a second.",
-  "Okay, Moment.": "Okay, one moment.", "Ich schaue kurz nach.": "Let me check.", "Moment, ich sehe nach.": "One moment, I'll have a look.",
-  "Das schaue ich kurz nach.": "I'll look that up.", "Ich suche das kurz im Internet.": "I'll look that up online.",
-  "Moment, ich schaue im Netz nach.": "One moment, I'll check the web.", "Ich schaue kurz im Haus nach.": "Let me check the house.",
-  "Moment, ich sehe im Haus nach.": "One moment, I'll check the house.", "Ich schaue kurz in deinen Kalender.": "Let me check your calendar.",
-  "Moment, ich sehe im Kalender nach.": "One moment, I'll check the calendar.", "Ich schaue kurz in dein Postfach.": "Let me check your mailbox.",
-  "Moment, ich sehe in deinen Mails nach.": "One moment, I'll check your mail.", "Ich schaue kurz in deiner Nextcloud nach.": "Let me check your Nextcloud.",
-  "Ich sehe mir das kurz an.": "Let me take a look.", "Ich rechne das kurz aus.": "Let me work that out.", "Moment, ich rechne.": "One moment, calculating.",
-  "Einen Moment noch.": "One more moment.", "Ich bin gleich so weit.": "Almost there.", "Das dauert noch einen kleinen Moment.": "This will take another moment.",
-  "Gleich habe ich es.": "I'll have it in a second.", "Gerade ist viel los, einen Moment bitte.": "It's busy right now, one moment please.",
-  // Gespräch als Assistent: Rufname, Bereitschaft, Stopp, gesprochene Freigaben
-  "Hallo! Was kann ich für dich tun?": "Hello! What can I do for you?",
-  "Hallo! Bevor wir loslegen: Wie möchtest du mich nennen?": "Hello! Before we start: what would you like to call me?",
-  "Alles klar, ich bin {n}. Sag einfach {m}, wenn du mich brauchst.": "All right, I'm {n}. Just say {m} when you need me.",
-  "Wie möchtest du mich nennen?": "What would you like to call me?", "Sag „{n}“, wenn du mich brauchst": "Say “{n}” when you need me",
-  "Okay.": "Okay.", "Okay, ich höre auf.": "Okay, I'll stop.", "Ja?": "Yes?", "Gut, dann nicht.": "All right, I won't.",
-  "Alles klar, das merke ich mir.": "All right, I'll remember that.", "Sag bitte Ja oder Nein.": "Please say yes or no.", "Sag Ja oder Nein.": "Say yes or no.",
-  "Soll ich {w} „{n}“ {v}?": "Shall I {v} {w} “{n}”?", "Das waren schon viele Schritte. Soll ich weitermachen?": "That was a lot of steps already. Shall I continue?",
-  "Darf ich dafür {g} benutzen?": "May I use {g} for this?", "Darf ich das tun: {l}?": "May I do this: {l}?",
-  "Sag Ja, Nein – oder Immer, dann frage ich in Gesprächen nicht mehr danach.": "Say yes, no – or always, then I won't ask again in conversations.",
-  "Ja, Nein oder Immer?": "Yes, no or always?", "Immer": "Always",
-  "Du kannst auch einfach antworten: Ja, Nein – oder Immer. Einmal Ja gilt für den Rest des Gesprächs.": "You can simply answer: yes, no – or always. One yes covers the rest of the conversation.",
-  "Rufname": "Name to call", "Jedes Dazwischenreden unterbricht die Antwort": "Any speech interrupts the answer",
-  "Auf diesen Namen hört der Roboter. Nach einer Gesprächspause reagiert er nur noch, wenn du ihn so ansprichst – so kann das Gespräch lange nebenher laufen, etwa im Auto. „Stopp“ unterbricht ihn jederzeit.":
-    "The robot answers to this name. After a pause it only reacts when you address it like this – so the conversation can keep running alongside, for example in the car. “Stop” interrupts it at any time.",
-  "Sonst unterbrechen nur „Stopp“ und der Rufname. Am besten mit Kopfhörern – sonst hört LLMitMir sich womöglich selbst.":
-    "Otherwise only “stop” and the name interrupt. Best with headphones – otherwise LLMitMir may hear itself.",
-  "Automatisch – das schnellste passende Modell": "Automatic – the fastest suitable model",
-  "Ich arbeite daran …": "Working on it …", "Ich arbeite das kurz aus.": "Let me work that out.", "Moment, das arbeite ich aus.": "One moment, I'll work that out.",
-  "Ich frage das kurz bei dem Dienst ab.": "Let me query that service.", "Ich lese kurz nach, wie das geht.": "Let me read up on how that works.",
-  "Ich schaue kurz bei mir selbst nach.": "Let me check my own records.", "Ich schicke die Nachricht.": "Sending the message.",
-  "Jetzt der nächste Schritt.": "Now the next step.", "Jetzt suche ich im Internet.": "Now I'm searching the web.", "Ich suche noch etwas im Netz.": "Searching a bit more online.",
-  "Jetzt schaue ich im Haus nach.": "Now I'm checking the house.", "Jetzt schaue ich in den Kalender.": "Now I'm checking the calendar.",
-  "Jetzt schaue ich in die Mails.": "Now I'm checking the mail.", "Jetzt schaue ich in die Nextcloud.": "Now I'm checking Nextcloud.",
-  "Jetzt sehe ich mir die Datei an.": "Now I'm looking at the file.", "Jetzt frage ich den Dienst ab.": "Now I'm querying the service.",
-  "Jetzt lese ich die Anleitung.": "Now I'm reading the instructions.", "Jetzt schaue ich bei mir selbst nach.": "Now I'm checking my own records.",
-  "Jetzt schicke ich die Nachricht.": "Now I'm sending the message.", "Jetzt arbeite ich das aus.": "Now I'm working that out.",
-  "Ich bin noch dabei.": "Still on it.", "Das läuft noch.": "Still running.", "Ich suche noch im Internet.": "Still searching the web.", "Die Suche läuft noch.": "The search is still running.",
-  "Ich bin noch im Haus zugange.": "Still busy in the house.", "Ich bin noch im Kalender.": "Still in the calendar.", "Ich lese noch in den Mails.": "Still reading the mail.",
-  "Ich bin noch in der Nextcloud.": "Still in Nextcloud.", "Ich lese noch.": "Still reading.", "Der Dienst antwortet noch nicht.": "The service hasn't answered yet.",
-  "Ich arbeite noch daran.": "Still working on it.", "Ich überlege noch.": "Still thinking.", "Sag Stopp, wenn ich abbrechen soll.": "Say stop if you want me to cancel.",
-  "LLMitMir wurde aktualisiert (Version {v}). Lade neu, damit du die neue Oberfläche bekommst.": "LLMitMir has been updated (version {v}). Reload to get the new interface.",
-  "Neu laden": "Reload", "Später": "Later",
-  // Teilaufgaben (Unterchats)
-  "Teilaufgabe": "Subtask", "Hauptchat": "Main chat", "Ausgangspunkt": "Starting point", "Öffnen": "Open",
-  "Zusammenfassung": "Summary", "Grund": "Reason", "Als Teilaufgabe weiterarbeiten": "Continue as a subtask",
-  "Nachtrag aus Teilaufgabe": "Update from subtask", "Ergebnis aus Teilaufgabe": "Result from subtask",
-  "Teilaufgaben zuklappen": "Collapse subtasks", "Teilaufgaben aufklappen": "Expand subtasks",
-  "Läuft": "Running", "Wartet": "Waiting", "Grenze erreicht": "Limit reached", "Fehler": "Error", "Abgebrochen": "Stopped",
-  "Neu": "New", "Wartet auf deine Freigabe": "Waiting for your approval",
-  "Wartet auf einen freien Platz": "Waiting for a free slot", "Folgeauftrag": "Follow-up", "Zusammenfassung ausblenden": "Hide summary",
-  "Wartet auf Teilaufgaben …": "Waiting for subtasks …", "aus Teilaufgabe": "from subtask",
-  "Teilaufgabe ›{t}‹ wartet auf dich": "Subtask ›{t}‹ is waiting for you",
-  "Ergebnisse an den Hauptchat melden": "Report results to the main chat", "Jetzt melden": "Report now",
-  "An den Hauptchat gemeldet": "Reported to the main chat", "Verbrauch mit Teilaufgaben: {n} Tokens": "Usage incl. subtasks: {n} tokens",
-  "{a} von {n} aktiv": "{a} of {n} active", "Mit Teilaufgaben": "Incl. subtasks",
-  "Arbeitet an einer Teilaufgabe …": "Working on a subtask …", "Arbeitet an {n} Teilaufgaben …": "Working on {n} subtasks …",
-  "Nur auf Wunsch": "Only on request", "Aus": "Off",
-  "LLMitMir teilt größere Aufgaben selbst in Teilaufgaben auf – mehrere unabhängige Teile, viel Lesematerial, lange Werkbank-Arbeit. Der Chat bleibt dadurch kurz und übersichtlich.":
-    "LLMitMir splits larger tasks into subtasks on its own – several independent parts, a lot of reading, long workbench jobs. The chat stays short and tidy.",
-  "Teilaufgaben nur, wenn du ausdrücklich darum bittest (z. B. „als Teilaufgabe“ oder „parallel“).": "Subtasks only when you ask for them explicitly (e.g. “as a subtask” or “in parallel”).",
-  "Keine Teilaufgaben – alles läuft im Chat selbst. Von Hand abzweigen geht weiterhin.": "No subtasks – everything runs in the chat itself. Branching off by hand still works.",
-  "Teilaufgaben arbeiten mit eigenem Kontext und melden nur eine Zusammenfassung zurück. Fragen, die du freigeben musst, erscheinen auch im Hauptchat.":
-    "Subtasks work with their own context and only report a summary back. Questions you need to approve also appear in the main chat.",
-  "Teilaufgaben": "Subtasks",
-  "„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.": "“Turn on for this chat” only applies to this subtask.",
-  "„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.": "“Always allow” only applies to this subtask – even when you answer here in the main chat.", "Modell für Teilaufgaben (sparsam)": "Model for subtasks (economical)",
-  "Dashboards": "Dashboards", "Kachel-Aufgaben": "Tile tasks", "Kachel-Läufe": "Tile runs", "Kachel öffnen": "Open tile",
-  "Bearbeiten": "Edit",
-  // Zugänge nur an ihre Server (Freigabe bei neuen Servern)
-  "Zugang {name} an {host} senden?": "Send credential {name} to {host}?",
-  "Dieser Server gehört bisher nicht zu den erlaubten Servern des Zugangs. Erlaube das nur, wenn du ihm die Zugangsdaten anvertraust.":
-    "This server is not one of the credential's allowed servers yet. Only allow it if you trust it with the credentials.",
-  "Server immer erlauben": "Always allow server",
-  "„Server immer erlauben“ trägt {host} beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“).":
-    "“Always allow server” adds {host} to the credential (Credentials → Allowed servers).",
-  "Darf ich deine Zugangsdaten {name} an {host} schicken?": "May I send your credential {name} to {host}?",
-  "Diesem Server immer": "Always for this server", "Ja, diesmal": "Yes, this time", "Nein": "No", "Genau ansehen": "Look closely",
-  "Ohne sie weitermachen": "Continue without it", "Ohne diese Aktion weiterarbeiten": "Keep working without this action",
-  "Erlaubte Server": "Allowed servers",
-  "Externes Bild – wird erst beim Klick geöffnet": "External image – only opened when clicked",
-  "Zugangsdaten gehen nur an diese Server. Für jeden anderen fragt LLMitMir vorher, geplante Aufgaben lehnen ab. Ein Server gilt nur für den Zugang, bei dem er steht.":
-    "Credentials only go to these servers. For any other one LLMitMir asks first; scheduled tasks refuse. A server only counts for the credential it is listed under.",
-  "Aus der Adresse des Zugangs – gilt immer": "From the credential's address – always allowed", "automatisch": "automatic",
-  "Noch kein Server – der erste Aufruf fragt nach.": "No server yet – the first call asks.", "Erlauben": "Allow",
-  // geänderte Aufträge warten auf die Bestätigung der Eigentümerin bzw. des Eigentümers
-  "Bestätigt – die Aufgabe läuft wieder": "Approved – the task runs again", "Verworfen – der alte Auftrag gilt wieder": "Discarded – the old prompt applies again",
-  "Bestätigt – die Kachel läuft wieder": "Approved – the tile runs again", "Verworfen – die alte Beschreibung gilt wieder": "Discarded – the old description applies again",
-  "Aufgabe öffnen": "Open task",
-  "Sprachausgabe": "Speech output", "Eigene Stimme des Roboters": "The robot's own voice",
-  "Klingt auf jedem Gerät gleich. Dafür geht jeder vorgelesene Antworttext an den Vorlesedienst von Microsoft Edge (über das Paket edge-tts). Ausgeschaltet liest die Sprachausgabe von Home Assistant oder des Browsers vor – dann verlässt kein Antworttext Home Assistant für die Stimme.":
-    "Sounds the same on every device. For this, every answer that is read aloud goes to Microsoft Edge's read-aloud service (via the edge-tts package). When off, Home Assistant's or the browser's speech output reads aloud – then no answer text leaves Home Assistant for the voice.",
-  "Das Paket edge-tts ist nicht installiert.": "The edge-tts package is not installed.",
-  "Der geänderte Auftrag wartet auf die Bestätigung von {owner}. Bis dahin läuft die Aufgabe nicht.": "The changed prompt is waiting for {owner} to approve it. Until then the task does not run.",
-  "der Person, der sie gehört": "its owner", "Jemand": "Someone", "Vorher:": "Before:", "Bestätigen": "Approve", "Verwerfen": "Discard",
-  "{name} hat den Auftrag geändert.": "{name} changed the prompt.",
-  "Die Aufgabe läuft mit deinen Zugängen und Freigaben – deshalb erst wieder, wenn du bestätigst.": "The task runs with your credentials and approvals – so it only runs again once you approve.",
-  "{name} hat die Beschreibung geändert.": "{name} changed the description.",
-  "Die Kachel läuft mit deinen Zugängen – deshalb erst wieder, wenn du bestätigst.": "The tile runs with your credentials – so it only runs again once you approve.",
-  "Die geänderte Beschreibung wartet auf die Bestätigung von {owner}. Bis dahin läuft die Kachel nicht.": "The changed description is waiting for {owner} to approve it. Until then the tile does not run.",
-  "Automatisch aus den Adressen des Zugangs: {hosts}.": "Automatically from the credential's addresses: {hosts}.",
-  "Weitere Server, an die dieser Zugang ohne Rückfrage gehen darf – getrennt durch Komma, auch *.example.org. Für jeden anderen Server fragt LLMitMir vorher nach, geplante Aufgaben lehnen ab.":
-    "More servers this credential may go to without asking – comma-separated, *.example.org works too. For any other server LLMitMir asks first; scheduled tasks refuse.",
-  // Interne Daten im Verlauf (datalock.py)
-  "Zugang": "Credential", "Datenregel": "Data rule", "Skill": "Skill", "intern": "internal",
-  "Dieser Chat enthält interne Daten": "This chat contains internal data",
-  "Externe Modelle sind hier gesperrt – für ein externes Modell einen neuen Chat beginnen.": "External models are locked here – start a new chat to use an external model.",
-  "Gesperrt: interne Daten im Chat": "Locked: internal data in this chat",
-  "Interne Daten im Chat – externe Modelle sind hier gesperrt.": "Internal data in this chat – external models are locked here.",
-  "Nur für interne Modelle": "Internal models only",
-  "Externe Modelle sehen diesen Skill nicht und können ihn nicht laden. Wird er in einem Chat geladen, nimmt dieser Chat danach kein externes Modell mehr an. Für Anleitungen mit internen Inhalten (Namen, Abläufe, Zahlen).": "External models don't see this skill and can't load it. Once it is loaded in a chat, that chat no longer accepts external models. For instructions with internal content (names, procedures, figures).",
-  "Chats mit internen Daten für externe Modelle sperren": "Lock chats with internal data for external models",
-  "An (empfohlen): Sobald in einem Chat ein Zugang ohne Freigabe für externe Modelle benutzt, eine Datenregel nur für interne Modelle durchgelassen oder ein Skill „nur für interne Modelle“ geladen wurde, nimmt dieser Chat samt Teilaufgaben kein externes Modell mehr an – auch nicht als Notfall-Ausweichmodell. Aus: Wie bisher werden beim Wechsel nur die Ergebnisse solcher Zugänge aus dem Verlauf entfernt; was ein Modell daraus geschrieben hat (Antworten, Dateien, Ergebnisse von Teilaufgaben), geht mit.": "On (recommended): as soon as a chat used a credential not released for external models, passed a data rule only for internal models, or loaded an “internal models only” skill, that chat and its subtasks no longer accept external models – not even as an emergency fallback. Off: as before, switching only removes the results of such credentials from the history; whatever a model wrote from them (answers, files, subtask results) goes along.",
-};
+// Sprachen der Oberfläche. Deutsch ist die Ausgangssprache: Der deutsche Text ist zugleich der Schlüssel, t("…") gibt ihn
+// unverändert zurück, wenn es keine Übersetzung gibt. Die Übersetzungen liegen in custom_components/llmitmir/locales/
+// <code>.json – dieselben Dateien nutzt das Backend (i18n.py) für Fehlermeldungen und Push-Nachrichten.
+//
+// Eine weitere Sprache hinzufügen: locales/<code>.json anlegen (Schlüssel wie in en.json), unten in LANGUAGES eintragen
+// und in i18n.py nichts weiter tun – das Backend lädt alle Dateien im Ordner von selbst.
+import en from "../../custom_components/llmitmir/locales/en.json";
 
-let lang = "de";
-export function setLang(l: string) { lang = (l || "de").slice(0, 2); }
-export function t(s: string, p?: Record<string, any>): string {
-  let out = lang === "de" ? s : (EN[s] ?? s);
-  if (p) for (const [k, v] of Object.entries(p)) out = out.replace(`{${k}}`, String(v));
-  return out;
+export interface Language {
+  code: string;      // zweistellig, wie in den Einstellungen gespeichert
+  name: string;      // in der eigenen Sprache, so steht er in der Auswahl
+  locale: string;    // für Datum, Uhrzeit und Zahlen, wenn Home Assistant nichts Passenderes liefert
+  dict?: Record<string, string>;
 }
-export const isDe = () => lang === "de";
+
+export const LANGUAGES: Language[] = [
+  { code: "de", name: "Deutsch", locale: "de-DE" },
+  { code: "en", name: "English", locale: "en-GB", dict: en as Record<string, string> },
+];
+
+/** Gespeicherte Wahl ("auto", "de", "en", …) plus Sprache von Home Assistant → Sprache der Oberfläche.
+ *  „Automatisch“ folgt Home Assistant; eine Sprache, die LLMitMir nicht kennt, wird Englisch. */
+export function resolveLang(choice: string | undefined | null, hassLanguage?: string): string {
+  const pick = (c: string) => LANGUAGES.find(l => l.code === c)?.code;
+  if (choice && choice !== "auto" && pick(choice)) return choice;
+  const h = (hassLanguage || "").slice(0, 2).toLowerCase();
+  return h ? pick(h) || "en" : "de";
+}
+
+let cur: Language = LANGUAGES[0];
+let hassLang = "";
+let patterns: [RegExp, string, string[]][] | null = null;
+
+export function setLang(code: string, hassLanguage?: string) {
+  if (hassLanguage !== undefined) hassLang = hassLanguage || "";
+  cur = LANGUAGES.find(l => l.code === resolveLang(code, hassLang)) || LANGUAGES[0];
+  patterns = null;
+  try { document.documentElement && (document.documentElement.dataset.lmLang = cur.code); } catch { /* kein DOM (Tests) */ }
+}
+export const lang = () => cur.code;
+export const isDe = () => cur.code === "de";
+/** Locale für toLocale…(): die von Home Assistant, wenn sie zur Sprache passt (en-US, de-AT …), sonst die der Sprache. */
+export const dateLocale = () => (hassLang.slice(0, 2).toLowerCase() === cur.code && hassLang.length > 2 ? hassLang : cur.locale);
+
+function fill(s: string, p?: Record<string, any>): string {
+  if (!p) return s;
+  for (const [k, v] of Object.entries(p)) s = s.split(`{${k}}`).join(String(v));
+  return s;
+}
+
+/** Text der Oberfläche übersetzen. Platzhalter {name} werden mit p gefüllt. */
+export function t(s: string, p?: Record<string, any>): string {
+  return fill(cur.dict ? cur.dict[s] ?? s : s, p);
+}
+
+/** Text vom Server übersetzen (Fehlermeldungen, Prüfergebnisse, Zeitpläne): erst genau, dann nach Mustern mit
+ *  Platzhaltern („Zugang {name} fehlt“ passt auf „Zugang Mail fehlt“). Unbekanntes bleibt, wie es ist. */
+export function tb(s: string | null | undefined): string {
+  if (!s || !cur.dict) return s || "";
+  const d = cur.dict;
+  if (d[s] !== undefined) return d[s];
+  if (!patterns) patterns = compile(d);
+  for (const [re, key, names] of patterns) {
+    const m = re.exec(s);
+    if (!m) continue;
+    const p: Record<string, string> = {};
+    names.forEach((n, i) => { p[n] = part(m[i + 1]); });
+    return fill(d[key], p);
+  }
+  return s;
+}
+
+/** Platzhalter-Wert übersetzen; eine Aufzählung („montags, freitags“) Teil für Teil. */
+function part(v: string): string {
+  const whole = tb(v);
+  return whole !== v || !v.includes(", ") ? whole : v.split(", ").map(x => tb(x)).join(", ");
+}
+
+/** Muster aus den Schlüsseln mit Platzhaltern – längere (genauere) zuerst. */
+export function compile(d: Record<string, string>): [RegExp, string, string[]][] {
+  const out: [RegExp, string, string[]][] = [];
+  for (const key of Object.keys(d)) {
+    if (!/\{\w+\}/.test(key)) continue;
+    const names: string[] = [];
+    const src = key.split(/(\{\w+\})/).map(part => {
+      const m = /^\{(\w+)\}$/.exec(part);
+      if (m) { names.push(m[1]); return "([\\s\\S]+?)"; }
+      return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }).join("");
+    out.push([new RegExp(`^${src}$`), key, names]);
+  }
+  return out.sort((a, b) => b[1].replace(/\{\w+\}/g, "").length - a[1].replace(/\{\w+\}/g, "").length);
+}

@@ -2,6 +2,7 @@
 // The backend (models.py) decides the defaults; this mirrors its recommendation rule for the composer hint.
 import { html, nothing } from "lit";
 import { store } from "./api";
+import { t } from "./i18n";
 
 export type Role = "chat" | "agent" | "vision";
 
@@ -15,14 +16,14 @@ export const modelName = (id: string) => modelById(id)?.name || id || "";
 /** "frei" / "mäßig" / "stark ausgelastet" with a colour; null while the provider reports no load. */
 export function load(m: any): { level: 0 | 1 | 2; text: string; color: string } | null {
   if (!m || (m.demand === null || m.demand === undefined) && !m.slow) return null;
-  if (m.busy) return { level: 2, text: m.slow ? "antwortet gerade sehr langsam" : "stark ausgelastet", color: "var(--lm-err)" };
-  if (m.demand >= 2) return { level: 1, text: "etwas ausgelastet", color: "var(--lm-warn)" };
+  if (m.busy) return { level: 2, text: m.slow ? t("antwortet gerade sehr langsam") : t("stark ausgelastet"), color: "var(--lm-err)" };
+  if (m.demand >= 2) return { level: 1, text: t("etwas ausgelastet"), color: "var(--lm-warn)" };
   return { level: 0, text: "frei", color: "var(--lm-ok)" };
 }
 
 export const loadDot = (m: any, size = 8) => {
   const l = load(m);
-  return l ? html`<span title=${`Auslastung: ${l.text}`} style="display:inline-block;flex:none;width:${size}px;height:${size}px;border-radius:50%;background:${l.color}"></span>` : nothing;
+  return l ? html`<span title=${t("Auslastung: {x}", { x: l.text })} style="display:inline-block;flex:none;width:${size}px;height:${size}px;border-radius:50%;background:${l.color}"></span>` : nothing;
 };
 
 /** A less loaded model that does the job about as well (same rule as models.alternative). */
@@ -40,7 +41,7 @@ export function alternative(current: string, role: Role, needImage = false): any
 }
 
 /** Label of the "Standard" entry in model selects: says whether it is chosen automatically and which model that is now. */
-export function defaultLabel(role: Role, word = "Standard"): string {
+export function defaultLabel(role: Role, word = t("Standard")): string {
   const d = store.data?.defaults || {};
-  return d[`${role}_auto`] ? `${word} – automatisch (derzeit ${modelName(d[role])})` : `${word} (${modelName(d[role])})`;
+  return d[`${role}_auto`] ? t("{w} – automatisch (derzeit {m})", { w: word, m: modelName(d[role]) }) : `${word} (${modelName(d[role])})`;
 }

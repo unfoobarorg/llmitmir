@@ -3,13 +3,17 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state, query } from "lit/decorators.js";
 import { base, icon, md, fmtNum, fmtTime, fmtDuration, copyText, menuItemStyles, confirmDialog, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
-import { t } from "./i18n";
+import { t, tb, lang, dateLocale } from "./i18n";
 import { modelById, modelName } from "./modelpick";
 import { offerCard, isBilled, isExternal, externalCss, chatLock, ext } from "./external";
 import { openFileViewer } from "./viewer";
 import type { SendDetail } from "./composer";
 import "./composer";
 import "./connectors";
+import { stepAsk, stepReached, stepBannerCss } from "./stepbanner";
+
+/** Frage nach mehr Modellaufrufen (Werkzeug „more_steps“). */
+const isStepAsk = (p: any) => p.tool === "more_steps" || !!p.steps;
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "In der Warteschlange …", thinking: "Denkt nach …", streaming: "Schreibt …", tool: "Arbeitet …",
@@ -23,6 +27,8 @@ const CHANGE_ART: Record<string, [string, string, string]> = {
   kachel: ["Kachel", "mdi:view-grid-outline", "Dashboards"],
 };
 const CHANGE_VERB: Record<string, [string, string]> = { anlegen: ["neu", "add"], aendern: ["ändern", "upd"], loeschen: ["löschen", "del"] };
+const CHANGE_ASK: Record<string, string> = { anlegen: "Soll ich {what} {name} anlegen?", aendern: "Soll ich {what} {name} ändern?",
+  loeschen: "Soll ich {what} {name} löschen?" };
 // Simple view: what the assistant is doing, in plain words (by tool group).
 const DOING: Record<string, string> = {
   web: "Sucht im Internet …", ha: "Schaut im Zuhause nach …", dav: "Schaut in deiner Nextcloud nach …",
@@ -39,23 +45,30 @@ const GROUP_PLAIN: Record<string, string> = {
 const CHANGE_WHAT: Record<string, string> = { skill: "den Skill", aufgabe: "die geplante Aufgabe", zugang: "den Zugang",
   dashboard: "das Dashboard", kachel: "die Kachel" };
 const tsDate = (ts: any) => (typeof ts === "number" ? new Date(ts * 1000) : ts ? new Date(ts) : null);
-const hm = (ts: any) => tsDate(ts)?.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) || "";
+const hm = (ts: any) => tsDate(ts)?.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) || "";
 function dayLabel(ts: any): string {
   const d = tsDate(ts); if (!d) return "";
   const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return "Heute";
-  if (d.toDateString() === y.toDateString()) return "Gestern";
-  return d.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
+  if (d.toDateString() === today.toDateString()) return t("Heute");
+  if (d.toDateString() === y.toDateString()) return t("Gestern");
+  return d.toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long", year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
 }
 /** Errors people can act on are shown as they are; technical ones get a plain sentence (details stay available). */
-const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellungen|Zustimmung|extern|Projekt/.test(e) ? e
-  : "Die KI hat gerade nicht richtig geantwortet. Versuch es bitte gleich noch einmal.";
+const plainError = (e: string) => /Schlüssel|Kontingent|Limit|Admin|Einstellungen|Zustimmung|extern|Projekt/.test(e) ? tb(e)
+  : t("Die KI hat gerade nicht richtig geantwortet. Versuch es bitte gleich noch einmal.");
 
 /** Simple view: text of an external model is only shown once its step is over. Claude announces nearly every tool call
  *  with a sentence ("Ich schaue kurz nach …"); streamed live, it flashed up and vanished again when the tool call came. */
 const heldBack = (m: any) => !!m?.streaming && isBilled(m.model);
 
 const isLong = (v: any) => typeof v === "string" && (v.includes("\n") || v.length > 120);
+const fmtSec = (s: number) => { const x = s.toFixed(1); return (lang() === "de" ? x.replace(".", ",") : x) + " s"; };
+/** „Läuft (kostenpflichtig) bei …“ – Hinweis für externe Modelle. */
+const runsAt = (model: string) => {
+  const op = modelById(model)?.operator;
+  if (isBilled(model)) return op ? t("Läuft kostenpflichtig bei {op}", { op }) : t("Läuft kostenpflichtig bei einem externen Anbieter");
+  return op ? t("Läuft bei {op}", { op }) : t("Läuft bei einem externen Anbieter");
+};
 
 /** Bis zu zwei Zeilen aus einem Befehl – genug, um zu sehen, was gerade läuft. */
 function cmdPreview(a: any): string[] {
@@ -71,30 +84,30 @@ function changeField(f: any, aktion: string) {
   let val: any;
   if (f.diff) {
     val = html`<div class="diff">${f.diff.map(([op, line]: [string, any]) => op === "…"
-      ? html`<div class="s">⋯ ${line} unveränderte Zeile${line === 1 ? "" : "n"}</div>`
+      ? html`<div class="s">⋯ ${t(line === 1 ? "{n} unveränderte Zeile" : "{n} unveränderte Zeilen", { n: line })}</div>`
       : html`<div class=${op === "+" ? "a" : op === "-" ? "d" : "c"}>${line || " "}</div>`)}</div>`;
   } else if (aktion === "aendern") {
     val = isLong(f.alt) || isLong(f.neu)
-      ? html`${f.alt ? html`<div class="blk gone">${f.alt}</div>` : nothing}${f.neu ? html`<div class="blk add">${f.neu}</div>` : html`<span class="old">leer</span>`}`
-      : html`${f.alt ? html`<span class="old">${f.alt}</span>` : html`<span class="muted">leer</span>`}<span class="arrow">→</span>${f.neu ? html`<span class="new">${f.neu}</span>` : html`<span class="muted">leer</span>`}`;
+      ? html`${f.alt ? html`<div class="blk gone">${f.alt}</div>` : nothing}${f.neu ? html`<div class="blk add">${f.neu}</div>` : html`<span class="old">${t("leer")}</span>`}`
+      : html`${f.alt ? html`<span class="old">${f.alt}</span>` : html`<span class="muted">${t("leer")}</span>`}<span class="arrow">→</span>${f.neu ? html`<span class="new">${f.neu}</span>` : html`<span class="muted">${t("leer")}</span>`}`;
   } else {
     const v = aktion === "loeschen" ? f.alt : f.neu;
     val = isLong(v) ? html`<div class="blk ${aktion === "loeschen" ? "gone" : ""}">${v}</div>` : html`<span class=${aktion === "loeschen" ? "gonetxt" : ""}>${v || "–"}</span>`;
   }
-  return html`<div class="k">${f.feld}</div><div class="v">${val}</div>`;
+  return html`<div class="k">${tb(f.feld)}</div><div class="v">${val}</div>`;
 }
 
 export function changeView(ch: any, status?: string) {
   const [art, ic] = CHANGE_ART[ch.art] || [ch.art, "mdi:tools"];
   const [verb, cls] = CHANGE_VERB[ch.aktion] || [ch.aktion, "upd"];
-  const st = status === "ok" ? html`<span class="chip ok">${icon("check", 14)} übernommen</span>`
-    : status === "denied" ? html`<span class="chip warn">abgelehnt</span>`
-    : status === "error" ? html`<span class="chip err">fehlgeschlagen</span>`
+  const st = status === "ok" ? html`<span class="chip ok">${icon("check", 14)} ${t("übernommen")}</span>`
+    : status === "denied" ? html`<span class="chip warn">${t("abgelehnt")}</span>`
+    : status === "error" ? html`<span class="chip err">${t("fehlgeschlagen")}</span>`
     : status === "running" ? html`<span class="spin"></span>` : nothing;
   return html`<div class="chg ${cls}">
-    <div class="chg-h">${icon(ic, 18)}<span class="grow"><span class="muted">${art}</span> <b>${ch.name}</b></span>
-      <span class="badge ${cls}">${verb}</span>${st}</div>
-    ${ch.hinweis ? html`<div class="chg-note">${icon("alert", 16)} ${ch.hinweis}</div>` : nothing}
+    <div class="chg-h">${icon(ic, 18)}<span class="grow"><span class="muted">${t(art)}</span> <b>${ch.name}</b></span>
+      <span class="badge ${cls}">${t(verb)}</span>${st}</div>
+    ${ch.hinweis ? html`<div class="chg-note">${icon("alert", 16)} ${tb(ch.hinweis)}</div>` : nothing}
     ${ch.felder?.length ? html`<div class="chg-f">${ch.felder.map((f: any) => changeField(f, ch.aktion))}</div>` : nothing}
   </div>`;
 }
@@ -109,6 +122,8 @@ export class ChatView extends LitElement {
   @state() private now = Date.now();
   @state() private hideHint = "";
   @state() private stick = true;
+  @state() private stepAnswer: { id: string; d: string } | null = null;   // gewählte Antwort auf die Limit-Frage
+  @state() private stepClosed = new Set<string>();                       // weggeklickte „Limit erreicht“-Meldungen
   @query(".scroll") private scroller!: HTMLElement;
   private _selfScroll = false;
   private _jumping = false;
@@ -127,7 +142,7 @@ export class ChatView extends LitElement {
     }, 16);
   };
 
-  static styles = [base, menuItemStyles, externalCss, css`
+  static styles = [base, menuItemStyles, externalCss, stepBannerCss, css`
     :host { display: flex; height: 100%; min-height: 0; }
     .offer { display: grid; gap: 8px; font-size: 13.5px; margin-top: 4px; }
     .offer svg { vertical-align: -3px; color: var(--lm-warn); }
@@ -444,7 +459,7 @@ export class ChatView extends LitElement {
     const total = tok(chat.usage) + subs.reduce((n: number, c: any) => n + tok(c.usage), 0);
     const active = subs.filter((c: any) => store.runs[c.id] || c.sub_status === "wartet").length;
     return html`<span class="chip" title=${t("Verbrauch mit Teilaufgaben: {n} Tokens", { n: fmtNum(total) })}>${icon("subtask", 14)}
-      ${active ? t("{a} von {n} aktiv", { a: active, n: subs.length }) : subs.length}${this.narrow ? "" : ` · ${fmtNum(total)} Tokens`}</span>`;
+      ${active ? t("{a} von {n} aktiv", { a: active, n: subs.length }) : subs.length}${this.narrow ? "" : ` · ${fmtNum(total)} ${t("Tokens")}`}</span>`;
   }
 
   /** Rückmeldung einer Teilaufgabe im Hauptchat (Nachtrag nach eigener Arbeit darin). */
@@ -454,7 +469,7 @@ export class ChatView extends LitElement {
       <div class="row">${icon("subtask", 16)}<b class="grow ellipsis">${m.nachtrag ? t("Nachtrag aus Teilaufgabe") : t("Ergebnis aus Teilaufgabe")} ›${m.title}‹</b>
         <button class="btn ghost tiny" @click=${() => navigate(`/chat/${m.sub_id}`)}>${t("Öffnen")}</button></div>
       <details><summary>${t("Zusammenfassung")}</summary><div class="md">${md(m.summary || "")}</div>
-        ${m.reason ? html`<div class="hint">${t("Grund")}: ${m.reason}</div>` : nothing}</details>
+        ${m.reason ? html`<div class="hint">${t("Grund")}: ${tb(m.reason)}</div>` : nothing}</details>
       ${m.files?.length ? html`<div class="att left">${m.files.map((f: string) => html`<button @click=${() => this.openFile(f)}>${icon("file", 15)}${f}</button>`)}</div>` : nothing}
     </div>`;
   }
@@ -488,12 +503,12 @@ export class ChatView extends LitElement {
       <div class="subinfo">
         ${sub ? html`<span>${modelName(sub.model)}</span>` : nothing}
         ${secs >= 1 ? html`<span>${fmtDuration(secs)}</span>` : nothing}
-        ${tokens ? html`<span>${fmtNum(tokens)} Tokens</span>` : nothing}
+        ${tokens ? html`<span>${fmtNum(tokens)} ${t("Tokens")}</span>` : nothing}
         <span class="grow"></span>
         ${res?.zusammenfassung || (m.content && !res && m.status !== "running") ? html`<button class="btn ghost tiny" @click=${toggle}>${open ? t("Zusammenfassung ausblenden") : t("Zusammenfassung")}</button>` : nothing}
         ${sub ? html`<button class="btn tiny" @click=${() => navigate(`/chat/${sub.id}`)}>${t("Öffnen")}</button>` : nothing}
       </div>
-      ${res?.grund && st !== "fertig" ? html`<div class="hint">${t("Grund")}: ${res.grund}</div>` : nothing}
+      ${res?.grund && st !== "fertig" ? html`<div class="hint">${t("Grund")}: ${tb(res.grund)}</div>` : nothing}
       ${open ? html`<div class="md subsum">${res ? md(res.zusammenfassung || "") : m.content}</div>
         ${res?.dateien?.length ? html`<div class="att left">${res.dateien.map((f: string) => html`<button @click=${() => this.openFile(f)}>${icon("file", 15)}${f}</button>`)}</div>` : nothing}` : nothing}
     </div>`;
@@ -508,16 +523,16 @@ export class ChatView extends LitElement {
     const prev = !open && m.name === "shell" ? cmdPreview(a) : [];
     const st = m.status;
     return html`<div class="step" @click=${() => { const s = new Set(this.openSteps); open ? s.delete(m.id) : s.add(m.id); this.openSteps = s; }}>
-        <div class="srow">${icon(m.icon || "tools", 18)}<span class="lbl">${m.label || m.name}</span>
+        <div class="srow">${icon(m.icon || "tools", 18)}<span class="lbl">${tb(m.label) || m.name}</span>
         ${m.connector ? html`<span class="via" title=${t("Läuft über den Konnektor {name}", { name: m.connector })}>${icon("share", 12)} ${m.connector}</span>` : nothing}
         <span class="arg ellipsis">${argText ? `· ${String(argText).slice(0, 80)}` : ""}</span>
         <span class="st">${st === "running" ? html`<span class="spin"></span>` : st === "ok" ? html`<span class="ok">${icon("check", 16)}</span>`
           : st === "denied" ? html`<span class="den">${icon("lock", 16)}</span>` : html`<span class="err">${icon("alert", 16)}</span>`}
-          ${m.ms ? (m.ms > 1000 ? (m.ms / 1000).toFixed(1).replace(".", ",") + " s" : m.ms + " ms") : ""}${icon(open ? "down" : "right", 16)}</span></div>
+          ${m.ms ? (m.ms > 1000 ? fmtSec(m.ms / 1000) : m.ms + " ms") : ""}${icon(open ? "down" : "right", 16)}</span></div>
         ${prev.length ? html`<div class="prev">${prev.map(l => html`<div>${l}</div>`)}</div>` : nothing}</div>
       ${m.change ? html`<div class="chgd">${changeView(m.change, st)}</div>` : nothing}
-      ${open ? html`<div class="detail">${m.change ? nothing : html`<b>Eingabe</b><pre>${JSON.stringify(m.args || {}, null, 2)}</pre>`}
-        ${m.content ? html`<b>Ergebnis</b><pre>${m.content.slice(0, 6000)}${m.content.length > 6000 ? "\n…" : ""}</pre>` : nothing}</div>` : nothing}`;
+      ${open ? html`<div class="detail">${m.change ? nothing : html`<b>${t("Eingabe")}</b><pre>${JSON.stringify(m.args || {}, null, 2)}</pre>`}
+        ${m.content ? html`<b>${t("Ergebnis")}</b><pre>${m.content.slice(0, 6000)}${m.content.length > 6000 ? "\n…" : ""}</pre>` : nothing}</div>` : nothing}`;
   }
 
   private renderMessages(chat: any, run: any) {
@@ -547,14 +562,14 @@ export class ChatView extends LitElement {
         ${m.reasoning && showThink ? html`<details class="think" ?open=${streaming && !m.content}><summary>${icon("brain", 16)} ${streaming && !m.content ? html`<span class="shimmer">${t("Denkt nach …")}</span>` : t("Gedanken")}</summary>
           <div class="txt">${m.reasoning}</div></details>` : nothing}
         ${m.content ? html`<div class="md">${md(m.content)}${streaming ? html`<span class="caret"></span>` : nothing}</div>` : nothing}
-        ${m.error ? html`<div class="error">${icon("alert")}<div class="grow"><b>Das hat nicht geklappt.</b><div>${m.error}</div>
+        ${m.error ? html`<div class="error">${icon("alert")}<div class="grow"><b>${t("Das hat nicht geklappt.")}</b><div>${tb(m.error)}</div>
             ${offerCard(chat.id, m.offer, false, last && !run)}</div>
           <button class="btn" @click=${() => this.retry()}>${icon("retry", 16)} ${t("Erneut versuchen")}</button></div>` : nothing}
         ${(m.content || m.error) && !streaming ? html`<div class="meta">
           ${m.content ? html`<button class="iconbtn" title=${t("Kopieren")} @click=${() => copyText(m.content)}>${icon("copy", 16)}</button>` : nothing}
           ${last && !run ? html`<button class="iconbtn" title=${t("Erneut versuchen")} @click=${() => this.retry()}>${icon("retry", 16)}</button>` : nothing}
           ${m.content && chat.kind !== "task_run" ? html`<button class="iconbtn" title=${t("Als Teilaufgabe weiterarbeiten")} @click=${() => this.branch(m)}>${icon("subtask", 16)}</button>` : nothing}
-          <span>${(store.data?.models || []).find((x: any) => x.id === m.model)?.name || m.model || ""}${isExternal(m.model) ? " · extern" : ""}${m.usage?.completion ? ` · ${fmtNum(m.usage.completion)} Tokens` : ""} · ${fmtTime(m.created)}</span></div>` : nothing}
+          <span>${(store.data?.models || []).find((x: any) => x.id === m.model)?.name || m.model || ""}${isExternal(m.model) ? ` · ${t("extern")}` : ""}${m.usage?.completion ? ` · ${fmtNum(m.usage.completion)} ${t("Tokens")}` : ""} · ${fmtTime(m.created)}</span></div>` : nothing}
       </div>`);
       i++;
     }
@@ -591,14 +606,15 @@ export class ChatView extends LitElement {
     if (run.status === "waiting_sub_permission") return html`<div class="running"><span class="den">${icon("clock", 18)}</span>
       <span>${t("Teilaufgabe ›{t}‹ wartet auf dich", { t: run.detail?.sub_title || "" })}</span></div>`;
     const d = run.detail || {};
-    let text = STATUS_TEXT[run.status] || "Arbeitet …";
-    if (run.status === "tool") text = (d.label || "Werkzeug") + " …";
+    let text = t(STATUS_TEXT[run.status] || "Arbeitet …");
+    if (run.status === "tool") text = (tb(d.label) || t("Werkzeug")) + " …";
     if (run.status === "tool" && String(d.tool || "").startsWith("unterchat_")) text = t("Wartet auf Teilaufgaben …");
-    if (run.status === "retry") text = `Modell ausgelastet – neuer Versuch in ${d.seconds} s (Versuch ${d.attempt})`;
-    if (run.status === "quota_wait") text = `Limit des Schlüssels erreicht – geht in ${fmtDuration(d.seconds)} weiter`;
+    if (run.status === "retry") text = t("Modell ausgelastet – neuer Versuch in {s} s (Versuch {n})", { s: d.seconds, n: d.attempt });
+    if (run.status === "quota_wait") text = t("Limit des Schlüssels erreicht – geht in {d} weiter", { d: fmtDuration(d.seconds) });
     if (run.status === "thinking" && d.switched_from) text = isBilled(chat.model) && d.auto
-      ? `Hauptanbieter nicht nutzbar – weiter mit ${modelName(chat.model)} (kostenpflichtig) – denkt nach …`
-      : `${d.auto ? "Automatisch gewechselt" : "Gewechselt"} von ${modelName(d.switched_from)} zu ${modelName(chat.model)} – denkt nach …`;
+      ? t("Hauptanbieter nicht nutzbar – weiter mit {m} (kostenpflichtig) – denkt nach …", { m: modelName(chat.model) })
+      : t(d.auto ? "Automatisch gewechselt von {a} zu {b} – denkt nach …" : "Gewechselt von {a} zu {b} – denkt nach …",
+        { a: modelName(d.switched_from), b: modelName(chat.model) });
     const el = (this.now / 1000) - (run.started || this.now / 1000);
     const cmd = run.status === "tool" && d.tool === "shell" ? cmdPreview(d.args)[0] || "" : "";
     return html`<div class="running"><lm-spark></lm-spark><span class="shimmer">${text}</span>
@@ -615,13 +631,17 @@ export class ChatView extends LitElement {
     const busy = (h.demand ?? 0) >= 4;
     const alt = h.alt && modelById(h.alt.id) ? { ...h.alt, name: modelName(h.alt.id) } : h.alt;
     return html`<div class="perm slow">
-      <div class="row">${icon("hourglass")}<b class="grow">${h.model_name} antwortet seit ${fmtDuration(waited)} nicht</b></div>
-      <div class="hint">${busy ? "Das Modell ist beim Anbieter gerade stark ausgelastet" : "Das Modell kommt gerade nicht hinterher"} – so kann eine Antwort
-        viele Minuten dauern.${alt ? html` <b>${alt.name}</b> ist ${alt.demand >= 2 ? "weniger ausgelastet" : "frei"} und ${alt.better ? "mindestens genauso stark" : alt.similar ? "löst die Aufgabe ähnlich gut" : "etwas schwächer, aber deutlich schneller"}.` : " Gerade ist kein ähnlich gutes Modell frei – LLMitMir wartet weiter."}
-        ${chat.kind !== "chat" ? " Bisherige Schritte bleiben erhalten, es geht beim aktuellen Schritt weiter." : ""}</div>
+      <div class="row">${icon("hourglass")}<b class="grow">${t("{m} antwortet seit {d} nicht", { m: h.model_name, d: fmtDuration(waited) })}</b></div>
+      <div class="hint">${busy ? t("Das Modell ist beim Anbieter gerade stark ausgelastet – so kann eine Antwort viele Minuten dauern.")
+          : t("Das Modell kommt gerade nicht hinterher – so kann eine Antwort viele Minuten dauern.")}
+        ${alt ? html`<b>${alt.name}</b> ${alt.demand >= 2
+            ? (alt.better ? t("ist weniger ausgelastet und mindestens genauso stark.") : alt.similar ? t("ist weniger ausgelastet und löst die Aufgabe ähnlich gut.") : t("ist weniger ausgelastet und etwas schwächer, aber deutlich schneller."))
+            : (alt.better ? t("ist frei und mindestens genauso stark.") : alt.similar ? t("ist frei und löst die Aufgabe ähnlich gut.") : t("ist frei und etwas schwächer, aber deutlich schneller."))}`
+          : t("Gerade ist kein ähnlich gutes Modell frei – LLMitMir wartet weiter.")}
+        ${chat.kind !== "chat" ? t("Bisherige Schritte bleiben erhalten, es geht beim aktuellen Schritt weiter.") : ""}</div>
       <div class="row">
-        ${alt ? html`<button class="btn primary" @click=${() => this.switchModel(alt.id)}>${icon("retry", 16)} Mit ${alt.name} weitermachen</button>` : nothing}
-        <button class="btn ghost" @click=${() => (this.hideHint = run.run_id + h.model)}>Weiter warten</button>
+        ${alt ? html`<button class="btn primary" @click=${() => this.switchModel(alt.id)}>${icon("retry", 16)} ${t("Mit {m} weitermachen", { m: alt.name })}</button>` : nothing}
+        <button class="btn ghost" @click=${() => (this.hideHint = run.run_id + h.model)}>${t("Weiter warten")}</button>
       </div></div>`;
   }
 
@@ -631,7 +651,25 @@ export class ChatView extends LitElement {
 
   /** Freigaben dieses Chats – im Hauptchat auch die seiner Teilaufgaben (zentral beantworten). */
   private myPerms(): any[] {
-    return store.permissions.filter(p => p.chat_id === this.chatId || p.root_chat_id === this.chatId);
+    return store.permissions.filter(p => (p.chat_id === this.chatId || p.root_chat_id === this.chatId) && !isStepAsk(p));
+  }
+  /** Die Frage nach mehr Modellaufrufen (auch aus Teilaufgaben) – sie steht über dem Eingabefeld, nicht im Verlauf. */
+  private stepPerm(): any {
+    return store.permissions.find(p => (p.chat_id === this.chatId || p.root_chat_id === this.chatId) && isStepAsk(p));
+  }
+
+  /** Über dem Eingabefeld: Limit der Modellaufrufe fast erreicht (Frage) oder erreicht (Weitermachen anbieten). */
+  private stepBanner(chat: any, run: any) {
+    const p = this.stepPerm();
+    if (p) return stepAsk({ from: this.permFrom(p), busy: this.stepAnswer?.id === p.id ? this.stepAnswer?.d : "",
+      answer: (d) => { this.stepAnswer = { id: p.id, d }; store.api.ws("permission/answer", { permission_id: p.id, decision: d })
+        .catch((e: any) => { this.stepAnswer = null; store.notify(String(e.message || e)); }); } });
+    if (run || chat.kind === "task_run") return nothing;
+    const last = [...chat.messages].reverse().find((m: any) => m.role === "user" || m.role === "assistant");
+    if (!last?.step_limit || this.stepClosed.has(last.id)) return nothing;
+    return stepReached({ onClose: () => { this.stepClosed = new Set([...this.stepClosed, last.id]); },
+      onContinue: () => { this.stepClosed = new Set([...this.stepClosed, last.id]);
+        this.send(new CustomEvent("send", { detail: { text: t("Bitte mach dort weiter, wo du aufgehört hast."), files: [] } as any })); } });
   }
 
   /** Oben auf einer Karte aus einer Teilaufgabe: woher sie kommt, mit Link. */
@@ -655,26 +693,19 @@ export class ChatView extends LitElement {
 
   private permCards() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return this.myPerms().map(p => p.connector_form ? this.connectorFormCard(p) : p.steps ? html`<div class="perm">${this.permFrom(p)}
-      <div class="row">${icon("list")}<b class="grow">LLMitMir ist noch nicht fertig – weitere ${p.steps.more} Schritte verwenden?</b></div>
-      <div class="hint">${p.steps.used} von ${p.steps.limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten ${p.steps.limit - p.steps.used} Schritten Wichtiges zu Ende und schreibt dann den Bericht.${p.steps.lots ? ` Mit ${p.steps.lots} weiteren Schritten wird die Frage so schnell nicht wieder fällig.` : ""}</div>
-      <div class="row">
-        <button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${p.steps.more} weitere Schritte</button>
-        ${p.steps.lots ? html`<button class="btn" @click=${() => answer(p, "lots")}>${icon("check", 16)} ${p.steps.lots} weitere Schritte</button>` : nothing}
-        <button class="btn ghost" @click=${() => answer(p, "deny")}>Zum Ende kommen</button>
-      </div></div>`
+    return this.myPerms().map(p => p.connector_form ? this.connectorFormCard(p)
     : p.change ? html`<div class="perm">${this.permFrom(p)}
-      <div class="row">${icon("edit")}<b class="grow">LLMitMir schlägt diese Änderung vor</b></div>
+      <div class="row">${icon("edit")}<b class="grow">${t("LLMitMir schlägt diese Änderung vor")}</b></div>
       ${changeView(p.change)}
       <div class="row">
         <button class="btn primary ${p.change.aktion === "loeschen" ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} ${p.change.aktion === "loeschen" ? t("Löschen") : t("Übernehmen")}</button>
         <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Änderung weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
-      </div><div class="hint">Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „${(CHANGE_ART[p.change.art] || [])[2] || ""}“ anpassen.</div></div>`
+      </div><div class="hint">${t("Jede Änderung an Skills, Aufgaben und Zugängen fragt einzeln nach. Danach lässt sie sich jederzeit auf der Seite „{page}“ anpassen.", { page: t((CHANGE_ART[p.change.art] || [])[2] || "") })}</div></div>`
     : p.cred ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("key")}<b class="grow">${t("Zugang {name} verwenden?", { name: `„${p.cred}“` })}</b>
         ${p.connector ? html`<span class="chip accent">${icon("share", 12)} ${p.connector}</span>` : nothing}</div>
-      <div class="hint">${t("LLMitMir möchte für „{label}“ deinen Zugang nutzen. Ein Zugang braucht in jedem Chat und Cowork deine Freigabe.", { label: p.label })}</div>
+      <div class="hint">${t("LLMitMir möchte für „{label}“ deinen Zugang nutzen. Ein Zugang braucht in jedem Chat und Cowork deine Freigabe.", { label: tb(p.label) })}</div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
         <button class="btn primary" @click=${() => answer(p, "once")}>${t("Einmal erlauben")}</button>
@@ -693,17 +724,18 @@ export class ChatView extends LitElement {
         <button class="btn ghost" title=${t("Ohne diese Aktion weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">${t("„Server immer erlauben“ trägt {host} beim Zugang ein (Seite „Zugänge“ → „Erlaubte Server“).", { host: p.host })}</div></div>`
     : p.group ? html`<div class="perm">${this.permFrom(p)}
-      <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte „${p.group_label}“ nutzen: ${p.label}</b></div>
-      <div class="hint">Diese Werkzeuge sind ${this.chat?.project_id ? "in diesem Chat oder Projekt" : "in diesem Chat"} nicht eingeschaltet.</div>
+      <div class="row">${icon(p.icon || "lock")}<b class="grow">${t("LLMitMir möchte „{group}“ nutzen: {label}", { group: tb(p.group_label), label: tb(p.label) })}</b></div>
+      <div class="hint">${this.chat?.project_id ? t("Diese Werkzeuge sind in diesem Chat oder Projekt nicht eingeschaltet.") : t("Diese Werkzeuge sind in diesem Chat nicht eingeschaltet.")}</div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
         <button class="btn primary" @click=${() => answer(p, "once")}>${t("Einmal erlauben")}</button>
         <button class="btn" @click=${() => answer(p, "always")}>${t("Für diesen Chat einschalten")}</button>
         <button class="btn ghost danger" @click=${() => answer(p, "deny")}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne dieses Werkzeug weiterarbeiten")} @click=${() => answer(p, "skip")}>${t("Ohne es weitermachen")}</button>
-      </div><div class="hint">${p.root_chat_id ? t("„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.") : html`„Für diesen Chat einschalten“ gilt nur hier${this.chat?.kind === "chat" ? " und lässt sich im Werkzeug-Menü wieder abwählen" : ""}; schreibende Aktionen fragen weiterhin nach.`}</div></div>`
+      </div><div class="hint">${p.root_chat_id ? t("„Für diesen Chat einschalten“ gilt nur für diese Teilaufgabe.") : this.chat?.kind === "chat" ? t("„Für diesen Chat einschalten“ gilt nur hier und lässt sich im Werkzeug-Menü wieder abwählen; schreibende Aktionen fragen weiterhin nach.")
+        : t("„Für diesen Chat einschalten“ gilt nur hier; schreibende Aktionen fragen weiterhin nach.")}</div></div>`
     : html`<div class="perm">${this.permFrom(p)}
-      <div class="row">${icon(p.icon || "lock")}<b class="grow">LLMitMir möchte: ${p.label}</b></div>
+      <div class="row">${icon(p.icon || "lock")}<b class="grow">${t("LLMitMir möchte: {label}", { label: tb(p.label) })}</b></div>
       <pre>${JSON.stringify(p.args || {}, null, 2)}</pre>
       <div class="row">
         <button class="btn primary" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "once" })}>${t("Einmal erlauben")}</button>
@@ -711,7 +743,8 @@ export class ChatView extends LitElement {
         <button class="btn ghost danger" @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "deny" })}>${t("Ablehnen")}</button>
         <button class="btn ghost" title=${t("Ohne diese Aktion weiterarbeiten")} @click=${() => store.api.ws("permission/answer", { permission_id: p.id, decision: "skip" })}>${t("Ohne sie weitermachen")}</button>
       </div><div class="hint">${p.root_chat_id ? t("„Immer erlauben“ gilt nur für diese Teilaufgabe – auch wenn du hier im Hauptchat antwortest.")
-        : `„Immer erlauben“ gilt ${this.chat?.project_id ? "für dieses Projekt" : "für alle Chats ohne Projekt"} und lässt sich in den Einstellungen zurücknehmen.`}</div></div>`);
+        : this.chat?.project_id ? t("„Immer erlauben“ gilt für dieses Projekt und lässt sich in den Einstellungen zurücknehmen.")
+        : t("„Immer erlauben“ gilt für alle Chats ohne Projekt und lässt sich in den Einstellungen zurücknehmen.")}</div></div>`);
   }
 
   // ---------------------------------------------------------------- simple view (Laien-Ansicht)
@@ -731,7 +764,7 @@ export class ChatView extends LitElement {
       if (day && day !== lastDay) { out.push(html`<div class="day">${day}</div>`); lastDay = day; }
       if (tn.user) {
         out.push(chat.kind === "task_run" && i === 0
-          ? html`<div class="sys">${icon("task", 15)} Automatisch gestartet · ${hm(tn.user.created)}</div>`
+          ? html`<div class="sys">${icon("task", 15)} ${t("Automatisch gestartet")} · ${hm(tn.user.created)}</div>`
           : this.meBubble(tn.user));
       }
       // newest first; an answer is an assistant message with text (or an error) that does not go on with tools
@@ -752,16 +785,16 @@ export class ChatView extends LitElement {
 
   private aiBubble(m: any, streaming: boolean, last: boolean) {
     if (m.error) return html`<div class="bubble ai fail">
-      <div><b>Das hat leider nicht geklappt.</b> ${plainError(m.error)}</div>
-      ${plainError(m.error) !== m.error ? html`<details class="why"><summary>${icon("info", 15)} Was genau ist passiert?</summary><pre>${m.error}</pre></details>` : nothing}
+      <div><b>${t("Das hat leider nicht geklappt.")}</b> ${plainError(m.error)}</div>
+      ${plainError(m.error) !== tb(m.error) ? html`<details class="why"><summary>${icon("info", 15)} ${t("Was genau ist passiert?")}</summary><pre>${tb(m.error)}</pre></details>` : nothing}
       ${offerCard(this.chatId, m.offer, true, last)}
-      <div class="bfoot">${last ? html`<button class="btn" @click=${() => this.retry()}>${icon("retry", 16)} Noch einmal versuchen</button><span class="grow"></span>` : nothing}
+      <div class="bfoot">${last ? html`<button class="btn" @click=${() => this.retry()}>${icon("retry", 16)} ${t("Noch einmal versuchen")}</button><span class="grow"></span>` : nothing}
         <span class="bt">${hm(m.created)}</span></div></div>`;
     return html`<div class="bubble ai">
       <div class="md">${md(m.content)}${streaming ? html`<span class="caret"></span>` : nothing}</div>
       ${streaming ? nothing : html`<div class="bfoot">
         <button class="mini" title=${t("Kopieren")} @click=${() => copyText(m.content)}>${icon("copy", 15)}</button>
-        ${last ? html`<button class="mini" title="Neue Antwort" @click=${() => this.retry()}>${icon("retry", 15)}</button>` : nothing}
+        ${last ? html`<button class="mini" title=${t("Neue Antwort")} @click=${() => this.retry()}>${icon("retry", 15)}</button>` : nothing}
         <span class="bt">${hm(m.created)}</span></div>`}</div>`;
   }
 
@@ -773,23 +806,23 @@ export class ChatView extends LitElement {
     const el = this.now / 1000 - (run.started || this.now / 1000);
     const d = run.detail || {};
     let text: string;
-    if (run.status === "queued") text = "Gleich geht's los …";
-    else if (run.status === "retry") text = "Gerade ist viel los – gleich geht's weiter …";
-    else if (run.status === "quota_wait") text = `Tageslimit erreicht – weiter in ${fmtDuration(d.seconds)}`;
-    else if (run.status === "tool") text = DOING[d.tool ? store.data?.tools?.[d.tool]?.group : d.model ? "model" : ""] || "Arbeitet daran …";
+    if (run.status === "queued") text = t("Gleich geht's los …");
+    else if (run.status === "retry") text = t("Gerade ist viel los – gleich geht's weiter …");
+    else if (run.status === "quota_wait") text = t("Tageslimit erreicht – weiter in {d}", { d: fmtDuration(d.seconds) });
+    else if (run.status === "tool") text = t(DOING[d.tool ? store.data?.tools?.[d.tool]?.group : d.model ? "model" : ""] || "Arbeitet daran …");
     // Teilaufgaben laufen im Hintergrund: nur eine Zeile, wie viele es sind
     const busy = this.subsOf(chat).filter((c: any) => store.runs[c.id] || c.sub_status === "laeuft" || c.sub_status === "wartet").length;
     if (busy && (run.status === "tool" || run.status === "waiting_sub_permission")) text = busy === 1 ? t("Arbeitet an einer Teilaufgabe …") : t("Arbeitet an {n} Teilaufgaben …", { n: busy });
-    else if (d.switched_from) text = "Wechselt zu einer weniger ausgelasteten KI …";
+    else if (d.switched_from) text = t("Wechselt zu einer weniger ausgelasteten KI …");
     else {
-      const verbs = (d.step || 1) > 1 ? ["Wertet aus", "Denkt nach", "Fasst zusammen"] : ["Denkt nach", "Überlegt", "Formuliert eine Antwort"];
-      text = verbs[Math.floor(el / 5) % verbs.length] + " …";
+      const verbs = (d.step || 1) > 1 ? ["Wertet aus …", "Denkt nach …", "Fasst zusammen …"] : ["Denkt nach …", "Überlegt …", "Formuliert eine Antwort …"];
+      text = t(verbs[Math.floor(el / 5) % verbs.length]);
     }
-    const slow = run.hint ? "Die KI ist gerade sehr gefragt – das kann ein paar Minuten dauern."
-      : el > 45 || run.status === "retry" ? "Das dauert gerade etwas länger." : "";
+    const slow = run.hint ? t("Die KI ist gerade sehr gefragt – das kann ein paar Minuten dauern.")
+      : el > 45 || run.status === "retry" ? t("Das dauert gerade etwas länger.") : "";
     return html`<div class="bubble ai typing" role="status" aria-live="polite">
         <lm-spark size="20"></lm-spark><span class="dots"><i></i><i></i><i></i></span><span class="tstat shimmer">${text}</span></div>
-      ${slow ? html`<div class="slowsys">${slow} Du kannst die Seite ruhig verlassen – die Antwort erscheint hier, sobald sie fertig ist.</div>` : nothing}`;
+      ${slow ? html`<div class="slowsys">${slow} ${t("Du kannst die Seite ruhig verlassen – die Antwort erscheint hier, sobald sie fertig ist.")}</div>` : nothing}`;
   }
 
   /** Questions from the assistant as plain yes/no messages; the details stay one tap away. */
@@ -799,17 +832,17 @@ export class ChatView extends LitElement {
       if (p.connector_form) return html`<div class="bubble ai ask">${this.connectorFormCard(p)}</div>`;
       if (p.change) {
         const del = p.change.aktion === "loeschen";
-        const verb = ({ anlegen: "anlegen", aendern: "ändern", loeschen: "löschen" } as any)[p.change.aktion] || p.change.aktion;
+        const ask = CHANGE_ASK[p.change.aktion] || "Soll ich {what} {name} ändern?";
         return html`<div class="bubble ai ask">
-          <div>Soll ich ${CHANGE_WHAT[p.change.art] || p.change.art} <b>„${p.change.name}“</b> ${verb}?</div>
-          ${p.change.hinweis ? html`<div class="hint">${icon("alert", 15)} ${p.change.hinweis}</div>` : nothing}
-          <details class="why"><summary>${icon("eye", 15)} Genau ansehen</summary>${changeView(p.change)}</details>
-          <div class="brow"><button class="btn primary ${del ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja, ${del ? "löschen" : "übernehmen"}</button>
-            <button class="btn" @click=${() => answer(p, "deny")}>Nein</button></div></div>`;
+          <div>${t(ask, { what: t(CHANGE_WHAT[p.change.art] || p.change.art), name: `„${p.change.name}“` })}</div>
+          ${p.change.hinweis ? html`<div class="hint">${icon("alert", 15)} ${tb(p.change.hinweis)}</div>` : nothing}
+          <details class="why"><summary>${icon("eye", 15)} ${t("Genau ansehen")}</summary>${changeView(p.change)}</details>
+          <div class="brow"><button class="btn primary ${del ? "danger" : ""}" @click=${() => answer(p, "once")}>${icon("check", 16)} ${del ? t("Ja, löschen") : t("Ja, übernehmen")}</button>
+            <button class="btn" @click=${() => answer(p, "deny")}>${t("Nein")}</button></div></div>`;
       }
       if (p.cred) return html`<div class="bubble ai ask">
         <div>${t("Darf ich dafür deinen Zugang {name} verwenden?", { name: `„${p.cred}“` })}</div>
-        <details class="why"><summary>${icon("eye", 15)} ${t("Genau ansehen")}</summary><div class="hint" style="margin-bottom:6px">${p.label}</div><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
+        <details class="why"><summary>${icon("eye", 15)} ${t("Genau ansehen")}</summary><div class="hint" style="margin-bottom:6px">${tb(p.label)}</div><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
         <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${t("Ja, diesmal")}</button>
           <button class="btn" @click=${() => answer(p, "always")}>${t("Ja, in diesem Chat immer")}</button>
           <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Nein")}</button></div></div>`;
@@ -820,18 +853,18 @@ export class ChatView extends LitElement {
           <button class="btn" @click=${() => answer(p, "always")}>${t("Diesem Server immer")}</button>
           <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Nein")}</button></div></div>`;
       if (p.group) return html`<div class="bubble ai ask">
-        <div>Darf ich dafür <b>${GROUP_PLAIN[p.group] || p.group_label}</b> benutzen?</div>
-        <details class="why"><summary>${icon("eye", 15)} Was genau?</summary><div class="hint" style="margin-bottom:6px">${p.label}</div><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
-        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja</button>
-          <button class="btn" @click=${() => answer(p, "always")}>Ja, in diesem Chat immer</button>
-          <button class="btn ghost" @click=${() => answer(p, "deny")}>Nein</button></div></div>`;
+        <div>${t("Darf ich dafür {g} benutzen?", { g: GROUP_PLAIN[p.group] ? t(GROUP_PLAIN[p.group]) : tb(p.group_label) })}</div>
+        <details class="why"><summary>${icon("eye", 15)} ${t("Was genau?")}</summary><div class="hint" style="margin-bottom:6px">${tb(p.label)}</div><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
+        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${t("Ja")}</button>
+          <button class="btn" @click=${() => answer(p, "always")}>${t("Ja, in diesem Chat immer")}</button>
+          <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Nein")}</button></div></div>`;
       return html`<div class="bubble ai ask">
-        <div>Darf ich das tun? <b>${p.label}</b></div>
-        <details class="why"><summary>${icon("eye", 15)} Genau ansehen</summary><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
-        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} Ja, diesmal</button>
-          <button class="btn" @click=${() => answer(p, "always")}>Immer erlauben</button>
-          <button class="btn ghost" @click=${() => answer(p, "deny")}>Nein</button></div>
-        <div class="hint">„Immer erlauben“ lässt sich in den Einstellungen zurücknehmen.</div></div>`;
+        <div>${t("Darf ich das tun?")} <b>${tb(p.label)}</b></div>
+        <details class="why"><summary>${icon("eye", 15)} ${t("Genau ansehen")}</summary><pre>${JSON.stringify(p.args || {}, null, 2)}</pre></details>
+        <div class="brow"><button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${t("Ja, diesmal")}</button>
+          <button class="btn" @click=${() => answer(p, "always")}>${t("Immer erlauben")}</button>
+          <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Nein")}</button></div>
+        <div class="hint">${t("„Immer erlauben“ lässt sich in den Einstellungen zurücknehmen.")}</div></div>`;
     });
   }
 
@@ -844,22 +877,22 @@ export class ChatView extends LitElement {
     const proj = (store.data?.projects || []).find((p: any) => p.id === chat.project_id);
     const u = chat.usage || {};
     return html`<aside>
-      ${this.narrow ? html`<div class="row"><b class="grow">Details</b><button class="iconbtn" @click=${() => (this.panel = false)}>${icon("close")}</button></div>` : nothing}
+      ${this.narrow ? html`<div class="row"><b class="grow">${t("Details")}</b><button class="iconbtn" @click=${() => (this.panel = false)}>${icon("close")}</button></div>` : nothing}
       <div><h3>${icon("list", 18)} ${t("Fortschritt")}</h3>
         ${prog.length ? html`<div class="prog">${prog.map((p: any) => { const st = status(p); return html`<div>
           ${st === "erledigt" ? html`<span class="ok">${icon("check", 18)}</span>` : st === "laeuft" ? html`<span class="spin"></span>`
             : st === "fehler" ? html`<span class="err">${icon("alert", 18)}</span>` : html`<span class="muted">${icon("mdi:circle-outline", 18)}</span>`}
           <span class=${st === "erledigt" ? "done" : ""}>${p.text}</span></div>`; })}</div>`
-          : html`<div class="hint">Der Plan erscheint hier, sobald das Modell ihn anlegt.</div>`}</div>
+          : html`<div class="hint">${t("Der Plan erscheint hier, sobald das Modell ihn anlegt.")}</div>`}</div>
       <div><h3>${icon("file", 18)} ${t("Dateien")}</h3>
         ${files.length ? files.map((f: any) => html`<div class="fl" @click=${() => this.openFile(f.name)}>${icon("file", 18)}<span class="grow ellipsis">${f.name}</span>
-          <span class="muted" style="font-size:11.5px">${fmtNum(f.size)} B</span>${icon("download", 16)}</div>`) : html`<div class="hint">Noch keine Dateien.</div>`}</div>
-      <div><h3>${icon("info", 18)} Info</h3><div class="hint" style="display:grid;gap:4px">
+          <span class="muted" style="font-size:11.5px">${fmtNum(f.size)} B</span>${icon("download", 16)}</div>`) : html`<div class="hint">${t("Noch keine Dateien.")}</div>`}</div>
+      <div><h3>${icon("info", 18)} ${t("Info")}</h3><div class="hint" style="display:grid;gap:4px">
         ${proj ? html`<span>${t("Projekte")}: <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/project/${proj.id}`); }}>${proj.name}</a></span>` : nothing}
-        <span>${t("Modell")}: ${modelName(chat.model)}${chat.model_auto ? " (automatisch gewählt)" : ""}</span>
-        <span>Anfragen: ${u.requests || 0} · Tokens: ${fmtNum((u.prompt || 0) + (u.completion || 0))}</span>
-        ${this.subsOf(chat).length ? html`<span>${t("Mit Teilaufgaben")}: ${fmtNum(this.subsOf(chat).reduce((n: number, c: any) => n + (c.usage?.prompt || 0) + (c.usage?.completion || 0), (u.prompt || 0) + (u.completion || 0)))} Tokens</span>` : nothing}
-        <span>Erstellt: ${fmtTime(chat.created)}</span></div></div>
+        <span>${t("Modell")}: ${modelName(chat.model)}${chat.model_auto ? ` (${t("automatisch gewählt")})` : ""}</span>
+        <span>${t("Anfragen: {r} · Tokens: {n}", { r: u.requests || 0, n: fmtNum((u.prompt || 0) + (u.completion || 0)) })}</span>
+        ${this.subsOf(chat).length ? html`<span>${t("Mit Teilaufgaben")}: ${fmtNum(this.subsOf(chat).reduce((n: number, c: any) => n + (c.usage?.prompt || 0) + (c.usage?.completion || 0), (u.prompt || 0) + (u.completion || 0)))} ${t("Tokens")}</span>` : nothing}
+        <span>${t("Erstellt: {x}", { x: fmtTime(chat.created) })}</span></div></div>
     </aside>`;
   }
 
@@ -884,48 +917,49 @@ export class ChatView extends LitElement {
             @blur=${(e: any) => this.rename(e.target.value)} autofocus>`
           : html`<span class="title ellipsis" @click=${() => (this.editTitle = true)}>${chat.title || t("Neuer Chat")}</span>`}
         ${chat.parent_id ? html`<span class="chip accent">${icon("subtask", 14)} ${t("Teilaufgabe")}</span>` : nothing}
-        ${isWork && !chat.parent_id && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? "Aufgabe" : "Cowork"}</span>` : nothing}
+        ${isWork && !chat.parent_id && !(simple && chat.kind === "cowork") ? html`<span class="chip accent">${icon(chat.kind === "task_run" ? "task" : "cowork", 14)} ${chat.kind === "task_run" ? t("Aufgabe") : t("Cowork")}</span>` : nothing}
         ${simple ? nothing : this.treeChip(chat)}
         ${proj && !this.narrow ? html`<span class="chip" style="cursor:pointer" @click=${() => navigate(`/project/${proj.id}`)}>${icon("project", 14)} ${proj.name}</span>` : nothing}
-        ${isExternal(chat.model) ? html`<span class="chip ext" title="Läuft ${isBilled(chat.model) ? "kostenpflichtig " : ""}bei ${modelById(chat.model)?.operator || "einem externen Anbieter"}">${icon(isBilled(chat.model) ? "euro" : "external", 14)} ${simple && isBilled(chat.model) ? "Ersatz-KI" : "extern"}</span>` : nothing}
+        ${isExternal(chat.model) ? html`<span class="chip ext" title=${runsAt(chat.model)}>${icon(isBilled(chat.model) ? "euro" : "external", 14)} ${simple && isBilled(chat.model) ? t("Ersatz-KI") : t("extern")}</span>` : nothing}
         <span class="grow"></span>
         ${chat.kind !== "task_run" ? html`<button class="btn ghost talk" title=${t("Im Gespräch sprechen")}
           @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)}${this.narrow ? "" : ` ${t("Gespräch")}`}</button>` : nothing}
         ${files.length ? html`<lm-menu direction="down" align="right"><button slot="trigger" class="btn ghost" title=${t("Dateien")}>${icon("file", 18)}${this.narrow ? "" : ` ${t("Dateien")}`} <span class="chip">${files.length}</span></button>
-          <div class="mh">Dateien in diesem Chat</div>
+          <div class="mh">${t("Dateien in diesem Chat")}</div>
           ${files.map((f: any) => html`<button class="mi" data-close @click=${() => this.openFile(f.name)}>${icon("file", 18)}<span class="grow ellipsis">${f.name}</span>${icon("download", 16)}</button>`)}</lm-menu>` : nothing}
-        ${isWork && this.narrow && !simple ? html`<button class="iconbtn" @click=${() => (this.panel = true)} title="Details">${icon("panel")}</button>` : nothing}
+        ${isWork && this.narrow && !simple ? html`<button class="iconbtn" @click=${() => (this.panel = true)} title=${t("Details")}>${icon("panel")}</button>` : nothing}
         <lm-menu direction="down" align="right"><button slot="trigger" class="iconbtn">${icon("dots")}</button>
           ${chat.kind !== "task_run" ? html`<button class="mi" data-close @click=${() => navigate(`/voice/${chat.id}`)}>${icon("voice", 18)} ${t("Im Gespräch sprechen")}</button>` : nothing}
           <button class="mi" data-close @click=${() => (this.editTitle = true)}>${icon("edit", 18)} ${t("Umbenennen")}</button>
           ${chat.parent_id ? nothing : html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, pinned: !chat.pinned })}>${icon(chat.pinned ? "pinOff" : "pin", 18)} ${chat.pinned ? t("Lösen") : t("Anheften")}</button>
-          <div class="mh">In Projekt verschieben</div>
-          <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: null })}>${icon("chat", 18)} Ohne Projekt</button>
+          <div class="mh">${t("In Projekt verschieben")}</div>
+          <button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: null })}>${icon("chat", 18)} ${t("Ohne Projekt")}</button>
           ${(store.data?.projects || []).map((p: any) => html`<button class="mi" data-close @click=${() => store.api.ws("chat/update", { chat_id: chat.id, project_id: p.id })}>${icon("project", 18)} ${p.name}</button>`)}`}
           <div class="msep"></div>
-          <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog("Diesen Chat endgültig löschen?")) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate(chat.parent_id ? `/chat/${chat.parent_id}` : "/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
+          <button class="mi" style="color:var(--lm-err)" data-close @click=${async () => { if (await confirmDialog(t("Diesen Chat endgültig löschen?"))) { await store.api.ws("chat/delete", { chat_id: chat.id }); navigate(chat.parent_id ? `/chat/${chat.parent_id}` : "/"); } }}>${icon("trash", 18)} ${t("Löschen")}</button>
         </lm-menu>
       </header>
       ${this.subBar(chat)}
       <div class="scroll" @scroll=${this.onScroll}><div class="thread ${simple ? "simple" : ""}">
-        ${task ? html`<div class="taskinfo">${icon("task", 18)}<span>${simple ? "Ergebnis" : "Lauf"} der geplanten Aufgabe <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/task/${task.id}`); }}>${task.name}</a>.
-          ${simple ? "Sie läuft von selbst nach Zeitplan." : "Open-Weight-Modelle können verzögert starten und länger laufen."}</span></div>` : nothing}
-        ${chat.messages.length === 0 && !run ? html`<div class="empty">${simple ? "Schreib einfach los – die Antwort erscheint hier." : isWork ? "Beschreibe die Aufgabe – LLMitMir plant und arbeitet sie selbstständig ab." : "Schreib einfach los."}</div>` : nothing}
+        ${task ? html`<div class="taskinfo">${icon("task", 18)}<span>${simple ? t("Ergebnis der geplanten Aufgabe") : t("Lauf der geplanten Aufgabe")} <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate(`/task/${task.id}`); }}>${task.name}</a>.
+          ${simple ? t("Sie läuft von selbst nach Zeitplan.") : t("Open-Weight-Modelle können verzögert starten und länger laufen.")}</span></div>` : nothing}
+        ${chat.messages.length === 0 && !run ? html`<div class="empty">${simple ? t("Schreib einfach los – die Antwort erscheint hier.") : isWork ? t("Beschreibe die Aufgabe – LLMitMir plant und arbeitet sie selbstständig ab.") : t("Schreib einfach los.")}</div>` : nothing}
         ${simple ? this.simpleThread(chat, run) : this.renderMessages(chat, run)}
         ${this.queuedBubbles(chat)}
         ${simple ? this.simplePerms() : this.permCards()}
         ${simple ? this.typing(run, chat) : this.runIndicator(run, chat)}
       </div></div>
       <div class="foot">
-        ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} Nach unten</button></div>`}
-        <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
+        ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} ${t("Nach unten")}</button></div>`}
+        ${this.stepBanner(chat, run)}
+        <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .runSteps=${run?.steps || null} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .draftKey=${chat.id}
           .tools=${chat.tools ?? null} .projectId=${chat.project_id} .noThinking=${!!chat.no_thinking} .lockText=${chatLock(chat)}
-          placeholder=${run ? "Antwort läuft – du kannst schon weiterschreiben …" : t("Antworten …")}
+          placeholder=${run ? t("Antwort läuft – du kannst schon weiterschreiben …") : t("Antworten …")}
           @send=${this.send} @stop=${this.stop} @nothinking=${this.setNoThinking}></lm-composer>
-        <div class="note">${isExternal(chat.model) ? `Läuft ${isBilled(chat.model) ? "kostenpflichtig " : ""}bei ${modelById(chat.model)?.operator || "einem externen Anbieter"} – bitte keine sensiblen Daten eingeben.`
-          : chat.kind === "task_run" ? "Antworten in diesem Lauf laufen als normaler Cowork weiter."
-          : ext().any_access && chatLock(chat) ? t("Interne Daten im Chat – externe Modelle sind hier gesperrt.") : "KI kann Fehler machen. Wichtiges bitte prüfen."}</div>
+        <div class="note">${isExternal(chat.model) ? `${runsAt(chat.model)} – ${t("bitte keine sensiblen Daten eingeben.")}`
+          : chat.kind === "task_run" ? t("Antworten in diesem Lauf laufen als normaler Cowork weiter.")
+          : ext().any_access && chatLock(chat) ? t("Interne Daten im Chat – externe Modelle sind hier gesperrt.") : t("KI kann Fehler machen. Wichtiges bitte prüfen.")}</div>
       </div>
     </div>
     ${isWork && !simple && !this.narrow ? this.side(chat) : nothing}

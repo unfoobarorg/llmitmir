@@ -16,6 +16,16 @@ Gespräch neu – „standardmäßig“ heißt: ohne Zutun, nicht gegen den Will
 """
 from __future__ import annotations
 
+try:
+    from . import i18n as I18N
+except ImportError:  # einzeln geladen wie in tests/test_pure.py: i18n.py liegt daneben
+    import importlib.util as _ilu
+    import os as _os
+
+    _spec = _ilu.spec_from_file_location("lm_i18n", _os.path.join(_os.path.dirname(__file__), "i18n.py"))
+    I18N = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(I18N)
+
 DEFAULT_DAYS = 0      # Standard: automatisches Löschen ist aus
 SUGGEST_DAYS = 30     # Vorschlag, sobald die Person das Löschen einschaltet
 MAX_DAYS = 3650       # zehn Jahre – „beliebig“ heißt nicht „unendlich viele Ziffern“
@@ -92,10 +102,11 @@ def voice_project(projects: dict | None) -> dict | None:
     return None
 
 
-def voice_project_record(pid: str, now_ts: float) -> dict:
-    """Ein neues Projekt „Gespräche“ mit 14 Tagen Lebensdauer (angelegt beim ersten Gespräch)."""
-    return {"id": pid, "name": VOICE_PROJECT_NAME, "auto": VOICE_PROJECT_AUTO,
-            "description": VOICE_PROJECT_DESCRIPTION, "instructions": "",
+def voice_project_record(pid: str, now_ts: float, lang: str | None = None) -> dict:
+    """Ein neues Projekt „Gespräche“ mit 14 Tagen Lebensdauer (angelegt beim ersten Gespräch, Name und Beschreibung in
+    der Sprache der Oberfläche)."""
+    return {"id": pid, "name": I18N.t(VOICE_PROJECT_NAME, lang), "auto": VOICE_PROJECT_AUTO,
+            "description": I18N.t(VOICE_PROJECT_DESCRIPTION, lang), "instructions": "",
             "retention_days": VOICE_PROJECT_DAYS, "created": now_ts, "updated": now_ts}
 
 

@@ -55,6 +55,22 @@ PYTHONPATH=. pytest tests_ha        # gegen ein echtes Home Assistant – Einric
 - Das Repository ist öffentlich: keine Geheimnisse, internen Adressen oder persönlichen Daten in Code, Tests und Commits
   (`tests/test_release.py` sucht nach Token-Mustern).
 
+## Sprachen
+
+- Deutsch ist die Ausgangssprache: Der deutsche Text ist zugleich der Schlüssel. Die Übersetzungen stehen in
+  `custom_components/llmitmir/locales/<code>.json` – eine Datei für Panel und Backend.
+- **Panel:** jeder sichtbare Text läuft über `t("…", { platzhalter })` aus `frontend/src/i18n.ts`; Texte vom Server
+  (Fehlermeldungen, Prüfergebnisse, Zeitpläne, Werkzeugnamen) über `tb(…)`, das auch Muster mit Platzhaltern erkennt
+  („Zugang „{name}“ nicht verfügbar“). Datum und Zahlen mit `dateLocale()`. Websocket-Fehler übersetzt `Api.ws` zentral.
+- **Backend:** `i18n.py` kennt die gewählte Sprache je Person (`Manager.lang`) und übersetzt Texte, die ohne Panel
+  ankommen (Push-Nachrichten, Hinweise im Chat): `I18N.t(text, lang, **platzhalter)` und `I18N.tr(fertiger_text, lang)`.
+  Fehlermeldungen bleiben deutsch und brauchen nur einen Eintrag in `locales/en.json`.
+- **Tests:** `frontend/test/i18n.test.ts` findet deutsche Texte außerhalb von `t()` und fehlende Übersetzungen,
+  `tests/test_i18n.py` prüft, dass jede angezeigte Fehlermeldung und jeder Werkzeugname übersetzt ist. Bewusste
+  Ausnahmen markiert `// i18n-ok` (Zeile) bzw. `i18n-ok-file` (Datei).
+- **Neue Sprache:** `locales/<code>.json` mit denselben Schlüsseln anlegen und in `LANGUAGES` (`frontend/src/i18n.ts`)
+  eintragen; das Backend lädt die Datei von selbst. Für die Werkbank-Anleitung `docs/WERKBANK.<code>.md` ergänzen.
+
 ## Aufbau
 
 | Bereich | Dateien |

@@ -5,7 +5,7 @@ import { LitElement, css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { base, icon, tokens, safeElement, confirmDialog } from "./ui";
 import { store } from "./api";
-import { t } from "./i18n";
+import { t, tb, dateLocale } from "./i18n";
 
 /** A usage-billed external model (own provider of LLMitMir, costs money per request). */
 export const isBilled = (id: string | null | undefined) => /^(foundry|anthropic):/.test(id || "");
@@ -25,7 +25,7 @@ export function chatLock(chat: any): string {
   const label: Record<string, string> = { cred: t("Zugang"), rule: t("Datenregel"), skill: t("Skill") };
   const names: string[] = [];
   for (const r of [...(own?.reasons || []), ...(parent?.reasons || [])]) {
-    const n = label[r.kind] ? `${label[r.kind]} „${r.name}“` : "";
+    const n = label[r.kind] ? `${label[r.kind]} „${r.name}“` : "";  // i18n-ok
     if (n && !names.includes(n)) names.push(n);
   }
   const list = names.slice(0, 3).join(", ") + (names.length > 3 ? ` +${names.length - 3}` : "");
@@ -33,39 +33,35 @@ export function chatLock(chat: any): string {
     + t("Externe Modelle sind hier gesperrt – für ein externes Modell einen neuen Chat beginnen.");
 }
 
+/** Anteil als „23 %“ – wie fmtPct in limits.ts (das dieses Modul importiert, daher hier eigenständig). */
+const pct = (f: number) => { const n = Math.min(100, Math.round(Math.max(0, f) * 100)); return t("{n} %", { n }); };
 export const fmtEur = (v: number, digits = 2) =>
-  (Number(v || 0)).toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: Math.max(digits, 2) }) + " €";
+  (Number(v || 0)).toLocaleString(dateLocale(), { minimumFractionDigits: digits, maximumFractionDigits: Math.max(digits, 2) }) + " €";
 
 /** "0,09 € / 0,43 € je Mio. Tokens (ein/aus)" */
-export const priceText = (p: any) => p ? `${fmtEur(p.in)} / ${fmtEur(p.out)} je Mio. Tokens (lesen/schreiben)` : "Preis unbekannt";
+export const priceText = (p: any) => p ? t("{a} / {b} je Mio. Tokens (lesen/schreiben)", { a: fmtEur(p.in), b: fmtEur(p.out) }) : t("Preis unbekannt");
 
 /** A rough idea of what one answer costs: a typical agent step reads ~20 000 and writes ~1 000 tokens. */
 export const stepCost = (p: any) => p ? (20000 * p.in + 1000 * p.out) / 1e6 : 0;
 
 const operatorOf = (modelId?: string) => {
   const m = (store.data?.models || []).find((x: any) => x.id === modelId);
-  return m?.operator || "einem externen Anbieter";
+  return m?.operator || t("einem externen Anbieter");
 };
 
 /** The full explanation – shown once before the first use and on the settings page. */
 export function externalExplanation(operator?: string) {
   const e = ext();
-  const where = operator || (e.has_access && e.main_external ? "einem kommerziellen Anbieter (z. B. Microsoft Azure, OpenAI oder Anthropic)"
-    : e.main_external ? "einem kommerziellen Anbieter, an den der Hauptanbieter weiterleitet" : "einem externen Anbieter (Microsoft Azure oder Anthropic)");
+  const where = operator || (e.has_access && e.main_external ? t("einem kommerziellen Anbieter (z. B. Microsoft Azure, OpenAI oder Anthropic)")
+    : e.main_external ? t("einem kommerziellen Anbieter, an den der Hauptanbieter weiterleitet") : t("einem externen Anbieter (Microsoft Azure oder Anthropic)"));
   return html`<div class="extx">
-    <p><b>Was ist anders?</b> Diese Modelle laufen nicht im Rechenzentrum des Hauptanbieters dieser Installation (z. B. der GWDG),
-      sondern bei <b>${where}</b>.${e.has_access ? " Sie sind sehr leistungsfähig; die über LLMitMir eingerichteten kosten bei jeder Anfrage Geld." : ""}
-      ${e.main_external ? " Auch Modelle, die der Hauptanbieter selbst als „extern“ kennzeichnet, gehören dazu – er reicht deine Anfragen an einen kommerziellen Anbieter weiter." : ""}</p>
-    <p><b>Was wird dorthin geschickt?</b> Deine Nachrichten, der bisherige Verlauf des Chats, Anhänge, Projektanweisungen, deine persönlichen
-      Hinweise, Skill-Texte und die Ergebnisse der Werkzeuge – zum Beispiel Werte aus Home Assistant oder Dateien aus freigegebenen Zugängen.</p>
-    <p><b>Was nie dorthin geht:</b> Passwörter und Schlüssel aus deinen Zugängen. Zugänge, die du nicht ausdrücklich für externe Modelle
-      freigibst, bleiben ganz außen vor – auch ihre Ergebnisse werden aus dem Verlauf entfernt. Projekte lassen sich ganz sperren.</p>
-    <p class="warn">${icon("shield", 18)}<span><b>Bitte gib dort keine sensiblen Informationen preis:</b> keine Gesundheitsdaten, Passwörter,
-      Kontodaten oder persönlichen Daten anderer Menschen.</span></p>
-    <p><b>Speicherung:</b> Der Anbieter darf Anfragen eine begrenzte Zeit aufbewahren (bei Claude bis zu 30 Tage, z. B. zur Erkennung von
-      Missbrauch); zum Trainieren von KI-Modellen werden sie nicht verwendet.${e.main_external ? " Bei weitergeleiteten Modellen gelten die Bedingungen, die der Hauptanbieter mit dem Anbieter vereinbart hat." : ""}</p>
-    <p>${e.has_access ? html`<b>Kosten:</b> Der Admin hat dir ein Monatslimit von ${fmtEur(e.limit_eur || 0)} gegeben; diesen Monat sind ${fmtEur(e.month_eur || 0)}
-      verbraucht.${e.main_external ? " Für die als extern gekennzeichneten Modelle des Hauptanbieters rechnet LLMitMir keine Kosten ab." : ""} ` : nothing}LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest${e.has_access ? " oder eine Aufgabe es im Notfall darf" : ""}.</p>
+    <p><b>${t("Was ist anders?")}</b> ${t("Diese Modelle laufen nicht im Rechenzentrum des Hauptanbieters dieser Installation (z. B. der GWDG), sondern bei {where}.", { where })}${e.has_access ? t(" Sie sind sehr leistungsfähig; die über LLMitMir eingerichteten kosten bei jeder Anfrage Geld.") : ""}
+      ${e.main_external ? t(" Auch Modelle, die der Hauptanbieter selbst als „extern“ kennzeichnet, gehören dazu – er reicht deine Anfragen an einen kommerziellen Anbieter weiter.") : ""}</p>
+    <p><b>${t("Was wird dorthin geschickt?")}</b> ${t("Deine Nachrichten, der bisherige Verlauf des Chats, Anhänge, Projektanweisungen, deine persönlichen Hinweise, Skill-Texte und die Ergebnisse der Werkzeuge – zum Beispiel Werte aus Home Assistant oder Dateien aus freigegebenen Zugängen.")}</p>
+    <p><b>${t("Was nie dorthin geht:")}</b> ${t("Passwörter und Schlüssel aus deinen Zugängen. Zugänge, die du nicht ausdrücklich für externe Modelle freigibst, bleiben ganz außen vor – auch ihre Ergebnisse werden aus dem Verlauf entfernt. Projekte lassen sich ganz sperren.")}</p>
+    <p class="warn">${icon("shield", 18)}<span><b>${t("Bitte gib dort keine sensiblen Informationen preis:")}</b> ${t("keine Gesundheitsdaten, Passwörter, Kontodaten oder persönlichen Daten anderer Menschen.")}</span></p>
+    <p><b>${t("Speicherung:")}</b> ${t("Der Anbieter darf Anfragen eine begrenzte Zeit aufbewahren (bei Claude bis zu 30 Tage, z. B. zur Erkennung von Missbrauch); zum Trainieren von KI-Modellen werden sie nicht verwendet.")}${e.main_external ? t(" Bei weitergeleiteten Modellen gelten die Bedingungen, die der Hauptanbieter mit dem Anbieter vereinbart hat.") : ""}</p>
+    <p>${e.has_access ? html`<b>${t("Kosten:")}</b> ${t("Der Admin hat dir ein Monatsbudget gegeben; diesen Monat hast du {p} davon verbraucht.", { p: pct(e.limit_eur ? (e.month_eur || 0) / e.limit_eur : 0) })}${e.main_external ? t(" Für die als extern gekennzeichneten Modelle des Hauptanbieters rechnet LLMitMir keine Kosten ab.") : ""} ` : nothing}${e.has_access ? t("LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest oder eine Aufgabe es im Notfall darf.") : t("LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest.")}</p>
   </div>`;
 }
 
@@ -101,8 +97,10 @@ export async function confirmExternal(modelId: string, withHistory: boolean): Pr
   const first = !ext().consent;
   if (!(await ensureConsent(op))) return false;
   if (first) return true;  // the full explanation was just accepted
-  const cost = m?.price ? ` Ein Schritt kostet grob ${fmtEur(stepCost(m.price), 3)}.` : "";
-  return confirmDialog(`${m?.name || "Dieses Modell"} läuft ${isBilled(modelId) ? "kostenpflichtig " : ""}bei ${op}.${withHistory ? " Der bisherige Verlauf dieses Chats wird mitgeschickt." : ""}${cost} Bitte keine sensiblen Daten eingeben.`, "Weiter");
+  const cost = m?.price ? " " + t("Ein Modellaufruf kostet grob {x}.", { x: fmtEur(stepCost(m.price), 3) }) : "";
+  const name = m?.name || t("Dieses Modell");
+  const head = isBilled(modelId) ? t("{m} läuft kostenpflichtig bei {op}.", { m: name, op }) : t("{m} läuft bei {op}.", { m: name, op });
+  return confirmDialog(`${head}${withHistory ? t(" Der bisherige Verlauf dieses Chats wird mitgeschickt.") : ""}${cost} ${t("Bitte keine sensiblen Daten eingeben.")}`, t("Weiter"));
 }
 
 @safeElement("lm-extinfo")
@@ -121,13 +119,13 @@ export class ExtInfo extends LitElement {
   private done(v: boolean) { this.dispatchEvent(new CustomEvent("done", { detail: v })); }
   render() {
     return html`<div class="back" @click=${(e: Event) => e.target === e.currentTarget && this.done(false)}>
-      <div class="box" role="dialog" aria-modal="true"><h2>${icon(ext().has_access ? "euro" : "external", 22)} ${ext().has_access ? "Kostenpflichtige externe KI-Modelle" : "Externe KI-Modelle"}</h2>
+      <div class="box" role="dialog" aria-modal="true"><h2>${icon(ext().has_access ? "euro" : "external", 22)} ${ext().has_access ? t("Kostenpflichtige externe KI-Modelle") : t("Externe KI-Modelle")}</h2>
         ${externalExplanation(this.operator || undefined)}
         <label><input type="checkbox" .checked=${this.read} @change=${(e: any) => (this.read = e.target.checked)}>
-          Ich habe das gelesen und gebe in Chats mit externen Modellen keine sensiblen Informationen ein.</label>
+          ${t("Ich habe das gelesen und gebe in Chats mit externen Modellen keine sensiblen Informationen ein.")}</label>
         <div class="row" style="justify-content:flex-end;flex-wrap:wrap">
           <button class="btn" @click=${() => this.done(false)}>${t("Abbrechen")}</button>
-          <button class="btn primary" ?disabled=${!this.read} @click=${() => this.done(true)}>${icon("check", 16)} Zustimmen und fortfahren</button></div>
+          <button class="btn primary" ?disabled=${!this.read} @click=${() => this.done(true)}>${icon("check", 16)} ${t("Zustimmen und fortfahren")}</button></div>
       </div></div>`;
   }
 }
@@ -145,10 +143,10 @@ export function offerCard(chatId: string, offer: any, simple: boolean, last: boo
   };
   const rec = offer.models.find((m: any) => m.id === offer.recommended) || offer.models[0];
   if (simple) return html`<div class="offer">
-    <div>${icon("euro", 16)} Es gibt einen <b>kostenpflichtigen Ersatz</b> (${rec.operator}), mit dem es sofort weitergehen kann.</div>
-    <div class="brow"><button class="btn primary" @click=${() => go(rec.id)}>Mit dem Ersatz weitermachen</button></div></div>`;
+    <div>${icon("euro", 16)} ${t("Es gibt einen kostenpflichtigen Ersatz ({op}), mit dem es sofort weitergehen kann.", { op: rec.operator })}</div>
+    <div class="brow"><button class="btn primary" @click=${() => go(rec.id)}>${t("Mit dem Ersatz weitermachen")}</button></div></div>`;
   return html`<div class="offer">
-    <div>${icon("euro", 16)} Der Hauptanbieter ist gerade nicht nutzbar${offer.reason ? ` (${offer.reason})` : ""}. Diese kostenpflichtigen Modelle sind freigeschaltet:</div>
+    <div>${icon("euro", 16)} ${t("Der Hauptanbieter ist gerade nicht nutzbar")}${offer.reason ? ` (${tb(offer.reason)})` : ""}. ${t("Diese kostenpflichtigen Modelle sind freigeschaltet:")}</div>
     <div class="brow">${offer.models.slice(0, 4).map((m: any) => html`<button class="btn ${m.id === rec.id ? "primary" : ""}" title=${`${m.provider_name} · ${priceText(m.price)}`}
-      @click=${() => go(m.id)}>${m.name} <span class="muted" style="font-size:12px">· ~${fmtEur(stepCost(m.price), 3)}/Schritt</span></button>`)}</div></div>`;
+      @click=${() => go(m.id)}>${m.name} <span class="muted" style="font-size:12px">· ~${fmtEur(stepCost(m.price), 3)}/${t("Modellaufruf")}</span></button>`)}</div></div>`;
 }

@@ -17,6 +17,7 @@ from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.util import dt as dt_util
 
+from . import i18n as I18N
 from . import inbox as IB
 from . import sharing as SH
 from . import tasknotify as TN
@@ -348,13 +349,14 @@ class Scheduler:
             from . import notifydevices as ND
 
             devices = ND.apply_links(await ND.async_devices(self.hass), self.m.config.data.get("notify_devices"))
-            title = ("✓ " if status == "done" else "⚠ ") + str(task.get("name") or "Aufgabe")
-            if chat.get("external_used") and chat.get("model_fallback"):
-                title += " (Notfall: externes Modell)"
+            # Deutsche Texte mit festen Mustern – I18N.tr übersetzt sie je Empfängerin bzw. Empfänger (locales/*.json)
+            name = str(task.get("name") or "Aufgabe")
+            title = ("✓ " if status == "done" else "⚠ ") + (f"{name} (Notfall: externes Modell)"
+                                                             if chat.get("external_used") and chat.get("model_fallback") else name)
             text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
             if run_info.get("limit_hit") and not task.get("heavy") and not tile:
-                text += (" " if text else "") + (f"Höchstzahl von {run_info.get('steps') or 60} Schritten erreicht – "
-                                                 "die Aufgabe lässt sich für 150 Schritte freigeben.")
+                text += ("\n" if text else "") + (f"Limit von {run_info.get('steps') or 60} Modellaufrufen erreicht – "
+                                                  "die Aufgabe lässt sich für 150 freigeben.")
             # Benachrichtigungen auf der Startseite – für alle, die die Aufgabe betrifft, unabhängig vom Push-Gerät
             await self._inbox_entries(user, task, chat, status, title, text, recipients)
             # The owner gets the message according to the task's setting; everybody the task (or tile) is shared with
@@ -367,7 +369,8 @@ class Scheduler:
                     if not device:
                         _LOGGER.debug("Task %s: no push device for user %s", task.get("id"), uid)
                         continue
-                    await ND.async_send(self.hass, device, title[:100], text[:900],
+                    lang = self.m.lang(uid)  # Sprache der Person, die die Nachricht bekommt (i18n.py)
+                    await ND.async_send(self.hass, device, I18N.tr(title, lang)[:100], I18N.tr(text, lang)[:900],
                                         url=link, tag=f"llmitmir-task-{task['id']}",
                                         context=Context(user_id=uid))
                 except Exception:  # noqa: BLE001

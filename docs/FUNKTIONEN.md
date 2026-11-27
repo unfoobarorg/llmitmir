@@ -8,10 +8,17 @@
   geplante Aufgaben, Zugänge und Projekte sind erklärt und lassen sich im Chat einrichten. Die Expertenansicht (alles
   Folgende) schaltet jede Person unter *Einstellungen → Allgemein → Ansicht* frei; Admins legen unter *Admin → Personen → Ansicht* für alle oder
   je Person fest, ob sie selbst wählen darf oder immer eine bestimmte Ansicht bekommt.
+- **Sprache: Deutsch oder Englisch**: Unter *Einstellungen → Allgemein → Sprache* wählt jede Person Deutsch, English
+  oder „Automatisch“ (folgt der Sprache ihres Profils in Home Assistant; eine Sprache, die LLMitMir nicht kennt, wird
+  Englisch). Nach dem Speichern lädt die Seite einmal neu. Die Wahl gilt für die ganze Oberfläche samt Datum und Zahlen,
+  für Fehlermeldungen und Hinweise des Servers, Push-Nachrichten (Freigaben, Ergebnisse geplanter Aufgaben), die
+  Spracheingabe und das Sprachgespräch; die Modelle antworten in dieser Sprache, solange die Person nicht selbst in einer
+  anderen schreibt. Die Anleitung zur Werkbank gibt es auf Englisch in [WERKBANK.en.md](WERKBANK.en.md). Inhalte, die
+  jemand selbst geschrieben hat (Skills, Aufträge, Namen), bleiben, wie sie sind.
 - **Einstellungen wie bei Claude**: Persönliche Einstellungen und Admin-Einstellungen sind in Bereiche geteilt – links die
   Liste, rechts Gruppen aus Zeilen mit kurzer Erklärung und Schalter, Auswahl oder Eingabefeld; längere Erklärungen stehen
   hinter „Mehr dazu“. Jeder Bereich hat eine eigene Adresse (`/llmitmir/settings/<bereich>`, `/llmitmir/admin/<bereich>`),
-  auf schmalen Bildschirmen wird die Liste zur waagerechten Leiste. Persönlich: *Allgemein* (Ansicht, persönliche Hinweise,
+  auf schmalen Bildschirmen wird die Liste zur waagerechten Leiste. Persönlich: *Allgemein* (Sprache, Ansicht, persönliche Hinweise,
   Bedienung), *Modelle* (Standardmodelle, externe Modelle), *Funktionen* (Teilaufgaben, Werkbank), *Benachrichtigungen*,
   *Datenschutz & Freigaben* (Lebensdauer, Freigaben, erlaubte Server), *Verbrauch*, *API-Schlüssel* (nur wenn der Admin
   eigene Schlüssel vorsieht) und *Import aus Claude*. Admin: *Personen* (Zugriff, Kontingente, Ansicht, AD/LDAP),
@@ -23,7 +30,8 @@
   und Tabellen als lesbarer Ausschnitt, ohne Makros und ohne Formeln). Das funktioniert im Browser und in den mobilen
   Apps gleichermaßen; ein neues Fenster (das die Apps nicht öffnen) ist dafür nicht nötig. Was der Betrachter nicht
   darstellen kann, lässt sich herunterladen.
-- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown, Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
+- **Chats** mit Streaming, sichtbaren Gedanken der Modelle, Markdown (Codeblöcke mit Kopierknopf, lange Blöcke ab 16
+  Zeilen eingeklappt und aufklappbar), Anhängen (Bilder, PDFs, Texte, **Tonaufnahmen** –
   sie werden mit derselben Spracherkennung wie die Spracheingabe abgeschrieben; zwei Anhänge mit demselben Namen
   bleiben beide erhalten, der zweite heißt dann `image (2).png`) und **Spracheingabe**
   (über `/audio/transcriptions` des Anbieters, Fallback Browser-Spracherkennung). Stehen in der Seitenleiste mehr als
@@ -40,9 +48,9 @@
   Rolle der automatischen Modellwahl, einstellbar unter *Einstellungen → Modelle* und *Admin → Modelle*), mehrere im
   selben Schritt parallel, und wartet auf ihre Zusammenfassungen. Im Hauptchat erscheint je Teilaufgabe eine Karte mit
   Modell, Stand (auch „wartet auf einen freien Platz“ und „Grenze erreicht“), Laufzeit, Verbrauch und *Öffnen*.
-  Grenzen: 3 gleichzeitig je Person, 8 je Lauf, 40 Schritte je Teilaufgabe; jede erreichte Grenze meldet sofort ein
+  Grenzen: 3 gleichzeitig je Person, 8 je Lauf, 40 Modellaufrufe je Teilaufgabe; jede erreichte Grenze meldet sofort ein
   Teilergebnis an den Hauptchat, „Stopp“ hält den ganzen Baum an. Freigaben, Änderungskarten und die Frage nach mehr
-  Schritten aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
+  Modellaufrufen aus einer Teilaufgabe erscheinen zentral im Hauptchat („aus Teilaufgabe ›Titel‹“) und – wenn kein Panel offen
   ist – als Push „Teilaufgabe braucht dich“ mit Link auf den Hauptchat; „Immer erlauben“ gilt dabei nur für die eine
   Teilaufgabe. Unter *Einstellungen → Funktionen → Teilaufgaben* wählt jede Person *automatisch* (Standard in der Expertenansicht:
   feste Regeln im Systemprompt, ab halb vollem Kontext ein Hinweis), *nur auf Wunsch* (Standard in der einfachen
@@ -158,9 +166,9 @@
 - **Geplante Aufgaben** mit Zeitplan (täglich, werktags, Wochentage, monatlich, Intervall, einmalig, Cron), gemeinsamer
   Warteschlange, langen Wiederholungsfristen und Push-Benachrichtigung über die HA-App. Ausdrücklich für Open-Weight-Modelle
   gebaut: Läufe dürfen verzögert starten und lange dauern.
-- **Besonders aufwändige Aufgaben**: Normal hat ein Lauf 60 Schritte. Reicht das nicht, markiert man die Aufgabe als
-  besonders aufwändig und gibt ihr damit bis zu 150 Schritte. Erreicht eine Aufgabe ohne diese Markierung die 60 Schritte,
-  wird sie unter *Geplant* rot markiert („Schritte erschöpft“) und lässt sich dort mit einem Klick für 150 Schritte
+- **Besonders aufwändige Aufgaben**: Normal hat ein Lauf 60 Modellaufrufe. Reicht das nicht, markiert man die Aufgabe als
+  besonders aufwändig und gibt ihr damit bis zu 150. Erreicht eine Aufgabe ohne diese Markierung die 60,
+  wird sie unter *Geplant* rot markiert („Limit erreicht“) und lässt sich dort mit einem Klick für 150 Modellaufrufe
   freigeben – wie ein Zugang, dessen Prüfung fehlgeschlagen ist.
 - **Aufgaben teilen**: Eine Aufgabe gehört der Person, die sie anlegt. Sie lässt sich mit anderen Personen der
   HA-Instanz teilen – je Person einstellbar, ob sie die Aufgabe nur sieht, sie auch ändern und starten darf und ob sie
@@ -194,7 +202,7 @@
   - **Daten von einem geplanten Lauf**: Was Home Assistant nicht weiß (etwa Aufgaben aus Mails), holt eine Kachel-Aufgabe.
     Ihre Beschreibung ist der Auftrag; Datenformat, letzter Stand und „am Ende `dashboard_update`“ fügt LLMitMir selbst
     hinzu. Kachel-Läufe haben eine eigene Warteschlange (normale Aufgaben warten nie auf sie), ein Tagesbudget je Person
-    (Admin, Standard 96), höchstens einen Lauf alle 15 Minuten, 30 Schritte, kein Nachholen nach einem Neustart und
+    (Admin, Standard 96), höchstens einen Lauf alle 15 Minuten, 30 Modellaufrufe, kein Nachholen nach einem Neustart und
     pausieren, solange die Kachel nirgends liegt. „Nur bei Änderung“ überspringt Läufe, wenn sich gewählte Entitäten
     nicht geändert haben. Ein Lauf ohne gültige Daten gilt als Fehler; Verlauf und Delta führt der Server, alte Läufe
     werden aufgeräumt (die letzten 10 bleiben). Unter *Geplant* erscheinen sie nur mit dem Schalter „Kachel-Aufgaben“.
@@ -243,7 +251,8 @@
   bleiben Verbindung, Zugang und Skill zusammen. Die alten Adressen `/skills`, `/credentials` und `/connectors` führen auf
   die passenden Reiter.
 - **Konnektoren** (Reiter *Konnektoren*, eingerichtet unter *Admin → Zugänge & Konnektoren*, dort als Kacheln – ein
-  Klick öffnet den Konnektor zum Bearbeiten): vom Admin vorbereitete Anbindungen nach dem Vorbild von Claude und Copilot.
+  Klick öffnet den Konnektor zum Bearbeiten, *Reihenfolge ändern* sortiert sie per Ziehen oder Pfeilen; in dieser
+  Reihenfolge sehen alle Personen sie): vom Admin vorbereitete Anbindungen nach dem Vorbild von Claude und Copilot.
   Der Admin legt Typ, feste Felder (z. B. die Adresse der Nextcloud), weitere erlaubte Server, bei GWDG/EWS die Dienste,
   die Anmeldeart, eine **Einrichtungsanleitung für den geführten Chat** und optional eine Anleitung für das Modell fest.
   Jede Person verbindet nur ihr eigenes Konto – **auch mehrfach** (z. B. GitLab mit je einem Token für verschiedene
@@ -368,9 +377,18 @@
   weiter zu versuchen (`credcheck.py`). Beim Postfach nennt die Meldung die Stufe, an der es hängt (DNS, Port, TLS oder
   Anmeldung), statt nur „TimeoutError“; ist Port 993 gesperrt, versucht LLMitMir 143 mit STARTTLS – beim Prüfen wie
   beim Abrufen der Mails.
-- **Verbrauch und Limits**: Kontextfüllung je Chat, Tokens und Anfragen je Tag, **diese Woche (ab Montag) und diesen
-  Monat (ab dem Ersten)**, persönliche Kontingente und die Rate-Limits des Schlüssels (`x-ratelimit-*`-Header) als
-  Füllanzeige.
+- **Nutzungslimits in Prozent** (wie in der Claude-Desktop-App): Das Menü am Ring neben dem Eingabefeld und
+  *Einstellungen → Verbrauch* zeigen je Limit einen Balken mit „23 % verbraucht“ und wann es zurücksetzt – *Diese Stunde*
+  und *Heute* (das, was zuerst ausgeht: persönliches Tageskontingent oder die Rate-Limits des Schlüssels aus den
+  `x-ratelimit-*`-Headern), *Externe Modelle · diesen Monat* und, während eine Antwort läuft, die *Modellaufrufe dieser
+  Antwort*; dazu die Kontextfüllung des Chats. Ab 80 % erscheint über dem Eingabefeld ein Hinweis (auch in der einfachen
+  Ansicht). Genaue Zahlen (Anfragen, Tokens, Euro, diese Woche und diesen Monat) gibt es auf Wunsch mit dem Schalter
+  *Einstellungen → Verbrauch → Genaue Zahlen anzeigen*.
+- **Limit der Modellaufrufe je Antwort**: Ein Chat hat 30 (einfache Ansicht 40), ein Cowork 60, eine Teilaufgabe 40.
+  Kurz vor dem Limit erscheint über dem Eingabefeld eine gelbe Meldung mit *Weitermachen* (100 weitere), *Zum Ende kommen*
+  (noch 15, das Modell fasst dann zusammen) und *Stopp* (noch 2: der Bericht) – die Zahlen sieht die Person nicht. Ohne
+  Antwort bringt LLMitMir die Arbeit in den letzten Aufrufen zu Ende. Endet eine Antwort am Limit, bietet eine rote
+  Meldung *Weitermachen* an. Im Sprachgespräch heißt Ja „Weitermachen“, Nein „Zum Ende kommen“.
 - **Ablaufdatum bei Zugängen** (optional): LLMitMir warnt zwei Wochen vorher in der Liste und nennt den Grund, wenn ein
   Werkzeug scheitert, weil der Token abgelaufen ist. Ohne Ablaufdatum ändert sich nichts.
 - **Freigaben ohne Warten**: Bleibt eine Freigabe unbeantwortet, lässt sich einstellen, dass LLMitMir nach 5, 15 oder 60

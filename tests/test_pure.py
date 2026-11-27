@@ -187,6 +187,22 @@ def test_quota_ignores_separate_task_key():
     assert tk.quota_usage({"requests": 3, "prompt": 1, "completion": 2}) == (3, 3)
 
 
+def test_limit_resets_for_the_percent_view():
+    """„Setzt in … zurück“: Mitternacht, nächster Montag, Monatserster – auch über eine Zeitumstellung hinweg."""
+    from zoneinfo import ZoneInfo
+    berlin = ZoneInfo("Europe/Berlin")
+    # Freitag, 27.11.2026, 21:30 → Mitternacht in 2,5 h, Montag in 2 Tagen 2,5 h, 1.12. in 3 Tagen 2,5 h
+    r = tk.resets(datetime(2026, 11, 27, 21, 30, tzinfo=berlin))
+    assert r == {"day": 9000, "week": 2 * 86400 + 9000, "month": 3 * 86400 + 9000}
+    # Sonntag vor Montag: die Woche beginnt um Mitternacht neu, nicht erst in einer Woche
+    assert tk.resets(datetime(2026, 11, 29, 23, 0, tzinfo=berlin))["week"] == 3600
+    # Samstag, 24.10.2026, 23:00; in der Nacht zum Sonntag wird die Uhr zurückgestellt (25 h bis Montag 0 Uhr)
+    r = tk.resets(datetime(2026, 10, 24, 23, 0, tzinfo=berlin))
+    assert r["day"] == 3600 and r["week"] == 3600 + 25 * 3600
+    # Dezember: der nächste Monat ist der Januar des Folgejahres
+    assert tk.resets(datetime(2026, 12, 31, 12, 0, tzinfo=berlin))["month"] == 12 * 3600
+
+
 def test_read_body_reads_all_chunks():
     """resp.content.read(n) stopped after the first packet; read_body must collect every chunk."""
     import asyncio
@@ -238,6 +254,11 @@ def test_more_steps_answers():
     assert const.MORE_STEPS == {"once": 15, "lots": 100}
     assert const.MORE_STEPS.get("deny", 0) == 0 and const.MORE_STEPS.get("always", 0) == 0
     assert const.MAX_STEPS_MORE_LOTS > const.MAX_STEPS_MORE
+    # Meldung über dem Eingabefeld: „Weitermachen“ = lots; „Zum Ende kommen“ und „Stopp“ lassen nur noch wenige
+    # Modellaufrufe übrig (Stopp: einer mit Werkzeugen, dann der Bericht) und gehören nicht zu den Verlängerungen
+    assert const.STEPS_LEFT == {"wrap": 15, "stop": 2}
+    assert not set(const.STEPS_LEFT) & set(const.MORE_STEPS)
+    assert const.STEPS_LEFT["stop"] < const.WRAPUP_STEPS < const.STEPS_LEFT["wrap"]
 
 
 def test_selfdoc_tool_names_exist():
@@ -3251,8 +3272,8 @@ def test_permission_push_from_subtask_names_subtask_and_main_chat():
     # Änderungskarte und „mehr Schritte?“ laufen über denselben Weg
     title, text = permnote.message(dict(base, label="Aufgabe speichern", change={"art": "aufgabe"}), "")
     assert title.endswith("Teilaufgabe braucht dich") and "Änderung: Aufgabe speichern" in text
-    title, text = permnote.message(dict(base, tool="more_steps", label="15 weitere Schritte"), "", simple=True)
-    assert "Weitere Schritte verwenden?" in text and text.startswith("Teilaufgabe ›Mails sichten‹")
+    title, text = permnote.message(dict(base, tool="more_steps", label="Mehr Modellaufrufe erlauben?"), "", simple=True)
+    assert "Mehr Modellaufrufe erlauben?" in text and text.startswith("Teilaufgabe ›Mails sichten‹")
     # ohne Teilaufgabe bleibt alles wie bisher
     assert permnote.message({"label": "x"}, "Chat")[0] == "Chat"
     assert permnote.tag("h1") == "llmitmir-permission-h1"

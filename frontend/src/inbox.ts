@@ -5,7 +5,7 @@ import { state } from "lit/decorators.js";
 import { repeat } from "lit/directives/repeat.js";
 import { StoreElement, base, icon, fmtTime, safeElement } from "./ui";
 import { store, navigate } from "./api";
-import { t } from "./i18n";
+import { t, tb } from "./i18n";
 
 const LONG_MS = 480;      // so lange drücken = Long Touch
 const SWIPE_PX = 88;      // so weit wischen = entfernen
@@ -196,7 +196,7 @@ export class Inbox extends StoreElement {
         ${repeat(items, (e: any) => e.id, (e: any) => html`
           <div class="card-n ${e.status && e.status !== "done" ? "warn" : ""} ${this.removing.has(e.id) ? "gone" : ""}"
             data-id=${e.id} role="button" tabindex="0"
-            aria-label=${`${e.task || t("Geplante Aufgabe")}: ${e.title || ""}`}
+            aria-label=${`${e.task || t("Geplante Aufgabe")}: ${tb(e.title)}`}
             style=${this.drag?.id === e.id ? `transform: translateX(${this.drag.dx}px)` : ""}
             @pointerdown=${(ev: PointerEvent) => this.down(ev, e)}
             @pointermove=${(ev: PointerEvent) => this.move(ev)}
@@ -207,8 +207,8 @@ export class Inbox extends StoreElement {
             <span class="ic">${icon(e.status && e.status !== "done" ? "alert" : "bell", 17)}</span>
             <div class="body">
               <div class="top"><span class="app">${e.task || t("Geplante Aufgabe")}</span><span class="when">${fmtTime(e.at)}</span></div>
-              <div class="head">${e.title || t("Fertig")}</div>
-              <div class="txt">${e.text || ""}</div>
+              <div class="head">${tb(e.title) || t("Fertig")}</div>
+              <div class="txt">${tb(e.text)}</div>
             </div>
             <button class="x" title=${t("Entfernen")} @click=${(ev: Event) => { ev.stopPropagation(); this.dismiss(e); }}>${icon("close", 15)}</button>
           </div>`)}

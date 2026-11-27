@@ -2,6 +2,52 @@
 
 Versionen nach [Semver](https://semver.org/lang/de/). Ältere Versionen: siehe Git-Historie.
 
+## 2.2.0 – Sprachauswahl, Limits in Prozent, neue Meldung zu Modellaufrufen
+
+LLMitMir spricht jetzt durchgängig Englisch oder Deutsch, je nach Wahl in den Einstellungen. Die Limits zeigt es wie die
+Claude-Desktop-App als Prozent mit Rücksetzzeit statt als Rohzahlen, und wird eine Antwort lang, fragt eine Meldung über dem
+Eingabefeld, wie es weitergehen soll – mit „Weitermachen“, „Zum Ende kommen“ oder „Stopp“. Lange Codeblöcke stehen
+eingeklappt da und haben einen Kopierknopf, und der Admin kann die Reihenfolge der Konnektoren festlegen.
+
+### Sprachauswahl und durchgängig Englisch
+- **Sprachauswahl** unter *Einstellungen → Allgemein → Sprache*: Deutsch, English oder „Automatisch“ (folgt dem Profil
+  in Home Assistant). Weitere Sprachen brauchen nur eine Datei `locales/<code>.json` (siehe docs/ENTWICKLUNG.md).
+- **Englisch durchgängig:** Bisher waren viele Texte trotz englischer Oberfläche deutsch. Jetzt sind alle Seiten,
+  Dialoge, Karten und Hinweise übersetzt, ebenso Fehlermeldungen und Hinweise des Servers (Zeitpläne, Prüfungen der
+  Zugänge, Werkzeugnamen, Kontingente), Push-Nachrichten, Datum und Zahlen, der Prompt für den Import aus Claude und die
+  Anleitung zur Werkbank (docs/WERKBANK.en.md).
+- Die Modelle antworten in der gewählten Sprache; Spracheingabe und Sprachgespräch folgen ihr.
+- Neue Tests verhindern deutsche Texte ohne Übersetzung im Panel und in den Meldungen des Servers.
+
+### Limits verständlich in Prozent (wie in der Claude-Desktop-App)
+- **Nutzungslimits nur noch in Prozent:** Das Menü am Ring neben dem Eingabefeld und *Einstellungen → Verbrauch*
+  zeigen je Limit einen Balken mit „23 % verbraucht“ und „Setzt in 3 Std. 12 Min. zurück“: *Diese Stunde*, *Heute*
+  (es zählt, was zuerst ausgeht – Tageskontingent oder Schlüssel) und *Externe Modelle · diesen Monat*. Statt Rohzahlen wie
+  „380 / 1000“ steht dort, wie viel verbraucht ist und wann es weitergeht.
+- **Genaue Zahlen auf Wunsch:** *Einstellungen → Verbrauch → Genaue Zahlen anzeigen* blendet Anfragen, Tokens und Euro
+  wieder ein – unter den Balken, im Menü am Eingabefeld, im Verlauf und bei den geplanten Aufgaben.
+- **Hinweis ab 80 %** über dem Eingabefeld, auch in der einfachen Ansicht („Du hast 85 % deines Limits für heute
+  verbraucht · Setzt in 3 Std. zurück“); bei 100 % in Rot.
+- Meldungen bei erreichtem Tageskontingent oder Monatslimit nennen keine Rohzahlen mehr, sondern wann es weitergeht.
+
+### Limit der Modellaufrufe: neue Meldung über dem Eingabefeld
+- Aus „Schritten“ werden überall **Modellaufrufe** – im Panel, in Meldungen, Push-Nachrichten und auf der Seite *Geplant*.
+- Wird das Limit einer Antwort knapp, erscheint statt der Karte im Verlauf eine **gelbe Meldung direkt über dem
+  Eingabefeld** (mit Animation) und drei klaren Möglichkeiten: **Weitermachen**, **Zum Ende kommen** und **Stopp**. Die
+  genauen Zahlen bleiben verborgen. Die Frage kommt jetzt **auch in der einfachen Ansicht**.
+- Endet eine Antwort am Limit, bietet eine **rote Meldung** an, mit einem Klick weiterzumachen.
+- Das Menü am Eingabefeld zeigt während einer Antwort, wie viel von ihren Modellaufrufen verbraucht ist.
+
+### Codeblöcke im Chat
+- Jeder Codeblock hat eine Kopfzeile mit Sprache und **Kopieren** oben rechts – der ganze Inhalt landet mit einem Klick in
+  der Zwischenablage.
+- **Lange Codeblöcke** (mehr als 15 Zeilen) stehen eingeklappt da und lassen sich mit „Alle … Zeilen anzeigen“ weich
+  aufklappen. Mehrere Blöcke hintereinander bleiben so übersichtlich.
+
+### Konnektoren umsortieren
+- Unter *Admin → Zugänge & Konnektoren* gibt es **Reihenfolge ändern**: Kacheln ziehen oder mit Pfeilen verschieben. In
+  dieser Reihenfolge sehen alle Personen die Konnektoren (bisher nach dem Anlegedatum).
+
 ## 2.1.0 – Plugins-Seite, geführte Einrichtung von Konnektoren, richtige Kontextgröße
 
 Skills, Konnektoren und Zugänge liegen jetzt zusammen auf der neuen Seite *Plugins*. Konnektoren lassen sich in einem

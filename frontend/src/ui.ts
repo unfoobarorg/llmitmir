@@ -5,7 +5,7 @@ import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import * as mdi from "./icons";
-import { t } from "./i18n";
+import { t, isDe, dateLocale } from "./i18n";
 import { store } from "./api";
 import { blockedImageLabel, linkable, loadsSafely } from "./safeurl";
 
@@ -52,27 +52,30 @@ export const icon = (name: string, size = 20) =>
 // ------------------------------------------------------------------ formatting
 export const fmtNum = (n: number) => {
   n = Number(n || 0);
-  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(".", ",") + " Mio.";
+  const dec = (s: string) => (isDe() ? s.replace(".", ",") : s);
+  if (n >= 1e6) return dec((n / 1e6).toFixed(n >= 1e7 ? 0 : 1)) + (isDe() ? " Mio." : "M");
   if (n >= 1e4) return Math.round(n / 1000) + "k";
-  if (n >= 1000) return (n / 1000).toFixed(1).replace(".", ",") + "k";
+  if (n >= 1000) return dec((n / 1000).toFixed(1)) + "k";
   return String(Math.round(n));
 };
+/** Zahl für ein Eingabefeld: im Deutschen mit Komma. */
+export const decStr = (v: any) => (isDe() ? String(v).replace(".", ",") : String(v));
 /** Lebensdauer in Tagen als Text: „30 Tage“, „1 Tag“, „aus“ (ohne Angabe ist das Löschen aus). */
 export const daysText = (days?: number | null) => {
   const n = days === null || days === undefined || days === ("" as any) ? 0 : Number(days);
-  if (!Number.isFinite(n) || n <= 0) return "aus";
-  return `${n} Tag${n === 1 ? "" : "e"}`;
+  if (!Number.isFinite(n) || n <= 0) return t("aus");
+  return t(n === 1 ? "{n} Tag" : "{n} Tage", { n });
 };
 export const fmtTime = (ts?: number | string | null) => {
   if (!ts) return "–";
   const d = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts);
   const now = new Date();
   const same = d.toDateString() === now.toDateString();
-  const hm = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const hm = d.toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" });
   if (same) return hm;
   const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return `gestern ${hm}`;
-  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: d.getFullYear() !== now.getFullYear() ? "2-digit" : undefined }) + " " + hm;
+  if (d.toDateString() === y.toDateString()) return t("gestern {hm}", { hm });
+  return d.toLocaleDateString(dateLocale(), { day: "2-digit", month: "2-digit", year: d.getFullYear() !== now.getFullYear() ? "2-digit" : undefined }) + " " + hm;
 };
 export const fmtDuration = (sec: number) => {
   sec = Math.max(0, Math.round(sec));
@@ -112,10 +115,78 @@ function sanitize(raw: string): string {
     repl.textContent = blockedImageLabel(img.getAttribute("alt"), src);
     img.replaceWith(repl);
   });
+  frag.querySelectorAll("pre").forEach(pre => codeBlock(pre));
   const box = document.createElement("div");
   box.appendChild(frag);
   return box.innerHTML;
 }
+
+// ------------------------------------------------------------------ Codeblöcke
+// Jeder Codeblock bekommt eine Kopfzeile mit Sprache und Kopierknopf; lange Blöcke stehen eingeklappt da und lassen sich
+// aufklappen. Die Knöpfe entstehen nach dem Säubern (sie kommen von uns, nicht aus dem Modelltext); geklickt wird über
+// einen Listener am Dokument (onCodeClick), weil das HTML per unsafeHTML in vielen Shadow-Roots landet.
+export const CODE_COLLAPSE_LINES = 15;   // ab so vielen Zeilen eingeklappt
+const svgIcon = (name: string, cls = "") =>
+  `<svg class="i ${cls}" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="${mdiPath(name)}" fill="currentColor"/></svg>`;
+const escapeHtml = (v: string) => v.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as any)[c]);
+
+function codeBlock(pre: HTMLElement) {
+  const code = pre.querySelector("code");
+  const text = (code || pre).textContent || "";
+  const lines = text.replace(/\n$/, "").split("\n").length;
+  const lang = ((code?.className || "").match(/language-([\w#+.-]+)/) || [])[1] || "";
+  const long = lines > CODE_COLLAPSE_LINES;
+  const wrap = document.createElement("div");
+  wrap.className = "md-code" + (long ? " long" : "");
+  const head = document.createElement("div");
+  head.className = "md-code-h";
+  head.innerHTML = `<span class="md-code-lang">${escapeHtml(lang || t("Code"))}</span>`
+    + (long ? `<span class="md-code-n">${escapeHtml(t("{n} Zeilen", { n: lines }))}</span>` : "")
+    + `<button type="button" class="md-code-btn" data-lm-copy title="${escapeHtml(t("Kopieren"))}" aria-label="${escapeHtml(t("Code kopieren"))}">`
+    + `${svgIcon("copy", "c")}${svgIcon("check", "k")}<span class="c">${escapeHtml(t("Kopieren"))}</span><span class="k">${escapeHtml(t("Kopiert"))}</span></button>`;
+  pre.replaceWith(wrap);
+  const body = document.createElement("div");
+  body.className = "md-code-b";
+  body.appendChild(pre);
+  wrap.append(head, body);
+  if (long) {
+    const more = document.createElement("button");
+    more.type = "button"; more.className = "md-code-more"; more.setAttribute("data-lm-expand", ""); more.setAttribute("aria-expanded", "false");
+    more.innerHTML = `${svgIcon("down")}<span class="o">${escapeHtml(t("Alle {n} Zeilen anzeigen", { n: lines }))}</span>`
+      + `<span class="x">${escapeHtml(t("Einklappen"))}</span>`;
+    wrap.appendChild(more);
+  }
+}
+
+/** Klicks auf Kopieren und Aufklappen – auch in Shadow-Roots (composedPath). */
+function onCodeClick(e: Event) {
+  const path = e.composedPath() as Element[];
+  const btn = path.find(n => n instanceof HTMLElement && (n.hasAttribute("data-lm-copy") || n.hasAttribute("data-lm-expand"))) as HTMLElement | undefined;
+  const box = btn?.closest(".md-code") as HTMLElement | null;
+  if (!btn || !box) return;
+  e.preventDefault();
+  if (btn.hasAttribute("data-lm-copy")) {
+    copyText(box.querySelector("pre")?.textContent || "");
+    btn.classList.add("done");
+    setTimeout(() => btn.classList.remove("done"), 1600);
+    return;
+  }
+  const body = box.querySelector(".md-code-b") as HTMLElement | null;
+  if (!body) return;
+  const open = !box.classList.contains("open");
+  btn.setAttribute("aria-expanded", String(open));
+  // weich auf- und zuklappen: von der aktuellen auf die Zielhöhe, danach wieder ohne feste Höhe
+  const from = body.getBoundingClientRect().height;
+  box.classList.toggle("open", open);
+  body.style.maxHeight = "none";
+  const to = open ? body.scrollHeight : parseFloat(getComputedStyle(box).getPropertyValue("--md-code-max")) || 300;
+  body.style.maxHeight = `${from}px`;
+  requestAnimationFrame(() => { body.style.maxHeight = `${to}px`; });
+  const done = () => { body.style.maxHeight = ""; body.removeEventListener("transitionend", done); };
+  body.addEventListener("transitionend", done);
+  if (!open) box.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+if (typeof document !== "undefined") document.addEventListener("click", onCodeClick);
 export function md(text: string, opts: { breaks?: boolean } = {}) {
   const key = (opts.breaks === false ? "d" : "c") + "\u0000" + (text || "");
   const hit = mdCache.get(key);
@@ -227,6 +298,33 @@ export const base = css`
   .md code { font-family: var(--lm-mono); font-size: .86em; background: var(--lm-hover); padding: .1em .35em; border-radius: 5px; }
   .md pre { background: var(--lm-side); border: 1px solid var(--lm-line); padding: 12px 14px; border-radius: 10px; overflow-x: auto; max-width: 100%; }
   .md pre code { background: none; padding: 0; font-size: 13px; }
+  /* Codeblock mit Kopfzeile (Sprache, Zeilen, Kopieren); lange Blöcke eingeklappt mit Verlauf nach unten */
+  .md .md-code { --md-code-max: 300px; position: relative; margin: .7em 0; border: 1px solid var(--lm-line); border-radius: 12px;
+    background: var(--lm-side); overflow: hidden; max-width: 100%; }
+  .md .md-code pre { margin: 0; border: 0; border-radius: 0; background: none; }
+  .md-code-h { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px; font-size: 12px; color: var(--lm-muted);
+    border-bottom: 1px solid var(--lm-line); background: color-mix(in srgb, var(--lm-hover) 60%, transparent); }
+  .md-code-lang { font-family: var(--lm-mono); text-transform: lowercase; }
+  .md-code-n { color: var(--lm-faint); }
+  .md-code-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; color: inherit; font: inherit;
+    padding: 4px 8px; border-radius: 7px; cursor: pointer; transition: background .15s, color .15s; }
+  .md-code-btn:hover { background: var(--lm-hover); color: var(--lm-text); }
+  .md-code-btn .k { display: none; color: var(--lm-ok, var(--lm-accent)); }
+  .md-code-btn.done .c { display: none; } .md-code-btn.done .k { display: inline; } .md-code-btn.done svg.k { animation: md-pop .3s ease; }
+  .md .md-code pre { line-height: 1.5; }
+  .md-code-b { position: relative; transition: max-height .35s cubic-bezier(.3, .7, .2, 1); }
+  .md-code.long:not(.open) .md-code-b { max-height: var(--md-code-max); overflow: hidden; }
+  .md-code.long:not(.open) .md-code-b::after { content: ""; position: absolute; inset: auto 0 0 0; height: 72px; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, var(--lm-side)); }
+  .md-code.open .md-code-b { overflow: hidden; }
+  .md-code-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; border: 0; border-top: 1px solid var(--lm-line);
+    background: none; color: var(--lm-muted); font: inherit; font-size: 13px; padding: 7px; cursor: pointer; transition: background .15s, color .15s; }
+  .md-code-more:hover { background: var(--lm-hover); color: var(--lm-text); }
+  .md-code-more svg { transition: transform .3s; }
+  .md-code.open .md-code-more svg { transform: rotate(180deg); }
+  .md-code-more .x, .md-code.open .md-code-more .o { display: none; } .md-code.open .md-code-more .x { display: inline; }
+  @keyframes md-pop { from { transform: scale(.5); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .md-code-b, .md-code-more svg { transition: none; } }
   .md-tw { max-width: 100%; overflow-x: auto; margin: .6em 0; }
   .md table { border-collapse: collapse; width: max-content; min-width: 100%; margin: 0; font-size: 14px; }
   .md th, .md td { border: 1px solid var(--lm-line); padding: 6px 10px; text-align: left; overflow-wrap: normal; word-break: normal; }
@@ -413,7 +511,7 @@ export class VoiceRecorder {
 }
 
 // ------------------------------------------------------------------ confirm dialog
-export function confirmDialog(text: string, okLabel = "Löschen"): Promise<boolean> {
+export function confirmDialog(text: string, okLabel = t("Löschen")): Promise<boolean> {
   return new Promise(resolve => {
     const host = document.querySelector("home-assistant")?.shadowRoot ? document.body : document.body;
     const el = document.createElement("lm-confirm") as Confirm;
