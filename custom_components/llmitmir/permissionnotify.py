@@ -72,7 +72,7 @@ def message(info: dict, chat_title: str = "", simple: bool = False, lang: str | 
     elif info.get("change"):
         label = _("Änderung: {label}", label=label)
     elif info.get("tool") == "more_steps":
-        label = _("Weitere Schritte verwenden?")
+        label = _("Mehr Modellaufrufe erlauben?")
     what = preview(info)
     title = _one_line(chat_title) or _(TITLE)
     if info.get("root_chat_id"):

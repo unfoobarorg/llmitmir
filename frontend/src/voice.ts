@@ -31,6 +31,9 @@ import { BrowserListener, Mic, Speaker, ttsChoice, ttsFallback, ttsSetup, type T
 import { SentenceFeed, isNoise, resumeText } from "./voicetext";
 import { BRIDGE_PHRASES, Bridge, Director, addressed, endpoint, extractName, isStop, pauseFor, permAnswer, type Pose } from "./voiceflow";
 
+/** Frage nach mehr Modellaufrufen (Werkzeug „more_steps“). */
+const isStepAsk = (p: any) => p?.tool === "more_steps" || !!p?.steps;
+
 // Wer ist dran? „waiting“: LLMitMir ist dran, hat aber (noch) nichts zu sagen – das Mikrofon bleibt dabei offen.
 type Phase = "off" | "listening" | "waiting" | "speaking" | "paused" | "permission";
 
@@ -472,9 +475,11 @@ export class Voice extends StoreElement {
         if (this.permTries++ < 1) this.ack(t("Sag bitte Ja oder Nein."));
         return;
       }
-      const always = ans === "always" && !perm.change && !perm.steps;
+      const always = ans === "always" && !perm.change && !isStepAsk(perm);
       this.permText = "";
-      store.api.ws("permission/answer", { permission_id: perm.id, decision: ans === "no" ? "deny" : always ? "always" : "once" })
+      // Limit der Modellaufrufe: Ja = weitermachen, Nein = zum Ende kommen
+      const steps = isStepAsk(perm);
+      store.api.ws("permission/answer", { permission_id: perm.id, decision: steps ? (ans === "no" ? "wrap" : "lots") : ans === "no" ? "deny" : always ? "always" : "once" })
         .catch((e: any) => this.fail(String(e?.message || e)));
       if (ans === "no") this.ack(t("Gut, dann nicht."));
       else if (always) this.ack(t("Alles klar, das merke ich mir."));
@@ -678,11 +683,11 @@ export class Voice extends StoreElement {
   private permQuestion(p: any): string {
     const verb = ({ anlegen: t("anlegen"), aendern: t("ändern"), loeschen: t("löschen") } as any)[p.change?.aktion] || t("ändern");
     const what = p.change ? t("Soll ich {w} „{n}“ {v}?", { w: t(CHANGE_WHAT[p.change.art] || p.change.art), n: p.change.name, v: verb })
-      : p.steps || p.tool === "more_steps" ? t("Das waren schon viele Schritte. Soll ich weitermachen?")
+      : isStepAsk(p) ? t("Ich habe schon viele Modellaufrufe gebraucht. Soll ich weitermachen? Sonst komme ich zum Ende.")
       : p.cred ? t("Darf ich deinen Zugang {n} verwenden?", { n: p.cred })
       : p.group ? t("Darf ich dafür {g} benutzen?", { g: tb(p.group_label) || p.group })
       : t("Darf ich das tun: {l}?", { l: tb(p.label) || p.tool });
-    if (p.change || p.steps || p.tool === "more_steps") return `${what} ${t("Sag Ja oder Nein.")}`;
+    if (p.change || isStepAsk(p)) return `${what} ${t("Sag Ja oder Nein.")}`;
     // die ersten Male erklären, was „immer“ bedeutet; danach genügt die kurze Form
     return `${what} ${t(this.permCount++ < 2 ? t("Sag Ja, Nein – oder Immer, dann frage ich in Gesprächen nicht mehr danach.") : t("Ja, Nein oder Immer?"))}`;
   }
@@ -712,14 +717,17 @@ export class Voice extends StoreElement {
     const del = p.change?.aktion === "loeschen";
     const ask: Record<string, string> = { anlegen: "Soll ich {what} {name} anlegen?", aendern: "Soll ich {what} {name} ändern?", loeschen: "Soll ich {what} {name} löschen?" };
     return html`<div class="perm">
-      <div>${p.change ? t(ask[p.change.aktion] || ask.aendern, { what: t(CHANGE_WHAT[p.change.art] || p.change.art), name: `„${p.change.name}“` })
+      <div>${isStepAsk(p) ? t("LLMitMir ist noch nicht fertig. Weitermachen?")
+        : p.change ? t(ask[p.change.aktion] || ask.aendern, { what: t(CHANGE_WHAT[p.change.art] || p.change.art), name: `„${p.change.name}“` })
         : p.group ? t("Darf ich dafür {g} benutzen?", { g: tb(p.group_label) || p.group })
         : html`${t("Darf ich das tun?")} <b>${tb(p.label)}</b>`}</div>
       ${p.group && p.label ? html`<div class="hint">${tb(p.label)}</div>` : nothing}
-      ${p.steps ? nothing : html`<div class="hint">${t("Du kannst auch einfach antworten: Ja, Nein – oder Immer. Einmal Ja gilt für den Rest des Gesprächs.")}</div>`}
-      <div class="brow"><button class="btn primary" @click=${() => answer("once")}>${icon("check", 16)} ${del ? t("Ja, löschen") : t("Ja")}</button>
-        ${p.change || p.steps ? nothing : html`<button class="btn" @click=${() => answer("always")}>${t("Immer")}</button>`}
-        <button class="btn" @click=${() => answer("deny")}>${t("Nein")}</button>
+      ${isStepAsk(p) ? nothing : html`<div class="hint">${t("Du kannst auch einfach antworten: Ja, Nein – oder Immer. Einmal Ja gilt für den Rest des Gesprächs.")}</div>`}
+      <div class="brow">${isStepAsk(p) ? html`<button class="btn primary" @click=${() => answer("lots")}>${t("Weitermachen")}</button>
+        <button class="btn" @click=${() => answer("wrap")}>${t("Zum Ende kommen")}</button>
+        <button class="btn" @click=${() => answer("stop")}>${t("Stopp")}</button>` : html`<button class="btn primary" @click=${() => answer("once")}>${icon("check", 16)} ${del ? t("Ja, löschen") : t("Ja")}</button>
+        ${p.change ? nothing : html`<button class="btn" @click=${() => answer("always")}>${t("Immer")}</button>`}
+        <button class="btn" @click=${() => answer("deny")}>${t("Nein")}</button>`}
         <button class="btn ghost" @click=${() => { const id = this.chatId; this.endSession(); navigate(`/chat/${id}`); }}>${icon("eye", 16)} ${t("Im Chat ansehen")}</button></div></div>`;
   }
 

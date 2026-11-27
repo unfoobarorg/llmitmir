@@ -85,7 +85,9 @@ export class Api {
 /** Home Assistant pushed a new `hass` object (states changed): HA tiles listen and redraw what concerns them. */
 export const hassBus = new EventTarget();
 
-export interface RunState { run_id: string; status: string; detail: any; started: number; hint?: any; }
+export interface RunState { run_id: string; status: string; detail: any; started: number; hint?: any;
+  /** Modellaufrufe dieses Laufs: {used, limit} */
+  steps?: { used: number; limit: number } }
 
 /** Global reactive store; components re-render on "change". */
 export class Store extends EventTarget {
@@ -221,7 +223,7 @@ export class Store extends EventTarget {
           delete this.runs[e.chat_id];
           const c = this.chats.get(e.chat_id);
           if (c) c.messages = c.messages.filter((m: any) => !(m.streaming && !m.content));
-        } else this.runs[e.chat_id] = { run_id: e.run_id, status: e.status, detail: e.detail, started: e.started, hint: e.hint };
+        } else this.runs[e.chat_id] = { run_id: e.run_id, status: e.status, detail: e.detail, started: e.started, hint: e.hint, steps: e.steps };
         break;
       case "permission": this.permissions = [...this.permissions.filter(p => p.id !== e.permission.id), e.permission]; break;
       case "permission_done": this.permissions = this.permissions.filter(p => p.id !== e.id); break;

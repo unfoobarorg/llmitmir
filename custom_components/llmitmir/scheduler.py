@@ -355,8 +355,8 @@ class Scheduler:
                                                              if chat.get("external_used") and chat.get("model_fallback") else name)
             text = re.sub(r"[#*_`>]+", "", (error or text or answer or "Fertig.")).strip()
             if run_info.get("limit_hit") and not task.get("heavy") and not tile:
-                text += ("\n" if text else "") + (f"Höchstzahl von {run_info.get('steps') or 60} Schritten erreicht – "
-                                                  "die Aufgabe lässt sich für 150 Schritte freigeben.")
+                text += ("\n" if text else "") + (f"Limit von {run_info.get('steps') or 60} Modellaufrufen erreicht – "
+                                                  "die Aufgabe lässt sich für 150 freigeben.")
             # Benachrichtigungen auf der Startseite – für alle, die die Aufgabe betrifft, unabhängig vom Push-Gerät
             await self._inbox_entries(user, task, chat, status, title, text, recipients)
             # The owner gets the message according to the task's setting; everybody the task (or tile) is shared with

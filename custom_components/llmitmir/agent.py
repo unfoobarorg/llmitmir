@@ -50,7 +50,7 @@ from .const import (AUTO, DEFAULT_CONTEXT, EFFORT_AGENT, EFFORT_CHAT, EXT_MODELS
                     KIND_TASK_RUN, KNOWN_CONTEXT, MAX_STEPS_CHAT, MAX_STEPS_CHAT_SIMPLE, MAX_STEPS_COWORK,
                     MAX_STEPS_TASK_HEAVY, MAX_STEPS_SUB, SUB_PARALLEL, SUB_PER_RUN, MAX_STEPS_TILE, MAX_STEPS_TILE_HEAVY,
                     ORIGIN_DASHBOARD,
-                    MAX_STEPS_MORE, MAX_STEPS_MORE_LOTS, MORE_STEPS, PERM_ALLOW, PERM_ASK, PERM_DENY,
+                    MAX_STEPS_MORE, MAX_STEPS_MORE_LOTS, MORE_STEPS, STEPS_LEFT, PERM_ALLOW, PERM_ASK, PERM_DENY,
                     PRESETS, RETRY_INTERACTIVE_MAX_WAIT, RETRY_TASK_MAX_WAIT, TASK_KEY_SAME, TASK_USAGE_DAYS,
                     PROGRESS_NUDGE_STEPS, TOOL_RESULT_MAX_CHARS, WRAPUP_STEPS)
 from .provider import ModelSwitch, Provider, ProviderError, QuotaExhausted, StreamAccumulator, guard_stream
@@ -98,6 +98,7 @@ class Run:
     agent_id: str = ""            # Agent, zu dem der Lauf gehört (audit.py)
     ctx_factor: float = 1.0       # Anteil des Kontext-Budgets, nachdem der Server „zu lang“ gemeldet hat (ctxlimit.py)
     ctx_retries: int = 0          # so oft hat dieser Lauf schon deshalb gekürzt und neu gefragt
+    steps: dict = field(default_factory=dict)  # {"used", "limit"}: Modellaufrufe dieses Laufs (Anzeige am Eingabefeld)
 
 
 # Werkzeuge, die im selben Schritt parallel laufen (alle anderen nacheinander)
@@ -941,6 +942,8 @@ class Manager:
         week = st.usage_period(date.today() - timedelta(days=date.today().weekday())) if st else dict(today)
         month = st.usage_period(date.today().replace(day=1)) if st else dict(today)
         return {"today": today, "week": week, "month": month, "quota": self.quota(user_id), "key_limits": limits,
+                # wann Tageskontingent (Mitternacht), Woche und Monatslimit neu beginnen – für „setzt in … zurück“
+                "resets": TK.resets(dt_util.now()),
                 "key_mode": cfg.get("key_mode"), "has_key": bool(key), "tasks": tasks,
                 "external": self.external_view(user_id)}
 
@@ -952,9 +955,9 @@ class Manager:
         st = self.users[user_id]
         req, tok = TK.quota_usage(st.usage_today())
         if q["requests_day"] and req >= q["requests_day"]:
-            raise QuotaError(f"Tageskontingent erreicht ({req}/{q['requests_day']} Anfragen). Morgen geht es weiter.")
+            raise QuotaError("Dein Tageskontingent ist aufgebraucht. Um Mitternacht geht es weiter.")
         if q["tokens_day"] and tok >= q["tokens_day"]:
-            raise QuotaError(f"Tageskontingent erreicht ({tok:,}/{q['tokens_day']:,} Tokens).".replace(",", "."))
+            raise QuotaError("Dein Tageskontingent ist aufgebraucht. Um Mitternacht geht es weiter.")
 
     # ------------------------------------------------------------- events
     @callback
@@ -1287,7 +1290,7 @@ class Manager:
         run.status = status
         run.detail = detail or {}
         self.emit(run.user_id, {"type": "run", "chat_id": run.chat_id, "run_id": run.id, "status": status,
-                                "detail": run.detail, "started": run.started, "hint": run.hint})
+                                "detail": run.detail, "started": run.started, "hint": run.hint, "steps": run.steps})
 
     # ------------------------------------------------------------- the agent loop
     async def _run(self, user, chat: dict, run: Run, task: dict | None) -> None:
@@ -1307,6 +1310,8 @@ class Manager:
             # Kachel-Lauf: weniger Schritte – eine Kachel ist ein kleiner, wiederkehrender Auftrag
             steps = MAX_STEPS_TILE_HEAVY if task.get("heavy") else MAX_STEPS_TILE
         limit_hit = False  # der Lauf endete, weil die Hoechstzahl an Schritten erreicht war
+        ending = False     # „Zum Ende kommen“/„Stopp“ gewählt oder nicht beantwortet: nicht noch einmal fragen
+        wrap_note = False  # die Person möchte, dass das Modell zum Ende kommt: bei jedem Aufruf daran erinnern
         # a scheduled task marked "in an emergency, external models are fine" moves there when the main provider is down
         may_fallback = task is not None and bool(task.get("external_fallback"))
         first_429: list[float] = []
@@ -1390,21 +1395,28 @@ class Manager:
                 if step >= steps:
                     limit_hit = True
                     chat["messages"].append({"id": new_id("m"), "role": "assistant", "created": now(),
-                                             "content": I18N.t("_Abgebrochen: Höchstzahl von {n} Schritten erreicht._", ctx.lang, n=steps)})
+                                             "content": I18N.t("_Abgebrochen: Das Limit der Modellaufrufe ist erreicht._", ctx.lang),
+                                             "step_limit": True})
                     break
                 if run.cancel.is_set():
                     final_status = "stopped"
                     break
-                if tools and interactive and not simple and steps - step == WRAPUP_STEPS:
-                    # expert view: the model is still at work and the limit is near – ask before it has to wrap up
-                    more = await self._ask_more_steps(run, chat, steps)
+                if tools and interactive and not ending and steps - step == WRAPUP_STEPS:
+                    # Das Modell arbeitet noch und das Limit ist nah: fragen (beide Ansichten; die Meldung erscheint
+                    # über dem Eingabefeld). Weitermachen = viel mehr; zum Ende kommen / Stopp = noch wenige Aufrufe.
+                    choice = await self._ask_more_steps(run, chat, steps)
                     if run.cancel.is_set():
                         final_status = "stopped"
                         break
-                    if more:
-                        steps += more
+                    if choice in MORE_STEPS:
+                        steps += MORE_STEPS[choice]
+                    else:
+                        ending = True
+                        if choice in STEPS_LEFT:
+                            steps, wrap_note = step + STEPS_LEFT[choice], True
                 self._check_run_quota(user.id, chat, separate)
                 left = steps - step
+                run.steps = {"used": step, "limit": steps}
                 final = bool(tools) and left == 1
                 prog = chat.get("progress") or []
                 extra: list[dict] = []
@@ -1420,13 +1432,17 @@ class Manager:
                         f"„{now_item}. {prog[now_item - 1].get('text', '')}“. Bist du weiter, rufe `progress_update` mit "
                         "`aktuell` = Nummer des laufenden Schritts auf (alle erledigt: Anzahl + 1) – zusammen mit "
                         "deinem nächsten Werkzeug, nicht als eigener Schritt.")})
+                if tools and wrap_note and left > WRAPUP_STEPS:
+                    extra.append({"role": "user", "content": (
+                        f"[LLMitMir] Die Person möchte, dass du zum Ende kommst: Du hast noch {left} Modellaufrufe. "
+                        "Erledige nur noch das Nötigste und schreibe dann den Bericht – was erledigt ist und was offen blieb.")})
                 if tools and left <= WRAPUP_STEPS:
                     # tell the model about the limit so it ends with a report instead of being cut off
                     extra.append({"role": "user", "content": (
-                        f"[LLMitMir] Letzter Schritt (Höchstzahl {steps}): Werkzeuge stehen nicht mehr zur Verfügung. "
+                        f"[LLMitMir] Letzter Modellaufruf (Limit {steps}): Werkzeuge stehen nicht mehr zur Verfügung. "
                         "Schreibe jetzt den Bericht: was erledigt ist, was offen blieb und warum." if final else
-                        f"[LLMitMir] Nur noch {left} Schritte bis zur Höchstzahl von {steps}. Bringe Wichtiges zu Ende "
-                        "und hör dann auf; im letzten Schritt gibt es keine Werkzeuge mehr, nur noch den Bericht.")
+                        f"[LLMitMir] Nur noch {left} Modellaufrufe bis zum Limit von {steps}. Bringe Wichtiges zu Ende "
+                        "und hör dann auf; im letzten Aufruf gibt es keine Werkzeuge mehr, nur noch den Bericht.")
                         + ("" if final or task is None else
                            (" Vergiss `dashboard_update` nicht – ohne gültige Daten gilt der Lauf als fehlgeschlagen."
                             if not chat.get("tile_written") else "") if is_tile else
@@ -1600,9 +1616,14 @@ class Manager:
                 calls = [] if final else acc.calls()  # tool calls on the last step are ignored
                 if final:
                     wrapped = True
-                    amsg["content"] = (content or I18N.t("_Abgebrochen: Höchstzahl von {n} Schritten erreicht._", ctx.lang, n=steps)) + (
-                        "\n\n" + I18N.t("_Höchstzahl von {n} Schritten erreicht – Lauf vorzeitig beendet._", ctx.lang, n=steps)
-                        if content else "")
+                    if wrap_note:
+                        # die Person hat „Zum Ende kommen“ oder „Stopp“ gewählt: der Bericht ist das gewollte Ende
+                        amsg["content"] = content or I18N.t("_Angehalten._", ctx.lang)
+                    else:
+                        amsg["content"] = (content or I18N.t("_Abgebrochen: Das Limit der Modellaufrufe ist erreicht._", ctx.lang)) + (
+                            "\n\n" + I18N.t("_Limit der Modellaufrufe erreicht – Lauf vorzeitig beendet._", ctx.lang)
+                            if content else "")
+                        amsg["step_limit"] = True  # das Panel bietet über dem Eingabefeld „Weitermachen“ an
                 if calls:
                     amsg["tool_calls"] = calls
                 chat["messages"].append(amsg)
@@ -1823,7 +1844,7 @@ class Manager:
             await st.async_save_chat(chat, keep_updated=True)
             self.emit(user.id, {"type": "chat", "chat": st.chat_summary(chat)})
             return
-        reason = error or (f"Höchstzahl von {steps} Schritten erreicht" if limit_hit else
+        reason = error or (f"Limit von {steps} Modellaufrufen erreicht" if limit_hit else
                            "Angehalten" if final_status == "stopped" else "")
         if gemeldet:
             summary, files = gemeldet["zusammenfassung"], gemeldet.get("dateien")
@@ -1882,7 +1903,7 @@ class Manager:
         lim = self.ext_limit(user_id)
         spent = self.ext_month(user_id)
         if spent >= lim:
-            raise QuotaError(f"Dein Monatslimit für kostenpflichtige Modelle ist erreicht ({_eur(spent)} von {_eur(lim)}). "
+            raise QuotaError("Dein Monatslimit für kostenpflichtige Modelle ist aufgebraucht. "
                              "Der Admin kann es erhöhen; am Monatsersten beginnt es neu.")
 
     def _fallback_for(self, user_id: str, proj: dict, st: UserStore, chat: dict) -> str | None:
@@ -1917,21 +1938,23 @@ class Manager:
                                 (self.config.data.get("billing") or {}).get("fallback_model") or None)
         return {"models": models, "recommended": pref, "reason": ps["why"].get(PV.MAIN) or ""}
 
-    async def _ask_more_steps(self, run: Run, chat: dict, steps: int) -> int:
-        """Ask (expert view) how many more steps the run may use instead of wrapping up.
+    async def _ask_more_steps(self, run: Run, chat: dict, steps: int) -> str:
+        """Fragen, wie es weitergeht, bevor das Modell zum Ende kommen muss (Meldung über dem Eingabefeld).
 
-        Returns 0 (wrap up now), MAX_STEPS_MORE (a little more) or MAX_STEPS_MORE_LOTS (a lot more, so the
-        question does not come back soon)."""
+        Antworten: "lots" (Weitermachen, viele weitere Modellaufrufe), "wrap" (zum Ende kommen), "stop" (Stopp:
+        nur noch der Bericht); ohne Antwort bringt das Modell die Arbeit in den letzten Aufrufen zu Ende. "once"
+        (ein wenig mehr) verstehen ältere Oberflächen noch."""
         if VO.allowed(chat, "more_steps"):
             # im Sprachgespraech schon einmal erlaubt: gleich viel mehr, statt mitten im Gespraech wieder zu fragen
-            return MAX_STEPS_MORE_LOTS
-        decision = await self.ask_permission(run, {"tool": "more_steps", "label": f"{MAX_STEPS_MORE} weitere Schritte",
+            return "lots"
+        decision = await self.ask_permission(run, {"tool": "more_steps", "label": "Mehr Modellaufrufe erlauben?",
                                                    "icon": "list", "steps": {"used": steps - WRAPUP_STEPS,
                                                                               "limit": steps, "more": MAX_STEPS_MORE,
-                                                                              "lots": MAX_STEPS_MORE_LOTS}})
+                                                                              "lots": MAX_STEPS_MORE_LOTS,
+                                                                              **STEPS_LEFT}})
         if decision in MORE_STEPS:
             VO.remember(chat, "more_steps")
-        return MORE_STEPS.get(decision, 0)
+        return decision
 
     async def _apply_switch(self, run: Run, chat: dict, st: UserStore, amsg: dict | None) -> None:
         old, new = chat["model"], run.switch_to or chat["model"]
@@ -2087,9 +2110,10 @@ class Manager:
         item = self.permissions.get(pid)
         if not item or item[0] != user_id or item[1].done():
             return False
-        if decision == "lots" and item[2].get("tool") != "more_steps":
-            decision = "once"  # "a lot more" only means something for the step limit
-        item[1].set_result(decision if decision in ("once", "always", "lots", "deny", "skip") else "deny")
+        if decision in ("lots", "wrap", "stop") and item[2].get("tool") != "more_steps":
+            # "Weitermachen", "Zum Ende kommen" und "Stopp" gibt es nur für das Limit der Modellaufrufe
+            decision = "once" if decision == "lots" else "deny"
+        item[1].set_result(decision if decision in ("once", "always", "lots", "wrap", "stop", "deny", "skip") else "deny")
         return True
 
 

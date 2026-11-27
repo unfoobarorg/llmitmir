@@ -127,13 +127,15 @@ MANUAL = """# LLMitMir – Handbuch für dich
 
 ## Chat und Cowork
 - Chat: Unterhaltung; Werkzeuge wählt die Person im Eingabefeld (Standard: Web, Dateien, Skills; Home Assistant ist immer an). \
-Höchstens 40 Werkzeugschritte je Antwort in der einfachen Ansicht; in der Expertenansicht 30, kurz vor \
-der Grenze fragt LLMitMir die Person, ob es um weitere 15 oder gleich 100 Schritte verlängern darf (beliebig oft).
+Höchstens 40 Modellaufrufe je Antwort in der einfachen Ansicht, 30 in der Expertenansicht. Kurz vor dem Limit \
+fragt LLMitMir die Person über dem Eingabefeld, wie es weitergehen soll: „Weitermachen“ (viele weitere Aufrufe, beliebig \
+oft), „Zum Ende kommen“ (noch wenige, dann der Bericht) oder „Stopp“ (gleich der Bericht). Sprich der Person gegenüber \
+von „Modellaufrufen“, nicht von „Schritten“.
 - Cowork: selbstständige Arbeit mit allen freigeschalteten Werkzeugen, sichtbarer Schrittliste (`progress_update`) und bis zu \
-60 Schritten. Ergebnisse als Datei im Arbeitsbereich (`file_write`), die Person lädt sie herunter.
+60 Modellaufrufen. Ergebnisse als Datei im Arbeitsbereich (`file_write`), die Person lädt sie herunter.
 - Besonders aufwändige geplante Aufgaben: Wer eine Aufgabe als „besonders aufwändig“ markiert, gibt ihr bis zu 150 \
-Schritte je Lauf. Erreicht eine Aufgabe ohne diese Markierung die 60 Schritte, wird sie auf der Seite „Geplant“ rot \
-markiert und lässt sich dort für mehr Schritte freigeben.
+Modellaufrufe je Lauf. Erreicht eine Aufgabe ohne diese Markierung die 60, wird sie auf der Seite „Geplant“ rot \
+markiert und lässt sich dort für mehr Modellaufrufe freigeben.
 - Anhänge der Person liegen im Arbeitsbereich des Chats (`file_list`, `file_read`).
 - Läuft schon eine Antwort, darf die Person trotzdem weiterschreiben: Die Nachricht wartet sichtbar im Chat und wird \
 beantwortet, sobald der laufende Schritt fertig ist. Sie kommt erst danach in den Verlauf – du siehst sie also nicht \
@@ -170,13 +172,13 @@ nur eine Ebene: Teilaufgaben haben keine eigenen Teilaufgaben.
 Du selbst startest eine Teilaufgabe mit `unterchat_starten` (Titel, eigenständiger Auftrag, Modell „sparsam“, „stark“, \
 „wie_hauptchat“ oder eine Modell-ID, optional Werkzeuggruppen und Dateien). Du wartest im selben Schritt, bis sie fertig \
 ist, und bekommst ihre Zusammenfassung als Ergebnis; mehrere Aufrufe im selben Schritt laufen parallel. Höchstens 3 laufen \
-je Person gleichzeitig (weitere warten auf einen freien Platz), höchstens 8 je Lauf, je Teilaufgabe 40 Schritte. Erreicht \
-sie eine Grenze (Schritte, Kontingent, Monatslimit, Anbieter) oder scheitert sie, kommt sofort ein Teilergebnis mit Stand \
+je Person gleichzeitig (weitere warten auf einen freien Platz), höchstens 8 je Lauf, je Teilaufgabe 40 Modellaufrufe. Erreicht \
+sie eine Grenze (Modellaufrufe, Kontingent, Monatslimit, Anbieter) oder scheitert sie, kommt sofort ein Teilergebnis mit Stand \
 „grenze“ bzw. „fehler“ und Grund – dann mit `unterchat_nachricht` weitermachen lassen, selbst übernehmen oder die Person \
 fragen. `unterchat_ergebnis` liest die letzte Zusammenfassung erneut. Eine Teilaufgabe meldet ihr Ergebnis mit \
 `ergebnis_melden`; vergisst sie das, fasst ein sparsames Modell ihre letzte Antwort zusammen. „Stopp“ im Hauptchat hält \
 auch die Teilaufgaben an. Läufe geplanter Aufgaben starten keine Teilaufgaben. Freigaben, Änderungskarten und die \
-Frage nach mehr Schritten aus einer Teilaufgabe erscheinen auch im Hauptchat (mit Herkunft) und – wenn kein Panel offen \
+Frage nach mehr Modellaufrufen aus einer Teilaufgabe erscheinen auch im Hauptchat (mit Herkunft) und – wenn kein Panel offen \
 ist – als Push „Teilaufgabe braucht dich“; „Immer erlauben“ gilt dort nur für diese eine Teilaufgabe. Läuft eine Frage \
 ohne Antwort ab, macht die Teilaufgabe ohne die Aktion weiter. Unter Einstellungen → Funktionen → Teilaufgaben wählt die Person \
 „automatisch“ (Standard in der Expertenansicht), „nur auf Wunsch“ (Standard in der einfachen Ansicht) oder „aus“. \
@@ -216,7 +218,7 @@ progress, matrix (5×5-Risikomatrix), gauge (Messuhr), scene (3D-Grundkörper), 
 **Datenquelle zuerst in Home Assistant suchen.** Hat HA die Werte schon als Entität (Sensor, Kalender, To-do-Liste, \
 Statistik), wird die Kachel eine HA-Kachel: kein Modell, keine Kosten, live. Nur was HA nicht weiß (Mails inhaltlich \
 auswerten, Webseiten, Einschätzungen), wird eine Modell-Kachel: Ihre Beschreibung ist der Auftrag eines geplanten Laufs \
-(Standard stündlich 7–22 Uhr, höchstens alle 15 Minuten, bis zu 30 Schritte), der am Ende `dashboard_update` aufruft. \
+(Standard stündlich 7–22 Uhr, höchstens alle 15 Minuten, bis zu 30 Modellaufrufe), der am Ende `dashboard_update` aufruft. \
 Modell-Kacheln laufen in einer eigenen Warteschlange (normale Aufgaben warten nie auf sie), zählen gegen ein Tagesbudget an \
 Läufen je Person, pausieren, solange sie auf keinem Dashboard liegen, und können „nur bei Änderung“ bestimmter Entitäten laufen. \
 Ein Lauf ohne gültiges `dashboard_update` gilt als Fehler. Ihre Aufgaben stehen unter „Geplant“ nur mit dem Schalter \

@@ -647,7 +647,7 @@ export class TileSheet extends StoreElement {
       ${isSimple() ? nothing : html`<div class="two"><label class="f"><span>${t("Modell")}</span><select @change=${(e: any) => this.set("model", e.target.value || null)}>
           <option value="">automatisch</option>${(d.models || []).filter((m: any) => !m.external).map((m: any) => html`<option value=${m.id} ?selected=${x.model === m.id}>${m.name}</option>`)}</select></label>
         <label class="row" style="gap:8px;margin-top:22px"><input type="checkbox" style="width:auto" .checked=${!!x.heavy} @change=${(e: any) => this.set("heavy", e.target.checked)}>
-          <span>${t("Aufwändig – bis zu 60 statt 30 Schritte je Lauf")}</span></label></div>`}
+          <span>${t("Aufwändig – bis zu 60 statt 30 Modellaufrufe je Lauf")}</span></label></div>`}
       ${this.credPicker(x)}` : html`<div class="hint">${live?.owner_name ? t("Projekt, Modell und Benachrichtigungen legt {owner} fest – die Läufe nutzen deren Zugänge.", { owner: live.owner_name })
         : t("Projekt, Modell und Benachrichtigungen legt die Eigentümerin oder der Eigentümer fest – die Läufe nutzen deren Zugänge.")}</div>`}
       ${task ? html`<div class="card status">
