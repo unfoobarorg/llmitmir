@@ -33,6 +33,8 @@ export function chatLock(chat: any): string {
     + t("Externe Modelle sind hier gesperrt – für ein externes Modell einen neuen Chat beginnen.");
 }
 
+/** Anteil als „23 %“ – wie fmtPct in limits.ts (das dieses Modul importiert, daher hier eigenständig). */
+const pct = (f: number) => { const n = Math.min(100, Math.round(Math.max(0, f) * 100)); return t("{n} %", { n }); };
 export const fmtEur = (v: number, digits = 2) =>
   (Number(v || 0)).toLocaleString(dateLocale(), { minimumFractionDigits: digits, maximumFractionDigits: Math.max(digits, 2) }) + " €";
 
@@ -59,7 +61,7 @@ export function externalExplanation(operator?: string) {
     <p><b>${t("Was nie dorthin geht:")}</b> ${t("Passwörter und Schlüssel aus deinen Zugängen. Zugänge, die du nicht ausdrücklich für externe Modelle freigibst, bleiben ganz außen vor – auch ihre Ergebnisse werden aus dem Verlauf entfernt. Projekte lassen sich ganz sperren.")}</p>
     <p class="warn">${icon("shield", 18)}<span><b>${t("Bitte gib dort keine sensiblen Informationen preis:")}</b> ${t("keine Gesundheitsdaten, Passwörter, Kontodaten oder persönlichen Daten anderer Menschen.")}</span></p>
     <p><b>${t("Speicherung:")}</b> ${t("Der Anbieter darf Anfragen eine begrenzte Zeit aufbewahren (bei Claude bis zu 30 Tage, z. B. zur Erkennung von Missbrauch); zum Trainieren von KI-Modellen werden sie nicht verwendet.")}${e.main_external ? t(" Bei weitergeleiteten Modellen gelten die Bedingungen, die der Hauptanbieter mit dem Anbieter vereinbart hat.") : ""}</p>
-    <p>${e.has_access ? html`<b>${t("Kosten:")}</b> ${t("Der Admin hat dir ein Monatslimit von {limit} gegeben; diesen Monat sind {used} verbraucht.", { limit: fmtEur(e.limit_eur || 0), used: fmtEur(e.month_eur || 0) })}${e.main_external ? t(" Für die als extern gekennzeichneten Modelle des Hauptanbieters rechnet LLMitMir keine Kosten ab.") : ""} ` : nothing}${e.has_access ? t("LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest oder eine Aufgabe es im Notfall darf.") : t("LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest.")}</p>
+    <p>${e.has_access ? html`<b>${t("Kosten:")}</b> ${t("Der Admin hat dir ein Monatsbudget gegeben; diesen Monat hast du {p} davon verbraucht.", { p: pct(e.limit_eur ? (e.month_eur || 0) / e.limit_eur : 0) })}${e.main_external ? t(" Für die als extern gekennzeichneten Modelle des Hauptanbieters rechnet LLMitMir keine Kosten ab.") : ""} ` : nothing}${e.has_access ? t("LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest oder eine Aufgabe es im Notfall darf.") : t("LLMitMir wählt externe Modelle nie von selbst – nur wenn du es ausdrücklich möchtest.")}</p>
   </div>`;
 }
 
@@ -95,7 +97,7 @@ export async function confirmExternal(modelId: string, withHistory: boolean): Pr
   const first = !ext().consent;
   if (!(await ensureConsent(op))) return false;
   if (first) return true;  // the full explanation was just accepted
-  const cost = m?.price ? " " + t("Ein Schritt kostet grob {x}.", { x: fmtEur(stepCost(m.price), 3) }) : "";
+  const cost = m?.price ? " " + t("Ein Modellaufruf kostet grob {x}.", { x: fmtEur(stepCost(m.price), 3) }) : "";
   const name = m?.name || t("Dieses Modell");
   const head = isBilled(modelId) ? t("{m} läuft kostenpflichtig bei {op}.", { m: name, op }) : t("{m} läuft bei {op}.", { m: name, op });
   return confirmDialog(`${head}${withHistory ? t(" Der bisherige Verlauf dieses Chats wird mitgeschickt.") : ""}${cost} ${t("Bitte keine sensiblen Daten eingeben.")}`, t("Weiter"));
@@ -146,5 +148,5 @@ export function offerCard(chatId: string, offer: any, simple: boolean, last: boo
   return html`<div class="offer">
     <div>${icon("euro", 16)} ${t("Der Hauptanbieter ist gerade nicht nutzbar")}${offer.reason ? ` (${tb(offer.reason)})` : ""}. ${t("Diese kostenpflichtigen Modelle sind freigeschaltet:")}</div>
     <div class="brow">${offer.models.slice(0, 4).map((m: any) => html`<button class="btn ${m.id === rec.id ? "primary" : ""}" title=${`${m.provider_name} · ${priceText(m.price)}`}
-      @click=${() => go(m.id)}>${m.name} <span class="muted" style="font-size:12px">· ~${fmtEur(stepCost(m.price), 3)}/${t("Schritt")}</span></button>`)}</div></div>`;
+      @click=${() => go(m.id)}>${m.name} <span class="muted" style="font-size:12px">· ~${fmtEur(stepCost(m.price), 3)}/${t("Modellaufruf")}</span></button>`)}</div></div>`;
 }

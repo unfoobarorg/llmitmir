@@ -2,7 +2,8 @@
 import { LitElement, css, html, nothing } from "lit";
 import { property, state, query } from "lit/decorators.js";
 import { base, icon, menuItemStyles, fmtNum, fmtDuration, VoiceRecorder, safeElement } from "./ui";
-import { store } from "./api";
+import { store, navigate } from "./api";
+import { contextLimit, stepsLimit, fmtPct, limitRow, limitWarning, limitsCss, showAbsolute, usedFrac, userLimits } from "./limits";
 import { t, tb, dateLocale } from "./i18n";
 import { alternative, load, loadDot, type Role } from "./modelpick";
 import { confirmExternal, ext, fmtEur, isExternal, priceText, stepCost } from "./external";
@@ -32,6 +33,8 @@ export class Composer extends LitElement {
   @property() model = "";
   @property({ type: Boolean }) busy = false;
   @property({ type: Object }) chatUsage: any = null;
+  /** Modellaufrufe der laufenden Antwort: {used, limit} */
+  @property({ type: Object }) runSteps: { used: number; limit: number } | null = null;
   @property({ type: Array }) tools: string[] | null = null;
   @property({ type: Boolean }) big = false;
   /** Simple view: no model, tools or usage meters – the model is always chosen automatically. */
@@ -59,7 +62,7 @@ export class Composer extends LitElement {
   private _txTimer = 0;
   private _txRun = 0;
 
-  static styles = [base, menuItemStyles, css`
+  static styles = [base, menuItemStyles, limitsCss, css`
     :host { display: block; container-type: inline-size; }
     .box { background: var(--lm-raise); border: 1px solid var(--lm-line); border-radius: 22px; box-shadow: var(--lm-shadow);
       padding: 12px 12px 8px 16px; transition: border-color .2s, box-shadow .2s; position: relative; }
@@ -104,11 +107,19 @@ export class Composer extends LitElement {
     .file button { border: 0; background: none; cursor: pointer; color: var(--lm-muted); display: grid; }
     .meter { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; padding: 6px; border-radius: 9px; cursor: pointer; }
     .meter:hover { background: var(--lm-hover); }
-    .stats { padding: 8px 10px; font-size: 13px; display: grid; gap: 10px; min-width: min(270px, calc(100vw - 40px)); text-align: left; }
-    .stats .bar2 { height: 6px; border-radius: 4px; background: var(--lm-hover); overflow: hidden; margin-top: 4px; }
-    .stats .bar2 i { display: block; height: 100%; background: var(--lm-accent); border-radius: 4px; transition: width .5s; }
-    .stats .bar2 i.w { background: var(--lm-warn); } .stats .bar2 i.e { background: var(--lm-err); }
+    .stats { padding: 4px 6px 2px; font-size: 13px; display: grid; gap: 8px; min-width: min(290px, calc(100vw - 40px)); text-align: left; }
+    .stats .mh { padding: 6px 4px 0; }
+    .stats .lims { padding: 0 4px; gap: 12px; }
+    .stats .hint { padding: 0 4px; }
+    .stats .nums { display: grid; gap: 4px; padding: 0 4px; }
     .stats .k { display: flex; justify-content: space-between; gap: 10px; }
+    .stats .k span:last-child { color: var(--lm-muted); font-variant-numeric: tabular-nums; }
+    .stats .mi.more { margin-top: 2px; border-top: 1px solid var(--lm-line); border-radius: 0 0 8px 8px; color: var(--lm-muted); font-size: 13px; }
+    .bhint.lim { animation: lim-in .38s cubic-bezier(.2, .9, .25, 1.15) both; }
+    .bhint.full { background: color-mix(in srgb, var(--lm-err) 10%, var(--lm-panel)); border-color: color-mix(in srgb, var(--lm-err) 40%, var(--lm-line)); }
+    .bhint.full > svg { color: var(--lm-err); }
+    @keyframes lim-in { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+    @media (prefers-reduced-motion: reduce) { .bhint.lim { animation: none; } }
     .rec { display: flex; align-items: center; gap: 12px; padding: 6px 2px; }
     .wave { display: flex; align-items: center; gap: 3px; height: 28px; flex: 1; }
     .wave i { width: 3px; border-radius: 2px; background: var(--lm-accent); transition: height .1s; }
@@ -288,42 +299,32 @@ export class Composer extends LitElement {
 
   private usageMenu() {
     const u = store.data?.usage || {};
-    const today = u.today || {}; const q = u.quota || {}; const lim = u.key_limits || {};
-    const cu = this.chatUsage;
-    const ctxFrac = cu?.context && cu?.context_max ? cu.context / cu.context_max : 0;
-    const tok = (today.prompt || 0) + (today.completion || 0);
-    const fr = (a: number, b: number) => (b ? Math.min(1, a / b) : 0);
-    const cls = (f: number) => (f >= 0.9 ? "e" : f >= 0.7 ? "w" : "");
-    const bar = (f: number) => html`<div class="bar2"><i class=${cls(f)} style="width:${Math.round(f * 100)}%"></i></div>`;
-    const keyDay = lim.limit_requests_day ? 1 - (lim.remaining_requests_day ?? lim.limit_requests_day) / lim.limit_requests_day : 0;
-    const keyHour = lim.limit_requests_hour ? 1 - (lim.remaining_requests_hour ?? lim.limit_requests_hour) / lim.limit_requests_hour : 0;
+    const abs = showAbsolute();
+    const ls = userLimits();
+    const ctx = contextLimit(this.chatUsage, this.modelInfo.context || 0);
+    const calls = this.busy ? stepsLimit(this.runSteps) : null;
+    const tok = (x: any) => (x?.prompt || 0) + (x?.completion || 0);
+    const stat = (label: string, x: any) => html`<div class="k"><span>${label}</span><span>${x?.requests || 0} ${t("Anfragen")} · ${fmtNum(tok(x))} ${t("Tokens")}</span></div>`;
     return html`<div class="stats">
-      ${cu ? html`<div><div class="k"><b>${t("Kontext")}</b><span>${fmtNum(cu.context || 0)} / ${fmtNum(cu.context_max || this.modelInfo.context || 0)}</span></div>${bar(ctxFrac)}
-        <div class="hint">${t("Wird es voll, kürzt LLMitMir ältere Werkzeugergebnisse und dann die ältesten Nachrichten.")}</div></div>` : nothing}
-      <div><div class="k"><b>${t("Heute")}</b><span>${today.requests || 0} ${t("Anfragen")} · ${fmtNum(tok)} ${t("Tokens")}</span></div>
-        ${q.requests_day ? html`<div class="k muted"><span>${t("Kontingent Anfragen")}</span><span>${today.requests || 0} / ${q.requests_day}</span></div>${bar(fr(today.requests, q.requests_day))}` : nothing}
-        ${q.tokens_day ? html`<div class="k muted"><span>${t("Kontingent Tokens")}</span><span>${fmtNum(tok)} / ${fmtNum(q.tokens_day)}</span></div>${bar(fr(tok, q.tokens_day))}` : nothing}
-        ${!q.requests_day && !q.tokens_day ? html`<div class="hint">${t("Kein persönliches Tageskontingent.")}</div>` : nothing}</div>
-      ${u.week || u.month ? html`<div><div class="k"><b>${t("Diese Woche")}</b><span>${(u.week?.requests || 0)} ${t("Anfragen")} · ${fmtNum((u.week?.prompt || 0) + (u.week?.completion || 0))} ${t("Tokens")}</span></div>
-        <div class="k"><b>${t("Diesen Monat")}</b><span>${(u.month?.requests || 0)} ${t("Anfragen")} · ${fmtNum((u.month?.prompt || 0) + (u.month?.completion || 0))} ${t("Tokens")}</span></div>
-        <div class="hint">${t("Woche ab Montag, Monat ab dem Ersten – gezählt wird, was auf dem eigenen Schlüssel läuft.")}</div></div>` : nothing}
-      ${lim.limit_requests_day ? html`<div><div class="k"><b>${t("Schlüssel")}</b><span>${u.key_mode === "shared" ? t("gemeinsam") : t("persönlich")}</span></div>
-        <div class="k muted"><span>${t("Heute übrig")}</span><span>${lim.remaining_requests_day} / ${lim.limit_requests_day}</span></div>${bar(keyDay)}
-        <div class="k muted"><span>${t("Diese Stunde übrig")}</span><span>${lim.remaining_requests_hour} / ${lim.limit_requests_hour}</span></div>${bar(keyHour)}
-        ${lim.reset_requests_day ? html`<div class="hint">${t("Tageslimit setzt in {d} zurück.", { d: fmtDuration(lim.reset_requests_day) })}</div>` : nothing}</div>` :
-        html`<div class="hint">${t("Limits des Schlüssels erscheinen nach der ersten Anfrage.")}</div>`}
-      ${ext().has_access ? html`<div><div class="k"><b>${t("Kostenpflichtig (extern)")}</b><span>${fmtEur(ext().month_eur)} / ${fmtEur(ext().limit_eur)}</span></div>
-        ${bar(fr(ext().month_eur, ext().limit_eur))}<div class="hint">${t("Diesen Monat · Limit vom Admin")}</div></div>` : nothing}
+      ${ctx || calls ? html`<div class="mh">${t("Dieser Chat")}</div><div class="lims">
+        ${ctx ? limitRow(ctx, { abs, right: t("{p} belegt", { p: fmtPct(ctx.frac) }), note: t("Wird es voll, kürzt LLMitMir ältere Werkzeugergebnisse und dann die ältesten Nachrichten.") }) : nothing}
+        ${calls ? limitRow(calls, { abs, note: t("Wird es knapp, fragt LLMitMir, wie es weitergehen soll.") }) : nothing}</div>` : nothing}
+      <div class="mh">${t("Nutzungslimits")}</div>
+      ${ls.length ? html`<div class="lims">${ls.map(l => limitRow(l, { abs }))}</div>`
+        : html`<div class="hint">${u.has_key === false ? t("Noch kein API-Schlüssel hinterlegt.") : t("Für dich gilt kein Tageskontingent. Die Limits des Schlüssels erscheinen nach der ersten Anfrage.")}</div>`}
+      ${abs ? html`<div class="mh">${t("Genaue Zahlen")}</div><div class="nums">${stat(t("Heute"), u.today)}${u.week ? stat(t("Diese Woche"), u.week) : nothing}${u.month ? stat(t("Diesen Monat"), u.month) : nothing}</div>` : nothing}
+      <button class="mi more" data-close @click=${() => navigate("/settings/usage")}>${icon("gauge", 16)}<span class="grow">${t("Mehr unter Einstellungen → Verbrauch")}</span></button>
     </div>`;
   }
 
-  private quotaFrac(): number {
-    const u = store.data?.usage || {}; const today = u.today || {}; const q = u.quota || {}; const lim = u.key_limits || {};
-    const tok = (today.prompt || 0) + (today.completion || 0);
-    const f = [q.requests_day ? today.requests / q.requests_day : 0, q.tokens_day ? tok / q.tokens_day : 0,
-      lim.limit_requests_day ? 1 - (lim.remaining_requests_day ?? lim.limit_requests_day) / lim.limit_requests_day : 0,
-      lim.limit_requests_hour ? 1 - (lim.remaining_requests_hour ?? lim.limit_requests_hour) / lim.limit_requests_hour : 0];
-    return Math.max(...f.map(x => x || 0));
+  /** Hinweis ab 80 % eines Limits (auch in der einfachen Ansicht) – wie die Claude-App kurz vor dem Limit. */
+  private limitHint() {
+    if (this.busy) return nothing;
+    const w = limitWarning(userLimits(), !!(this.modelInfo as any).billed);
+    if (!w || this.dismissed.has(w.key)) return nothing;
+    return html`<div class="bhint lim ${w.full ? "full" : ""}">${icon(w.full ? "alert" : "gauge", 18)}<div class="grow">${w.text}</div>
+      ${this.simple ? nothing : html`<button class="btn" @click=${() => navigate("/settings/usage")}>${t("Details")}</button>`}
+      <button class="iconbtn" title=${t("Schließen")} @click=${() => { this.dismissed = new Set([...this.dismissed, w.key]); }}>${icon("close", 16)}</button></div>`;
   }
 
   private get modelRole(): Role { return this.mode === "chat" ? "chat" : "agent"; }
@@ -354,7 +355,7 @@ export class Composer extends LitElement {
           ${m.new ? html`<span class="badge" style="color:var(--lm-accent)">${t("neu")}</span>` : nothing}
           ${m.billed && m.locked ? html`<span class="badge">${t("nur im Notfall")}</span>` : nothing}
           ${m.status === "unavailable" ? html`<span class="badge" style="color:var(--lm-err)">${t("nicht verfügbar")}</span>` : nothing}</div>
-          <div class="sub">${m.billed ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} ${t("je Schritt")}${off && why ? html` · ${why}` : nothing}`
+          <div class="sub">${m.billed ? html`${m.provider_name} · ~${fmtEur(stepCost(m.price), 3)} ${t("je Modellaufruf")}${off && why ? html` · ${why}` : nothing}`
             : html`${m.external ? `${t("extern")} · ` : ""}${l && l.level ? html`<span style="color:${l.color}">${l.text}</span> · ` : nothing}${(m.input || []).includes("image") ? `${t("Bilder")} · ` : ""}${(m.output || []).includes("thought") ? `${t("denkt nach")} · ` : ""}${fmtNum(m.context)} ${t("Kontext")}`}</div></div>
         ${m.id === this.model ? icon("check", 18) : nothing}</button>`; };
     const lockNote = this.lockText && (outside.length || paid.length)
@@ -364,7 +365,7 @@ export class Composer extends LitElement {
       ${outside.length ? html`<div class="msep"></div><div class="mh">${t("Extern (über den Hauptanbieter)")}</div>${outside.map(row)}
         <div class="hint" style="padding:2px 10px 6px">${t("Der Hauptanbieter leitet diese Modelle an kommerzielle Anbieter weiter – keine sensiblen Daten eingeben. Zugänge gibt es dort nur, wenn du sie für externe Modelle freigegeben hast.")}</div>` : nothing}
       ${paid.length ? html`<div class="msep"></div><div class="mh">${t("Kostenpflichtig (extern)")}</div>${paid.map(row)}
-        <div class="hint" style="padding:2px 10px 6px">${t("{a} von {b} diesen Monat verbraucht. Externe Modelle laufen bei einem anderen Anbieter – keine sensiblen Daten eingeben.", { a: fmtEur(ext().month_eur), b: fmtEur(ext().limit_eur) })} ${paid.some(m => m.locked) ? t("„Nur im Notfall“ heißt: erst wählbar, wenn die Anbieter davor gerade nicht nutzbar sind.") : ""}</div>` : nothing}
+        <div class="hint" style="padding:2px 10px 6px">${t("{p} deines Monatsbudgets verbraucht.", { p: fmtPct(ext().limit_eur ? (ext().month_eur || 0) / ext().limit_eur : 0) })}${showAbsolute() ? ` (${t("{a} von {b}", { a: fmtEur(ext().month_eur || 0), b: fmtEur(ext().limit_eur || 0) })})` : ""} ${t("Externe Modelle laufen bei einem anderen Anbieter – keine sensiblen Daten eingeben.")} ${paid.some(m => m.locked) ? t("„Nur im Notfall“ heißt: erst wählbar, wenn die Anbieter davor gerade nicht nutzbar sind.") : ""}</div>` : nothing}
       <div class="msep"></div>
       <button class="mi" @click=${() => { this.noThinking = !this.noThinking;
         this.dispatchEvent(new CustomEvent("nothinking", { detail: this.noThinking })); this.requestUpdate(); }}>
@@ -421,11 +422,10 @@ export class Composer extends LitElement {
   render() {
     const busy = this.busy;
     const proj = (store.data?.projects || []).find((p: any) => p.id === this.projectId);
-    const qf = this.quotaFrac();
-    const cu = this.chatUsage;
-    const cf = cu?.context && cu?.context_max ? cu.context / cu.context_max : 0;
+    const qf = usedFrac(userLimits());
+    const ctx = contextLimit(this.chatUsage, this.modelInfo.context || 0);
     const secs = this.rec ? Math.floor((Date.now() - this.recStart) / 1000) : 0;
-    return html`${this.busyHint()}${this.emergencyHint()}<div class="box ${this.big ? "big" : ""} ${this.drag ? "drag" : ""}"
+    return html`${this.limitHint()}${this.busyHint()}${this.emergencyHint()}<div class="box ${this.big ? "big" : ""} ${this.drag ? "drag" : ""}"
         @dragover=${(e: DragEvent) => { e.preventDefault(); this.drag = true; }} @dragleave=${() => (this.drag = false)}
         @drop=${(e: DragEvent) => { e.preventDefault(); this.drag = false; this.addFiles(e.dataTransfer?.files || null); }}>
       ${this.files.length ? html`<div class="files">${this.files.map((f, i) => html`<span class="file">${icon(f.type.startsWith("image/") ? "image" : "file", 16)}
@@ -447,8 +447,8 @@ export class Composer extends LitElement {
           <button class=${this.mode === "cowork" ? "on" : ""} @click=${() => this.setMode("cowork")}>${icon("cowork", 16)}<span class="hide-s">Cowork</span></button></span>` : nothing}
         ${this.showProject ? html`<lm-menu direction="up"><button slot="trigger" class="model" title=${t("Projekte")}>${icon("project", 16)}<span class="ellipsis hide-s">${proj?.name || t("Projekt")}</span></button>${this.projectMenu()}</lm-menu>` : nothing}
         <span class="grow"></span>
-        ${this.simple ? nothing : html`<lm-menu direction="up" align="right"><button slot="trigger" class="meter" title="${t("Kontext")} & ${t("Kontingent")}">
-          ${cu ? html`<lm-ring .value=${cf} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Kontingent")}></lm-ring></button>
+        ${this.simple ? nothing : html`<lm-menu direction="up" align="right"><button slot="trigger" class="meter" title=${[ctx ? t("Kontext: {p} belegt", { p: fmtPct(ctx.frac) }) : "", t("Nutzungslimits: {p} verbraucht", { p: fmtPct(qf) })].filter(Boolean).join(" · ")}>
+          ${ctx ? html`<lm-ring .value=${ctx.frac} label=${t("Kontext")}></lm-ring>` : nothing}<lm-ring .value=${qf} label=${t("Nutzungslimits")}></lm-ring></button>
           ${this.usageMenu()}</lm-menu>
         <lm-menu direction="up" align="right"><button slot="trigger" class="model" title=${t("Modell")}>${(this.modelInfo as any).billed ? icon("euro", 14) : (this.modelInfo as any).external ? icon("external", 14) : loadDot(this.modelInfo, 7)}<span class="ellipsis">${this.modelInfo.name || t("Modell wählen")}</span>${icon("down", 16)}</button>${this.modelMenu()}</lm-menu>`}
         ${!busy && !this.rec && (this.transcribing || (!this.text.trim() && !this.files.length)) ? html`<button class="send" title=${t("Spracheingabe")} style="background:var(--lm-hover);color:var(--lm-text)"

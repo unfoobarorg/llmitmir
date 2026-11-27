@@ -8,6 +8,7 @@ import { t, tb, dateLocale } from "./i18n";
 import { load, loadDot } from "./modelpick";
 import { taskUsageCss, usageBlock, taskKeyLabel } from "./taskusage";
 import { fmtEur } from "./external";
+import { fmtPct, showAbsolute } from "./limits";
 import { extraCss, werkbankInfo } from "./settings";
 import { settingsLayout, settingsCss, centerActiveNav, group, row, pad, toggle, switchRow, choices, more, empty, itemCard, type NavItem } from "./setui";
 import "./monitoring";
@@ -194,7 +195,9 @@ export class AdminPage extends StoreElement {
           { value: "per_user_own", label: t("Jede Person trägt ihren eigenen Schlüssel ein"), desc: t("In den persönlichen Einstellungen. Ohne Schlüssel kein Zugriff auf Modelle.") },
         ], a.key_mode, (k) => this.set("key_mode", k))}
         ${a.key_mode === "shared" ? row(t("Gemeinsamer Schlüssel"), lim?.limit_requests_day
-            ? t("Heute noch {a} von {b} Anfragen, diese Stunde {c} von {d}.", { a: lim.remaining_requests_day, b: lim.limit_requests_day, c: lim.remaining_requests_hour, d: lim.limit_requests_hour }) : null,
+            ? html`${t("Heute {a} verbraucht, diese Stunde {b}.", { a: fmtPct(1 - (lim.remaining_requests_day ?? lim.limit_requests_day) / lim.limit_requests_day),
+                b: fmtPct(lim.limit_requests_hour ? 1 - (lim.remaining_requests_hour ?? lim.limit_requests_hour) / lim.limit_requests_hour : 0) })}${showAbsolute()
+                ? ` ${t("({a} von {b} Anfragen heute)", { a: lim.limit_requests_day - (lim.remaining_requests_day ?? lim.limit_requests_day), b: lim.limit_requests_day })}` : ""}` : null,
           secret(a.shared_key, (v) => this.set("shared_key", v), "")) : nothing}
         ${a.key_mode === "per_user_admin" ? html`<div class="tw"><table><tr><th>${t("Person")}</th><th>${t("Schlüssel")}</th></tr>${users.map((u: any) => html`<tr><td>${u.name}</td>
           <td>${secret(a.user_keys[u.id], (v) => this.set("user_keys", { ...a.user_keys, [u.id]: v }))}</td></tr>`)}</table></div>` : nothing}`,

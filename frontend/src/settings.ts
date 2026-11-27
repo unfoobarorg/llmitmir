@@ -4,7 +4,8 @@ import { css, html, nothing } from "lit";
 import { property, state } from "lit/decorators.js";
 import { StoreElement, base, icon, md, fmtNum, fmtTime, daysText, copyText, safeElement } from "./ui";
 import { store, navigate, isSimple } from "./api";
-import { t, tb, lang, LANGUAGES, resolveLang } from "./i18n";
+import { t, tb, lang, dateLocale, LANGUAGES, resolveLang } from "./i18n";
+import { fmtPct, limitRow, limitsCss, userLimits } from "./limits";
 import { claudeImportPrompt } from "./importprompt";
 import "./plugins";
 import { modelName } from "./modelpick";
@@ -80,18 +81,26 @@ export class SettingsPage extends StoreElement {
   @state() private deviceSel = "";
   @state() private devicesLoaded = false;
   @state() private history: any = null;
+  @state() private usageAt = Date.now();
   @state() private imp: any = null;
   @state() private impResult: any = null;
   @state() private guide = false;
   @state() private hostInput: Record<string, string> = {};   // Erlaubte Server: Eingabe je Zugang
   @state() private impBusy = "";
-  static styles = [base, settingsCss, extraCss, taskUsageCss, externalCss];
+  static styles = [base, settingsCss, extraCss, taskUsageCss, externalCss, limitsCss];
   connectedCallback() {
     super.connectedCallback();
     this.reset();
     store.api.ws("notify_devices").then(r => {
       this.devices = r.devices || []; this.deviceSel = r.selected || ""; this.devicesLoaded = true; });
-    store.api.ws("usage/history").then(r => (this.history = r));
+    this.loadUsage();
+  }
+  /** Verlauf und frischen Stand der Limits holen. */
+  private loadUsage() {
+    store.api.ws("usage/history").then(r => {
+      if (r?.snapshot && store.data) { store.data.usage = r.snapshot; if (r.snapshot.external) store.data.external = r.snapshot.external; }
+      this.history = r; this.usageAt = Date.now();
+    });
   }
   private reset() {
     this.s = { ...(store.data?.settings || {}) }; this.memory = store.data?.memory || ""; this.dirty = false;
@@ -111,7 +120,7 @@ export class SettingsPage extends StoreElement {
     this.dirty = false; store.notify(t("Gespeichert")); await store.load(); this.reset();
     // Neue Sprache: alles neu zeichnen – am sichersten mit einem Neuladen der Seite
     if (lang() !== before) { location.reload(); return; }
-    store.api.ws("usage/history").then(r => (this.history = r));
+    this.loadUsage();
   }
   private async newImport() {
     const r = await store.api.ws("import/token");
@@ -224,8 +233,9 @@ export class SettingsPage extends StoreElement {
         e.consent ? html`<span class="chip ok">${icon("check", 13)} ${t("zugestimmt")}</span>
             <button class="btn ghost" @click=${async () => { await store.api.ws("external/consent", { accept: false }); await store.load(); store.notify(t("Zustimmung zurückgenommen")); }}>${t("Zurücknehmen")}</button>`
           : html`<button class="btn primary" @click=${async () => { if (await ensureConsent()) store.notify(t("Zugestimmt")); }}>${t("Lesen und zustimmen …")}</button>`)}
-      ${e.has_access ? row(t("Kosten diesen Monat"), html`${t("{a} von {b} – Verlauf unter", { a: fmtEur(e.month_eur || 0), b: fmtEur(e.limit_eur || 0) })} ${link("/settings/usage", t("Verbrauch"))}.`,
-        html`<div class="meter" style="width:180px"><div style="width:${Math.min(100, Math.round(100 * (e.month_eur || 0) / (e.limit_eur || 1)))}%"></div></div>`) : nothing}
+      ${e.has_access ? (() => { const f = e.limit_eur ? (e.month_eur || 0) / e.limit_eur : 0;
+        return row(t("Budget diesen Monat"), html`${t("{p} verbraucht", { p: fmtPct(f) })}${this.s.usage_absolute ? ` (${t("{a} von {b}", { a: fmtEur(e.month_eur || 0), b: fmtEur(e.limit_eur || 0) })})` : ""} – ${t("Verlauf unter")} ${link("/settings/usage", t("Verbrauch"))}.`,
+          html`<div class="meter" style="width:180px"><div style="width:${Math.min(100, Math.round(100 * f))}%"></div></div>`); })() : nothing}
       ${pad(more(externalExplanation(), t("Was ist bei externen Modellen anders?")))}`,
       { desc: t("Modelle, die nicht im Rechenzentrum des Hauptanbieters laufen. LLMitMir nimmt sie nie von selbst.") });
   }
@@ -336,36 +346,45 @@ export class SettingsPage extends StoreElement {
           aside: html`<span class="hint">${t("wird sofort gespeichert")}</span>` }) : nothing}`;
   }
 
-  /** Verbrauch: heute, Verlauf, geplante Aufgaben, Kosten externer Modelle. */
+  /** Verbrauch: Nutzungslimits in Prozent (wie die Claude-App), auf Wunsch genaue Zahlen, Verlauf, Aufgaben, Kosten. */
   private usage() {
     const d = store.data; const u = d.usage;
+    const abs = !!this.s.usage_absolute;
     const days = this.history ? Object.entries(this.history.days).sort(([a], [b]) => a.localeCompare(b)).slice(-30) : [];
     const max = Math.max(1, ...days.map(([, v]: any) => v.prompt + v.completion));
     const tok = (x: any) => (x?.prompt || 0) + (x?.completion || 0);
-    const e = d.external || {};
     const months: any[] = this.history?.external?.months || [];
     const mmax = Math.max(0.01, ...months.map(m => m.eur));
     const names = this.history?.external?.names || {};
     const cur = months[months.length - 1];
+    const ls = userLimits(u, d.external);
+    const dayLabel = (day: string) => new Date(day + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
     return html`
-      ${group(t("Anfragen und Tokens"), html`
-        <div class="kv">
+      ${group(t("Nutzungslimits"), html`
+        ${ls.length ? pad(html`<div class="lims wide">${ls.map(l => limitRow(l, { abs }))}</div>`)
+          : pad(html`<div class="hint">${u.has_key === false ? t("Noch kein API-Schlüssel hinterlegt.") : t("Für dich gilt kein Tageskontingent. Die Limits des Schlüssels erscheinen nach der ersten Anfrage.")}</div>`)}
+        ${pad(html`<div class="row hint" style="gap:6px">${t("Stand: {time}", { time: fmtTime(this.usageAt / 1000) })}
+          <button class="iconbtn" style="width:26px;height:26px" title=${t("Aktualisieren")} @click=${() => this.loadUsage()}>${icon("retry", 15)}</button></div>`)}
+        ${pad(more(t("„Diese Stunde“ und „Heute“ zeigen, wie viel vom Schlüssel beim KI-Anbieter und von deinem Tageskontingent schon verbraucht ist – maßgeblich ist jeweils das, was zuerst ausgeht. Das Tageskontingent beginnt um Mitternacht neu, das Budget für externe Modelle am Monatsersten."), t("Wie funktionieren die Limits?")))}`,
+        { desc: t("Wie viel du schon verbraucht hast und wann es wieder losgeht.") })}
+      ${group(t("Anzeige"), switchRow(t("Genaue Zahlen anzeigen"),
+          t("Zeigt zu den Prozenten auch, wie viele Anfragen, Tokens und Euro das sind – hier und am Eingabefeld."),
+          abs, (on) => this.set("usage_absolute", on)))}
+      ${group(t("Verlauf"), html`
+        ${abs ? html`<div class="kv">
           <div><span class="hint">${t("Heute")}</span><b>${u.today.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.today))} ${t("Tokens")}</span></div>
           ${u.week ? html`<div><span class="hint">${t("Diese Woche")}</span><b>${u.week.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.week))} ${t("Tokens")}</span></div>` : nothing}
-          ${u.month ? html`<div><span class="hint">${t("Diesen Monat")}</span><b>${u.month.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.month))} ${t("Tokens")}</span></div>` : nothing}
-          ${u.quota.requests_day || u.quota.tokens_day ? html`<div><span class="hint">${t("Dein Tageskontingent")}</span>
-            <b>${u.quota.requests_day ? u.quota.requests_day : fmtNum(u.quota.tokens_day)}</b>
-            <span class="hint">${u.quota.requests_day ? t("Anfragen") : t("Tokens")}${u.quota.requests_day && u.quota.tokens_day ? ` · ${fmtNum(u.quota.tokens_day)} ${t("Tokens")}` : ""}</span></div>` : nothing}</div>
-        ${u.today.task_requests ? pad(html`<div class="hint">${t("Davon heute geplante Aufgaben: {r} Anfragen · {n} Tokens", { r: u.today.task_requests, n: fmtNum((u.today.task_prompt || 0) + (u.today.task_completion || 0)) })}</div>`) : nothing}
-        ${days.length ? pad(html`<div class="bars">${days.map(([day, v]: any) => html`<div title=${t("{day}: {r} Anfragen, {n} Tokens", { day, r: v.requests, n: fmtNum(v.prompt + v.completion) })}
-            style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">${t("Tokens je Tag, letzte {n} Tage", { n: days.length })}</div>`) : nothing}`)}
-      ${d.tasks?.length && !isSimple() ? group(t("Geplante Aufgaben"), taskUsageCard(u.tasks, this.history?.task_key_days)) : nothing}
-      ${e.has_access || months.some(m => m.eur > 0) ? group(t("Kosten externer Modelle"), html`
-        ${row(t("Diesen Monat"), cur && Object.keys(cur.models || {}).length
-            ? Object.entries(cur.models).map(([k, v]: any) => `${names[k] || k}: ${fmtEur(v.eur)} (${v.requests} ${t("Anfragen")})`).join(" · ") : t("Das Limit legt der Admin fest; am Monatsersten beginnt es neu."),
-          html`<b>${fmtEur(e.month_eur || 0)}</b><span class="hint">${t("von {x}", { x: fmtEur(e.limit_eur || 0) })}</span>`)}
-        ${months.some(m => m.eur > 0) ? pad(html`<div class="bars" style="height:80px">${months.map(m => html`<div title="${m.month}: ${fmtEur(m.eur)} · ${m.requests} ${t("Anfragen")}" style="height:${Math.max(2, (m.eur / mmax) * 74)}px"></div>`)}</div>
-          <div class="hint">${t("Kosten je Monat, letzte 12 Monate")}</div>`) : nothing}`) : nothing}`;
+          ${u.month ? html`<div><span class="hint">${t("Diesen Monat")}</span><b>${u.month.requests}</b><span class="hint">${t("Anfragen")} · ${fmtNum(tok(u.month))} ${t("Tokens")}</span></div>` : nothing}</div>
+          ${u.today.task_requests ? pad(html`<div class="hint">${t("Davon heute geplante Aufgaben: {r} Anfragen · {n} Tokens", { r: u.today.task_requests, n: fmtNum((u.today.task_prompt || 0) + (u.today.task_completion || 0)) })}</div>`) : nothing}` : nothing}
+        ${days.length ? pad(html`<div class="bars">${days.map(([day, v]: any) => html`<div title=${abs ? t("{day}: {r} Anfragen, {n} Tokens", { day, r: v.requests, n: fmtNum(v.prompt + v.completion) }) : dayLabel(day)}
+            style="height:${Math.max(2, ((v.prompt + v.completion) / max) * 110)}px"></div>`)}</div><div class="hint">${t("Nutzung je Tag, letzte {n} Tage", { n: days.length })}</div>`)
+          : pad(html`<div class="hint">${t("Noch keine Nutzung.")}</div>`)}`)}
+      ${d.tasks?.length && !isSimple() ? group(t("Geplante Aufgaben"), taskUsageCard(u.tasks, this.history?.task_key_days, abs)) : nothing}
+      ${months.some(m => m.eur > 0) ? group(t("Kosten externer Modelle"), html`
+        ${abs && cur && Object.keys(cur.models || {}).length ? row(t("Diesen Monat"),
+            Object.entries(cur.models).map(([k, v]: any) => `${names[k] || k}: ${fmtEur(v.eur)} (${v.requests} ${t("Anfragen")})`).join(" · "), html`<b>${fmtEur(cur.eur || 0)}</b>`) : nothing}
+        ${pad(html`<div class="bars" style="height:80px">${months.map(m => html`<div title=${abs ? `${m.month}: ${fmtEur(m.eur)} · ${m.requests} ${t("Anfragen")}` : m.month} style="height:${Math.max(2, (m.eur / mmax) * 74)}px"></div>`)}</div>
+          <div class="hint">${t("Kosten je Monat, letzte 12 Monate")}</div>`)}`) : nothing}`;
   }
 
   /** API-Schlüssel: eigener Schlüssel, Schlüssel für geplante Aufgaben. */

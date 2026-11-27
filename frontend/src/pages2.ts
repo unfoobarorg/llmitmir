@@ -106,13 +106,13 @@ export class Tasks extends StoreElement {
         <div><b>${t("Für geplante Aufgaben fehlt dein eigener API-Schlüssel.")}</b> ${t("Der Admin hat festgelegt, dass Aufgaben nur mit eigenen Schlüsseln laufen – ohne ihn startet kein Lauf.")} <a href="#" @click=${(e: Event) => { e.preventDefault(); navigate("/settings/keys"); }}>${t("In den Einstellungen eintragen")}</a>.</div></div>` : nothing}
       ${tasks.length && !isSimple() ? html`<div style="margin-bottom:16px">${taskUsageCard(store.data?.usage?.tasks, this.liveDays())}</div>` : nothing}
       ${limitHit(tasks).length ? html`<div class="checkbox err" style="margin-bottom:14px">${icon("alert", 18)}
-        <div><b>${limitHit(tasks).length === 1 ? t("Eine Aufgabe hat die Höchstzahl an Schritten erreicht") : t("{n} Aufgaben haben die Höchstzahl an Schritten erreicht", { n: limitHit(tasks).length })}:</b>
-        ${limitHit(tasks).map((x: any) => x.name).join(", ")}. ${t("Öffne die Aufgabe und gib sie für mehr Schritte frei – dann hat ein Lauf bis zu 150 statt 60 Schritte.")}</div></div>` : nothing}
+        <div><b>${limitHit(tasks).length === 1 ? t("Eine Aufgabe hat das Limit der Modellaufrufe erreicht") : t("{n} Aufgaben haben das Limit der Modellaufrufe erreicht", { n: limitHit(tasks).length })}:</b>
+        ${limitHit(tasks).map((x: any) => x.name).join(", ")}. ${t("Öffne die Aufgabe und gib sie für mehr Modellaufrufe frei – dann hat ein Lauf bis zu 150 statt 60.")}</div></div>` : nothing}
       <div class="list">${tasks.length ? tasks.map((x: any) => html`<div class="item task ${x.limit_hit && !x.heavy ? "bad" : ""}" @click=${() => navigate(`/task/${x.id}`)}>
         ${icon("task")}<div class="grow"><div class="row" style="flex-wrap:wrap"><span class="clamp2">${x.name}</span>${x.imported && !x.enabled ? html`<span class="chip warn">${t("importiert – prüfen")}</span>` : nothing}
-          ${x.heavy ? html`<span class="chip" title=${t("Besonders aufwändig: bis zu 150 Schritte je Lauf")}>${icon("list", 13)} ${t("150 Schritte")}</span>` : nothing}
-          ${x.limit_hit && !x.heavy ? html`<span class="chip err" title=${t("Ein Lauf hat die Höchstzahl von 60 Schritten erreicht – die Aufgabe lässt sich für 150 Schritte freigeben")}>${icon("alert", 13)} ${t("Schritte erschöpft")}</span>` : nothing}
-          ${x.limit_hit && x.heavy ? html`<span class="chip warn" title=${t("Auch 150 Schritte haben für einen Lauf nicht gereicht")}>${icon("alert", 13)} ${t("150 Schritte erschöpft")}</span>` : nothing}
+          ${x.heavy ? html`<span class="chip" title=${t("Besonders aufwändig: bis zu 150 Modellaufrufe je Lauf")}>${icon("list", 13)} ${t("150 Modellaufrufe")}</span>` : nothing}
+          ${x.limit_hit && !x.heavy ? html`<span class="chip err" title=${t("Ein Lauf hat das Limit von 60 Modellaufrufen erreicht – die Aufgabe lässt sich für 150 freigeben")}>${icon("alert", 13)} ${t("Limit erreicht")}</span>` : nothing}
+          ${x.limit_hit && x.heavy ? html`<span class="chip warn" title=${t("Auch 150 Modellaufrufe haben für einen Lauf nicht gereicht")}>${icon("alert", 13)} ${t("150 Modellaufrufe erschöpft")}</span>` : nothing}
           ${x.werkbank_missing ? html`<span class="chip err" title=${x.requires_note || ""}>${icon("mdi:console", 13)} ${t("braucht Werkbank")}</span>` : (x.requires || []).includes("werkbank") ? html`<span class="chip">${icon("mdi:console", 13)} ${t("nutzt Werkbank")}</span>` : nothing}
           ${x.external_fallback ? html`<span class="chip" title=${t("Darf im Notfall auf kostenpflichtige externe Modelle ausweichen")}>${icon("euro", 13)} ${t("Notfall extern")}</span>` : nothing}
           ${x.last_run?.external ? html`<span class="chip warn" title=${t("Der letzte Lauf lief über ein externes Modell")}>${icon(isBilled(x.last_run.external) ? "euro" : "external", 13)} ${t("zuletzt extern")}</span>` : nothing}</div>
@@ -305,14 +305,14 @@ export class TaskPage extends StoreElement {
     const hit = !!x.limit_hit && !x.heavy;
     return html`<div class="card" style=${hit ? "border-color:var(--lm-err);background:color-mix(in srgb, var(--lm-err) 7%, var(--lm-panel))" : ""}>
       ${hit ? html`<div class="checkbox err" style="margin:0 0 14px">${icon("alert", 18)}
-        <div><b>${t("Diese Aufgabe hat die Höchstzahl von 60 Schritten erreicht.")}</b> ${t("Ein Lauf wurde deshalb abgebrochen, bevor er fertig war. Gib die Aufgabe hier für mehr Schritte frei – dann hat jeder Lauf bis zu 150 Schritte.")}</div></div>` : nothing}
+        <div><b>${t("Diese Aufgabe hat das Limit von 60 Modellaufrufen erreicht.")}</b> ${t("Ein Lauf wurde deshalb abgebrochen, bevor er fertig war. Gib die Aufgabe hier für mehr Modellaufrufe frei – dann hat jeder Lauf bis zu 150.")}</div></div>` : nothing}
       <label class="row" style="gap:10px"><input type="checkbox" style="width:auto" .checked=${!!x.heavy}
         @change=${(e: any) => this.set("heavy", e.target.checked)}>
-        <b>${simple ? t("Besonders aufwändige Aufgabe (mehr Schritte)") : t("Besonders aufwändig – bis zu 150 Schritte je Lauf")}</b></label>
-      <div class="hint" style="margin:4px 0 0">${t("Normal sind es 60 Schritte je Lauf. Reicht das für eine Aufgabe nicht (viele Dateien, viele Abfragen, lange Prüfungen), bekommt sie mit dieser Markierung bis zu 150. Ein Lauf dauert dann entsprechend länger und verbraucht mehr Kontingent.")}</div>
+        <b>${simple ? t("Besonders aufwändige Aufgabe (mehr Modellaufrufe)") : t("Besonders aufwändig – bis zu 150 Modellaufrufe je Lauf")}</b></label>
+      <div class="hint" style="margin:4px 0 0">${t("Normal sind es 60 Modellaufrufe je Lauf. Reicht das für eine Aufgabe nicht (viele Dateien, viele Abfragen, lange Prüfungen), bekommt sie mit dieser Markierung bis zu 150. Ein Lauf dauert dann entsprechend länger und verbraucht mehr Kontingent.")}</div>
       ${hit ? html`<div class="row" style="margin-top:12px"><button class="btn primary" @click=${async () => {
-          this.set("heavy", true); await this.save(); }}>${icon("check", 16)} ${t("Für 150 Schritte freigeben")}</button></div>` : nothing}
-      ${x.limit_hit && x.heavy ? html`<div class="hint" style="margin-top:10px">${t("Auch 150 Schritte haben für einen Lauf nicht gereicht. Teile die Aufgabe auf oder formuliere den Auftrag enger – mehr Schritte gibt es nicht.")}</div>` : nothing}</div>`;
+          this.set("heavy", true); await this.save(); }}>${icon("check", 16)} ${t("Für 150 Modellaufrufe freigeben")}</button></div>` : nothing}
+      ${x.limit_hit && x.heavy ? html`<div class="hint" style="margin-top:10px">${t("Auch 150 Modellaufrufe haben für einen Lauf nicht gereicht. Teile die Aufgabe auf oder formuliere den Auftrag enger – mehr gibt es nicht.")}</div>` : nothing}</div>`;
   }
 
   /** Owner only: who else sees the task, who may change it, who gets a notification of their own. */

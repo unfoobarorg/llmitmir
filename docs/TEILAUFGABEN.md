@@ -68,9 +68,9 @@ ausdrücklich gewählt hat; die Sperre externer Modelle im Projekt und das Monat
 |---|---|
 | gleichzeitig je Person | 3 (weitere warten auf einen freien Platz, das steht an ihrer Karte) |
 | je Lauf des Hauptchats | 8 (eine neunte wird mit klarer Meldung abgelehnt) |
-| Schritte je Teilaufgabe | 40 |
+| Modellaufrufe je Teilaufgabe | 40 |
 
-Erreicht eine Teilaufgabe eine Grenze (Schritte, Kontingent, Monatslimit, Anbieter dauerhaft ausgelastet) oder scheitert
+Erreicht eine Teilaufgabe eine Grenze (Modellaufrufe, Kontingent, Monatslimit, Anbieter dauerhaft ausgelastet) oder scheitert
 sie, endet sie mit Stand `grenze` bzw. `fehler` und meldet sofort ein Teilergebnis samt Grund. Der Hauptchat entscheidet
 dann: mit `unterchat_nachricht` weitermachen lassen, selbst übernehmen oder die Person fragen. Er wartet nie ohne Ende.
 „Stopp“ im Hauptchat hält alle laufenden Teilaufgaben mit an.
@@ -84,7 +84,7 @@ wartet auf einen freien Platz, wartet auf deine Freigabe, fertig, Grenze erreich
 ## Freigaben zentral im Hauptchat
 
 Alles aus einer Teilaufgabe, was eine Eingabe der Person braucht – Freigaben, Änderungskarten (z. B. eine geplante
-Aufgabe anlegen) und die Frage nach mehr Schritten –, erscheint **auch im Hauptchat**:
+Aufgabe anlegen) und die Frage nach mehr Modellaufrufen (über dem Eingabefeld) –, erscheint **auch im Hauptchat**:
 
 - Die Karte zeigt oben „aus Teilaufgabe ›Titel‹“ mit Link. In der Teilaufgabe selbst steht dieselbe Karte; die Antwort
   gilt einmal für beide.

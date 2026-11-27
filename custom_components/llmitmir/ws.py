@@ -192,7 +192,8 @@ async def _bootstrap(hass, m, user, st) -> dict:
     s["notify_device_name"] = device["name"] if device else ""
     s.pop("notify_service", None)
     sched = m.scheduler
-    runs = {r.chat_id: {"run_id": r.id, "status": r.status, "detail": r.detail, "started": r.started, "hint": r.hint}
+    runs = {r.chat_id: {"run_id": r.id, "status": r.status, "detail": r.detail, "started": r.started, "hint": r.hint,
+                        "steps": r.steps}
             for r in m.runs.values() if r.user_id == user.id}
     perms = [info for (uid, fut, info) in m.permissions.values() if uid == user.id and not fut.done()]
     return {
@@ -532,7 +533,7 @@ async def ws_chat_stop(hass, conn, msg, m, user, st):
     return {"stopped": m.stop(user.id, msg["chat_id"])}
 
 
-@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "lots", "deny", "skip"])})
+@command(_t("permission/answer") | {vol.Required("permission_id"): str, vol.Required("decision"): vol.In(["once", "always", "lots", "wrap", "stop", "deny", "skip"])})
 async def ws_permission(hass, conn, msg, m, user, st):
     return {"ok": m.answer_permission(user.id, msg["permission_id"], msg["decision"])}
 
@@ -1170,6 +1171,9 @@ async def ws_settings_save(hass, conn, msg, m, user, st):
     for k in ("model_chat", "model_agent", "model_sub", "permissions", "chat_tools", "show_reasoning", "send_on_enter"):
         if k in s:
             cur[k] = s[k]
+    if "usage_absolute" in s:
+        # Limits zeigt das Panel als Prozent; auf Wunsch zusätzlich mit genauen Zahlen (Anfragen, Tokens, Euro)
+        cur["usage_absolute"] = bool(s["usage_absolute"])
     if "voice_name" in s:
         # Rufname im Gespräch: darauf hört der Roboter, wenn länger nichts gesagt wurde
         cur["voice_name"] = VO.clean_name(s["voice_name"])

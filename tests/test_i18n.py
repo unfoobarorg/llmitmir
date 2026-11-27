@@ -115,8 +115,8 @@ def test_tr_translates_messages_with_placeholders():
     assert I18N.tr("Zugang „Mail“ nicht verfügbar", "en") == "Credential “Mail” not available"
     assert I18N.tr("täglich um 07:00 und 17:00", "en") == "daily at 07:00 and 17:00"
     assert I18N.tr("montags, freitags um 07:00", "en") == "Mondays, Fridays at 07:00"
-    assert I18N.tr("Tageskontingent erreicht (12/800 Anfragen). Morgen geht es weiter.", "en") == \
-        "Daily quota reached (12/800 requests). It continues tomorrow."
+    assert I18N.tr("Dein Tageskontingent ist aufgebraucht. Um Mitternacht geht es weiter.", "en") == \
+        "Your daily quota is used up. It continues at midnight."
     assert I18N.tr("etwas ganz Neues", "en") == "etwas ganz Neues"
     assert I18N.tr("Zugang „Mail“ nicht verfügbar", "de") == "Zugang „Mail“ nicht verfügbar"
     assert I18N.t("Gespräche", "en") == "Conversations" and I18N.t("Gespräche", "de") == "Gespräche"

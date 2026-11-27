@@ -10,6 +10,10 @@ import { openFileViewer } from "./viewer";
 import type { SendDetail } from "./composer";
 import "./composer";
 import "./connectors";
+import { stepAsk, stepReached, stepBannerCss } from "./stepbanner";
+
+/** Frage nach mehr Modellaufrufen (Werkzeug „more_steps“). */
+const isStepAsk = (p: any) => p.tool === "more_steps" || !!p.steps;
 
 const STATUS_TEXT: Record<string, string> = {
   queued: "In der Warteschlange …", thinking: "Denkt nach …", streaming: "Schreibt …", tool: "Arbeitet …",
@@ -118,6 +122,8 @@ export class ChatView extends LitElement {
   @state() private now = Date.now();
   @state() private hideHint = "";
   @state() private stick = true;
+  @state() private stepAnswer: { id: string; d: string } | null = null;   // gewählte Antwort auf die Limit-Frage
+  @state() private stepClosed = new Set<string>();                       // weggeklickte „Limit erreicht“-Meldungen
   @query(".scroll") private scroller!: HTMLElement;
   private _selfScroll = false;
   private _jumping = false;
@@ -136,7 +142,7 @@ export class ChatView extends LitElement {
     }, 16);
   };
 
-  static styles = [base, menuItemStyles, externalCss, css`
+  static styles = [base, menuItemStyles, externalCss, stepBannerCss, css`
     :host { display: flex; height: 100%; min-height: 0; }
     .offer { display: grid; gap: 8px; font-size: 13.5px; margin-top: 4px; }
     .offer svg { vertical-align: -3px; color: var(--lm-warn); }
@@ -645,7 +651,25 @@ export class ChatView extends LitElement {
 
   /** Freigaben dieses Chats – im Hauptchat auch die seiner Teilaufgaben (zentral beantworten). */
   private myPerms(): any[] {
-    return store.permissions.filter(p => p.chat_id === this.chatId || p.root_chat_id === this.chatId);
+    return store.permissions.filter(p => (p.chat_id === this.chatId || p.root_chat_id === this.chatId) && !isStepAsk(p));
+  }
+  /** Die Frage nach mehr Modellaufrufen (auch aus Teilaufgaben) – sie steht über dem Eingabefeld, nicht im Verlauf. */
+  private stepPerm(): any {
+    return store.permissions.find(p => (p.chat_id === this.chatId || p.root_chat_id === this.chatId) && isStepAsk(p));
+  }
+
+  /** Über dem Eingabefeld: Limit der Modellaufrufe fast erreicht (Frage) oder erreicht (Weitermachen anbieten). */
+  private stepBanner(chat: any, run: any) {
+    const p = this.stepPerm();
+    if (p) return stepAsk({ from: this.permFrom(p), busy: this.stepAnswer?.id === p.id ? this.stepAnswer?.d : "",
+      answer: (d) => { this.stepAnswer = { id: p.id, d }; store.api.ws("permission/answer", { permission_id: p.id, decision: d })
+        .catch((e: any) => { this.stepAnswer = null; store.notify(String(e.message || e)); }); } });
+    if (run || chat.kind === "task_run") return nothing;
+    const last = [...chat.messages].reverse().find((m: any) => m.role === "user" || m.role === "assistant");
+    if (!last?.step_limit || this.stepClosed.has(last.id)) return nothing;
+    return stepReached({ onClose: () => { this.stepClosed = new Set([...this.stepClosed, last.id]); },
+      onContinue: () => { this.stepClosed = new Set([...this.stepClosed, last.id]);
+        this.send(new CustomEvent("send", { detail: { text: t("Bitte mach dort weiter, wo du aufgehört hast."), files: [] } as any })); } });
   }
 
   /** Oben auf einer Karte aus einer Teilaufgabe: woher sie kommt, mit Link. */
@@ -669,15 +693,7 @@ export class ChatView extends LitElement {
 
   private permCards() {
     const answer = (p: any, decision: string) => store.api.ws("permission/answer", { permission_id: p.id, decision });
-    return this.myPerms().map(p => p.connector_form ? this.connectorFormCard(p) : p.steps ? html`<div class="perm">${this.permFrom(p)}
-      <div class="row">${icon("list")}<b class="grow">${t("LLMitMir ist noch nicht fertig – weitere {n} Schritte verwenden?", { n: p.steps.more })}</b></div>
-      <div class="hint">${t("{used} von {limit} Schritten sind verbraucht. Ohne weitere Schritte bringt LLMitMir in den letzten {rest} Schritten Wichtiges zu Ende und schreibt dann den Bericht.",
-          { used: p.steps.used, limit: p.steps.limit, rest: p.steps.limit - p.steps.used })}${p.steps.lots ? " " + t("Mit {n} weiteren Schritten wird die Frage so schnell nicht wieder fällig.", { n: p.steps.lots }) : ""}</div>
-      <div class="row">
-        <button class="btn primary" @click=${() => answer(p, "once")}>${icon("check", 16)} ${t("{n} weitere Schritte", { n: p.steps.more })}</button>
-        ${p.steps.lots ? html`<button class="btn" @click=${() => answer(p, "lots")}>${icon("check", 16)} ${t("{n} weitere Schritte", { n: p.steps.lots })}</button>` : nothing}
-        <button class="btn ghost" @click=${() => answer(p, "deny")}>${t("Zum Ende kommen")}</button>
-      </div></div>`
+    return this.myPerms().map(p => p.connector_form ? this.connectorFormCard(p)
     : p.change ? html`<div class="perm">${this.permFrom(p)}
       <div class="row">${icon("edit")}<b class="grow">${t("LLMitMir schlägt diese Änderung vor")}</b></div>
       ${changeView(p.change)}
@@ -935,7 +951,8 @@ export class ChatView extends LitElement {
       </div></div>
       <div class="foot">
         ${this.stick ? nothing : html`<div class="jump"><button class="btn" @click=${() => this.jumpDown()}>${icon("arrowDown", 16)} ${t("Nach unten")}</button></div>`}
-        <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
+        ${this.stepBanner(chat, run)}
+        <lm-composer .simple=${simple} .history=${chat.messages.length > 0} .runSteps=${run?.steps || null} .mode=${chat.kind === "chat" ? "chat" : "cowork"} .model=${chat.model} .busy=${!!run} .chatUsage=${chat.usage}
           .draftKey=${chat.id}
           .tools=${chat.tools ?? null} .projectId=${chat.project_id} .noThinking=${!!chat.no_thinking} .lockText=${chatLock(chat)}
           placeholder=${run ? t("Antwort läuft – du kannst schon weiterschreiben …") : t("Antworten …")}

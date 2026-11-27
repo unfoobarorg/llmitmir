@@ -5,9 +5,21 @@ Pure functions without Home Assistant imports (unit-tested).
 from __future__ import annotations
 
 import hashlib
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 ZERO = {"requests": 0, "prompt": 0, "completion": 0}
+
+
+def resets(now: datetime) -> dict[str, int]:
+    """Sekunden, bis Tag, Woche (Montag) und Monat neu beginnen – in der Zeitzone von ``now``.
+
+    Das Panel zeigt Limits als Prozent mit „setzt in … zurück“ (wie die Claude-Desktop-App). Gerechnet wird über
+    Zeitstempel, damit eine Zeitumstellung dazwischen die Stunde richtig mitzählt.
+    """
+    day = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    week = day + timedelta(days=(7 - day.weekday()) % 7)
+    month = (now.replace(day=1) + timedelta(days=32)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return {k: max(0, round(v.timestamp() - now.timestamp())) for k, v in (("day", day), ("week", week), ("month", month))}
 
 
 def fingerprint(key: str) -> str:
